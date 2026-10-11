@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "forge-core",
+  "description": "Forge-Core: a multi-agent build, test and review setup for Claude Code.",
+  "owner": {
+    "name": "ForgeyClap",
+    "url": "https://github.com/ForgeyClap"
+  },
+  "plugins": [
+    {
+      "name": "forge",
+      "source": "./plugins/forge",
+      "description": "The /forge command, the Forge agents and the core skills as a Claude Code plugin.",
+      "author": {
+        "name": "ForgeyClap"
+      },
+      "homepage": "https://github.com/ForgeyClap/Forge-Core",
+      "repository": "https://github.com/ForgeyClap/Forge-Core",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "multi-agent",
+        "orchestration",
+        "automation",
+        "build",
+        "code-review",
+        "scraping",
+        "rag",
+        "dashboard"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,889 @@
+name: fresh-install
+
+# THE test that was missing (external audit). Every release note said "fresh
+# installs work"; every one of those measurements was made on the author's machine, where ~/.claude already
+# held hooks, 40 plugins, policy files and the canonical template. A real user has none of that. This job
+# installs the product exactly the way a stranger does — into an EMPTY directory, with an EMPTY home — and
+# then asks the tool's own doctor whether it is green. If this job is red, the release is not shippable,
+# whatever the source-tree doctor says.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-install:
+    name: install into an empty dir with an empty HOME → doctor ALL GREEN
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['18', '22']
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # full history (fetch-depth 0), like validate.yml. tests/installer/retired-dashboard-prune.{sh,ps1}
+        # rebuild the retired dashboard files from `git log` history; a shallow clone has none (the first CI run of
+        # PR #4 failed with "no git history at all for .claude/forge-dashboard/lenses.js").
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # An EMPTY home is the point. Both the POSIX and the Windows home variables are redirected so
+      # os.homedir() resolves to a directory nothing has ever written to.
+      - name: Prepare an empty HOME and an empty target project (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/empty-home" "$RUNNER_TEMP/fresh-project"
+          cd "$RUNNER_TEMP/fresh-project" && git init -q && echo "# fresh" > README.md
+          echo "FORGE_TEST_HOME=$RUNNER_TEMP/empty-home" >> "$GITHUB_ENV"
+          echo "FORGE_TEST_PROJECT=$RUNNER_TEMP/fresh-project" >> "$GITHUB_ENV"
+
+      - name: Prepare an empty HOME and an empty target project (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # ($HOME is a read-only automatic variable in PowerShell — the first run died on `$home = …`.)
+          $emptyHome = Join-Path $env:RUNNER_TEMP 'empty-home'
+          $proj = Join-Path $env:RUNNER_TEMP 'fresh-project'
+          New-Item -ItemType Directory -Force $emptyHome | Out-Null
+          New-Item -ItemType Directory -Force $proj | Out-Null
+          Set-Location $proj; git init -q; Set-Content README.md '# fresh'
+          "FORGE_TEST_HOME=$emptyHome" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "FORGE_TEST_PROJECT=$proj" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      # The installer, exactly as documented. Full install (global + project), because that is what
+      # AI-INSTALL.md tells an assistant to run — the global part must land in the EMPTY home too.
+      - name: Install with install.sh (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: bash install.sh --project "$FORGE_TEST_PROJECT" --yes
+
+      - name: Install with install.ps1 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir "$env:FORGE_TEST_PROJECT" -Yes
+
+      # What the installer promised: the two root files, the global core, and the canonical template.
+      - name: The install delivered what it documents
+        shell: bash
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          p="$FORGE_TEST_PROJECT"; h="$FORGE_TEST_HOME"
+          for f in "$p/CLAUDE.md" "$p/.gitignore" "$p/.claude/forge-bin/forge-doctor.cjs" "$p/.claude/forge-bin/forge-setup.cjs" "$p/.claude/settings.json" "$p/.claude/skills/forge-prd/SKILL.md" \
+                   "$h/.claude/skills/forge-core/SKILL.md" "$h/.claude/forge/template/.claude/forge-bin/forge-sync.cjs" "$h/.claude/forge/template/CLAUDE.md"; do
+            if [ -f "$f" ]; then echo "ok   $f"; else echo "::error::missing after install: $f"; exit 1; fi
+          done
+          # The settings.json PostToolUse hook must carry a matcher (no per-tool-call logging flood).
+          node -e '
+            const j = require(process.argv[1] + "/.claude/settings.json");
+            const post = (j.hooks && j.hooks.PostToolUse) || [];
+            const bad = post.filter((e) => e.matcher === undefined || e.matcher === "");
+            if (bad.length) { console.error("::error::PostToolUse hook without a matcher ships in settings.json"); process.exit(1); }
+            console.log("ok   PostToolUse hooks all carry a matcher (" + post.length + ")");
+          ' "$p"
+
+      # the Command Center is installed once, centrally, next to the template, and a fresh install can start
+      # it: health, the page, and the project list (the fresh project comes from projects.json; the template host is
+      # never listed). CC_PORT keeps it off the default 4100; the step stops exactly the process it started.
+      - name: The Command Center starts from the fresh install
+        shell: bash
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+          CC_PORT: '4199'
+        run: |
+          set -e
+          cc="$FORGE_TEST_HOME/.claude/forge/template/command-center"
+          for f in "$cc/gateway/bin.mjs" "$cc/dashboard/dist/index.html" "$cc/discord/.env.example"; do
+            if [ -f "$f" ]; then echo "ok   $f"; else echo "::error::missing after install: $f"; exit 1; fi
+          done
+          if [ -e "$cc/discord/.env" ]; then echo "::error::the installer created discord/.env"; exit 1; fi
+          node -e '
+            const j = require(process.argv[1]);
+            const norm = (p) => String(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+            if (!(j.projects || []).some((p) => norm(p) === norm(process.argv[2]))) { console.error("::error::projects.json does not list the fresh project"); process.exit(1); }
+            console.log("ok   projects.json lists the fresh project");
+          ' "$FORGE_TEST_HOME/.claude/forge/projects.json" "$FORGE_TEST_PROJECT"
+          node "$cc/gateway/bin.mjs" > "$RUNNER_TEMP/cc.log" 2>&1 &
+          pid=$!
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:4199/api/health" > /dev/null 2>&1; then ok=1; break; fi
+            sleep 0.5
+          done
+          if [ "$ok" != 1 ]; then cat "$RUNNER_TEMP/cc.log"; kill "$pid" 2>/dev/null || true; echo "::error::the Command Center did not answer /api/health"; exit 1; fi
+          echo "ok   /api/health answers"
+          if curl -fsS "http://127.0.0.1:4199/" | grep -q 'id="root"'; then echo "ok   the dashboard page is served"; else kill "$pid" 2>/dev/null || true; echo "::error::no dashboard page"; exit 1; fi
+          curl -fsS "http://127.0.0.1:4199/api/projects" > "$RUNNER_TEMP/cc-projects.json"
+          kill "$pid" 2>/dev/null || true
+          node -e '
+            const j = require(process.argv[1]);
+            const want = require("path").basename(String(process.argv[2]).replace(/\\/g, "/").replace(/\/+$/, ""));
+            const names = (j.projects || []).map((p) => p.name);
+            if (!names.includes(want)) { console.error("::error::the fresh project is not in /api/projects: " + names.join(", ")); process.exit(1); }
+            if (names.includes("template")) { console.error("::error::the template host is listed as a project"); process.exit(1); }
+            console.log("ok   /api/projects lists " + want + " and not the template host");
+          ' "$RUNNER_TEMP/cc-projects.json" "$FORGE_TEST_PROJECT"
+      # Running the installer twice must change nothing: proves merge-safety and idempotence.
+      - name: Second install is a no-op (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          before=$(find "$FORGE_TEST_PROJECT" -type f -newer README.md 2>/dev/null | wc -l)
+          gi_before=$(wc -l < "$FORGE_TEST_PROJECT/.gitignore")
+          bash install.sh --project "$FORGE_TEST_PROJECT" --yes | grep -E "kept:|wrote:.*(CLAUDE|gitignore)" | tail -3
+          gi_after=$(wc -l < "$FORGE_TEST_PROJECT/.gitignore")
+          [ "$gi_before" = "$gi_after" ] || { echo "::error::.gitignore grew on a second install ($gi_before -> $gi_after)"; exit 1; }
+          # a second install must never move the project CLAUDE.md away (it did, as "retired", before the fix).
+          [ -f "$FORGE_TEST_PROJECT/CLAUDE.md" ] || { echo "::error::the second install removed the project CLAUDE.md"; exit 1; }
+          echo "ok   idempotent (.gitignore stayed at $gi_after lines)"
+
+      # (Codex release gate RG-02): a forged old manifest cannot inject entries through the CLAUDE.md carry,
+      # and a genuine carry keeps CLAUDE.md across a re-install. Self-contained (its own temp HOME/projects); the
+      # Windows twin (manifest-carry-injection.ps1) runs below.
+      - name: A forged old manifest cannot inject entries through the CLAUDE.md carry (POSIX)
+        if: runner.os != 'Windows'
+        run: bash tests/installer/manifest-carry-injection.sh
+
+      # (Verify Boss VB-04): a manifest path is matched exactly, never as a substring (the hash lookup and
+      # the retired-file pruning's "still shipped" check). Uses the real installer functions.
+      - name: Manifest paths are matched exactly, not as a substring (POSIX)
+        if: runner.os != 'Windows'
+        run: bash tests/installer/manifest-exact-lookup.sh
+
+      - name: A forged old manifest cannot inject entries through the CLAUDE.md carry (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\tests\installer\manifest-carry-injection.ps1
+          exit $LASTEXITCODE
+
+      # The one check that matters: the tool's own full self-test, on the fresh install, with the empty
+      # home still in effect. ALL GREEN or the job is red.
+      # everything is ON by default, including the usage guard (pause at 98%). The empty HOME above already
+      # keeps every home-derived path away from a real account; these two seams make that explicit for the two tools
+      # that would otherwise spawn a background watcher or read a settings file (forge-config.cjs / usage-guard.cjs).
+      - name: forge-doctor on the fresh install (empty HOME)
+        shell: bash
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+          FORGE_CONFIG_HOME: ${{ env.FORGE_TEST_HOME }}/.claude
+          FORGE_USAGE_GUARD_HOME: ${{ env.FORGE_TEST_HOME }}/.claude
+        run: |
+          set -e
+          cd "$FORGE_TEST_PROJECT"
+          node .claude/forge-bin/forge-doctor.cjs --root . | tee doctor.txt
+          grep -q "⇒ ALL GREEN" doctor.txt || { echo "::error::the fresh-install doctor is not ALL GREEN — see the ✗ lines above"; exit 1; }
+
+      # Diagnostics only: the doctor names the red suites; this re-runs exactly those and prints their FAIL lines,
+      # so a runner-only failure (Windows/Linux, Node 18/22) can be read from the log instead of guessed at.
+      - name: Re-run the red suites and print their failures (diagnostics)
+        if: failure()
+        shell: bash
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set +e   # the default shell runs with -e: a red suite (exit 1) must not abort the diagnostics that explain it
+          cd "$FORGE_TEST_PROJECT" || exit 0
+          [ -f doctor.txt ] || { echo "no doctor.txt — the failure happened before the doctor ran"; exit 0; }
+          names=$(grep -oE "[A-Za-z0-9_-]+\.test\.cjs \([^)]*\)" doctor.txt | sed -E 's/ \(.*//' | sort -u)
+          [ -n "$names" ] || { echo "the doctor named no red suite"; exit 0; }
+          for s in $names; do
+            echo "===== $s (node $(node --version), $(uname -s)) ====="
+            node ".claude/forge-bin/$s" > "suite-$s.log" 2>&1; echo "exit=$?"
+            grep -nE "FAIL|Error|error:|passed, [0-9]+ failed|SKIP|timed out|ETIMEDOUT|EPERM|EBUSY|EACCES" "suite-$s.log" | head -60
+            echo "----- last 25 lines -----"; tail -25 "suite-$s.log"
+          done
+
+      # /setup-forge's engine and the sync status must both work on a machine that has only what the
+      # installer put there.
+      - name: Setup engine and sync status work from the fresh install
+        shell: bash
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          cd "$FORGE_TEST_PROJECT"
+          node .claude/forge-bin/forge-setup.cjs --help >/dev/null 2>&1 || node .claude/forge-bin/forge-setup.cjs doctor >/dev/null 2>&1 || { echo "::error::forge-setup.cjs does not start"; exit 1; }
+          echo "ok   forge-setup.cjs starts"
+          out=$(node .claude/forge-bin/forge-sync.cjs status . 2>&1 || true)
+          echo "$out" | head -3
+          echo "$out" | grep -qiE "up to date|DRIFT" || { echo "::error::forge-sync status did not find the canonical template the installer just created"; exit 1; }
+          echo "ok   forge-sync compares against the installed canonical template"
+          # The installer must leave its install marker (.claude/FORGE_VERSION.json) behind.
+          if echo "$out" | grep -qF "installed=none"; then echo "::error::forge-sync status reports no install marker (FORGE_VERSION.json missing)"; exit 1; fi
+          echo "ok   install marker present"
+
+      # Pipe-mode smoke (review HIGH #2/#8, security #10): `curl | bash` must ALWAYS install from the
+      # downloaded archive, never from whatever happens to already be in the piped-into directory. This
+      # fetches install.sh straight from raw.githubusercontent.com exactly like the documented one-liner
+      # — no local checkout of the script is used, so BASH_SOURCE is genuinely empty here, unlike every
+      # other step in this job which runs `bash install.sh` from the checked-out repo.
+      # The commit under test is piped, not whatever main holds: install.sh comes from raw.githubusercontent.com
+      # at this run's own commit, and FORGE_REF makes it download this run's own branch archive. On a push to
+      # main that is main itself (the documented one-liner); on a pull request from a branch of THIS repository
+      # it is the PR head (before a release PR always piped main's old installer and failed on the
+      # version bump). A pull request from a fork cannot be fetched this way, so it pipes main and skips only the
+      # version comparison, saying so. The ref/sha reach the script through env, never interpolated into it.
+      - name: Piped install smoke (curl | bash) into a fresh project (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          PIPE_SAME_REPO: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          PIPE_REF: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          PIPE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/piped-project"
+          cd "$RUNNER_TEMP/piped-project"
+          if [ "$PIPE_SAME_REPO" = "true" ]; then
+            echo "piping install.sh at $PIPE_SHA, downloading branch $PIPE_REF"
+            curl -fsSL "https://raw.githubusercontent.com/ForgeyClap/Forge-Core/$PIPE_SHA/install.sh" | FORGE_YES=1 FORGE_REF="$PIPE_REF" bash
+          else
+            echo "::notice::pull request from a fork: piping main's installer"
+            curl -fsSL https://raw.githubusercontent.com/ForgeyClap/Forge-Core/main/install.sh | FORGE_YES=1 bash
+          fi
+          [ -f ".claude/forge-bin/forge-doctor.cjs" ] || { echo "::error::piped install did not deliver .claude/forge-bin/forge-doctor.cjs"; exit 1; }
+          [ -f ".claude/FORGE_VERSION.json" ] || { echo "::error::piped install did not write .claude/FORGE_VERSION.json"; exit 1; }
+          echo "ok   piped install delivered forge-doctor.cjs + FORGE_VERSION.json"
+
+      # HOME-guard check (review HIGH #3): the installer must refuse to write the PROJECT payload into
+      # $HOME itself — a one-liner run from the home directory (e.g. the Windows %USERPROFILE% prompt)
+      # must never replace the user's global settings.json. Non-zero exit AND no project payload written
+      # into the empty HOME's .claude is the contract; forge-bin only ever ships in the project payload,
+      # never in the global core, so its absence there proves the project install never ran.
+      - name: HOME-guard refuses --project pointing at $HOME (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set +e   # non-zero exit here is the expected, asserted outcome — must not abort the script
+          bash install.sh --project "$FORGE_TEST_HOME" --yes
+          status=$?
+          set -e
+          [ "$status" -ne 0 ] || { echo "::error::installer accepted --project \$HOME instead of refusing it"; exit 1; }
+          [ ! -d "$FORGE_TEST_HOME/.claude/forge-bin" ] || { echo "::error::installer wrote the project payload into \$HOME/.claude despite the HOME guard"; exit 1; }
+          echo "ok   installer refused --project \$HOME (exit $status, no .claude/forge-bin written there)"
+
+      - name: HOME-guard refuses -ProjectDir pointing at $HOME (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir "$env:FORGE_TEST_HOME" -Yes
+          $status = $LASTEXITCODE
+          if ($status -eq 0) {
+            Write-Host '::error::installer accepted -ProjectDir $HOME instead of refusing it'
+            exit 1
+          }
+          $leaked = Join-Path $env:FORGE_TEST_HOME '.claude\forge-bin'
+          if (Test-Path -LiteralPath $leaked -PathType Container) {
+            Write-Host '::error::installer wrote the project payload into $HOME\.claude despite the HOME guard'
+            exit 1
+          }
+          Write-Host "ok   installer refused -ProjectDir `$HOME (exit $status, no .claude\forge-bin written there)"
+          # The refusal (exit 1) is the EXPECTED outcome; GitHub's pwsh wrapper would otherwise fail the step on the
+          # installer's own $LASTEXITCODE (measured on e7367fa: guard fired, "ok" printed, step still red).
+          exit 0
+
+      # settings-merge check (security #4, review #10; UPDATED wp22 / "alles
+      # standaard aan"): an existing project .claude/settings.json must never be silently REPLACED, but it
+      # must also no longer be left completely untouched next to a settings.forge-recommended.json (that was
+      # the pre-wp22 behaviour and directly contradicted "Forge does it for you"). It is now MERGED: every
+      # foreign hook entry, allow rule, and unknown top-level key survives byte-for-byte, and the template's
+      # own hooks (including the gate hook) and deny rules are added.
+      - name: settings.json is merged, not just kept (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          proj="$RUNNER_TEMP/settings-merge-project"
+          mkdir -p "$proj/.claude"
+          printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Write|Edit","hooks":[{"type":"command","command":"node \"owner-hook.cjs\""}]}]},"permissions":{"allow":["Bash(npm run build)"],"deny":["Bash(rm -rf *)"]},"ownerField":"keep me"}' > "$proj/.claude/settings.json"
+          bash install.sh --project "$proj" --yes >/dev/null
+          node -e '
+            const s = require(process.argv[1] + "/.claude/settings.json");
+            const pre = JSON.stringify(s.hooks.PreToolUse || []);
+            if (!pre.includes("owner-hook.cjs")) { console.error("::error::the foreign PreToolUse hook was lost by the merge"); process.exit(1); }
+            if (!pre.includes("forge-gate-hook.cjs")) { console.error("::error::the template gate hook was not merged in"); process.exit(1); }
+            if (JSON.stringify(s.permissions.allow || []) !== JSON.stringify(["Bash(npm run build)"])) { console.error("::error::the foreign permissions.allow rule was lost"); process.exit(1); }
+            if (!(s.permissions.deny || []).includes("Bash(rm -rf *)")) { console.error("::error::the foreign permissions.deny rule was lost"); process.exit(1); }
+            if (!(s.permissions.deny || []).includes("Read(./.env)")) { console.error("::error::the template deny rules were not merged in"); process.exit(1); }
+            if (s.ownerField !== "keep me") { console.error("::error::an unknown top-level key was dropped by the merge"); process.exit(1); }
+            console.log("ok   settings.json merged: foreign hook/allow/deny/unknown-key kept, template gate hook + deny rules added");
+          ' "$proj"
+          [ -f "$proj/.claude/settings.forge-recommended.json" ] && { echo "::error::settings.forge-recommended.json should not exist when the merge succeeded"; exit 1; }
+          backups=$(find "$proj/.claude" -maxdepth 1 -name 'settings.json.forge-bak-*' | wc -l)
+          [ "$backups" -eq 1 ] || { echo "::error::expected exactly one settings.json backup, found $backups"; exit 1; }
+          before_hash=$(sha256sum "$proj/.claude/settings.json" | cut -d' ' -f1)
+          bash install.sh --project "$proj" --yes | grep -qi "already merged" || { echo "::error::a second install did not report settings.json as already merged"; exit 1; }
+          after_hash=$(sha256sum "$proj/.claude/settings.json" | cut -d' ' -f1)
+          [ "$before_hash" = "$after_hash" ] || { echo "::error::settings.json changed on a second, idempotent install"; exit 1; }
+          backups2=$(find "$proj/.claude" -maxdepth 1 -name 'settings.json.forge-bak-*' | wc -l)
+          [ "$backups2" -eq 1 ] || { echo "::error::a no-op second install must not take a new backup (found $backups2)"; exit 1; }
+          echo "ok   second install is a true no-op (byte-identical, no new backup)"
+
+      - name: settings.json is merged, not just kept (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          $proj = Join-Path $env:RUNNER_TEMP 'settings-merge-project'
+          New-Item -ItemType Directory -Force (Join-Path $proj '.claude') | Out-Null
+          $settingsPath = Join-Path $proj '.claude\settings.json'
+          $fixture = '{"hooks":{"PreToolUse":[{"matcher":"Write|Edit","hooks":[{"type":"command","command":"node owner-hook.cjs"}]}]},"permissions":{"allow":["Bash(npm run build)"],"deny":["Bash(rm -rf *)"]},"ownerField":"keep me"}'
+          [System.IO.File]::WriteAllText($settingsPath, $fixture, (New-Object System.Text.UTF8Encoding $false))
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes | Out-Null
+          $s = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+          $preJson = ($s.hooks.PreToolUse | ConvertTo-Json -Depth 10)
+          if ($preJson -notmatch 'owner-hook\.cjs') { Write-Host '::error::the foreign PreToolUse hook was lost by the merge'; exit 1 }
+          if ($preJson -notmatch 'forge-gate-hook\.cjs') { Write-Host '::error::the template gate hook was not merged in'; exit 1 }
+          if (($s.permissions.allow -join ',') -ne 'Bash(npm run build)') { Write-Host '::error::the foreign permissions.allow rule was lost'; exit 1 }
+          if ($s.permissions.deny -notcontains 'Bash(rm -rf *)') { Write-Host '::error::the foreign permissions.deny rule was lost'; exit 1 }
+          if ($s.permissions.deny -notcontains 'Read(./.env)') { Write-Host '::error::the template deny rules were not merged in'; exit 1 }
+          if ($s.ownerField -ne 'keep me') { Write-Host '::error::an unknown top-level key was dropped by the merge'; exit 1 }
+          Write-Host 'ok   settings.json merged: foreign hook/allow/deny/unknown-key kept, template gate hook + deny rules added'
+          $recommended = Join-Path $proj '.claude\settings.forge-recommended.json'
+          if (Test-Path -LiteralPath $recommended -PathType Leaf) { Write-Host '::error::settings.forge-recommended.json should not exist when the merge succeeded'; exit 1 }
+          $backups = Get-ChildItem -LiteralPath (Join-Path $proj '.claude') -Filter 'settings.json.forge-bak-*'
+          if ($backups.Count -ne 1) { Write-Host "::error::expected exactly one settings.json backup, found $($backups.Count)"; exit 1 }
+          $beforeHash = (Get-FileHash -LiteralPath $settingsPath -Algorithm SHA256).Hash
+          $out = powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes
+          if (($out -join "`n") -notmatch '(?i)already merged') { Write-Host '::error::a second install did not report settings.json as already merged'; exit 1 }
+          $afterHash = (Get-FileHash -LiteralPath $settingsPath -Algorithm SHA256).Hash
+          if ($beforeHash -ne $afterHash) { Write-Host '::error::settings.json changed on a second, idempotent install'; exit 1 }
+          $backups2 = Get-ChildItem -LiteralPath (Join-Path $proj '.claude') -Filter 'settings.json.forge-bak-*'
+          if ($backups2.Count -ne 1) { Write-Host "::error::a no-op second install must not take a new backup (found $($backups2.Count))"; exit 1 }
+          Write-Host 'ok   second install is a true no-op (byte-identical, no new backup)'
+
+      # UNSAFE-FIRST-COPY (wp-f2): a settings.json that is a DIRECTORY (not a
+      # file) must be REFUSED, never `cp`/Copy-Item'd INTO (which would nest the payload's settings.json
+      # inside it while reporting success). No nested file, and (POSIX) a non-zero exit.
+      - name: settings.json as a DIRECTORY refuses cleanly, no nested file (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set +e   # the refusal's non-zero exit is the expected, asserted outcome
+          proj="$RUNNER_TEMP/settings-dir-project"
+          mkdir -p "$proj/.claude/settings.json"
+          bash install.sh --project "$proj" --yes
+          status=$?
+          set -e
+          [ "$status" -ne 0 ] || { echo "::error::install.sh accepted a directory-shaped settings.json instead of refusing it"; exit 1; }
+          entries=$(find "$proj/.claude/settings.json" -mindepth 1 | wc -l)
+          [ "$entries" -eq 0 ] || { echo "::error::something was nested inside the settings.json directory (found $entries entr(y/ies))"; exit 1; }
+          [ -d "$proj/.claude/settings.json" ] || { echo "::error::settings.json is no longer a directory — it should never have been touched"; exit 1; }
+          # the fallback is stamped (settings.forge-recommended-<stamp>-<rand>.json): match the family, not one fixed name
+          rec=$(find "$proj/.claude" -maxdepth 1 -name 'settings.forge-recommended*.json' | head -1)
+          [ -z "$rec" ] || { echo "::error::a recommended-file fallback should not exist either — this is a hard refusal (found $rec)"; exit 1; }
+          [ -f "$proj/.claude/forge-bin/forge-doctor.cjs" ] || { echo "::error::every OTHER payload file should still install even though settings.json was refused"; exit 1; }
+          echo "ok   install.sh refused the directory-shaped settings.json (exit $status), nested nothing, everything else still installed"
+
+      - name: settings.json as a DIRECTORY refuses cleanly, no nested file (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          $proj = Join-Path $env:RUNNER_TEMP 'settings-dir-project'
+          $settingsDir = Join-Path $proj '.claude\settings.json'
+          New-Item -ItemType Directory -Force $settingsDir | Out-Null
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes
+          # capture + assert the refusal's exit code (the POSIX step always did). The installer exits
+          # non-zero BY DESIGN here; without an explicit `exit 0` below, pwsh ends the step with that leftover
+          # $LASTEXITCODE and the job fails even though every assertion passed (the Windows/Node 18 red).
+          $status = $LASTEXITCODE
+          if ($status -eq 0) { Write-Host '::error::install.ps1 accepted a directory-shaped settings.json instead of refusing it'; exit 1 }
+          if (-not (Test-Path -LiteralPath $settingsDir -PathType Container)) { Write-Host '::error::settings.json is no longer a directory -- it should never have been touched'; exit 1 }
+          $entries = Get-ChildItem -LiteralPath $settingsDir -Force
+          if ($entries.Count -ne 0) { Write-Host "::error::something was nested inside the settings.json directory (found $($entries.Count) entr(y/ies))"; exit 1 }
+          # The fallback file is written with a stamp (settings.forge-recommended-<stamp>-<rand>.json), so match the
+          # whole family -- a fixed-name check could never fail.
+          $recommended = @(Get-ChildItem -LiteralPath (Join-Path $proj '.claude') -Filter 'settings.forge-recommended*.json' -File -ErrorAction SilentlyContinue)
+          if ($recommended.Count -ne 0) { Write-Host "::error::a recommended-file fallback should not exist either -- this is a hard refusal (found $($recommended[0].Name))"; exit 1 }
+          $doctorPath = Join-Path $proj '.claude\forge-bin\forge-doctor.cjs'
+          if (-not (Test-Path -LiteralPath $doctorPath -PathType Leaf)) { Write-Host '::error::every OTHER payload file should still install even though settings.json was refused'; exit 1 }
+          Write-Host "ok   install.ps1 refused the directory-shaped settings.json (exit $status), nested nothing, everything else still installed"
+          exit 0
+
+      # (laptop re-audit "Part IX #12" / "there is no uninstaller"): --uninstall / -Uninstall
+      # must remove exactly what THIS install wrote (verified by hash), and nothing a user added or edited.
+      - name: --uninstall removes exactly what it wrote, keeps user files, is idempotent (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          proj="$RUNNER_TEMP/uninstall-project"
+          mkdir -p "$proj"
+          bash install.sh --project "$proj" --yes >/dev/null
+          [ -d "$proj/.claude/forge-bin" ] || { echo "::error::install did not create .claude/forge-bin -- nothing to test uninstall against"; exit 1; }
+          # a file the USER created after install (Forge never wrote this path)
+          printf 'my own notes\n' > "$proj/.claude/MY_OWN_NOTES.md"
+          # a payload file the user EDITED after install -- must survive because its hash no longer
+          # matches what the installer recorded (outside forge-bin, so forge-bin itself can still go to zero)
+          edited="$proj/.claude/skills/forge-prd/SKILL.md"
+          [ -f "$edited" ] || { echo "::error::fixture assumption broken: $edited does not exist after install"; exit 1; }
+          printf '\n<!-- my own edit, kept across uninstall -->\n' >> "$edited"
+          # the user's OWN .gitignore line, next to Forge's own appended block
+          printf 'my-own-ignore-rule/\n' >> "$proj/.gitignore"
+          bash install.sh --uninstall --project "$proj" --yes
+          [ ! -d "$proj/.claude/forge-bin" ] || { echo "::error::.claude/forge-bin still exists after --uninstall"; exit 1; }
+          echo "ok   .claude/forge-bin is gone"
+          [ -f "$proj/.claude/MY_OWN_NOTES.md" ] || { echo "::error::a file the user created was deleted by --uninstall"; exit 1; }
+          echo "ok   the user-created file survived"
+          grep -qF 'my own edit, kept across uninstall' "$edited" || { echo "::error::the user-edited payload file was deleted or reverted by --uninstall"; exit 1; }
+          echo "ok   the user-edited payload file survived, unchanged"
+          grep -qxF '.claude/forge-runs/*/*' "$proj/.gitignore" && { echo "::error::a Forge-added .gitignore line survived --uninstall"; exit 1; }
+          grep -qxF 'my-own-ignore-rule/' "$proj/.gitignore" || { echo "::error::the user's own .gitignore line was removed by --uninstall"; exit 1; }
+          echo "ok   Forge's .gitignore lines are gone, the user's own line stayed"
+          # DENY-RULES-STAY (security review): unmerge never removes permissions.deny --
+          # it cannot tell a user's own pre-existing rule from Forge's identical template rule, so
+          # a deny rule (secret protection) surviving is the safe default, not a bug.
+          node -e '
+            const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const deny = (j.permissions && j.permissions.deny) || [];
+            if (!deny.includes("Read(./.env)")) { console.error("::error::a permissions.deny secret-protection rule was removed by --uninstall"); process.exit(1); }
+            console.log("ok   permissions.deny secret-protection rules survived --uninstall (by design)");
+          ' "$proj/.claude/settings.json"
+          before=$(find "$proj/.claude" -type f 2>/dev/null | sort)
+          bash install.sh --uninstall --project "$proj" --yes >/dev/null
+          after=$(find "$proj/.claude" -type f 2>/dev/null | sort)
+          [ "$before" = "$after" ] || { echo "::error::a second --uninstall changed the file set (not idempotent)"; exit 1; }
+          echo "ok   a second --uninstall is a no-op"
+
+      - name: -Uninstall removes exactly what it wrote, keeps user files, is idempotent (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          $proj = Join-Path $env:RUNNER_TEMP 'uninstall-project'
+          New-Item -ItemType Directory -Force $proj | Out-Null
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes | Out-Null
+          $forgeBin = Join-Path $proj '.claude\forge-bin'
+          if (-not (Test-Path -LiteralPath $forgeBin -PathType Container)) { Write-Host '::error::install did not create .claude\forge-bin -- nothing to test uninstall against'; exit 1 }
+          $notes = Join-Path $proj '.claude\MY_OWN_NOTES.md'
+          Set-Content -LiteralPath $notes -Value 'my own notes'
+          $edited = Join-Path $proj '.claude\skills\forge-prd\SKILL.md'
+          if (-not (Test-Path -LiteralPath $edited -PathType Leaf)) { Write-Host "::error::fixture assumption broken: $edited does not exist after install"; exit 1 }
+          Add-Content -LiteralPath $edited -Value "`n<!-- my own edit, kept across uninstall -->"
+          Add-Content -LiteralPath (Join-Path $proj '.gitignore') -Value 'my-own-ignore-rule/'
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall -ProjectDir $proj -Yes
+          $status = $LASTEXITCODE
+          if ($status -ne 0) { Write-Host "::error::-Uninstall exited $status"; exit 1 }
+          if (Test-Path -LiteralPath $forgeBin -PathType Container) { Write-Host '::error::.claude\forge-bin still exists after -Uninstall'; exit 1 }
+          Write-Host 'ok   .claude\forge-bin is gone'
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) { Write-Host '::error::a file the user created was deleted by -Uninstall'; exit 1 }
+          Write-Host 'ok   the user-created file survived'
+          $editedText = Get-Content -Raw -LiteralPath $edited
+          if ($editedText -notmatch 'my own edit, kept across uninstall') { Write-Host '::error::the user-edited payload file was deleted or reverted by -Uninstall'; exit 1 }
+          Write-Host 'ok   the user-edited payload file survived, unchanged'
+          $giLines = Get-Content -LiteralPath (Join-Path $proj '.gitignore')
+          if ($giLines -contains '.claude/forge-runs/*/*') { Write-Host '::error::a Forge-added .gitignore line survived -Uninstall'; exit 1 }
+          if ($giLines -notcontains 'my-own-ignore-rule/') { Write-Host "::error::the user's own .gitignore line was removed by -Uninstall"; exit 1 }
+          Write-Host "ok   Forge's .gitignore lines are gone, the user's own line stayed"
+          # DENY-RULES-STAY (security review): unmerge never removes permissions.deny --
+          # it cannot tell a user's own pre-existing rule from Forge's identical template rule, so
+          # a deny rule (secret protection) surviving is the safe default, not a bug.
+          $settingsAfter = Get-Content -Raw -LiteralPath (Join-Path $proj '.claude\settings.json') | ConvertFrom-Json
+          if ($settingsAfter.permissions.deny -notcontains 'Read(./.env)') { Write-Host '::error::a permissions.deny secret-protection rule was removed by -Uninstall'; exit 1 }
+          Write-Host 'ok   permissions.deny secret-protection rules survived -Uninstall (by design)'
+          $before = @(Get-ChildItem -LiteralPath (Join-Path $proj '.claude') -Recurse -File | ForEach-Object { $_.FullName }) | Sort-Object
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall -ProjectDir $proj -Yes | Out-Null
+          $status2 = $LASTEXITCODE
+          if ($status2 -ne 0) { Write-Host "::error::a second -Uninstall exited $status2"; exit 1 }
+          $after = @(Get-ChildItem -LiteralPath (Join-Path $proj '.claude') -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) | Sort-Object
+          if (($before -join "`n") -ne ($after -join "`n")) { Write-Host '::error::a second -Uninstall changed the file set (not idempotent)'; exit 1 }
+          Write-Host 'ok   a second -Uninstall is a no-op'
+          exit 0
+
+      # upgrade path (laptop re-audit N8/D1): a project installed by has four cwd-relative hook
+      # commands (snapshot marker x2, snapshot reinject, tool hook) with no $CLAUDE_PROJECT_DIR and no separate
+      # PowerShell matcher. The merge must recognise those as the SAME hooks in an older form and rewrite them,
+      # never leave the old form in place AND add a duplicate. The fixture below is byte-for-byte the hook shape
+      # 2.7.0- actually shipped: the gate hook was already in the $CLAUDE_PROJECT_DIR form with the
+      # Bash|PowerShell matcher. (An earlier fixture invented a cwd-relative gate hook no release ever had; the
+      # merge rightly treats an unknown command as the user's own and leaves it alone.)
+      - name: Upgrading a 2.7.2-shaped settings.json de-duplicates hooks into the $CLAUDE_PROJECT_DIR form (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          proj="$RUNNER_TEMP/upgrade-project"
+          mkdir -p "$proj/.claude"
+          cat > "$proj/.claude/settings.json" <<'OLDSETTINGS'
+          {
+            "hooks": {
+              "PreCompact": [
+                { "matcher": "manual", "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-snapshot-marker.cjs", "timeout": 15 } ] },
+                { "matcher": "auto",   "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-snapshot-marker.cjs", "timeout": 15 } ] }
+              ],
+              "SessionStart": [
+                { "matcher": "compact", "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-snapshot-reinject.cjs", "timeout": 15 } ] }
+              ],
+              "PostToolUse": [
+                { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-toolhook.cjs", "timeout": 10 } ] }
+              ],
+              "PreToolUse": [
+                { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-gate-hook.cjs\"", "timeout": 10 } ] }
+              ]
+            }
+          }
+          OLDSETTINGS
+          bash install.sh --project "$proj" --yes >/dev/null
+          node tests/installer/assert-hook-dedup.js "$proj/.claude/settings.json"
+
+      - name: Upgrading a 2.7.2-shaped settings.json de-duplicates hooks into the $CLAUDE_PROJECT_DIR form (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          $proj = Join-Path $env:RUNNER_TEMP 'upgrade-project'
+          New-Item -ItemType Directory -Force (Join-Path $proj '.claude') | Out-Null
+          $old = @'
+          {
+            "hooks": {
+              "PreCompact": [
+                { "matcher": "manual", "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-snapshot-marker.cjs", "timeout": 15 } ] },
+                { "matcher": "auto",   "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-snapshot-marker.cjs", "timeout": 15 } ] }
+              ],
+              "SessionStart": [
+                { "matcher": "compact", "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-snapshot-reinject.cjs", "timeout": 15 } ] }
+              ],
+              "PostToolUse": [
+                { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [ { "type": "command", "command": "node .claude/forge-bin/forge-toolhook.cjs", "timeout": 10 } ] }
+              ],
+              "PreToolUse": [
+                { "matcher": "Bash|PowerShell", "hooks": [ { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-gate-hook.cjs\"", "timeout": 10 } ] }
+              ]
+            }
+          }
+          '@
+          $settingsPath = Join-Path $proj '.claude\settings.json'
+          [System.IO.File]::WriteAllText($settingsPath, $old, (New-Object System.Text.UTF8Encoding $false))
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes | Out-Null
+          node tests/installer/assert-hook-dedup.js $settingsPath
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          exit 0
+
+      # (coordinator follow-up): a real bounded local run (timeout + stdin from
+      # /dev/null) found a long-lived install.sh process can outlive its own mktemp -d manifest
+      # scratch dir on some environments -- forge_manifest_add then printed a repeated "No such file
+      # or directory" (one per remaining file) instead of degrading once. Fast, no full install
+      # needed: exercises the real forge_manifest_add straight out of install.sh.
+      - name: forge_manifest_add degrades silently when its scratch dir has vanished (POSIX)
+        if: runner.os != 'Windows'
+        run: bash tests/installer/manifest-add-survives-missing-tmp.sh
+
+      # (R3 independent review): before 's template/user split (forge-standing.cjs,
+      # N4/P1), an owner "/forge remember" rule was written straight into the SYSTEM-synced
+      # FORGE_STANDING_RULES.json. `forge-sync` already migrates that rule out on upgrade
+      # (migrateOwnerStandingRules); the installer did not, so a 2.7.x owner rule was silently backed
+      # up and replaced by the rule-free template the moment someone re-ran the installer. This proves
+      # the installer now runs that same migration first, and that a second install is a true no-op.
+      - name: Owner-rule migration on upgrade moves the rule, then a second install is a no-op (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          proj="$RUNNER_TEMP/standing-migration-project"
+          mkdir -p "$proj/.claude/config/orchestration"
+          shipped="$GITHUB_WORKSPACE/.claude/config/orchestration/FORGE_STANDING_RULES.json"
+          target="$proj/.claude/config/orchestration/FORGE_STANDING_RULES.json"
+          node -e '
+            const fs = require("fs");
+            const shipped = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            shipped.rules = shipped.rules.concat([{
+              id: "owner-test-rule-1",
+              text: "Always answer in Dutch on Tuesdays.",
+              scope: "global", trigger: "always", domain: null, glob: null, topic: "owner-test",
+              source: "owner /forge remember", confidence: "high", status: "active"
+            }]);
+            fs.writeFileSync(process.argv[2], JSON.stringify(shipped, null, 2) + "\n");
+          ' "$shipped" "$target"
+          out=$(bash install.sh --project "$proj" --yes)
+          echo "$out"
+          echo "$out" | grep -qi "owner rule" || { echo "::error::install.sh did not report moving the owner rule"; exit 1; }
+          node tests/installer/assert-standing-migration.js migrated "$proj" "$shipped" owner-test-rule-1
+          userfile="$proj/.claude/config/orchestration/FORGE_STANDING_RULES.user.json"
+          forge_hash() { (command -v sha256sum >/dev/null 2>&1 && sha256sum -- "$1" || shasum -a 256 -- "$1") | awk '{print $1}'; }
+          before_tpl=$(forge_hash "$target")
+          before_usr=$(forge_hash "$userfile")
+          bash install.sh --project "$proj" --yes >/dev/null
+          after_tpl=$(forge_hash "$target")
+          after_usr=$(forge_hash "$userfile")
+          [ "$before_tpl" = "$after_tpl" ] || { echo "::error::FORGE_STANDING_RULES.json changed on a second, idempotent install"; exit 1; }
+          [ "$before_usr" = "$after_usr" ] || { echo "::error::FORGE_STANDING_RULES.user.json changed on a second, idempotent install"; exit 1; }
+          echo "ok   second install is a no-op for both files"
+
+      - name: Owner-rule migration on upgrade moves the rule, then a second install is a no-op (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          # Built with pure PowerShell (ConvertFrom-Json/ConvertTo-Json), not `node -e` -- a `node -e` string
+          # containing a double-quoted JS literal with a space is UNSAFE on Windows PowerShell (native-argument
+          # marshalling can silently strip the embedded quotes, found by a real local run); this sidesteps
+          # that risk on pwsh too instead of relying on it happening to behave differently from powershell.exe.
+          $proj = Join-Path $env:RUNNER_TEMP 'standing-migration-project'
+          New-Item -ItemType Directory -Force (Join-Path $proj '.claude\config\orchestration') | Out-Null
+          $shipped = Join-Path $env:GITHUB_WORKSPACE '.claude\config\orchestration\FORGE_STANDING_RULES.json'
+          $target = Join-Path $proj '.claude\config\orchestration\FORGE_STANDING_RULES.json'
+          $shippedObj = Get-Content -Raw -LiteralPath $shipped | ConvertFrom-Json
+          $ownerRule = [ordered]@{
+            id = 'owner-test-rule-1'; text = 'Always answer in Dutch on Tuesdays.'
+            scope = 'global'; trigger = 'always'; domain = $null; glob = $null; topic = 'owner-test'
+            source = 'owner /forge remember'; confidence = 'high'; status = 'active'
+          }
+          $rulesList = New-Object System.Collections.Generic.List[Object]
+          $rulesList.AddRange([object[]]$shippedObj.rules)
+          $rulesList.Add($ownerRule)
+          $shippedObj.rules = $rulesList.ToArray()
+          $fixtureJson = ($shippedObj | ConvertTo-Json -Depth 10)
+          [System.IO.File]::WriteAllText($target, $fixtureJson, (New-Object System.Text.UTF8Encoding($false)))
+          $out = powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes
+          Write-Host ($out -join "`n")
+          if ($LASTEXITCODE -ne 0) { Write-Host '::error::install.ps1 failed on the upgrade fixture'; exit 1 }
+          if (($out -join "`n") -notmatch '(?i)owner rule') { Write-Host '::error::install.ps1 did not report moving the owner rule'; exit 1 }
+          node tests/installer/assert-standing-migration.js migrated $proj $shipped owner-test-rule-1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $userfile = Join-Path $proj '.claude\config\orchestration\FORGE_STANDING_RULES.user.json'
+          $beforeTpl = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+          $beforeUsr = (Get-FileHash -LiteralPath $userfile -Algorithm SHA256).Hash
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Host '::error::the second, idempotent install failed'; exit 1 }
+          $afterTpl = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+          $afterUsr = (Get-FileHash -LiteralPath $userfile -Algorithm SHA256).Hash
+          if ($beforeTpl -ne $afterTpl) { Write-Host '::error::FORGE_STANDING_RULES.json changed on a second, idempotent install'; exit 1 }
+          if ($beforeUsr -ne $afterUsr) { Write-Host '::error::FORGE_STANDING_RULES.user.json changed on a second, idempotent install'; exit 1 }
+          Write-Host 'ok   second install is a no-op for both files'
+          exit 0
+
+      # A malformed FORGE_STANDING_RULES.user.json must never be silently replaced -- the pending owner
+      # rule stays visible in the (not yet replaced) FORGE_STANDING_RULES.json, and the installer warns
+      # in plain English, instead of the owner rule being lost when the template file is overwritten.
+      - name: Owner-rule migration with a malformed private file is refused safely (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          proj="$RUNNER_TEMP/standing-migration-malformed-project"
+          mkdir -p "$proj/.claude/config/orchestration"
+          shipped="$GITHUB_WORKSPACE/.claude/config/orchestration/FORGE_STANDING_RULES.json"
+          target="$proj/.claude/config/orchestration/FORGE_STANDING_RULES.json"
+          node -e '
+            const fs = require("fs");
+            const shipped = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            shipped.rules = shipped.rules.concat([{
+              id: "owner-test-rule-2",
+              text: "Always answer in Dutch on Tuesdays.",
+              scope: "global", trigger: "always", domain: null, glob: null, topic: "owner-test",
+              source: "owner /forge remember", confidence: "high", status: "active"
+            }]);
+            fs.writeFileSync(process.argv[2], JSON.stringify(shipped, null, 2) + "\n");
+          ' "$shipped" "$target"
+          printf '{ this is not valid json' > "$proj/.claude/config/orchestration/FORGE_STANDING_RULES.user.json"
+          out=$(bash install.sh --project "$proj" --yes)
+          echo "$out"
+          echo "$out" | grep -qi "pending" || { echo "::error::install.sh did not warn about the pending owner-rule migration"; exit 1; }
+          node tests/installer/assert-standing-migration.js malformed-kept "$proj" owner-test-rule-2
+          grep -qF 'this is not valid json' "$proj/.claude/config/orchestration/FORGE_STANDING_RULES.user.json" || { echo "::error::the malformed private file was modified/replaced instead of being left untouched"; exit 1; }
+          echo "ok   the malformed private file was left exactly as-is"
+
+      - name: Owner-rule migration with a malformed private file is refused safely (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          # Built with pure PowerShell -- see the sibling "on upgrade" (Windows) step above for why this
+          # avoids `node -e` with a double-quoted, space-containing JS literal.
+          $proj = Join-Path $env:RUNNER_TEMP 'standing-migration-malformed-project'
+          New-Item -ItemType Directory -Force (Join-Path $proj '.claude\config\orchestration') | Out-Null
+          $shipped = Join-Path $env:GITHUB_WORKSPACE '.claude\config\orchestration\FORGE_STANDING_RULES.json'
+          $target = Join-Path $proj '.claude\config\orchestration\FORGE_STANDING_RULES.json'
+          $shippedObj = Get-Content -Raw -LiteralPath $shipped | ConvertFrom-Json
+          $ownerRule = [ordered]@{
+            id = 'owner-test-rule-2'; text = 'Always answer in Dutch on Tuesdays.'
+            scope = 'global'; trigger = 'always'; domain = $null; glob = $null; topic = 'owner-test'
+            source = 'owner /forge remember'; confidence = 'high'; status = 'active'
+          }
+          $rulesList = New-Object System.Collections.Generic.List[Object]
+          $rulesList.AddRange([object[]]$shippedObj.rules)
+          $rulesList.Add($ownerRule)
+          $shippedObj.rules = $rulesList.ToArray()
+          $fixtureJson = ($shippedObj | ConvertTo-Json -Depth 10)
+          [System.IO.File]::WriteAllText($target, $fixtureJson, (New-Object System.Text.UTF8Encoding($false)))
+          $userfile = Join-Path $proj '.claude\config\orchestration\FORGE_STANDING_RULES.user.json'
+          [System.IO.File]::WriteAllText($userfile, '{ this is not valid json', (New-Object System.Text.UTF8Encoding $false))
+          $out = powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes
+          Write-Host ($out -join "`n")
+          if (($out -join "`n") -notmatch '(?i)pending') { Write-Host '::error::install.ps1 did not warn about the pending owner-rule migration'; exit 1 }
+          node tests/installer/assert-standing-migration.js malformed-kept $proj owner-test-rule-2
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $userText = Get-Content -Raw -LiteralPath $userfile
+          if ($userText -notmatch 'this is not valid json') { Write-Host '::error::the malformed private file was modified/replaced instead of being left untouched'; exit 1 }
+          Write-Host 'ok   the malformed private file was left exactly as-is'
+          exit 0
+
+      # F2/F4/F5 fix (2026-09-27 independent review): a FORGE_STANDING_RULES.json that EXISTS
+      # but cannot itself be read or parsed (corrupt, locked, or an unreadable path) used to be
+      # silently backed up and replaced -- migrateOwnerStandingRules() cannot tell that case apart
+      # from "nothing to migrate" (same { length: 0, pending: false } either way; see that function's
+      # own doc comment in forge-sync.cjs, not edited by this fix). This proves a dry run correctly
+      # PREVIEWS the "kept" outcome instead of "would back up + overwrite", a real run keeps the
+      # file byte-for-byte with no backup and names the real cause instead of always blaming
+      # user.json, and a second run is stable.
+      - name: A corrupt FORGE_STANDING_RULES.json is kept, not replaced -- dry run previews it, the note names the cause (POSIX)
+        if: runner.os != 'Windows'
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          set -e
+          proj="$RUNNER_TEMP/standing-unreadable-project"
+          mkdir -p "$proj/.claude/config/orchestration"
+          target="$proj/.claude/config/orchestration/FORGE_STANDING_RULES.json"
+          printf '{ this is not valid json' > "$target"
+          fixture="$RUNNER_TEMP/standing-unreadable-fixture.json"
+          cp "$target" "$fixture"
+          # NOTE: intentionally `grep ... <<< "$var"` (a here-string), never `echo "$var" | grep -q ...`.
+          # Found by a real local run building this exact step: install.sh's full non-dry-run output
+          # here is >64KB (500+ "wrote:" lines) and the pattern this checks for appears early, so
+          # `grep -q` exits the instant it matches while `echo` is still blocked writing the rest of a
+          # full pipe buffer -- under `set -o pipefail` (implied by `set -e` combined with a pipeline)
+          # that SIGPIPE'd `echo` can make the whole pipeline report non-zero even though grep DID
+          # match, silently turning a passing check into a false failure. A here-string has no producer
+          # process to SIGPIPE, so it is not just faster but actually correct here.
+          dry=$(bash install.sh --project "$proj" --yes --dry-run)
+          grep -qi "would keep" <<< "$dry" || { echo "::error::a dry run did not report that the corrupt file would be kept"; exit 1; }
+          grep -qi "would back up" <<< "$dry" && { echo "::error::a dry run still claims it would back up + overwrite the corrupt file"; exit 1; }
+          node tests/installer/assert-standing-migration.js template-unreadable-kept "$proj" "$fixture"
+          out=$(bash install.sh --project "$proj" --yes)
+          grep -qi "could not be read or parsed" <<< "$out" || { echo "::error::install.sh did not warn that the file could not be read or parsed"; exit 1; }
+          grep -qi "NOTE:.*could not be read or parsed" <<< "$out" || { echo "::error::the final NOTE does not name the real cause (F5)"; exit 1; }
+          if grep -qi "NOTE:.*fix the JSON in.*user.json" <<< "$out"; then echo "::error::the final NOTE still assumes the wrong cause (user.json) for a template-file problem"; exit 1; fi
+          node tests/installer/assert-standing-migration.js template-unreadable-kept "$proj" "$fixture"
+          bash install.sh --project "$proj" --yes >/dev/null
+          node tests/installer/assert-standing-migration.js template-unreadable-kept "$proj" "$fixture"
+          echo "ok   corrupt FORGE_STANDING_RULES.json: dry-run preview, real-run kept + honest cause, stable on a second run"
+
+      - name: A corrupt FORGE_STANDING_RULES.json is kept, not replaced -- dry run previews it, the note names the cause (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          $proj = Join-Path $env:RUNNER_TEMP 'standing-unreadable-project'
+          New-Item -ItemType Directory -Force (Join-Path $proj '.claude\config\orchestration') | Out-Null
+          $target = Join-Path $proj '.claude\config\orchestration\FORGE_STANDING_RULES.json'
+          [System.IO.File]::WriteAllText($target, '{ this is not valid json', (New-Object System.Text.UTF8Encoding($false)))
+          $fixture = Join-Path $env:RUNNER_TEMP 'standing-unreadable-fixture.json'
+          Copy-Item -LiteralPath $target -Destination $fixture
+          $dry = powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes -DryRun
+          $dryText = ($dry -join "`n")
+          if ($dryText -notmatch '(?i)would keep') { Write-Host '::error::a dry run did not report that the corrupt file would be kept'; exit 1 }
+          if ($dryText -match '(?i)would back up') { Write-Host '::error::a dry run still claims it would back up + overwrite the corrupt file'; exit 1 }
+          node tests/installer/assert-standing-migration.js template-unreadable-kept $proj $fixture
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $out = powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes
+          $outText = ($out -join "`n")
+          if ($outText -notmatch '(?i)could not be read or parsed') { Write-Host '::error::install.ps1 did not warn that the file could not be read or parsed'; exit 1 }
+          if ($outText -notmatch '(?is)NOTE:.*could not be read or parsed') { Write-Host '::error::the final NOTE does not name the real cause (F5)'; exit 1 }
+          if ($outText -match '(?is)NOTE:.*fix the JSON in.*user\.json') { Write-Host '::error::the final NOTE still assumes the wrong cause (user.json) for a template-file problem'; exit 1 }
+          node tests/installer/assert-standing-migration.js template-unreadable-kept $proj $fixture
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -ProjectDir $proj -Yes | Out-Null
+          node tests/installer/assert-standing-migration.js template-unreadable-kept $proj $fixture
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host 'ok   corrupt FORGE_STANDING_RULES.json: dry-run preview, real-run kept + honest cause, stable on a second run'
+          exit 0
+
+      # fast, function-level coverage of the same F2/F4 contract as the two steps just
+      # above, extracted straight from install.sh's own source (never a re-typed copy) -- catches a
+      # regression in forge_check_standing_rules_migration itself without a full install.
+      - name: forge_check_standing_rules_migration keeps an unreadable template, dry-run parity (POSIX)
+        if: runner.os != 'Windows'
+        run: bash tests/installer/standing-rules-unreadable-template.sh
+
+      # F2b fix (2026-09-27 independent review): -ProjectDir "C:\My Proj\" (a real,
+      # space-containing path with a trailing backslash) reached node.exe as the corrupted
+      # `C:\My Proj"` -- PowerShell's own native-argv marshalling drops the closing quote it adds
+      # around a spaced argument when that argument ends in a backslash. Fast, function-level coverage
+      # of ConvertTo-ForgeCleanProjectPath, extracted straight from install.ps1's own source.
+      - name: ConvertTo-ForgeCleanProjectPath fixes the trailing-backslash node-argv corruption (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # F2b is titled "Windows PowerShell 5.1 quoting" -- invoked via classic powershell.exe (5.1),
+          # matching every other nested install.ps1 call in this workflow, not the outer step's own
+          # pwsh (7+) engine.
+          powershell -ExecutionPolicy Bypass -File tests\installer\assert-projectdir-trailing-backslash.ps1
+          exit $LASTEXITCODE
+
+      # F2b end-to-end: the real install.ps1, given a project directory whose path has both a space
+      # and a trailing backslash (exactly the shape a copy-paste from Explorer's address bar or tab
+      # completion produces), must actually install INTO that directory -- not fail, and not create a
+      # wrongly-named sibling directory with a stray quote in its name.
+      - name: install.ps1 succeeds with a space-and-trailing-backslash -ProjectDir (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HOME: ${{ env.FORGE_TEST_HOME }}
+          USERPROFILE: ${{ env.FORGE_TEST_HOME }}
+        run: |
+          $proj = Join-Path $env:RUNNER_TEMP 'f2b space project'
+          New-Item -ItemType Directory -Force $proj | Out-Null
+          $withTrailingBackslash = $proj.TrimEnd('\') + '\'
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -Yes -ProjectOnly -ProjectDir $withTrailingBackslash
+          if ($LASTEXITCODE -ne 0) { Write-Host '::error::install.ps1 failed with a space-and-trailing-backslash -ProjectDir'; exit 1 }
+          $doctorPath = Join-Path $proj '.claude\forge-bin\forge-doctor.cjs'
+          if (-not (Test-Path -LiteralPath $doctorPath -PathType Leaf)) { Write-Host '::error::the payload did not land inside the correctly-named project directory'; exit 1 }
+          # Check each NAME for a real quote character. -Filter '*"*' cannot be used: in Win32 name matching '"' is a
+          # wildcard (a dot or the end of a name), so it matched every entry and failed on normal folders (PR #4 CI).
+          $strayQuoteSibling = Get-ChildItem -LiteralPath $env:RUNNER_TEMP -ErrorAction SilentlyContinue | Where-Object { $_.Name.Contains([char]34) }
+          if ($strayQuoteSibling) { Write-Host "::error::a wrongly-named path with a stray quote was created: $($strayQuoteSibling.FullName -join ', ')"; exit 1 }
+          Write-Host 'ok   install.ps1 installed into the correctly-named space-and-trailing-backslash project directory'
+          exit 0

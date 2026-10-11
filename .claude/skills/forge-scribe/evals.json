@@ -1,0 +1,25 @@
+{
+  "skill": "forge-scribe",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-scribe/SKILL.md",
+      "why": "the skill file itself must exist for forge-scribe to be usable at all" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
+      "why": "2026-07-31 skill-load-budget law: every description must stay <=200 chars or the skill picker truncates it" },
+    { "id": "scribe-cli-exists", "type": "file_exists", "path": ".claude/forge-bin/forge-scribe.cjs",
+      "why": "the only sanctioned way to change scribe state, which this skill instructs every caller to use" },
+    { "id": "scribe-agent-exists", "type": "file_exists", "path": ".claude/agents/scribe.md",
+      "why": "the skill names the scribe specialist agent; it must be a real agent file" },
+    { "id": "no-hand-edit-rule", "type": "contains", "path": ".claude/skills/forge-scribe/SKILL.md", "needle": "Never edit the files under `.claude/forge-scribe/`",
+      "why": "core design rule: the hash-chained inbox/ledger are only changed through forge-scribe.cjs" },
+    { "id": "digest-only-context-rule", "type": "contains", "path": ".claude/skills/forge-scribe/SKILL.md", "needle": "Never paste `inbox.jsonl` or `ledger.jsonl`",
+      "why": "SCRIBE-F10 token cost: only the <=1200-char digest may go back into context" },
+    { "id": "trigger-phrases-nl-en", "type": "contains", "path": ".claude/skills/forge-scribe/SKILL.md", "needle": "onthoud dit, wat wilde ik ook alweer, ik heb nog een wijziging, note my change",
+      "why": "activation: the description must carry the NL+EN trigger phrases the activation test uses" },
+    { "id": "activation-fixture-exists", "type": "file_exists", "path": ".claude/skills/forge-scribe/references/activation-test.md",
+      "why": "forge-skill-testing part 1: trigger vs near-miss phrase fixture with the recorded result" },
+    { "id": "learnings-wiring", "type": "contains", "path": ".claude/skills/forge-scribe/SKILL.md", "needle": "learnings.md",
+      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use" },
+    { "id": "body-size", "type": "max_lines", "path": ".claude/skills/forge-scribe/SKILL.md", "n": 500,
+      "why": "project file-size guidance (keep files under 500 lines)" }
+  ]
+}

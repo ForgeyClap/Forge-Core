@@ -1,0 +1,211 @@
+name: validate
+
+# Zero-dependency CI. Everything below runs with only Node.js + coreutils that
+# ship on a fresh ubuntu-latest runner. No npm install, no external actions beyond
+# the two official first-party ones (checkout, setup-node).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: syntax • tests • doctor • manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      # fetch-depth 0 (full history), not actions/checkout's default shallow
+      # (depth 1). tests/installer/assert-retired-dashboard-hashes.js recomputes the 7 retired
+      # dashboard files' known shipped hashes straight from `git log --all -- <path>` -- on a
+      # shallow clone those historical commits simply are not present, so the check would silently
+      # report "shallow, skipped" (see that script's own header comment) on every single CI run
+      # instead of actually catching drift the way it is meant to.
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Report Node version
+        run: node --version
+
+      # 0) Nothing tracked against the repository's own .gitignore (per-install state must never be committed).
+      - name: Nothing is tracked against .gitignore
+        run: |
+          set -e
+          ignored=$(git ls-files -i -c --exclude-standard)
+          if [ -n "$ignored" ]; then
+            echo "::error::these files are tracked but match .gitignore — untrack them (git rm --cached):"
+            echo "$ignored"
+            exit 1
+          fi
+          echo "ok   no tracked file matches .gitignore"
+
+      # 0b) Executable-bit gate (laptop re-audit N9): CHANGELOG has claimed that the
+      # task scripts "ship with the executable bit", but the tagged archive had 0 files with mode
+      # 100755 — git's own index never actually carried the bit, so a fresh `git clone` unpacked every
+      # *.sh as 644 and a bare `./install.sh` refused with "Permission denied". `git ls-files -s` reads
+      # the mode git will check out, not the working tree's current OS-level bit (which core.filemode
+      # can ignore) — this is the one check that would have actually caught the regression.
+      # (final review R1): the Command Center reads its list of Discord settings from
+      # command-center/discord/.env.example. The command-center sync used to block every path starting with
+      # .env, so that template never shipped and the Connect Discord wizard could not finish on a fresh
+      # install. Tests create their own temporary copy, so only a check on the tracked tree catches this.
+      - name: Shipped .env templates are tracked
+        run: |
+          set -e
+          for f in .env.example command-center/discord/.env.example command-center/dashboard/.env.example; do
+            git ls-files --error-unmatch "$f" > /dev/null 2>&1 || { echo "::error::$f is not tracked, but the product needs it"; exit 1; }
+            echo "ok   $f"
+          done
+      # a fresh install needs no npm and no build because the PREBUILT dashboard ships. This fails when
+      # the build is missing or index.html points at an asset that is not in the repository.
+      - name: Prebuilt dashboard ships
+        run: |
+          set -e
+          d=command-center/dashboard/dist
+          git ls-files --error-unmatch "$d/index.html" > /dev/null 2>&1 || { echo "::error::$d/index.html is not tracked"; exit 1; }
+          refs=$(grep -oE '(src|href)="(\./|/)?assets/[^"?#]+"' "$d/index.html" | sed -E 's/^(src|href)="(\.\/|\/)?//; s/"$//' || true)
+          [ -n "$refs" ] || { echo "::error::$d/index.html references no assets"; exit 1; }
+          for r in $refs; do
+            git ls-files --error-unmatch "$d/$r" > /dev/null 2>&1 || { echo "::error::$d/$r is referenced by index.html but not tracked"; exit 1; }
+            echo "ok   $d/$r"
+          done
+      - name: Every tracked *.sh carries the executable bit (100755) in git's index
+        run: |
+          set -e
+          bad=0
+          while IFS= read -r line; do
+            mode=$(printf '%s' "$line" | awk '{print $1}')
+            path=$(printf '%s' "$line" | cut -f2)
+            if [ "$mode" != "100755" ]; then
+              echo "::error file=$path::tracked as mode $mode, expected 100755 (git update-index --chmod=+x \"$path\")"
+              bad=1
+            else
+              echo "ok   $path ($mode)"
+            fi
+          done < <(git ls-files -s -- '*.sh')
+          if [ "$bad" = "1" ]; then
+            echo "::error::one or more *.sh files are not executable in git's index -- see above"
+            exit 1
+          fi
+
+      # 0c) Copy parity (laptop re-audit Part V-E: "three hand-synced copies, no CI parity"). The plugin
+      # ships its own copies of some skills and agents, and of the global forge-core; in the plugin's
+      # forge-core had silently drifted 13 lines from the global one. Any drift now fails CI.
+      - name: Plugin skill/agent copies and forge-core match their sources
+        run: |
+          bad=0
+          for d in plugins/forge/skills/*/; do
+            name=$(basename "$d")
+            if [ "$name" = "forge-core" ]; then src="global-install/.claude/skills/forge-core"; else src=".claude/skills/$name"; fi
+            if ! diff -rq "$src" "$d" >/dev/null 2>&1; then
+              echo "::error::plugins/forge/skills/$name differs from $src"; diff -rq "$src" "$d" || true; bad=1
+            fi
+          done
+          for f in plugins/forge/agents/*.md; do
+            src=".claude/agents/$(basename "$f")"
+            if ! cmp -s "$src" "$f"; then echo "::error file=$f::differs from $src"; bad=1; fi
+          done
+          if [ "$bad" -eq 0 ]; then echo "ok   plugin skill/agent copies and forge-core are in sync"; fi
+          exit $bad
+
+      # 1) Syntax-check every .cjs source in the terminal command pack.
+      - name: node --check all .cjs in .claude/forge-bin
+        run: |
+          set -e
+          fail=0
+          count=0
+          for f in .claude/forge-bin/*.cjs; do
+            [ -e "$f" ] || continue
+            count=$((count + 1))
+            if ! node --check "$f"; then
+              echo "::error file=$f::node --check failed"
+              fail=1
+            fi
+          done
+          echo "checked $count .cjs files"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no .cjs files found in .claude/forge-bin"
+            exit 1
+          fi
+          exit $fail
+
+      # 2) Run the Forge test suites. Each *.test.cjs is a self-contained runner
+      #    that exits non-zero on failure. We run them all and fail the job if any do.
+      - name: Run Forge test suites
+        run: |
+          set -e
+          fail=0
+          count=0
+          for t in .claude/forge-bin/*.test.cjs; do
+            [ -e "$t" ] || continue
+            count=$((count + 1))
+            echo "----- $t -----"
+            if ! node "$t"; then
+              echo "::error file=$t::test suite failed"
+              fail=1
+            fi
+          done
+          echo "ran $count test suites"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no *.test.cjs suites found in .claude/forge-bin"
+            exit 1
+          fi
+          exit $fail
+
+      # 3) Run forge-doctor. It self-tests, checks the SPA/agents/chain, and runs a
+      #    secret leak-scan over git-tracked files (the checkout provides a real .git,
+      #    so leakScan uses `git ls-files`). It exits 0 only when ALL GREEN.
+      - name: Run forge-doctor
+        if: ${{ hashFiles('.claude/forge-bin/forge-doctor.cjs') != '' }}
+        run: node .claude/forge-bin/forge-doctor.cjs --root .
+
+      # 4) Validate the Claude Code plugin manifests. The `claude` CLI is not present
+      #    on CI, so instead of `claude plugin validate`, assert the manifests are
+      #    parseable JSON with the required fields — the same fields the CLI requires.
+      - name: Validate plugin manifests (JSON + required fields)
+        run: |
+          node -e '
+            const fs = require("fs");
+            let bad = 0;
+            const readJson = (p) => {
+              if (!fs.existsSync(p)) { console.error("::error::missing manifest " + p); bad = 1; return null; }
+              try { return JSON.parse(fs.readFileSync(p, "utf8")); }
+              catch (e) { console.error("::error file=" + p + "::invalid JSON: " + e.message); bad = 1; return null; }
+            };
+            const need = (obj, keys, label) => {
+              if (!obj) return;
+              for (const k of keys) {
+                if (obj[k] === undefined || obj[k] === null || obj[k] === "") {
+                  console.error("::error::" + label + " missing required field: " + k);
+                  bad = 1;
+                }
+              }
+            };
+            const mkt = readJson(".claude-plugin/marketplace.json");
+            need(mkt, ["name", "owner", "plugins"], "marketplace.json");
+            if (mkt && !Array.isArray(mkt.plugins)) { console.error("::error::marketplace.json plugins must be an array"); bad = 1; }
+            if (mkt && Array.isArray(mkt.plugins)) {
+              mkt.plugins.forEach((p, i) => need(p, ["name", "source"], "marketplace.json plugins[" + i + "]"));
+              // Every referenced plugin source must have its own plugin.json manifest.
+              mkt.plugins.forEach((p) => {
+                if (p && p.source) {
+                  const pj = (p.source.replace(/^\.\/?/, "").replace(/\/$/, "")) + "/.claude-plugin/plugin.json";
+                  const man = readJson(pj);
+                  need(man, ["name", "description"], pj);
+                }
+              });
+            }
+            if (bad) { console.error("Manifest validation FAILED"); process.exit(1); }
+            console.log("All plugin manifests are valid JSON with required fields.");
+          '

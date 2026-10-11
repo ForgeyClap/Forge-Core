@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "forge",
+  "displayName": "Forge V2",
+  "description": "Forge-Core for Claude Code: the /forge command, its agents and core skills.",
+  "author": {
+    "name": "ForgeyClap",
+    "url": "https://github.com/ForgeyClap"
+  },
+  "homepage": "https://github.com/ForgeyClap/Forge-Core#readme",
+  "repository": "https://github.com/ForgeyClap/Forge-Core",
+  "license": "MIT",
+  "keywords": [
+    "multi-agent",
+    "orchestration",
+    "automation",
+    "code-review",
+    "build",
+    "scraping",
+    "rag",
+    "dashboard"
+  ]
+}

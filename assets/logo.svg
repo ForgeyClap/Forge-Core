@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="t">
+  <title id="t">Forge-Core</title>
+  <g transform="translate(17 16)">
+    <path fill="#64748B" d="M70 222C96 208 124 202 150 200H408V240H352C340 262 322 278 316 300C312 322 330 340 352 346V376H160V346C182 340 200 322 198 300C196 276 176 256 150 246C118 244 90 236 70 222Z"/>
+    <path fill="#D97706" stroke="#D97706" stroke-width="8" stroke-linejoin="round" d="M239 108L275 144L239 180L203 144Z"/>
+  </g>
+</svg>

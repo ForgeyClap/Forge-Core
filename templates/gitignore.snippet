@@ -1,0 +1,53 @@
+# --- Forge (added by the Forge-Core installer) ---
+# Run/event logs are local-only: they record what happened on YOUR machine.
+# Ignore the run CONTENTS, not the directory itself, so the directory can keep a README.
+.claude/forge-runs/*/*
+# The owner-request scribe store (verbatim owner prompts): local only, never committed.
+.claude/forge-scribe/
+# Agent worktree checkouts (.claude/worktrees): never committed in a user project.
+.claude/worktrees/
+.claude/forge-index/
+.claude/forge-backups/
+.claude/agent-memory/
+.claude/forge-dashboard/PORT
+.claude/forge-dashboard/DASHBOARD_STATE.json
+.claude/.forge-setup.json
+.claude/FORGE_USAGE_GUARD_ACK.json
+# Per-install state written by the installer / forge-sync (records YOUR template path)
+.claude/FORGE_VERSION.json
+.claude/forge-sync-receipt.json
+# Owner approval files (usage guard): the owner's secret and the per-machine override grant — never commit them
+.claude/config/forge-owner-grant.txt
+.claude/config/forge-usage-guard-override-grant.json
+# Single-use /forge config approvals (2026-09-26 laptop re-audit): each spent approval leaves
+# one of these behind (forge-config-once-store.cjs) — never useful to commit, and `git add -A` at a
+# checkpoint would otherwise stage the owner's own approval words.
+.claude/FORGE_CONFIG.once.*.consumed.*.json
+.claude/FORGE_CONFIG.once.*.pending.json
+
+# Forge user-state files (never shipped, never committed) — the installer records what IT wrote here
+# for --uninstall/-Uninstall to read back; owner additions to template-owned files (standing rules,
+# scout vetting, the Codex pin) are kept in a separate *.user.json next to the shipped default and
+# merged at read time, so an update never overwrites your own additions. Exact filenames confirmed
+# by the Lead once the source-side split lands.
+.claude/.forge-install-manifest.json
+.claude/config/orchestration/FORGE_STANDING_RULES.user.json
+.claude/config/orchestration/FORGE_SCOUT_VETTING.user.json
+.claude/config/orchestration/codex-review.user.json
+
+# Secrets — never commit real env files (placeholders live in .env.example)
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output
+node_modules/
+dist/
+build/
+.cache/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
+.claude/.forge-snapshot-due.json

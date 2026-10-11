@@ -1,0 +1,858 @@
+{
+  "_doc": "FORGE_HARD_RULES.json (P1 / V9-build, override model hardened V9-fix 2026-07-22, version 2 = the ONE rules registry, part A). THE single source of truth for the owner's #1 ask: a small, fixed set of non-negotiables that 'cannot be skipped' on a real run, checkable PURELY from a run's real events.jsonl + the real files actually sitting in that run's directory — never assumed, never inferred from a self-report. Read only via .claude/forge-bin/forge-runcontract.cjs::check() — no other file may re-implement this matching logic (same single-source-of-truth discipline hard-gates.json/forge-actiongate.cjs, required-evidence.json/forge-evidence.cjs and run-checklist.json/forge-orchestrate.cjs already established). Advisory-shaped output (a run-contract violation is reported loudly with ok:false + a named missing rule), but unlike this project's other advisory checks this one is DESIGNED to be wired as a real gate by a caller (V9-integrate) — the CLI's exit code 3 on a missing block-rule is the enforcement surface.\n\nRULE SHAPE: { id, rule, trigger, check:{type, key, domain_aware?}, severity, override, source, cannot_override? }.\n  id       — stable kebab-case identifier, unique across the file.\n  rule     — the human-readable non-negotiable statement.\n  trigger  — when this rule applies to a run: 'always' (every run) | 'web' (domain is 'web' or 'website') |\n             'correctness-critical' (domain is one of forge-fixtures.cjs's CRITICAL_DOMAINS: finance, parser,\n             ocr, data, prediction) | 'domain:<x>' (an exact-match single domain, reserved for future rules —\n             none seeded yet, validated by the schema so a future addition needs no new trigger vocabulary).\n  check    — type:'event-present' (satisfied when ANY event in the run's events.jsonl has an event_type\n             matching (case-insensitive) any string in `key`, which may be a single string or an array) |\n             type:'artifact-present' (satisfied when ANY real file actually sitting in the run's directory —\n             fs.readdirSync of that directory, excluding events.jsonl itself — contains (case-insensitive)\n             any substring in `key` AND is genuinely non-empty, i.e. its real content is not just 0 bytes or\n             whitespace — V9-fix 2026-07-22, DEFECT 1: a 0-byte placeholder file used to satisfy this on\n             filename alone; see forge-runcontract.cjs::listRunArtifacts()/hasArtifact()) | type:'doctor-check'\n             (forward-declared minimal support: satisfied when a 'doctor_run' event is present in the run;\n             `key` is documentation-only for now — no seeded rule below uses this type yet, same\n             forward-declaration convention log-event.cjs already uses for\n             mcp_tool_loaded/repomap_generated/bead_added). An optional `domain_aware:true` on an\n             'event-present' check means: when the caller's real domain is a required-evidence.json domain\n             key, forge-runcontract.cjs ALSO tries forge-verify.cjs::evidenceCheck(events, domain) (reused,\n             never re-implemented) and treats an ok:true result there as satisfying too — the rule passes on\n             EITHER the generic event-present signal OR real domain-specific proof.\n  severity — 'block' (an unmet, non-overridden rule makes the whole contract ok:false — 'NOT DONE') | 'warn'\n             (an unmet rule is reported but never flips ok to false). Every rule seeded below is 'block' — the\n             schema also accepts 'warn' for a future genuinely-optional addition; the generic warn-path itself\n             is proven by forge-runcontract.test.cjs's own hermetic fixture rules (not by any seeded rule\n             here — there is currently no non-negotiable the owner wants advisory-only).\n  override — human-readable description of the ONE convention every OVERRIDABLE rule shares (V9-fix,\n             2026-07-22 — break-swarm DEFECT 2/3, REPLACES the retired 'agent_note substring' convention: any\n             dispatched subagent could freely log an agent_note containing 'override:<rule id>' and clear the\n             very rules meant to police that agent's own honesty — proven by a break-swarm repro). An override\n             is now recognized ONLY from an explicit, structured, attributed, affirmative owner act: a real\n             event shaped EXACTLY like { event_type:'owner_override', rule:'<exact-rule-id>',\n             reason:'<non-empty, non-bare-token reason>', by:'<owner id>' }. `rule` must EXACT-match the rule\n             id (no substring/prefix/negation matching of any kind); `reason` must be non-blank and more than\n             just the bare rule id/token repeated; `by` must match a configured owner id — see this file's own\n             top-level `owners_allowlist` array and/or FORGE_OWNER_PROFILE.json (forge-runcontract.cjs's\n             loadOwnerAllowlist()) — an empty/missing allow-list means NO override can ever be recognized\n             (fails closed, never 'anyone is the owner'). A rule with `cannot_override:true` (see below) never\n             even consults this mechanism, regardless of how a matching event is shaped.\n  source   — which existing capability/config this rule is grounded in (never a bare assertion).\n  cannot_override — optional boolean, default false/absent. true marks a rule as UN-OVERRIDABLE: no\n             owner_override event, however validly structured/attributed, can ever clear it — an unsatisfied\n             cannot_override rule is ALWAYS reported as genuinely missing (severity permitting). Seeded on the\n             honesty-core subset (memory-read, dispatch-logged, evidence-satisfied, verify-checked, \n             report-present) — the rules that police the agents' OWN honesty must never be\n             clearable by an act that is itself only as trustworthy as the honesty this contract exists to\n             verify.\n  phase    — optional: when the obligation is due — 'preview' (before the first work event), 'wp' (per work\n             package, while the run works) or 'complete' (at completion; the default when absent). check({phase}) /\n             `--phase` judges only the rules due by that phase; later ones are reported in phase_deferred, never as\n             missing. A phase-less check judges every rule, exactly as before V2.\n  since    — optional: an ISO date. The rule applies only to runs that STARTED on/after it (run start = the\n             first run_started timestamp, else the first timestamped event, else run.json); an older run is\n             reported in historical_exempt for that rule — judged by the rules of its own time, never retroactively\n             red. A run whose start cannot be dated is exempt from a WARN rule and judged by a BLOCK rule\n             (fail-closed). Every rule added in version 2 carries since:\"2026-10-09\" and severity \"warn\"; promotion to\n             \"block\" happens one rule at a time after real runs satisfy it (migration step M6, owner-confirmed).\n part ii added owner-requests-reconciled with since:\"2026-10-10\" (warn), the day it was wired.\n  applies_if_exists — optional (part ii): a project-relative path; the rule applies only while that\n             path exists under the run's root (check() reports it in not_applicable otherwise — never satisfied, missing\n             or warned). The fail-safe for a capability a project may not have: owner-requests-reconciled applies only\n             where the scribe has captured something (.claude/forge-scribe/ledger.jsonl). A checker older than this field\n             ignores it and judges the rule as written (a warn rule there never turns a run red).\n  V2 check types (each with its own shape; see forge-runcontract.cjs \"V2 CHECK TYPES\" for the exact semantics):\n             closure {open, close, key, close_where?, skip_rule?, distinct_agent?, worker_exclude?} — every open\n             event has a LATER close event with the same key (1:1); key is a field or a priority list of fields,\n             compared on the first field both events carry; skip_rule names an owner_override rule that may close\n             one keyed item; distinct_agent forbids a closer who did work on that item. sequence {before, after} —\n             every before item (type | [any-of types] | {event, where}) occurs before the FIRST after event (no after\n             event yet = vacuously met). reaction {on, require, key?, on_where?, require_where?, count?,\n             forbid_unprompted?} — every trigger is followed by a reaction (count at-least-one) or, per key, exactly\n             one reaction after the first trigger (count exactly-one); forbid_unprompted also flags a reaction with\n             no earlier trigger. file-touched {files, mode?, alt_event?} — each project-relative\n             file's sha256 differs from the one the WRITER recorded on run_started (field file_hashes, stamped by\n             log-event.cjs, never caller-supplied); without that baseline the file is 'unverified' (an alt_event\n             naming the exact project-relative path is reported as a claim, never as proof);\n             with a baseline the hash decides alone. A checker older than V2\n             reports all four as unevaluated (never a crash; a warn rule never turns a run red there).\n  Every event type a rule, a lifecycle row or a checklist step names must be registered in log-event.cjs\n             KNOWN_EVENT_TYPES (+ the forge-verify.cjs mirror); forge-runcontract-v2.test.cjs enforces it. The nine version-2 names are\n             registered; a future name not registered yet is listed there as pending (until then the strict writer refuses it and\n             a rule waiting for it simply stays open or vacuous — honest, never a fake pass).\n\n\nHONEST GAPS (documented, not hidden — same discipline run-checklist.json's own _doc already applies):\n  (1) 'research-done' relies on a BRAND NEW event_type, research_done (declared here, registered by\n      V9-integrate in log-event.cjs KNOWN_EVENT_TYPES) — no historical run before this piece ever logged it,\n      so every pre-existing run will show this rule as genuinely missing until the research step that emits it\n      is actually wired into the intake flow. This is intentional, not a bug: the whole point of this piece is\n      to make a previously-invisible gap (research skipped) visible and blockable going forward.\n  (2) 'correctness-critical-fixtures' can only automatically recognize the EXPLICIT-WAIVER half of\n      forge-fixtures.cjs's model (the registered fixtures_waived event) — there is currently no dedicated\n      event_type for 'real fixtures were genuinely attached to this run' (real fixtures live in the project's\n      shared .claude/forge-fixtures/ vault, not per-run, so a per-run artifact-present check cannot see them\n      either). A run that genuinely used real fixtures but logged neither fixtures_waived nor a matching\n      owner_override event will be honestly flagged missing — favors under-claiming over over-claiming (same\n      bias run-checklist.json's own 'update-memory' gap documents). A real future improvement would add a\n      dedicated 'fixtures_provided' event_type.\n  (3) 'web-responsive-evidence' degrades to the weaker single-event signal (browser_screenshot_captured\n      logged at least once) when the caller does not pass a real domain of 'web'/'website' to check() — the\n      strong 3-breakpoint proof only fires via the domain_aware forge-verify.cjs::evidenceCheck() path.\n  (4) RESOLVED (removed 2026-10-09, audit S9): this gap said 'owner_override' was not yet registered in\n      log-event.cjs — it is (KNOWN_EVENT_TYPES), so an owner can log one through the normal strict write path.\n      forge-runcontract-v2.test.cjs now asserts every event type this registry names is registered, so a stale\n      gap like this one is caught by a test instead of lingering as prose.\n  (5) the `by` provenance check is a CONFIG-MATCH, not a cryptographic signature: this project has no\n      out-of-band agent-identity authentication anywhere (no run here is ever cryptographically signed), so\n      `by` matching the configured owner id is the 'strongest realistic' provenance available in an\n      events.jsonl-based system — a determined, dishonest subagent could still fabricate an owner_override\n      event claiming by:'owner'. What this fix closes is the SPECIFIC proven gap (a free-text agent_note\n      substring, which ANY normal event trivially satisfies with no deliberate impersonation at all); a\n      structured, exact-match, falsely-attributed owner_override event is a categorically more deliberate and\n      more detectable act of dishonesty, and the cannot_override honesty-core subset is immune to this vector\n      entirely regardless.",
+  "_doc_doctor_check_overrides": "V9-INTEGRATE (2026-07-22) — doctor_check_overrides is a SEPARATE, SIBLING array to `rules` above (not a rule; forge-runcontract.cjs's loadRules()/check() never reads or validates this key, only `rules`/`owners_allowlist`). It is the owner-recovery path for forge-doctor.cjs's ENFORCED completeness checks (currently: unregistered_event, check_the_checks — see forge-doctor.cjs header doc 'V9-INTEGRATE enforcement' note for exactly which checks are enforced and why). Shape: [{check, reason, by, ts}, ...]. `check` must match a real forge-doctor.cjs checks-key id; `reason` must be a real, non-blank, non-templated explanation (a blank/whitespace-only reason is silently dropped by loadDoctorCheckOverrides() — never treated as a valid override). `by`/`ts` are optional context (defaults to 'owner' when absent). An override NEVER changes what actually happened — it only lets a genuinely-reviewed, explained false-red pass VISIBLY (forge-doctor.cjs's printSummary() still prints the check as ✓ but tags it '[OVERRIDDEN by <by>: <reason>]', never a silent bypass). This is deliberately the SAME file the run-contract per-run overrides above already live in, reused rather than inventing a second override mechanism/file.",
+  "_doc_owners_allowlist": "owners_allowlist (V9-fix, 2026-07-22 — break-swarm DEFECT 2) is the primary, in-repo source of truth forge-runcontract.cjs::loadOwnerAllowlist() reads for the set of `by` identifiers a per-run owner_override event is allowed to claim. Every entry must be a real, non-blank string (matched case-insensitively). Seeded with the SAME literal identifier ('owner') this project's own doctor_check_overrides entries already use throughout (their `by` field's documented default) — reusing an existing convention rather than inventing a new one. This array is additive to (never a replacement for) any owner_id FORGE_OWNER_PROFILE.json may itself declare in the future (see that reader's own doc). An EMPTY array here (and no FORGE_OWNER_PROFILE.json owner_id) means NO owner_override event can ever be recognized — the fix's fail-closed default; do not clear this array to 'disable' the honesty gate, that would only make every OVERRIDABLE rule un-overridable, never the reverse.",
+  "version": 2,
+  "doctor_check_overrides": [],
+  "owners_allowlist": [
+    "owner"
+  ],
+  "rules": [
+    {
+      "id": "memory-read",
+      "rule": "Project memory (FORGE_PROJECT_PROFILE.md / FORGE_MEMORY.md / FORGE_TASK_HISTORY.md / FORGE_AGENT_LEDGER.md) must be read before routing a run — never start blind.",
+      "trigger": "always",
+      "phase": "preview",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "memory_loaded",
+          "project_scanned"
+        ]
+      },
+      "severity": "block",
+      "override": "UN-OVERRIDABLE — see cannot_override below (part of the honesty core an owner_override can never clear)",
+      "source": "run-checklist.json step \"read-memory\" (reused verbatim — same event set, no parallel logic)",
+      "cannot_override": true
+    },
+    {
+      "id": "owner-prefs-loaded",
+      "rule": "The owner-profile prefs + active standing-rules ECHO must be composed and logged before a run proceeds — the owner's applied preferences must be visible, not assumed.",
+      "trigger": "always",
+      "phase": "preview",
+      "check": {
+        "type": "event-present",
+        "key": "owner_prefs_loaded"
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'owner-prefs-loaded', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "forge-echo.cjs::emitEcho() + run-checklist.json step \"load-owner-prefs\""
+    },
+    {
+      "id": "research-done",
+      "rule": "A genuine research/reuse pass (existing implementations, library docs, adaptable open-source approaches — CLAUDE.md \"Research & Reuse\") must happen before new implementation work, not be skipped straight to writing code.",
+      "trigger": "always",
+      "phase": "preview",
+      "check": {
+        "type": "event-present",
+        "key": "research_done"
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'research-done', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "NEW event_type (declared here, registered by V9-integrate) — CLAUDE.md \"Feature Implementation Workflow\" Research & Reuse step, which previously had no logged proof at all"
+    },
+    {
+      "id": "plan-or-prd-present",
+      "rule": "A run must produce a real plan/PRD/work-package artifact before dispatch — no team is spawned against an unwritten plan. This is the FLOOR: any of the three counts. Heavy work owes more — see prd-required-for-heavy-work.",
+      "trigger": "always",
+      "phase": "wp",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "prd_generated",
+          "mission_blueprint_created",
+          "agent_work_package_created"
+        ]
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'plan-or-prd-present', reason:'<real, non-bare-token reason, e.g. a genuinely trivial 1-line fix with no plan needed>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "log-event.cjs KNOWN_EVENT_TYPES (prd_generated/mission_blueprint_created/agent_work_package_created) + forge-prd.cjs"
+    },
+    {
+      "id": "prd-required-for-heavy-work",
+      "rule": "Heavy work (fan-out L3/L4) must produce a REAL PRD — a genuine prd_generated event. The cheap agent_work_package_created that satisfies the plan floor is not enough once a run is this big.",
+      "trigger": "complexity:>=L3",
+      "phase": "complete",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "prd_generated"
+        ]
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'prd-required-for-heavy-work', reason:'<real, non-bare-token reason, e.g. a large but purely mechanical run against an already-approved plan>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. DELIBERATELY overridable (never cannot_override): when the level was DERIVED rather than declared this rule blocks on an inference, and a block on an inference must always have a usable, attributed escape hatch.",
+      "source": "OWNER-PUNT B / richting 2 (2026-08-03). Measured over the 30 real runs in .claude/forge-runs: plan-or-prd-present's OR-key was satisfied on every run by the cheapest of its three alternatives (agent_work_package_created 12 events vs prd_generated 2), because the router instructs every Lead to log a work package per dispatched subagent — so the PRD, the expensive alternative, was never chosen. This rule restores the distinction: the floor stays cheap, heavy work owes the real thing. Complexity comes from forge-runcontract.cjs::resolveComplexity() — DECLARED from the run's own run.json (`complexity`/`fanout`), DERIVED from real dispatch volume via CLAUDE.md's fan-out bands (L1 1-3, L2 3-6, L3 6-12, L4 large), reconciled by MAX so a self-reported 'L1' cannot dodge it."
+    },
+    {
+      "id": "dispatch-logged",
+      "rule": "Real Agent-tool subagents must actually be dispatched and logged — REAL AGENTS ONLY, never a simulated/claimed swarm.",
+      "trigger": "always",
+      "phase": "wp",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "agent_started",
+          "subagent_started",
+          "custom_subagent_created"
+        ]
+      },
+      "severity": "block",
+      "override": "UN-OVERRIDABLE — see cannot_override below (part of the honesty core an owner_override can never clear)",
+      "source": "run-checklist.json step \"dispatch\" (reused verbatim — same event set)",
+      "cannot_override": true
+    },
+    {
+      "id": "evidence-satisfied",
+      "rule": "A run must show real required-evidence proof — either a generic evidence-fact event, or (when a real domain is known) the domain's full required-evidence.json set — before being called done.",
+      "trigger": "always",
+      "phase": "complete",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "zero_console_errors_noted",
+          "e2e_passed",
+          "e2e_result",
+          "integration_gate_passed",
+          "validate_workflow_passed",
+          "workflow_validated",
+          "workflow_imported_inactive",
+          "robots_checked",
+          "source_compliance_noted",
+          "citation_verified",
+          "ingestion_idempotency_verified",
+          "backtest_completed",
+          "uncertainty_labels_applied",
+          "webhook_auth_verified",
+          "outreach_drafted_only_noted",
+          "browser_screenshot_captured"
+        ],
+        "domain_aware": true
+      },
+      "severity": "block",
+      "override": "UN-OVERRIDABLE — see cannot_override below (part of the honesty core an owner_override can never clear)",
+      "source": "required-evidence.json (all domains' any_of_events, unioned) + forge-verify.cjs::evidenceCheck() (reused via domain_aware, never re-implemented)",
+      "cannot_override": true
+    },
+    {
+      "id": "verify-checked",
+      "rule": "A claimed check/quality-gate must be verified against real evidence — a check must actually pass, not just be claimed.",
+      "trigger": "always",
+      "phase": "complete",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "check_passed",
+          "quality_gate_passed",
+          "retest_completed"
+        ]
+      },
+      "severity": "block",
+      "override": "UN-OVERRIDABLE — see cannot_override below (part of the honesty core an owner_override can never clear)",
+      "source": "run-checklist.json step \"verify\" (reused verbatim — same event set)",
+      "cannot_override": true
+    },
+    {
+      "id": "independent-verification",
+      "rule": "A completion claim must be confirmed by someone OTHER than the agent that did the work, via ONE route: a review_completed (or codex_review_completed) logged by a registered agent who did no work in this run, causally linked to that same agent's earlier review_started with the same review_id, carrying an explicitly positive review_verdict, bound to the exact commit + run state (subject_log_hash == prev_hash) + evidence digest, with every gate green and no work logged after it. NOTE: this separation is by agent LABEL, not by runtime principal — see OWNER-GATED.md.",
+      "trigger": "complexity:>=L2",
+      "phase": "complete",
+      "check": {
+        "type": "independent-verification"
+      },
+      "severity": "block",
+      "override": "UN-OVERRIDABLE — self-approval is exactly what this rule exists to prevent; an owner_override would defeat it",
+      "source": "research-lane A 2026-08-09 (RED-baseline: een Boss keurde zijn eigen werk goed en kreeg CONTRACT OK) + arXiv:2410.21819 self-preference bias + Anthropic subagent-richtlijn (context-geisoleerde reviewer)",
+      "cannot_override": true
+    },
+    {
+      "id": "report-present",
+      "rule": "A real final-report artifact must actually exist in the run's own directory before the run is called done.",
+      "trigger": "always",
+      "phase": "complete",
+      "check": {
+        "type": "artifact-present",
+        "key": [
+          "final-report"
+        ]
+      },
+      "severity": "block",
+      "override": "UN-OVERRIDABLE — see cannot_override below (part of the honesty core an owner_override can never clear)",
+      "source": "CLAUDE.md run-artifact contract: .claude/forge-runs/<run_id>/{run.json, events.jsonl, final-report.md}",
+      "cannot_override": true
+    },
+    {
+      "id": "web-responsive-evidence",
+      "rule": "A web/website-domain run must show real responsive screenshot evidence (mobile + tablet + desktop) and a zero-console-errors note before being called done.",
+      "trigger": "web",
+      "phase": "complete",
+      "check": {
+        "type": "event-present",
+        "key": "browser_screenshot_captured",
+        "domain_aware": true
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'web-responsive-evidence', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "required-evidence.json \"website\" domain (3 responsive-screenshot items + zero-console-errors item) + forge-verify.cjs::evidenceCheck() (reused via domain_aware)"
+    },
+    {
+      "id": "correctness-critical-fixtures",
+      "rule": "Correctness-critical domains (finance, parser, OCR, data/ETL, prediction) must prove real fixtures were used, or carry an explicit logged waiver, before being called done — no silent synthetic-only fallback.",
+      "trigger": "correctness-critical",
+      "phase": "complete",
+      "check": {
+        "type": "event-present",
+        "key": "fixtures_waived"
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'correctness-critical-fixtures', reason:'<real, non-bare-token reason, e.g. real fixtures WERE genuinely used but no dedicated fixtures-provided event exists yet — see _doc HONEST GAPS #2>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "forge-fixtures.cjs (WAVE D / D2) — CRITICAL_DOMAINS + check()/requirement()"
+    },
+    {
+      "id": "preview-preconditions",
+      "rule": "Before the first work event (agent_work_package_created / subagent_started / agent_started / custom_subagent_created) the run has logged run_started, memory_loaded (or project_scanned), owner_prefs_loaded, and one preview contract check — a gate_evaluated with phase 'preview', written by `node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --phase preview --log-event`. The preview check only has to have RUN here; its own verdict is the other preview rules.",
+      "trigger": "always",
+      "phase": "preview",
+      "since": "2026-10-09",
+      "check": {
+        "type": "sequence",
+        "before": [
+          "run_started",
+          [
+            "memory_loaded",
+            "project_scanned"
+          ],
+          "owner_prefs_loaded",
+          {
+            "event": "gate_evaluated",
+            "where": {
+              "phase": "preview"
+            }
+          }
+        ],
+        "after": [
+          "agent_work_package_created",
+          "subagent_started",
+          "agent_started",
+          "custom_subagent_created"
+        ]
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'preview-preconditions', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T1: commands/forge.md requires run_started, the memory read and the owner-prefs echo before any work, but until V2 only their EXISTENCE was checked, and only at the end; the goat run showed autonomy-decide out of order and nothing reacted."
+    },
+    {
+      "id": "wp-closure",
+      "rule": "Every work package the run declares (agent_work_package_created carrying a wp_id) is closed by a LATER wp_completed or wp_failed with the same wp_id — or by an owner_override {rule:'manifest-complete', wp_id, reason, by} for that one package — whether or not a manifest was armed. A work package logged WITHOUT a wp_id cannot be proven closed and stays open.",
+      "trigger": "always",
+      "phase": "complete",
+      "since": "2026-10-09",
+      "check": {
+        "type": "closure",
+        "open": "agent_work_package_created",
+        "close": [
+          "wp_completed",
+          "wp_failed"
+        ],
+        "key": "wp_id",
+        "skip_rule": "manifest-complete"
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'wp-closure', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T2: 24 of 42 completed runs declared more work packages than they closed; the goat run logged 10 agent_work_package_created and 0 wp_completed and still finalized, because manifest completeness applied only when manifest_armed was logged (1 of 63 runs). commands/forge.md step 6 already asks for wp_completed/wp_failed with the same wp_id."
+    },
+    {
+      "id": "subagent-closure",
+      "rule": "Every dispatched subagent (subagent_started / agent_started) is closed by a later subagent_completed / subagent_failed (or agent_completed / agent_failed). An open and a close are paired on the first field both carry: dispatch_id, then wp_id, then agent name.",
+      "trigger": "always",
+      "phase": "complete",
+      "since": "2026-10-09",
+      "check": {
+        "type": "closure",
+        "open": [
+          "subagent_started",
+          "agent_started"
+        ],
+        "close": [
+          "subagent_completed",
+          "subagent_failed",
+          "agent_completed",
+          "agent_failed"
+        ],
+        "key": [
+          "dispatch_id",
+          "wp_id",
+          "agent"
+        ]
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'subagent-closure', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T3: dispatch-logged is satisfied by ANY single start event; the goat run logged 17 subagent_started and 0 subagent_completed/subagent_failed and was still finalized."
+    },
+    {
+      "id": "wp-verified-per-wp",
+      "rule": "Every completed work package (wp_completed with a wp_id) gets a LATER wp_verified {wp_id, verdict:'PASS', agent} from an agent that did no work on that package — GOAT: the verifier checks EVERY package, and a worker never verifies its own work.",
+      "trigger": "always",
+      "phase": "wp",
+      "since": "2026-10-09",
+      "check": {
+        "type": "closure",
+        "open": "wp_completed",
+        "close": "wp_verified",
+        "close_where": {
+          "verdict": [
+            "pass",
+            "passed"
+          ]
+        },
+        "key": "wp_id",
+        "distinct_agent": true,
+        "worker_exclude": [
+          "route_assigned",
+          "escalation"
+        ]
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'wp-verified-per-wp', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T4: verify-checked passes on any single check_passed with no work-package binding; the goat run had 13 check_passed and no event tying a verdict to a wp_id. wp_verified is a version-2 event, registered (WP-4b) in log-event.cjs."
+    },
+    {
+      "id": "escalation-one-per-fail",
+      "rule": "A verifier FAIL on a work package (wp_verified verdict FAIL) is followed by exactly ONE escalation for that wp_id — the GOAT one-retry cap (more effort first, or one bigger model, once). A second escalation for the same package, or an escalation with no earlier FAIL for it (escalate chosen up front), is a violation; a second FAIL ends in wp_failed and an honest report.",
+      "trigger": "always",
+      "phase": "wp",
+      "since": "2026-10-09",
+      "check": {
+        "type": "reaction",
+        "on": "wp_verified",
+        "on_where": {
+          "verdict": [
+            "fail",
+            "failed"
+          ]
+        },
+        "require": "escalation",
+        "key": "wp_id",
+        "count": "exactly-one",
+        "forbid_unprompted": true
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'escalation-one-per-fail', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T5: the goat-model-routing orchestration rule stated it was 'not machine-verified by forge-runcontract' because no route/escalation event existed. escalation and wp_verified are version-2 events, registered (WP-4b)."
+    },
+    {
+      "id": "memory-files-touched",
+      "rule": "Before completion the run has updated project memory: FORGE_MEMORY.md, FORGE_TASK_HISTORY.md and FORGE_AGENT_LEDGER.md each differ from the sha256 recorded on the run_started event (field file_hashes). Only when no baseline was recorded does a memory_updated event naming the file count instead.",
+      "trigger": "always",
+      "phase": "complete",
+      "since": "2026-10-09",
+      "check": {
+        "type": "file-touched",
+        "files": [
+          ".claude/FORGE_MEMORY.md",
+          ".claude/FORGE_TASK_HISTORY.md",
+          ".claude/FORGE_AGENT_LEDGER.md"
+        ],
+        "mode": "all",
+        "alt_event": "memory_updated"
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'memory-files-touched', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T12: commands/forge.md says 'Memory Update (always)', yet 36 of 42 completed runs (every one since 2026-09-24) logged no memory_updated and no rule checked the memory files. The run_started baseline (file_hashes) is written by the run_started path in log-event.cjs (pending, see _doc); forge-runcontract.cjs exports snapshotFileHashes()/fileTouchedTargets() for it."
+    },
+    {
+      "id": "pause-resume",
+      "rule": "A paused run (run_paused, e.g. reason 'usage-limit') is resumed — a later run_resumed — before it is called done.",
+      "trigger": "always",
+      "phase": "complete",
+      "since": "2026-10-09",
+      "check": {
+        "type": "reaction",
+        "on": "run_paused",
+        "require": "run_resumed"
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'pause-resume', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T6: a usage pause left no run-level record, so resume had nothing to reconcile. run_paused/run_resumed are version-2 events, registered (WP-4b)."
+    },
+    {
+      "id": "gate-blocked-resolved",
+      "rule": "Every hard-gate block recorded in the run (gate_blocked {gate}) is answered by a later owner_override (configured owner `by`, real reason) or a decision_logged recording the safe variant — both carrying the same gate.",
+      "trigger": "always",
+      "phase": "complete",
+      "since": "2026-10-09",
+      "check": {
+        "type": "reaction",
+        "on": "gate_blocked",
+        "require": [
+          "owner_override",
+          "decision_logged"
+        ],
+        "key": "gate"
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'gate-blocked-resolved', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-enforcement-core (run forge-2026-10-09-forge-core-overhaul) T10: forge-bin/forge-gate-hook.cjs blocks the act (exit 2) but writes no run event, so an unresolved block left no trace. gate_blocked is a version-2 event, registered (WP-4b); the hook writes it in WP-6."
+    },
+    {
+      "id": "owner-requests-reconciled",
+      "rule": "Every owner request the scribe captured (.claude/forge-scribe/) is reconciled before the run is called done: the run logs a FINAL owner_requests_reconciled (final is the default; final:false is a progress-only check that never satisfies this rule), which the writer accepts only while the final `forge-scribe gate` is OK — nothing unclassified, open, planned, in-progress, done-but-not-acked by the owner, or proposed for deferral without the owner's ack — and the reconciliation must still be CURRENT: the writer stamps the scribe ledger it judged (scribe_ledger_sha256, ledger_bytes, ledger_lines, inbox_lines), and a newer owner prompt or item, a changed pinned prefix, or a final gate that is not OK now makes it stale.",
+      "trigger": "always",
+      "phase": "complete",
+      "since": "2026-10-10",
+      "applies_if_exists": ".claude/forge-scribe/ledger.jsonl",
+      "check": {
+        "type": "event-present",
+        "key": "owner_requests_reconciled",
+        "binding": "scribe-ledger"
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'owner-requests-reconciled', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
+      "source": "audit-scribe (run forge-2026-10-09-forge-core-overhaul) SCRIBE-F3/F4, wired in WP-7b part ii: the owner kept sending changes over a 7-day project and nothing tracked them. forge-bin/forge-scribe-hook.cjs (UserPromptSubmit) captures every owner prompt word for word; forge-dashboard/log-event.cjs re-runs the scribe gate in-process and refuses owner_requests_reconciled (exit 2) while it is not OK; forge-bin/forge-scribe-stop.cjs blocks a stop once per unplanned item. An existing type (event-present) so older fleet checkers evaluate it without throwing; applies_if_exists keeps it not-applicable where the scribe has captured nothing; WP-13 promotes it to block. Codex R3 SC-05 (2026-10-10): check.binding 'scribe-ledger' makes the current checker (forge-runcontract.cjs scribeReconcileBinding) and forge-finalize.cjs require the LAST final reconciliation to still be current against the ledger; an older checker ignores the field and judges the plain event-present rule."
+    }
+  ],
+  "orchestration_hard_rules": [
+    {
+      "id": "no-overlapping-hotspot-writes",
+      "rule": "Never launch a workflow/agent that writes shared/hotspot files (sync/build manifests, event registries, the doctor/config, dashboards, a project core files) while another still-running run touches those same files. One writer per hotspot at a time. Confirm the prior run ACTUALLY finished (real task-completion notification or a non-empty journal.jsonl result line — never a 0-byte/placeholder output or an assumption) before launching an overlapping one. If an overlap/conflict happens anyway, DETECT + FIX it before continuing (no duplicate/lost edits, coherent manifest/registry, doctor GREEN) — never leave a half-clobbered state.",
+      "trigger": "always",
+      "enforcement": "prose",
+      "severity": "block",
+      "source": "real conflict 2026-07-22: a second workflow was launched while the first was still editing the same hotspots; owner asked to encode it globally so it cannot recur and must be fixed if it does.",
+      "enforcement_note": "Lead/orchestrator behavioral — via ~/.claude/CLAUDE.md \"Orchestration safety\" hard rule; not a per-run event check. The wf-watchdog monitor the Lead arms only REPORTS stalls and hung tools; nothing technically stops an overlapping launch.",
+      "enforced_by": [
+        "prose: ~/.claude/CLAUDE.md Orchestration safety (HARD MUST 1-3)",
+        "monitor (reports, never blocks): ~/.claude/tools/wf-watchdog.cjs"
+      ],
+      "contract_rules": []
+    },
+    {
+      "id": "reorganise-never-deletes",
+      "rule": "A restructure MOVES files, it never deletes them. When an agent reorganises a shared area (agent-memory, docs, config, test fixtures), the content must survive: move or merge, never replace-with-index. Before finishing any cleanup, run git status and treat every D (deleted) line as a defect to justify or undo — especially in a shared working tree where parallel agents write. An agent must never delete another agent memory or artifacts as a side effect of tidying its own.",
+      "trigger": "always",
+      "enforcement": "prose",
+      "severity": "block",
+      "source": "real incident 2026-07-29 (run forge-2026-07-29-cc-finish): an agent converted command-center/.claude/agent-memory/build-boss/MEMORY.md into a topics/ index and DELETED the six existing topic files plus test-boss/MEMORY.md — 417 lines of real lessons — instead of moving them. Detected via a parallel agent honest git-status note, restored from commit d76a30f, better topics/ structure kept, content intact (497 lines).",
+      "enforcement_note": "Lead/orchestrator behavioral — verify git status for D-lines after any agent that reorganises a shared directory; restore from the last commit and re-apply the new structure with content intact. The project gate hook blocks recursive-delete COMMANDS only; a restructure that drops files one by one (Write/Edit, git rm, moves) is not technically stopped.",
+      "enforced_by": [
+        "prose: Lead git-status D-line review after any reorganising agent",
+        "hook (partial): forge-bin/forge-gate-hook.cjs blocks recursive delete commands (exit 2)"
+      ],
+      "contract_rules": []
+    },
+    {
+      "id": "goat-model-routing",
+      "rule": "Every coding task / work package follows the GOAT router (.claude/FORGE_MODEL_ROUTING.json). The Lead (main session) is the router on sonnet / effort medium. Head Chef triages first ({route: quick|build|deep, risk, checks}); the owning Boss is dispatched with the route MODEL via the Agent-tool model param (routes: quick sonnet/low · build opus/medium · deep opus/xhigh). The Agent tool has no effort param: a plain dispatch runs at the Boss FRONTMATTER effort; when the route effort differs, use a Workflow agent({agentType, model, effort}) or a Boss whose default route matches, and log the ACTUAL effort (never the route effort that could not be set); Verify Boss checks EVERY package (sonnet/medium, PASS/FAIL with evidence, never edits). On FAIL: exactly ONE retry one step up — more effort first for a process failure, a bigger model (build -> deep -> escalate fable/high) for a capability failure; a second FAIL stops and is reported honestly (this one-retry cap overrides every open-ended repair loop: VERIFY-LOOP rework, QA fix-loop, Boss reassign-until-pass). Fable is never chosen up front; haiku is no default route. After any escalation, one line '<YYYY-MM-DD> <task pattern> -> <route that worked>' goes into .claude/agent-memory/head-chef/MEMORY.md. Never set CLAUDE_CODE_SUBAGENT_MODEL or CLAUDE_CODE_EFFORT_LEVEL.",
+      "trigger": "always",
+      "enforcement": "hook",
+      "severity": "block",
+      "source": "owner directive 2026-10-06 (run forge-2026-10-06-model-routing-goat): adopt the Model Routing Playbook by @donimas completely and always, as a hard rule, with working agents.",
+      "enforcement_note": "Lead/orchestrator behavioral — via the GOAT HARD MUST in ~/.claude/CLAUDE.md, the routes in FORGE_MODEL_ROUTING.json, the agent frontmatter model/effort, and the global Stop-hook test gate (~/.claude/hooks/goat-stop-gate.cjs, per-repo config .claude/goat-gate.json) that blocks a stop while related tests fail. Two parts now have warn-level contract rules (version 2): wp-verified-per-wp (a non-worker verifies every package) and escalation-one-per-fail (the one-retry cap). The per-dispatch route choice itself still has no registered event (route_assigned is pending), so that part is not machine-verified.",
+      "enforced_by": [
+        "hook: ~/.claude/hooks/goat-workflow-guard.cjs denies an unrouted Workflow agent()",
+        "hook: ~/.claude/hooks/goat-stop-gate.cjs blocks a stop while related tests fail",
+        "contract (warn): wp-verified-per-wp, escalation-one-per-fail",
+        "prose: GOAT HARD MUST in ~/.claude/CLAUDE.md + FORGE_MODEL_ROUTING.json"
+      ],
+      "contract_rules": [
+        "wp-verified-per-wp",
+        "escalation-one-per-fail"
+      ]
+    }
+  ],
+  "_doc_orchestration_hard_rules": "Lead/orchestrator BEHAVIORAL hard rules — forge-runcontract only iterates the \"rules\" array, so these are never judged per run by it. Version 2 labels each one honestly: `enforcement` is the strongest mechanism that actually BLOCKS today — prose (only instructions; ~/.claude/CLAUDE.md is read every session) | hook (a Claude Code hook stops the act) | contract (forge-runcontract blocks completion). `enforced_by` lists every mechanism that touches the rule; `contract_rules` names warn-level contract rules that WATCH part of it (a warning watches, it does not block, so it never changes the label). `enforcement_note` keeps the earlier prose.",
+  "_doc_lifecycle": "Version 2 lifecycle trigger table (audit-enforcement-core T1-T13): for each moment in a run, the reaction that must follow, what happens when it does not, and what enforces it TODAY (enforced_by) versus what a later work package adds (planned). DATA for docs, `forge-runcontract plan` (WP-5) and the snapshot re-inject (WP-6) — check() does not read it; rule_ids point at the rules that do the judging. Every `event` named here is registered (the version-2 ones in WP-4b); forge-runcontract-v2.test.cjs fails on any that is not.",
+  "lifecycle": [
+    {
+      "id": "run-started",
+      "trigger": "a run starts",
+      "event": "run_started",
+      "required_reaction": "before the first work event: run_started, memory_loaded (or project_scanned), owner_prefs_loaded, the owner config diff (forge-config.cjs diff --run <id> --mark-seen), and one preview contract check (check --phase preview --log-event)",
+      "missing_reaction_behaviour": "contract warning preview-preconditions; memory-read and owner-prefs-loaded stay blocking at completion",
+      "enforced_by": [
+        "contract (warn): preview-preconditions",
+        "contract (block): memory-read, owner-prefs-loaded"
+      ],
+      "rule_ids": [
+        "preview-preconditions",
+        "memory-read",
+        "owner-prefs-loaded"
+      ],
+      "planned": "unassigned: no overhaul-blueprint WP owns a log-event warning on the first work event without its preconditions (WP-6 only prints preview obligations from the re-inject and Stop hooks); WP-13: promotion to block",
+      "audit_ref": "T1, T13"
+    },
+    {
+      "id": "work-package-created",
+      "trigger": "a work package is declared",
+      "event": "agent_work_package_created",
+      "required_reaction": "every wp_id gets a later wp_completed or wp_failed (or an owner_override rule manifest-complete for that wp_id)",
+      "missing_reaction_behaviour": "contract warning wp-closure (open packages are listed by wp_id)",
+      "enforced_by": [
+        "contract (warn): wp-closure",
+        "contract (block, only when a manifest was armed): manifest completeness"
+      ],
+      "rule_ids": [
+        "wp-closure"
+      ],
+      "planned": "WP-13: promotion to block",
+      "audit_ref": "T2"
+    },
+    {
+      "id": "subagent-dispatched",
+      "trigger": "a subagent is dispatched or goes silent",
+      "event": "subagent_started",
+      "required_reaction": "subagent_completed or subagent_failed for the same dispatch; a silent agent found by forge-heartbeat is logged as stall_detected and then re-dispatched or failed",
+      "missing_reaction_behaviour": "contract warning subagent-closure",
+      "enforced_by": [
+        "contract (warn): subagent-closure",
+        "monitor (on request): forge-bin/forge-heartbeat.cjs"
+      ],
+      "rule_ids": [
+        "subagent-closure"
+      ],
+      "planned": "WP-6: heartbeat at phase boundaries; stall_detected registered (WP-4b)",
+      "audit_ref": "T3"
+    },
+    {
+      "id": "wp-completed",
+      "trigger": "a work package is reported done",
+      "event": "wp_completed",
+      "required_reaction": "a later wp_verified {wp_id, verdict:'PASS'} by an agent that did no work on that package",
+      "missing_reaction_behaviour": "contract warning wp-verified-per-wp",
+      "enforced_by": [
+        "contract (warn): wp-verified-per-wp"
+      ],
+      "rule_ids": [
+        "wp-verified-per-wp"
+      ],
+      "planned": "wp_verified registered (WP-4b); WP-13: promotion",
+      "audit_ref": "T4"
+    },
+    {
+      "id": "verifier-fail",
+      "trigger": "the verifier returns FAIL on a package",
+      "event": "wp_verified",
+      "required_reaction": "exactly one escalation for that wp_id (more effort first, then one bigger model), then a re-verify; a second FAIL ends in wp_failed plus an honest report; one lesson line in .claude/agent-memory/head-chef/MEMORY.md",
+      "missing_reaction_behaviour": "contract warning escalation-one-per-fail (none, more than one, or an escalation up front)",
+      "enforced_by": [
+        "contract (warn): escalation-one-per-fail",
+        "hook: ~/.claude/hooks/goat-stop-gate.cjs (failing tests block a stop)"
+      ],
+      "rule_ids": [
+        "escalation-one-per-fail"
+      ],
+      "planned": "escalation and route_assigned registered (WP-4b); the lesson-line check is not encoded yet",
+      "audit_ref": "T5"
+    },
+    {
+      "id": "usage-limit",
+      "trigger": "the usage limit pauses the run",
+      "event": "run_paused",
+      "required_reaction": "log run_paused {reason:'usage-limit'} and keep the manifest armed; on resume log run_resumed, then run forge-bin/forge-swarm-resume.cjs",
+      "missing_reaction_behaviour": "contract warning pause-resume",
+      "enforced_by": [
+        "hook: ~/.claude/hooks/forge-usage-guard-hook.cjs denies new Agent/Workflow spawns while paused",
+        "contract (warn): pause-resume"
+      ],
+      "rule_ids": [
+        "pause-resume"
+      ],
+      "planned": "owner queue O4: the usage-guard hook appends run_paused; run_paused/run_resumed registered (WP-4b)",
+      "audit_ref": "T6"
+    },
+    {
+      "id": "owner-changes-requirement",
+      "trigger": "the owner adds or changes a requirement mid-run",
+      "event": "owner_requirement_noted",
+      "required_reaction": "the scribe records it word for word (the UserPromptSubmit hook does this for every owner prompt) and each item ends planned and done with evidence, deferred with a reason (an agent's defer is only proposed until the owner acks it), answered, or cancelled by the owner (requirement_resolved may record that end state in the run); owner_requests_reconciled before completion",
+      "missing_reaction_behaviour": "contract warning owner-requests-reconciled (only where the scribe has captured something); the writer refuses owner_requests_reconciled while forge-scribe gate is not OK; the scribe Stop hook blocks a stop once per item captured this session that is still unplanned",
+      "enforced_by": [
+        "hook: forge-bin/forge-scribe-hook.cjs (UserPromptSubmit) captures every owner prompt",
+        "hook: forge-bin/forge-scribe-stop.cjs (Stop) blocks once per unplanned item captured this session",
+        "writer: forge-dashboard/log-event.cjs refuses owner_requests_reconciled unless the scribe gate is OK",
+        "contract (warn): owner-requests-reconciled"
+      ],
+      "rule_ids": [
+        "owner-requests-reconciled"
+      ],
+      "planned": "WP-13: promotion to block",
+      "audit_ref": "T7"
+    },
+    {
+      "id": "session-resumed",
+      "trigger": "a session resumes after compaction",
+      "event": "session_resumed",
+      "required_reaction": "the snapshot re-inject prints the snapshot plus the active run's outstanding obligations (10 lines or fewer) and logs session_resumed — exactly once per compaction, by one copy of the hook",
+      "missing_reaction_behaviour": "none needed once the hook does it (deterministic)",
+      "enforced_by": [
+        "hook: forge-bin/forge-snapshot-marker.cjs (PreCompact) writes the due-marker and regenerates the snapshot",
+        "hook: forge-bin/forge-snapshot-reinject.cjs (SessionStart compact) prints the snapshot and the obligations and logs session_resumed (WP-6); a global copy defers to the project's own; one claim per compaction lets exactly one copy print and log (WP-12b)"
+      ],
+      "rule_ids": [],
+      "planned": "owner queue: copy the current forge-snapshot-reinject.cjs to ~/.claude/forge-bin/ — the older global copy knows no claim and, when it starts at the same moment as the project copy, can still print the snapshot a second time",
+      "audit_ref": "T8, U-05"
+    },
+    {
+      "id": "mission-phase-end",
+      "trigger": "a run is finalized (or closed) and the session should hand the mission over",
+      "event": "run_finalized",
+      "required_reaction": "completion_sequence step 6 (handoff): forge-runcontract.cjs handoff --run <id> writes the snapshot and prints the scribe digest; with more than one open mission phase the next phase starts in a fresh session (/clear)",
+      "missing_reaction_behaviour": "none: advisory (severity warn); forge-runcontract plan lists it after the five completion steps",
+      "enforced_by": [
+        "data: completion_sequence step 6 (advisory, never blocks)",
+        "tool: forge-bin/forge-runcontract.cjs handoff"
+      ],
+      "rule_ids": [],
+      "planned": "measure after real runs: tokens per solved run summed across the transcripts of one run_id, before vs after (BLUEPRINT section 5 item 4)",
+      "audit_ref": "U-02"
+    },
+    {
+      "id": "sync-finished",
+      "trigger": "a Forge sync into a project finished",
+      "event": "sync_completed",
+      "required_reaction": "the target runs its doctor, proves its memory files byte-preserved, checks the rules/checker version pair, and the source run logs sync_completed {doctor_ok, preserved_ok}",
+      "missing_reaction_behaviour": "none yet in the contract",
+      "enforced_by": [
+        "tool: forge-bin/forge-sync.cjs (doctor after install)"
+      ],
+      "rule_ids": [],
+      "planned": "WP-2c (protect-manifest, quiesce-check) and WP-14",
+      "audit_ref": "T9"
+    },
+    {
+      "id": "hard-gate-hit",
+      "trigger": "a hard gate blocks an action",
+      "event": "gate_blocked",
+      "required_reaction": "an owner_override for that gate with the owner's reason, or a decision_logged recording the safe variant, carrying the same gate",
+      "missing_reaction_behaviour": "contract warning gate-blocked-resolved",
+      "enforced_by": [
+        "hook: forge-bin/forge-gate-hook.cjs blocks the command (exit 2)",
+        "contract (warn): gate-blocked-resolved"
+      ],
+      "rule_ids": [
+        "gate-blocked-resolved"
+      ],
+      "planned": "WP-6: the gate hook appends gate_blocked to the active run; gate_blocked registered (WP-4b)",
+      "audit_ref": "T10"
+    },
+    {
+      "id": "run-completed",
+      "trigger": "run_completed is about to be logged",
+      "event": "run_completed",
+      "required_reaction": "only after the completion_sequence steps 1-3: gate evidence recorded, final-report.md written, the contract check green",
+      "missing_reaction_behaviour": "forge-finalize refuses a run whose contract is red or whose gate evidence is missing",
+      "enforced_by": [
+        "writer gate: log-event.cjs completionGate (warn by default; FORGE_COMPLETION_GATE=strict refuses)",
+        "contract (block): every block rule, via forge-bin/forge-finalize.cjs"
+      ],
+      "rule_ids": [
+        "report-present"
+      ],
+      "planned": "WP-13: strict by default after 3 clean real runs",
+      "audit_ref": "T11, S2"
+    },
+    {
+      "id": "memory-update",
+      "trigger": "the run is wrapping up",
+      "event": "memory_updated",
+      "required_reaction": "FORGE_MEMORY.md, FORGE_TASK_HISTORY.md and FORGE_AGENT_LEDGER.md really change (sha256 differs from the run_started baseline)",
+      "missing_reaction_behaviour": "contract warning memory-files-touched",
+      "enforced_by": [
+        "contract (warn): memory-files-touched"
+      ],
+      "rule_ids": [
+        "memory-files-touched"
+      ],
+      "planned": "part B: the run_started path stores file_hashes",
+      "audit_ref": "T12"
+    },
+    {
+      "id": "config-changed",
+      "trigger": "an owner setting changed between runs",
+      "event": "config_changed",
+      "required_reaction": "forge-config.cjs diff --run <id> --mark-seen runs at preview and logs config_changed when something changed",
+      "missing_reaction_behaviour": "none yet in the contract",
+      "enforced_by": [
+        "prose: commands/forge.md"
+      ],
+      "rule_ids": [],
+      "planned": "unassigned: no overhaul-blueprint WP owns running or requiring the config diff in the preview phase",
+      "audit_ref": "T13"
+    }
+  ],
+  "_doc_completion_proof": "Codex adversarial review fixes F01/F02/F03 (2026-10-10, run forge-2026-10-09-forge-core-overhaul). What counts as PROOF of completion: a finalize receipt whose verdict is FINALIZED, or HISTORICAL with reverified:true (forge-finalize re-judged the contract under the receipt's own pinned rules — <run>/ruleset-pinned.json, content-addressed by the receipt's ruleset_sha256 — and commit). A HISTORICAL record with reverified:false (a legacy-generation receipt, a receipt judged under rules that were never pinned, or an 'unverified-archival' record whose rules or raw gate outputs cannot be reproduced) is valid HISTORY but 'archival, not a completion proof': forge-runcontract plan and forge-doctor accept it ONLY when it is allowlist-authenticated (legacy_receipts_allowlist) AND the run started before enforcement_cutoff. Codex R2/N03b: an 'unverified-archival' record, or any other non-re-verified record that the allowlist does not authenticate, is never a completion proof whatever the run date (for a pre-cutoff run it is archival history: neither done nor red); forge-finalize check() reports this cutoff-aware answer as completion_proof, the one value plan, doctor and the Command Center read. Legacy eligibility is authenticated by the per-project allowlist named in legacy_receipts_allowlist (run id + sha256 of the receipt bytes; never shipped by forge-sync) — any other receipt lacking the binding fields is invalid (STALE). Gate evidence is green only when every gate's raw output is readable and hash-verified; the canonical evidence digest binds run id, command, output reference and hash (older forms are accepted only for allowlisted receipts).",
+  "completion_proof": {
+    "enforcement_cutoff": "2026-10-09T00:00:00Z",
+    "legacy_receipts_allowlist": ".claude/config/orchestration/FORGE_LEGACY_RECEIPTS.user.json",
+    "pinned_ruleset_file": "ruleset-pinned.json",
+    "_doc_threat_model": "Codex R2 class B (N01 allowlist, N02 receipt + pinned ruleset, N03a this cutoff, N04 evidence manifests): the completion proof is tamper-evident, not tamper-proof against an actor with full write access to repo and history; hardening requires an out-of-band anchor (owner decision O9). It catches accidental skipping, forgotten steps, stale or partial evidence and hand-edits that do not also rewrite every dependent record. It cannot stop an actor who rewrites the allowlist, a receipt together with its pinned ruleset, this cutoff, or an evidence manifest with a matching output file: that actor writes the very files that authorise the proof. Real hardening needs an anchor outside that actor's reach: (1) an owner-held signing key / signed commits for allowlist + ruleset + cutoff, or (2) an append-only store the agents cannot write. Default (O9): not now; this limit is documented, not hidden. Plan and doctor labels on archival receipts carry the short form ('tamper-evident, not tamper-proof (owner decision O9)'). Record: .claude/forge-research/overhaul-2026-10-09/CODEX-R2-completion-proof.md."
+  },
+  "_doc_completion_sequence": "Version 2 (audit S2): the ONE canonical completion order, as data. It replaces the contradicting prose (commands/forge.md said to run the contract with --finalize BEFORE run_completed, while finalize refuses unless run_completed is already logged, and nothing told the Lead to record gate evidence). Steps run in this order; step 5 re-runs the step-3 check and finalizes. The memory/ledger/task-history update (rule memory-files-touched) must land before step 3, because step 3 judges it. `forge-runcontract plan --run <id>` prints this list. Step 1 pins the code commit on a clean worktree; the memory/ledger/report edits made after it stay uncommitted so HEAD does not move; commit them after step 5, which leaves the receipt HISTORICAL (cause: commit; it re-verifies). A run_completed with \"status\":\"failed\" is a failure close and is not gated by the completion gate. Codex R2/N07+N09: forge-finalize re-checks the steps before run-completed AS OF the last run_completed (the green step-3 proof must precede the claim; under strict and in finalize an unknown or unevaluated step is unmet) and refuses a claim the writer stamped 'warn' (_forge_verify.completion_gate) — finish the sequence and log run_completed again. A completion claim is sticky: work logged after run_completed keeps it standing (red) until a finalize succeeds after a new run_completed, or the run is closed as failed. Version 3 (WP-12b, 2026-10-10; usage audit U-02, U-12): step 1 names the forge-testrun wrapper, so a test gate prints only a summary, the failing test names and the log path, while gate-evidence still runs the gate, records the real test command and its exit code, and points output_file at the wrapper's full log (hash over its bytes, read back; F03 unchanged). Step 6 (handoff) is ADVISORY (severity warn, blocks:false): a step after finalize carrying that flag is listed by forge-runcontract plan after the five completion steps and is never judged, so the completion gate, finalize's re-check and the doctor see exactly steps 1-5 (the flag on a step before finalize is ignored: data cannot weaken the gate). `forge-runcontract.cjs handoff --run <id>` writes the snapshot, refreshes the scribe digest, counts the open mission phases (this run's work packages without wp_completed/wp_failed — the wp-closure check) and prints the advice; it logs no event.",
+  "completion_sequence": [
+    {
+      "step": 1,
+      "id": "gate-evidence",
+      "action": "record the raw evidence of every gate that ran (exit code + output hash per gate); a test or check gate runs through the forge-testrun wrapper, so only its summary, the failing test names and the log path reach the context",
+      "command": "node .claude/forge-bin/forge-gate-evidence.cjs --run <run_id> --gate \"<name>::node .claude/forge-bin/forge-testrun.cjs -- <test command>\" [--gate ...]",
+      "produces": "gate-evidence.json in the run folder; for a wrapped gate the record carries the REAL test command, its exit code, and output_file = the wrapper's full log under gate-output/ (sha256 over its bytes, read back)",
+      "note": "a gate that is not a test runner may still be given directly (--gate \"<name>::<command>\"). Never pass --log-dir to a wrapped gate: gate-evidence puts the log in the run's gate-output folder so the evidence can point at it. On Windows the wrapper cannot start npm/npx (it uses no shell): wrap the node test command itself.",
+      "why": "forge-finalize refuses without it, and independent-verification binds the review to its digest"
+    },
+    {
+      "step": 2,
+      "id": "final-report",
+      "action": "write the honest final report",
+      "produces": "final-report.md in the run folder",
+      "rule_ids": [
+        "report-present"
+      ],
+      "why": "report-present needs a real, non-empty file"
+    },
+    {
+      "step": 3,
+      "id": "contract-check",
+      "action": "judge the complete contract and log the proof",
+      "command": "node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --log-event",
+      "must": "exit 0 (CONTRACT OK)",
+      "why": "every block rule must be met before completion is claimed"
+    },
+    {
+      "step": 4,
+      "id": "run-completed",
+      "action": "log run_completed",
+      "command": "node .claude/forge-dashboard/log-event.cjs <run_id> run_completed '{\"agent\":\"orchestrator\",\"summary\":\"...\"}'",
+      "why": "finalize accepts only a run whose last lifecycle event is run_completed"
+    },
+    {
+      "step": 5,
+      "id": "finalize",
+      "action": "write the one authoritative receipt",
+      "command": "node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --log-event --finalize",
+      "must": "exit 0 and FINALIZED",
+      "why": "the receipt pins the log, the evidence, the commit and this ruleset"
+    },
+    {
+      "step": 6,
+      "id": "handoff",
+      "severity": "warn",
+      "blocks": false,
+      "action": "hand the mission over: write the snapshot (forge-snapshot) and print the scribe digest; if more than one mission phase is still open, start the next phase in a fresh session (/clear) instead of continuing",
+      "command": "node .claude/forge-bin/forge-runcontract.cjs handoff --run <run_id>",
+      "produces": ".claude/FORGE_SNAPSHOT.md rewritten and .claude/forge-scribe/DIGEST.md refreshed where the scribe is in use; no run event (an event after run_completed would re-open the run)",
+      "why": "one session per mission (usage audit U-02): a long session re-reads its stale history on every turn; the snapshot and the digest carry the mission across /clear. Advisory: the completion gate, finalize and the doctor never judge it"
+    }
+  ],
+  "_doc_steps": "Version 2 (audit S1): the ordered per-run checklist, folded in from config/orchestration/run-checklist.json — two lists that each called themselves the single source of truth gave opposite verdicts on the same run. Same step shape forge-orchestrate.cjs validates ({id, label, required, produces_event, match?}), plus `phase` and `contract_rules` (the run-contract rules that judge the step; [] = audit-only, advisory). forge-orchestrate.cjs reads this file unchanged through its checklistPath seam; until its default path is repointed, run-checklist.json stays as a byte-for-byte mirror of these steps' shared fields, and forge-runcontract-v2.test.cjs fails on any drift between the two.",
+  "steps": [
+    {
+      "id": "read-memory",
+      "label": "Read project memory (FORGE_PROJECT_PROFILE.md / FORGE_MEMORY.md / FORGE_TASK_HISTORY.md / FORGE_AGENT_LEDGER.md) before routing",
+      "required": true,
+      "produces_event": [
+        "memory_loaded",
+        "project_scanned"
+      ],
+      "phase": "preview",
+      "contract_rules": [
+        "memory-read",
+        "preview-preconditions"
+      ]
+    },
+    {
+      "id": "load-owner-prefs",
+      "label": "Load owner-profile prefs (forge-prefs.cjs) + active standing-rules (forge-standing.cjs) and emit the applied-prefs ECHO (Step 0-owner, precedence.md order) + owner config diff (forge-config.cjs)",
+      "required": true,
+      "produces_event": "owner_prefs_loaded",
+      "phase": "preview",
+      "contract_rules": [
+        "owner-prefs-loaded",
+        "preview-preconditions"
+      ]
+    },
+    {
+      "id": "autonomy-decide",
+      "label": "Decide continue-within-mission autonomy (forge-autonomy.cjs::decide()), always deferring to the live hard-gate classifier first",
+      "required": true,
+      "produces_event": "decision_logged",
+      "phase": "preview",
+      "contract_rules": []
+    },
+    {
+      "id": "intake",
+      "label": "Run Prompt Master intake (forge-intake.cjs) and capture the owner's real goal before any team is spawned",
+      "required": true,
+      "produces_event": "agent_note",
+      "match": {
+        "field": "note",
+        "includes": "forge-intake"
+      },
+      "phase": "preview",
+      "contract_rules": []
+    },
+    {
+      "id": "route",
+      "label": "Classify domain + complexity and select the team (forge-router SKILL, + domain-presets where applicable)",
+      "required": true,
+      "produces_event": "agent_selected",
+      "phase": "preview",
+      "contract_rules": []
+    },
+    {
+      "id": "arm-manifest",
+      "label": "ARM the run's dispatch manifest BEFORE any work package goes out (node .claude/forge-bin/forge-manifest.cjs arm --run <run_id> --wps <file.json> --log-event) so wp_id/agent/narrowed_prompt/deps are recorded, /forge resume can re-dispatch only the unfinished work, and forge-manifest.cjs::waves() can compute a one-writer-per-hotspot dispatch order instead of the Lead judging it by eye",
+      "required": false,
+      "produces_event": "manifest_armed",
+      "phase": "wp",
+      "contract_rules": []
+    },
+    {
+      "id": "dispatch",
+      "label": "Dispatch the selected team as real Agent-tool subagents (REAL AGENTS ONLY)",
+      "required": true,
+      "produces_event": [
+        "agent_started",
+        "subagent_started",
+        "custom_subagent_created"
+      ],
+      "phase": "wp",
+      "contract_rules": [
+        "dispatch-logged",
+        "subagent-closure"
+      ]
+    },
+    {
+      "id": "verify",
+      "label": "Verify claimed work against real evidence — a check/quality-gate must carry required proof, not just a claim",
+      "required": true,
+      "produces_event": [
+        "check_passed",
+        "quality_gate_passed",
+        "retest_completed"
+      ],
+      "phase": "wp",
+      "contract_rules": [
+        "verify-checked",
+        "wp-verified-per-wp"
+      ]
+    },
+    {
+      "id": "report",
+      "label": "Generate the final, honest forge-report",
+      "required": true,
+      "produces_event": "report_generated",
+      "phase": "complete",
+      "contract_rules": [
+        "report-present"
+      ]
+    },
+    {
+      "id": "update-memory",
+      "label": "Update project memory + the agent activity ledger with what actually happened",
+      "required": true,
+      "produces_event": "memory_updated",
+      "phase": "complete",
+      "contract_rules": [
+        "memory-files-touched"
+      ]
+    }
+  ]
+}

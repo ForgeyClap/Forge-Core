@@ -1,0 +1,19 @@
+{
+  "_doc": "OPT-IN model-tier enforcement template (scout find #3, refreshed for GOAT model routing 2026-10-06). Copy the keys you want into .claude/settings.json to enforce them. NOT auto-applied by Forge — enabling it is an owner decision because it changes real harness behavior. See forge-core 'MODEL-TIER ENFORCEMENT (opt-in)' for the caveats and .claude/FORGE_MODEL_ROUTING.json for the routes (router sonnet/medium · quick sonnet/low · build opus/medium · deep opus/xhigh · escalate fable/high · verifier sonnet/medium).",
+  "_safe_option_availableModels": "Constrains which Claude models any dispatch may use to the approved tier set. Non-breaking as long as EVERY model actually in use (including your current session model) is listed. enforceAvailableModels drops anything outside the list. GOAT routing needs ALL of sonnet (router, triage, quick, verifier), opus (build, deep) and fable (escalate after a failed check) — never remove opus or fable from this list, or the build/deep/escalate routes are blocked. Haiku stays listed only so an owner-chosen haiku session is not blocked; no GOAT route uses it.",
+  "_VERIFY_IDS_FIRST": "Model ids are NOT all verified (2026-10-06). claude-opus-5-5 is the id this Forge session itself runs on; claude-sonnet-5-5 and claude-fable-5-1 were NOT verifiable from settings or the runtime. Before you copy enforceAvailableModels:true or fallbackModel into settings.json: open the /model picker, confirm the exact id of every model below (Sonnet, Opus, Fable, and your own session model), and fix this list. A wrong Sonnet id with enforcement on would block the router, triage, quick and verifier routes; a wrong Fable id blocks the escalate step.",
+  "availableModels": [
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-haiku-4-5-20251001"
+  ],
+  "enforceAvailableModels": true,
+  "_opt_fallbackModel": "scout #9 — single-turn 529/overload resilience on long sessions (reverts next turn). NARROW scope: overload/unavailable/non-retryable server errors ONLY (NOT 429 rate-limit/billing/size). If you enable it, log any turn that completed on a fallback in FORGE_AGENT_LEDGER so a silent Opus→Sonnet degradation on a quality-critical Boss is never hidden. For Security/Review/Head Chef/Verify Boss prefer NO fallback (fail-and-retry).",
+  "fallbackModel": [
+    "claude-sonnet-5-5"
+  ],
+  "_UNSAFE_do_not_blanket_deny": "Do NOT add permissions.deny/ask ['Agent(model:opus)'] or ['Agent(model:fable)'] — the build and deep routes (build-boss, ui-boss, boss, review-boss, security-boss, …) run on opus and the escalate route runs on fable, so a blanket deny would BLOCK dispatching them, and in Forge's non-interactive background dispatch an 'ask' rule is converted to a hard DENY. Per-agent defaults are already pinned in each .claude/agents/<agent>.md frontmatter (model + effort) + agent-model-map.json; that is the correct place for the GOAT routes.",
+  "_do_not_set_env": "Never set env CLAUDE_CODE_SUBAGENT_MODEL (overrides every per-agent model) or CLAUDE_CODE_EFFORT_LEVEL (overrides every per-agent effort) — both break GOAT routing.",
+  "_requires": "Dispatch Bosses with model ALIASES (sonnet|opus|fable), not pinned IDs, so alias→ID resolution stays consistent. NVIDIA offload is NOT governed here (it runs through nvidia-provider.cjs / usage-guard, never the Agent tool)."
+}

@@ -1,0 +1,1016 @@
+#!/usr/bin/env node
+'use strict';
+// forge-contextbudget.test.cjs — real tests for the ALWAYS-LOADED context-surface meter.
+// Every fixture builds its own throwaway "home" + "project" under os.tmpdir(); this file NEVER reads the
+// owner's real ~/.claude and NEVER writes anything outside its own tmp dirs.
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const assert = require('assert');
+const { spawnSync } = require('child_process');
+const cb = require('./forge-contextbudget.cjs');
+
+const CLI = path.join(__dirname, 'forge-contextbudget.cjs');
+function runCLI(argv) { return spawnSync(process.execPath, [CLI, ...argv], { encoding: 'utf8', timeout: 10000 }); }
+
+let passed = 0, failed = 0, skipped = 0;
+function t(name, fn) {
+  try { fn(); passed++; console.log('  ok   ' + name); }
+  catch (e) { failed++; console.log('  FAIL ' + name + ' — ' + e.message); }
+}
+/** pinned(name, fn) — see the identical helper in forge-configdrift.test.cjs for the full reasoning. Short
+ *  version: "this project has 57 skills of its own" is a property of this INSTALLATION, not of the meter.
+ *  It is a real drift guard here and it is false in the published distribution for a legitimate reason (the
+ *  9 vendored third-party skills are not redistributed). Widening the number to a range would destroy the
+ *  guard, so the assertion asks which tree it is in and states plainly when it declined to check. */
+let INSTALL_PROFILE;
+try {
+  INSTALL_PROFILE = require('./forge-doctor.cjs').installationProfile(path.resolve(__dirname, '..', '..'));
+} catch (e) {
+  INSTALL_PROFILE = { profile: 'unknown', reason: 'forge-doctor.cjs installationProfile unavailable (' + e.message + ')' };
+}
+/** realMachine — for assertions about THIS MACHINE's global ~/.claude (its CLAUDE.md chain, its plugin
+ *  catalog). Those are facts about the author's workstation, not about this code: a fresh install, a CI
+ *  runner, and every new user have an empty or minimal ~/.claude, and there the assertion has nothing to
+ *  measure. It used to run anyway and fail (external audit II-B, 2026-09-23: 3 of the 9 fresh-install
+ *  failures were exactly these). Now the precondition is checked first and a miss is a VISIBLE skip with
+ *  the reason — never a silent green, never a red for something the user does not have.
+ *
+ *  N8/N3 (2026-09-26 laptop re-audit): a bare `fs.existsSync(.../plugins)` is NOT the same fact as "there is
+ *  a real catalog here" — Claude Code itself creates an empty ~/.claude/plugins scaffold on a fresh install
+ *  (the laptop shape: installed, but otherwise empty). That folder-existence check let the real-machine
+ *  tests run on a machine with an EMPTY catalog and fail with "the plugin catalog looks implausibly small
+ *  (0)". The precondition now asks the meter itself how many skills actually sit on disk. */
+const HOME_CLAUDE = path.join(require('os').homedir(), '.claude');
+const HAS_GLOBAL_CHAIN = fs.existsSync(path.join(HOME_CLAUDE, 'CLAUDE.md'));
+function realCatalogSkillsOnDisk(id) {
+  try {
+    const rep = cb.measure(path.resolve(__dirname, '..', '..'), {});
+    const p = rep.skill_sources.find((s) => s.id === id);
+    return p ? p.skills_on_disk : 0;
+  } catch { return 0; }
+}
+const HAS_PLUGIN_CATALOG = realCatalogSkillsOnDisk('skill_catalog_plugins') > 0;
+function realMachine(name, precondition, reason, fn) {
+  if (precondition) { t(name, fn); return; }
+  skipped++;
+  console.log('  SKIP ' + name + ' — machine-dependent assertion · ' + reason);
+}
+function pinned(name, fn) {
+  if (INSTALL_PROFILE.profile === 'development') { t(name, fn); return; }
+  skipped++;
+  console.log('  SKIP ' + name + ' — installation-dependent assertion · ' + INSTALL_PROFILE.reason);
+}
+
+console.log('forge-contextbudget tests (always-loaded context surface)');
+
+/** buildFixture — a complete synthetic instruction chain: a fake home with a global CLAUDE.md + its
+ *  @-includes + rules/ecc/common/*.md + a workspace CLAUDE.md + BOTH out-of-project skill catalogs
+ *  (~/.claude/skills and ~/.claude/plugins), and a fake project with its own CLAUDE.md and skills.
+ *  Returns {home, root} so every test can point the meter at files it fully controls.
+ *
+ *  The plugin skill is written at the REAL depth the owner's machine uses —
+ *  `plugins/marketplaces/<mp>/plugins/<plugin>/skills/<skill>/SKILL.md`, six directory levels down — because
+ *  a shallower fixture is exactly what let a depth-4 walk report 2 plugin skills instead of 112 on
+ *  2026-08-01 and call it a measurement. */
+function buildFixture(prefix, opts) {
+  opts = opts || {};
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'));
+  const home = path.join(base, 'home');
+  const root = path.join(base, 'project');
+  fs.mkdirSync(path.join(home, '.claude', 'rules', 'ecc', 'common'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude', 'skills'), { recursive: true });
+  const includes = opts.includes || ['ALPHA_POLICY.md', 'BETA_POLICY.md'];
+  fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'),
+    '# global rules\n' + 'g'.repeat(396) + '\n' + includes.map((i) => '@' + i).join('\n') + '\n');
+  for (const inc of (opts.writeIncludes || includes)) {
+    fs.writeFileSync(path.join(home, '.claude', inc), 'x'.repeat(800));
+  }
+  for (const f of ['agents.md', 'testing.md']) {
+    fs.writeFileSync(path.join(home, '.claude', 'rules', 'ecc', 'common', f), 'r'.repeat(400));
+  }
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'w'.repeat(200));
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'p'.repeat(600));
+  const mkSkill = (dir, rel, name, desc) => {
+    fs.mkdirSync(path.join(dir, rel), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel, 'SKILL.md'),
+      '---\nname: ' + name + '\ndescription: ' + desc + '\n---\n\n# ' + name + '\n');
+  };
+  const projectSkills = path.join(root, '.claude', 'skills');
+  mkSkill(projectSkills, 'flat-one', 'flat-one', 'd'.repeat(50));
+  mkSkill(projectSkills, path.join('bundle', 'nested-one'), 'nested-one', 'e'.repeat(70));
+  if (!opts.skipGlobalSkills) {
+    const globalSkills = path.join(home, '.claude', 'skills');
+    mkSkill(globalSkills, 'global-one', 'global-one', 'g'.repeat(30));          // "global-one"(10) + 30 = 40
+    mkSkill(globalSkills, path.join('bundle', 'global-two'), 'global-two', 'h'.repeat(40)); // 10 + 40 = 50
+  }
+  if (!opts.skipPluginSkills) {
+    // six directory levels down — the exact shape of the owner's real ~/.claude/plugins tree
+    mkSkill(path.join(home, '.claude', 'plugins'),
+      path.join('marketplaces', 'mp', 'plugins', 'pl', 'skills', 'deep-one'),
+      'deep-one', 'i'.repeat(60));                                              // "deep-one"(8) + 60 = 68
+  }
+  return { base, home, root };
+}
+/** paths — EVERY chain location is overridden, deliberately. An earlier version of this helper left
+ *  `eccRulesDir` out and the meter silently fell back to the machine default, i.e. the owner's REAL
+ *  ~/.claude/rules — which made one assertion read 16.769 chars instead of the fixture's 800. Caught by the
+ *  exact-character assertion below; kept as a note because a half-overridden fixture is how a test starts
+ *  quietly measuring the developer's own machine instead of the thing it claims to test. The two skill-catalog
+ *  roots are on that same list for exactly the same reason. */
+function paths(fx) {
+  return {
+    globalClaudeMd: path.join(fx.home, '.claude', 'CLAUDE.md'),
+    workspaceClaudeMd: path.join(fx.home, 'CLAUDE.md'),
+    eccRulesDir: path.join(fx.home, '.claude', 'rules', 'ecc', 'common'),
+    globalSkillsDir: path.join(fx.home, '.claude', 'skills'),
+    pluginSkillsDir: path.join(fx.home, '.claude', 'plugins'),
+    // the plugin-enablement sources belong on this list for exactly the reason the comment above
+    // gives. Left out, `settingsJson` fell back to the machine default — the owner's REAL
+    // ~/.claude/settings.json — and the fixture's synthetic `mp` plugins were judged against the owner's real
+    // enabledPlugins map, which of course does not contain them. The plugin post then measured 0 skills and
+    // four unrelated assertions failed. Neither file exists in this fixture's fake home, which is the point:
+    // an unreadable enablement source means "count everything, say so", and that is what these tests measure.
+    settingsJson: path.join(fx.home, '.claude', 'settings.json'),
+    installedPluginsJson: path.join(fx.home, '.claude', 'plugins', 'installed_plugins.json'),
+  };
+}
+function post(rep, id) { return rep.posts.find((p) => p.id === id); }
+
+// --- the estimator is an ESTIMATE and says so -------------------------------------------------------------
+t('estimateTokens is exactly ceil(chars / chars_per_token)', () => {
+  assert.strictEqual(cb.estimateTokens(400, 4), 100);
+  assert.strictEqual(cb.estimateTokens(401, 4), 101, 'partial tokens round UP (never under-report a budget)');
+  assert.strictEqual(cb.estimateTokens(0, 4), 0);
+});
+t('every report LABELS its numbers as an estimate, never as a tokenizer measurement', () => {
+  const fx = buildFixture('cbx-label');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.ok(/estimate/i.test(rep.estimate_note), 'top-level estimate_note missing: ' + rep.estimate_note);
+  assert.ok(/not a tokenizer|no tokenizer/i.test(rep.estimate_note), 'must say plainly that no tokenizer ran: ' + rep.estimate_note);
+  assert.ok(rep.posts.every((p) => typeof p.approx_tokens === 'number'), 'the field itself is named approx_*');
+  assert.ok(!Object.prototype.hasOwnProperty.call(rep, 'tokens'), 'no bare "tokens" field that would read as exact');
+});
+
+// --- the posts the work package names, each measured separately -------------------------------------------
+t('measure() reports every named post: global CLAUDE.md, each @-include, the ecc rules, workspace, project, and all THREE skill catalogs', () => {
+  const fx = buildFixture('cbx-posts');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  for (const id of ['global_claude_md', 'include:ALPHA_POLICY.md', 'include:BETA_POLICY.md', 'ecc_rules_common', 'workspace_claude_md', 'project_claude_md', 'skill_catalog_project', 'skill_catalog_global', 'skill_catalog_plugins']) {
+    assert.ok(post(rep, id), 'missing post: ' + id + ' (got ' + rep.posts.map((p) => p.id).join(', ') + ')');
+  }
+});
+t('each post carries the real character count of the real file', () => {
+  const fx = buildFixture('cbx-chars');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(post(rep, 'include:ALPHA_POLICY.md').chars, 800);
+  assert.strictEqual(post(rep, 'workspace_claude_md').chars, 200);
+  assert.strictEqual(post(rep, 'project_claude_md').chars, 600);
+  assert.strictEqual(post(rep, 'ecc_rules_common').chars, 800, 'the ecc post is the SUM of its files (2 x 400)');
+  assert.strictEqual(post(rep, 'ecc_rules_common').files.length, 2, 'and still names each file individually');
+});
+t('the total is the sum of the posts (no double-count, nothing dropped)', () => {
+  const fx = buildFixture('cbx-total');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(rep.total_chars, rep.posts.reduce((n, p) => n + p.chars, 0));
+  assert.strictEqual(rep.total_approx_tokens, cb.estimateTokens(rep.total_chars, rep.chars_per_token));
+});
+t('skill_catalog_project counts name+description over ALL project skills including NESTED ones (the budget overrun on 2026-07-31)', () => {
+  const fx = buildFixture('cbx-skills');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const sc = post(rep, 'skill_catalog_project');
+  assert.strictEqual(sc.skills, 2, 'both the flat and the nested skill are counted; got ' + sc.skills);
+  // "flat-one"(8) + 50 + "nested-one"(10) + 70 = 138
+  assert.strictEqual(sc.chars, 138, 'name+description only, not the whole SKILL.md body; got ' + sc.chars);
+  assert.ok(sc.files.some((f) => f.skill === 'bundle/nested-one'), 'the nested skill is named by its catalog-relative id');
+});
+
+// --- a dead @-include is a finding, never a silent zero ---------------------------------------------------
+t('an @-include pointing at a file that does not exist is reported as a DEAD reference', () => {
+  const fx = buildFixture('cbx-dead', { includes: ['ALPHA_POLICY.md', 'GONE_POLICY.md'], writeIncludes: ['ALPHA_POLICY.md'] });
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const dead = rep.findings.filter((f) => f.kind === 'dead_include');
+  assert.strictEqual(dead.length, 1, 'expected exactly one dead include; got ' + JSON.stringify(rep.findings));
+  assert.ok(dead[0].detail.includes('GONE_POLICY.md'), 'names the missing file: ' + dead[0].detail);
+  assert.strictEqual(rep.ok, false, 'a dead reference makes the report not-ok (advisory, but reported)');
+  assert.strictEqual(post(rep, 'include:GONE_POLICY.md').exists, false, 'the post still appears, marked missing');
+  assert.strictEqual(post(rep, 'include:GONE_POLICY.md').chars, 0);
+});
+
+// --- baseline + thresholds --------------------------------------------------------------------------------
+t('with NO baseline recorded the report is honest, not silently green-with-nothing-checked', () => {
+  const fx = buildFixture('cbx-nobaseline');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(rep.baseline, null);
+  assert.ok(/no baseline/i.test(rep.reason), 'reason must say a baseline has never been recorded: ' + rep.reason);
+  assert.strictEqual(rep.ok, true, 'and that is not itself a failure');
+});
+t('a post that grew past its baseline + threshold is a NAMED finding with the real delta', () => {
+  const fx = buildFixture('cbx-grow');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  // shrink the recorded baseline for ONE post so the very next measurement is genuine growth
+  const cfg = cb.readConfig(fx.root);
+  cfg.baseline.posts.project_claude_md = 10;
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const grown = rep.findings.filter((f) => f.kind === 'over_baseline');
+  assert.strictEqual(grown.length, 1, 'exactly the one post that grew; got ' + JSON.stringify(rep.findings));
+  assert.strictEqual(grown[0].id, 'project_claude_md');
+  assert.ok(/10/.test(grown[0].detail) && /150/.test(grown[0].detail), 'names baseline AND current: ' + grown[0].detail);
+  assert.strictEqual(rep.ok, false);
+});
+t('growth UNDER the configured floor is not a finding (an estimator is not precise enough to cry wolf)', () => {
+  const fx = buildFixture('cbx-noise');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  const cfg = cb.readConfig(fx.root);
+  cfg.baseline.posts.project_claude_md = post(cb.measure(fx.root, { paths: paths(fx) }), 'project_claude_md').approx_tokens - 1;
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(rep.findings.filter((f) => f.kind === 'over_baseline').length, 0, JSON.stringify(rep.findings));
+  assert.strictEqual(rep.ok, true);
+});
+t('the thresholds are CONFIG values, not hardcoded — the same measurement flips verdict when the config changes', () => {
+  const fx = buildFixture('cbx-cfg');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  const cfg = cb.readConfig(fx.root);
+  cfg.baseline.posts.project_claude_md = post(cb.measure(fx.root, { paths: paths(fx) }), 'project_claude_md').approx_tokens - 5;
+  cb.saveConfig(fx.root, cfg);
+  assert.strictEqual(cb.measure(fx.root, { paths: paths(fx) }).ok, true, 'a 5-token drift is under the default floor');
+  const cfg2 = cb.readConfig(fx.root);
+  cfg2.thresholds.post_growth_min_tokens = 1;
+  cfg2.thresholds.post_growth_pct = 0;
+  cb.saveConfig(fx.root, cfg2);
+  assert.strictEqual(cb.measure(fx.root, { paths: paths(fx) }).ok, false, 'the SAME files now trip a stricter configured floor');
+});
+t('the total is baselined too, not only the individual posts', () => {
+  const fx = buildFixture('cbx-total-base');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  const cfg = cb.readConfig(fx.root);
+  cfg.baseline.total_approx_tokens = 5;
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.ok(rep.findings.some((f) => f.kind === 'over_baseline_total'), JSON.stringify(rep.findings));
+});
+
+// --- the honesty boundary: files outside the project are READ, never written -------------------------------
+t('measure() does not modify a single byte outside the project root (read-only across the boundary)', () => {
+  const fx = buildFixture('cbx-readonly');
+  const watched = [
+    path.join(fx.home, '.claude', 'CLAUDE.md'),
+    path.join(fx.home, '.claude', 'ALPHA_POLICY.md'),
+    path.join(fx.home, '.claude', 'rules', 'ecc', 'common', 'agents.md'),
+    path.join(fx.home, 'CLAUDE.md'),
+    // the two out-of-project skill catalogs are opened for READING and counted — never touched
+    path.join(fx.home, '.claude', 'skills', 'global-one', 'SKILL.md'),
+    path.join(fx.home, '.claude', 'plugins', 'marketplaces', 'mp', 'plugins', 'pl', 'skills', 'deep-one', 'SKILL.md'),
+  ];
+  const before = watched.map((p) => ({ p, text: fs.readFileSync(p, 'utf8'), mtime: fs.statSync(p).mtimeMs }));
+  cb.measure(fx.root, { paths: paths(fx) });
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  for (const b of before) {
+    assert.strictEqual(fs.readFileSync(b.p, 'utf8'), b.text, 'content changed outside the project: ' + b.p);
+    assert.strictEqual(fs.statSync(b.p).mtimeMs, b.mtime, 'mtime changed outside the project: ' + b.p);
+  }
+});
+t('every out-of-project post is FLAGGED as out-of-project + read-only in the report itself', () => {
+  const fx = buildFixture('cbx-flag');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(post(rep, 'global_claude_md').in_project, false);
+  assert.strictEqual(post(rep, 'global_claude_md').access, 'read-only');
+  assert.strictEqual(post(rep, 'project_claude_md').in_project, true);
+  assert.strictEqual(post(rep, 'skill_catalog_project').in_project, true);
+  assert.strictEqual(post(rep, 'skill_catalog_global').in_project, false, 'the global catalog lives outside the project root');
+  assert.strictEqual(post(rep, 'skill_catalog_global').access, 'read-only');
+  assert.strictEqual(post(rep, 'skill_catalog_plugins').in_project, false, 'the plugin catalog lives outside the project root');
+  assert.strictEqual(post(rep, 'skill_catalog_plugins').access, 'read-only');
+});
+t('the ONLY file writeBaseline() writes is the config inside the project .claude/', () => {
+  const fx = buildFixture('cbx-writepath');
+  const r = cb.writeBaseline(fx.root, { paths: paths(fx) });
+  assert.ok(r.path.startsWith(path.join(fx.root, '.claude') + path.sep), 'wrote outside .claude/: ' + r.path);
+  assert.ok(fs.existsSync(r.path));
+});
+
+// --- degradation: a missing chain file is reported, never a crash ------------------------------------------
+t('a completely absent global CLAUDE.md degrades to an honest missing post, never a throw', () => {
+  const fx = buildFixture('cbx-nohome');
+  fs.rmSync(path.join(fx.home, '.claude', 'CLAUDE.md'));
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(post(rep, 'global_claude_md').exists, false);
+  assert.strictEqual(post(rep, 'global_claude_md').chars, 0);
+  assert.ok(rep.posts.length > 1, 'the rest of the chain is still measured');
+});
+
+// ===========================================================================================================
+// THE FULL SKILL SURFACE (second pass) — the meter used to count ONLY <project>/.claude/skills,
+// i.e. 57 of the 278 skills the session actually carries: 21% of the real surface reported as if it were the
+// whole thing. These tests pin the three separate sources, the depth the walk must reach, and the two ways an
+// under-report is allowed to happen (it isn't — both must be loud).
+// ===========================================================================================================
+
+t('the three skill sources are SEPARATE posts, each with its own count — never summed into one opaque number', () => {
+  const fx = buildFixture('cbx-sources');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(post(rep, 'skill_catalog_project').skills, 2);
+  assert.strictEqual(post(rep, 'skill_catalog_global').skills, 2, 'the global ~/.claude/skills catalog is counted');
+  assert.strictEqual(post(rep, 'skill_catalog_plugins').skills, 1, 'the ~/.claude/plugins catalog is counted');
+  assert.strictEqual(post(rep, 'skill_catalog_project').chars, 138);
+  assert.strictEqual(post(rep, 'skill_catalog_global').chars, 90, '"global-one"(10)+30 + "global-two"(10)+40');
+  assert.strictEqual(post(rep, 'skill_catalog_plugins').chars, 68, '"deep-one"(8)+60');
+  // and the same three appear in the report's own summary array, still separate
+  assert.strictEqual(rep.skill_sources.length, 3, JSON.stringify(rep.skill_sources.map((s) => s.id)));
+  assert.deepStrictEqual(rep.skill_sources.map((s) => s.skills), [2, 2, 1]);
+});
+
+t('a DEEPLY NESTED SKILL.md (six directory levels down, the real plugin layout) is found — the depth-4 bug', () => {
+  const fx = buildFixture('cbx-deep');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const pl = post(rep, 'skill_catalog_plugins');
+  assert.strictEqual(pl.skills, 1, 'the six-levels-down skill must be found; got ' + pl.skills);
+  assert.strictEqual(pl.deepest_depth, 6, 'and the report states how deep it actually had to go; got ' + pl.deepest_depth);
+  assert.ok(pl.files.some((f) => f.skill === 'marketplaces/mp/plugins/pl/skills/deep-one'),
+    'named by its catalog-relative path: ' + JSON.stringify(pl.files.map((f) => f.skill)));
+  assert.strictEqual(pl.depth_capped, false, 'and the walk did NOT stop early');
+});
+
+t('the maximum walk depth clears the deepest layout that actually exists, with headroom', () => {
+  assert.strictEqual(cb.MAX_SKILL_DEPTH, 8, 'documented default');
+  assert.ok(cb.MAX_SKILL_DEPTH >= 6, 'the deepest real layout on this machine is 6 (plugins/marketplaces/<mp>/plugins/<pl>/skills/<skill>/SKILL.md)');
+});
+
+t('a walk that stops at the depth cap SAYS SO — a possibly-truncated count is a finding, never a silent number', () => {
+  const fx = buildFixture('cbx-capped');
+  const cfg = cb.readConfig(fx.root);
+  cfg.max_skill_depth = 3; // deliberately too shallow for the six-deep plugin skill
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const pl = post(rep, 'skill_catalog_plugins');
+  assert.strictEqual(pl.skills, 0, 'the too-shallow walk genuinely misses it');
+  assert.strictEqual(pl.depth_capped, true, 'and the post records that it stopped at the cap');
+  const capped = rep.findings.filter((f) => f.kind === 'depth_capped');
+  assert.strictEqual(capped.length, 1, 'exactly one capped-walk finding; got ' + JSON.stringify(rep.findings));
+  assert.ok(/depth/i.test(capped[0].detail) && /3/.test(capped[0].detail), 'names the depth it stopped at: ' + capped[0].detail);
+  assert.strictEqual(rep.ok, false, 'a meter that might be under-reporting is NOT green');
+});
+
+t('an absent source is an honest ZERO with a note — the post still appears, never silently omitted', () => {
+  const fx = buildFixture('cbx-nosource', { skipPluginSkills: true });
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const pl = post(rep, 'skill_catalog_plugins');
+  assert.ok(pl, 'the post is present even though the directory is not');
+  assert.strictEqual(pl.exists, false);
+  assert.strictEqual(pl.skills, 0);
+  assert.strictEqual(pl.approx_tokens, 0);
+  assert.ok(/no such directory|not present/i.test(pl.note), 'the zero is EXPLAINED in the post: ' + pl.note);
+  assert.strictEqual(rep.findings.filter((f) => f.kind === 'source_vanished').length, 0,
+    'with no baseline there is nothing to have vanished FROM — an absent source is not yet a failure');
+});
+
+t('a source that SILENTLY DISAPPEARS after being baselined FAILS the meter (under-reporting is worse than no meter)', () => {
+  const fx = buildFixture('cbx-vanish');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  const base = cb.readConfig(fx.root).baseline;
+  assert.strictEqual(base.skill_sources.skill_catalog_plugins, 1, 'the baseline records the per-source skill COUNT: ' + JSON.stringify(base.skill_sources));
+  fs.rmSync(path.join(fx.home, '.claude', 'plugins'), { recursive: true, force: true });
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const gone = rep.findings.filter((f) => f.kind === 'source_vanished');
+  assert.strictEqual(gone.length, 1, 'the vanished source is a finding; got ' + JSON.stringify(rep.findings));
+  assert.strictEqual(gone[0].id, 'skill_catalog_plugins');
+  assert.ok(/1/.test(gone[0].detail) && /0/.test(gone[0].detail), 'names what it had and what it has now: ' + gone[0].detail);
+  assert.strictEqual(rep.ok, false, 'and the meter is RED — a meter reporting too low must never read green');
+});
+
+t('a source emptied in place (directory still there, skills gone) fails exactly the same way', () => {
+  const fx = buildFixture('cbx-emptied');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  fs.rmSync(path.join(fx.home, '.claude', 'skills', 'global-one'), { recursive: true, force: true });
+  fs.rmSync(path.join(fx.home, '.claude', 'skills', 'bundle'), { recursive: true, force: true });
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const gone = rep.findings.filter((f) => f.kind === 'source_vanished' && f.id === 'skill_catalog_global');
+  assert.strictEqual(gone.length, 1, JSON.stringify(rep.findings));
+  assert.strictEqual(post(rep, 'skill_catalog_global').exists, true, 'the directory is still there — it is the CONTENT that vanished');
+  assert.strictEqual(rep.ok, false);
+});
+
+t('a source that merely SHRANK (some skills removed, not all) is ordinary movement, not a vanished source', () => {
+  const fx = buildFixture('cbx-shrank');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  fs.rmSync(path.join(fx.home, '.claude', 'skills', 'bundle'), { recursive: true, force: true });
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(post(rep, 'skill_catalog_global').skills, 1);
+  assert.strictEqual(rep.findings.filter((f) => f.kind === 'source_vanished').length, 0,
+    'one skill fewer is not a broken meter; only a source dropping to ZERO is: ' + JSON.stringify(rep.findings));
+});
+
+// --- correction vs regression: a WIDER measurement is not growth --------------------------------------------
+t('growth that is purely newly-METERED surface is reported as a CORRECTION, not as a false-alarm regression', () => {
+  const fx = buildFixture('cbx-correction');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  // simulate the pre-widening baseline: it never knew the two out-of-project catalogs existed
+  const cfg = cb.readConfig(fx.root);
+  const widened = post(cb.measure(fx.root, { paths: paths(fx) }), 'skill_catalog_global').approx_tokens
+    + post(cb.measure(fx.root, { paths: paths(fx) }), 'skill_catalog_plugins').approx_tokens;
+  delete cfg.baseline.posts.skill_catalog_global;
+  delete cfg.baseline.posts.skill_catalog_plugins;
+  delete cfg.baseline.skill_sources.skill_catalog_global;
+  delete cfg.baseline.skill_sources.skill_catalog_plugins;
+  cfg.baseline.total_approx_tokens -= widened;
+  cfg.thresholds.total_growth_min_tokens = 1;
+  cfg.thresholds.total_growth_pct = 0;
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(rep.findings.filter((f) => f.kind === 'over_baseline_total').length, 0,
+    'the like-for-like posts did not grow at all — this must NOT read as a regression: ' + JSON.stringify(rep.findings));
+  const note = (rep.notes || []).find((n) => n.kind === 'measurement_widened');
+  assert.ok(note, 'the widening is stated explicitly, not hidden: ' + JSON.stringify(rep.notes));
+  assert.ok(/skill_catalog_global/.test(note.detail) && /skill_catalog_plugins/.test(note.detail),
+    'and names exactly which posts are new: ' + note.detail);
+  assert.ok(/correction|newly (metered|counted)|not growth/i.test(note.detail), 'in words, not just a number: ' + note.detail);
+  assert.deepStrictEqual(rep.new_posts.sort(), ['skill_catalog_global', 'skill_catalog_plugins']);
+  assert.strictEqual(rep.ok, true, 'a correction is not a failure');
+});
+
+t('a REAL like-for-like regression still trips even while a correction note is present', () => {
+  const fx = buildFixture('cbx-both');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  const cfg = cb.readConfig(fx.root);
+  delete cfg.baseline.posts.skill_catalog_plugins;   // one post is newly metered …
+  cfg.baseline.posts.project_claude_md = 10;         // … while a baselined post genuinely grew
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.ok(rep.findings.some((f) => f.kind === 'over_baseline' && f.id === 'project_claude_md'),
+    'the genuine regression is NOT swallowed by the correction: ' + JSON.stringify(rep.findings));
+  assert.strictEqual(rep.ok, false);
+});
+
+t('a baselined post that no longer exists is named as retired, not quietly dropped', () => {
+  const fx = buildFixture('cbx-retired');
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  const cfg = cb.readConfig(fx.root);
+  // a faithful rename: the old id was in the baseline AND in its recorded total, exactly as a real
+  // pre-split baseline would have been
+  cfg.baseline.posts.skill_catalog = 2982; // the id this meter used before it was split into three
+  cfg.baseline.total_approx_tokens += 2982;
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.ok(rep.retired_baseline_posts.includes('skill_catalog'), JSON.stringify(rep.retired_baseline_posts));
+  assert.ok((rep.notes || []).some((n) => n.kind === 'retired_post' && /skill_catalog/.test(n.detail)), JSON.stringify(rep.notes));
+  assert.strictEqual(rep.ok, true, 'a retired post is not a saving and not a regression — it is a note: ' + JSON.stringify(rep.findings));
+});
+
+// --- the frontmatter is not always one line, and a parser that assumes it is reads LOW ----------------------
+t('a BLOCK-SCALAR description (`description: |`) is counted in full, not truncated to the "|" marker', () => {
+  const fm = '---\nname: blocky\ndescription: |\n  first line of the description\n  second line of the description\n---\n\n# blocky\n';
+  const got = cb.frontmatterField(fm, 'description');
+  assert.ok(/first line/.test(got) && /second line/.test(got), 'both lines are part of the description: ' + JSON.stringify(got));
+  assert.ok(got.length > 40, 'the real length, not 1 char for the block indicator; got ' + got.length);
+  assert.ok(!/^[|>]/.test(got), 'the block indicator itself is not part of the text: ' + JSON.stringify(got));
+});
+t('a FOLDED description (`description: >-`) and a plain indented continuation are counted in full too', () => {
+  assert.ok(cb.frontmatterField('---\nname: n\ndescription: >-\n  folded text here\n---', 'description').includes('folded text here'));
+  assert.ok(cb.frontmatterField('---\nname: n\ndescription: starts here\n  and continues here\nother: x\n---', 'description').includes('and continues here'));
+});
+t('a single-line description is unchanged by all of that, and a following key is never swallowed', () => {
+  const fm = '---\nname: n\ndescription: just one line\nallowed-tools: Read, Write\n---';
+  assert.strictEqual(cb.frontmatterField(fm, 'description'), 'just one line');
+  assert.strictEqual(cb.frontmatterField(fm, 'name'), 'n');
+});
+t('a block-scalar skill contributes its FULL description to the catalog count', () => {
+  const fx = buildFixture('cbx-block');
+  const dir = path.join(fx.home, '.claude', 'skills', 'blocky');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: blocky\ndescription: |\n  ' + 'z'.repeat(120) + '\n---\n');
+  const g = post(cb.measure(fx.root, { paths: paths(fx) }), 'skill_catalog_global');
+  const blocky = g.files.find((f) => f.skill === 'blocky');
+  assert.ok(blocky.description_chars >= 120, 'the whole block is counted; got ' + blocky.description_chars);
+});
+
+t('skillSourceLine names all three sources and distinguishes an ABSENT source from an empty one', () => {
+  const fx = buildFixture('cbx-line');
+  const line = cb.skillSourceLine(cb.measure(fx.root, { paths: paths(fx) }));
+  // "LOADED" was added on 2026-08-01: the number stopped meaning "SKILL.md files on disk" and started meaning
+  // "skills actually in the context", which is a different claim and has to read as one. This fixture has no
+  // enablement source, so nothing is excluded and the count itself is unchanged.
+  assert.strictEqual(line, 'skills: project 2 + global 2 + plugins 1 = 5 LOADED, counted separately '
+    + '(global + plugins are outside the project root — read only)', line);
+  const gone = buildFixture('cbx-line-gone', { skipPluginSkills: true });
+  assert.ok(/plugins 0 \(absent\)/.test(cb.skillSourceLine(cb.measure(gone.root, { paths: paths(gone) }))),
+    'a source with no directory is marked absent, never printed as a bare 0 that reads like an empty catalog');
+});
+
+t('a SKILL.md with no frontmatter at all is counted as found but reported as declaring nothing', () => {
+  const fx = buildFixture('cbx-nofm');
+  const dir = path.join(fx.home, '.claude', 'plugins', 'marketplaces', 'mp', 'docs');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), '# just a guide, no YAML frontmatter\n\nSome prose.\n');
+  const pl = post(cb.measure(fx.root, { paths: paths(fx) }), 'skill_catalog_plugins');
+  assert.strictEqual(pl.skills, 2, 'the file is found and counted as a SKILL.md; got ' + pl.skills);
+  assert.strictEqual(pl.without_frontmatter, 1, 'and it is named as declaring no name/description; got ' + pl.without_frontmatter);
+  assert.ok(/frontmatter/i.test(pl.note), 'the note says so rather than leaving the count to imply loaded weight: ' + pl.note);
+});
+
+// --- the real machine ---------------------------------------------------------------------------------------
+t('on the REAL project all three sources are reported, and any zero among them is EXPLAINED', () => {
+  const rep = cb.measure(path.resolve(__dirname, '..', '..'), {});
+  assert.strictEqual(rep.skill_sources.length, 3, JSON.stringify(rep.skill_sources.map((s) => s.id)));
+  for (const s of rep.skill_sources) {
+    assert.ok(typeof s.skills === 'number', s.id + ' has no count');
+    if (s.skills === 0) assert.ok(s.note && s.note.length > 10, s.id + ' reports zero with no explanation: ' + s.note);
+  }
+  // The COUNT is installation-specific and lives in its own pinned test below; what this test asserts is
+  // the property of the METER — three sources, every one of them counted, a zero always explained.
+  assert.ok(rep.skill_sources.find((s) => s.id === 'skill_catalog_project').skills > 0,
+    'the project catalog reports zero skills, which no Forge install should');
+  assert.strictEqual(rep.findings.filter((f) => f.kind === 'depth_capped').length, 0,
+    'the real tree fits inside the configured depth: ' + JSON.stringify(rep.findings.filter((f) => f.kind === 'depth_capped')));
+});
+// The 57 itself is a drift guard for THIS tree, not a property of the meter: a redistribution ships 47
+// because nine vendored skills are listed rather than copied. Same reasoning as the identical pin in
+// forge-configdrift.test.cjs — it stays strict here and skips VISIBLY elsewhere, never silently green.
+pinned('on the REAL project the project catalog carries this installation\'s full 57 skills', () => {
+  const rep = cb.measure(path.resolve(__dirname, '..', '..'), {});
+  const project = rep.skill_sources.find((s) => s.id === 'skill_catalog_project');
+  assert.ok(project.skills >= 57, 'this project has 57 skills of its own; got ' + project.skills);
+});
+realMachine('the REAL always-loaded surface is now measured well above the project-only figure it used to report', HAS_GLOBAL_CHAIN && HAS_PLUGIN_CATALOG, 'this machine has no ~/.claude/CLAUDE.md chain and/or no non-trivial plugin catalog (0 plugin skills on disk — a fresh/empty install is the truth here, not a broken walk) — the widened surface being compared against does not exist here', () => {
+  const rep = cb.measure(path.resolve(__dirname, '..', '..'), {});
+  // N3 (2026-09-26 re-audit): this used to compare against a fixed historical figure (24.809 est. tokens,
+  // the ENTIRE chain's total on the author's machine at that one point in time). That is a
+  // real-machine-state snapshot, not a property of the meter, so it drifts stale as any real catalog grows
+  // or a fresh contributor's own catalog is simply a different size. Compared instead against a LIVE
+  // project-only total computed from this SAME measurement — portable to any machine's own catalog size.
+  const projectOnlyTotal = post(rep, 'project_claude_md').approx_tokens + post(rep, 'skill_catalog_project').approx_tokens;
+  assert.ok(rep.total_approx_tokens > projectOnlyTotal,
+    'the widened measurement must exceed the project-only total; got total=' + rep.total_approx_tokens + ' project-only=' + projectOnlyTotal);
+  assert.strictEqual(rep.total_chars, rep.posts.reduce((n, p) => n + p.chars, 0), 'and it is still exactly the sum of its posts');
+});
+
+// =============================================================================================================
+// PLUGIN ENABLEMENT — a plugin that is switched OFF is not loaded, and must not be counted as if
+// it were. Measured that day on the owner's machine: 4 of 15 plugins enabled, 17 SKILL.md sitting under a
+// directory literally named `plugin.disabled`, and the meter reporting all 112 plugin skills as loaded weight.
+// =============================================================================================================
+
+/** buildPluginFixture — a plugin tree with every enablement case the real machine actually contains:
+ *    cache/mp/on-plugin/1.0.0        the INSTALLED copy of an enabled plugin        -> loaded
+ *    cache/mp/on-plugin/0.9.0        an older copy of that same plugin              -> NOT loaded (stale)
+ *    cache/mp/off-plugin/1.0.0       an installed copy of a DISABLED plugin         -> NOT loaded
+ *    marketplaces/mp/plugin.disabled a directory literally named *.disabled         -> NOT loaded
+ *    marketplaces/other/plugin       a relocated copy of an enabled plugin, found
+ *                                    through its own .claude-plugin/plugin.json     -> loaded
+ *    marketplaces/mp/loose           unattributable to any plugin                   -> counted, but flagged
+ *  Returns {home, root} plus the exact per-skill description lengths so the token assertions are arithmetic,
+ *  not vibes. */
+function buildPluginFixture(prefix, opts) {
+  opts = opts || {};
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'));
+  const home = path.join(base, 'home');
+  const root = path.join(base, 'project');
+  fs.mkdirSync(path.join(home, '.claude', 'rules', 'ecc', 'common'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude', 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'g'.repeat(100));
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'w'.repeat(100));
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), 'p'.repeat(100));
+  const plugins = path.join(home, '.claude', 'plugins');
+  const mkSkill = (rel, name, descLen) => {
+    const dir = path.join(plugins, rel);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: ' + name + '\ndescription: ' + 'd'.repeat(descLen) + '\n---\n');
+  };
+  // name lengths are fixed so name+description is exactly (name.length + descLen)
+  mkSkill(path.join('cache', 'mp', 'on-plugin', '1.0.0', 'skills', 'live'), 'live', 96);       // 4 + 96 = 100
+  mkSkill(path.join('cache', 'mp', 'on-plugin', '0.9.0', 'skills', 'stale'), 'stale', 195);    // 5 + 195 = 200
+  mkSkill(path.join('cache', 'mp', 'off-plugin', '1.0.0', 'skills', 'off'), 'off', 397);       // 3 + 397 = 400
+  mkSkill(path.join('marketplaces', 'mp', 'plugin.disabled', 'skills', 'dead'), 'dead', 796);  // 4 + 796 = 800
+  mkSkill(path.join('marketplaces', 'mp', 'loose'), 'loose', 45);                              // 5 + 45  = 50
+  // the relocated copy of an enabled plugin: a different marketplace directory, identified by its own manifest
+  const moved = path.join(plugins, 'marketplaces', 'other', 'plugin');
+  fs.mkdirSync(path.join(moved, '.claude-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(moved, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'moved-plugin', version: '2.0.0' }));
+  mkSkill(path.join('marketplaces', 'other', 'plugin', 'skills', 'relocated'), 'relocated', 291); // 9 + 291 = 300
+
+  const enabledPlugins = opts.enabledPlugins || {
+    'on-plugin@mp': true,
+    'off-plugin@mp': false,
+    'moved-plugin@mp': true, // enabled under the ORIGINAL marketplace key; the copy on disk lives under `other`
+  };
+  if (!opts.skipSettings) {
+    fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins }, null, 2));
+  }
+  if (!opts.skipInstalled) {
+    fs.mkdirSync(plugins, { recursive: true });
+    fs.writeFileSync(path.join(plugins, 'installed_plugins.json'), JSON.stringify({
+      version: 2,
+      plugins: {
+        'on-plugin@mp': [{ scope: 'user', installPath: path.join(plugins, 'cache', 'mp', 'on-plugin', '1.0.0'), version: '1.0.0' }],
+        'off-plugin@mp': [{ scope: 'user', installPath: path.join(plugins, 'cache', 'mp', 'off-plugin', '1.0.0'), version: '1.0.0' }],
+        // deliberately points at a path that does NOT exist — the real machine's claude-mem entry does exactly
+        // this, and the relocated copy still has to be found
+        'moved-plugin@mp': [{ scope: 'user', installPath: path.join(plugins, 'cache', 'mp', 'moved-plugin', '9.9.9'), version: '9.9.9' }],
+      },
+    }, null, 2));
+  }
+  return { base, home, root, plugins };
+}
+function pluginPaths(fx) {
+  return {
+    globalClaudeMd: path.join(fx.home, '.claude', 'CLAUDE.md'),
+    workspaceClaudeMd: path.join(fx.home, 'CLAUDE.md'),
+    eccRulesDir: path.join(fx.home, '.claude', 'rules', 'ecc', 'common'),
+    globalSkillsDir: path.join(fx.home, '.claude', 'skills'),
+    pluginSkillsDir: path.join(fx.home, '.claude', 'plugins'),
+    settingsJson: path.join(fx.home, '.claude', 'settings.json'),
+    installedPluginsJson: path.join(fx.home, '.claude', 'plugins', 'installed_plugins.json'),
+  };
+}
+
+t('the plugin post counts ONLY skills under an ENABLED plugin', () => {
+  const fx = buildPluginFixture('cbx-en-basic');
+  const pl = post(cb.measure(fx.root, { paths: pluginPaths(fx) }), 'skill_catalog_plugins');
+  // loaded: live(100) + relocated(300) + loose(50, unattributable -> counted, see the over-report rule) = 450
+  assert.strictEqual(pl.skills, 3, 'loaded skill count wrong; got ' + pl.skills + ' — ' + JSON.stringify(pl.files.map((f) => f.skill)));
+  assert.strictEqual(pl.chars, 450, 'loaded chars wrong; got ' + pl.chars);
+  assert.strictEqual(pl.approx_tokens, 113, 'ceil(450/4) = 113; got ' + pl.approx_tokens);
+});
+
+t('the DISABLED weight is reported separately and is never added to the total', () => {
+  const fx = buildPluginFixture('cbx-en-split');
+  const rep = cb.measure(fx.root, { paths: pluginPaths(fx) });
+  const pl = post(rep, 'skill_catalog_plugins');
+  // not loaded: stale(200) + off(400) + dead(800) = 1400
+  assert.strictEqual(pl.disabled_skills, 3, 'disabled skill count wrong; got ' + pl.disabled_skills);
+  assert.strictEqual(pl.disabled_chars, 1400, 'disabled chars wrong; got ' + pl.disabled_chars);
+  assert.strictEqual(pl.disabled_approx_tokens, 350, 'ceil(1400/4) = 350; got ' + pl.disabled_approx_tokens);
+  assert.strictEqual(pl.skills_on_disk, 6, 'the on-disk count must still be reported honestly; got ' + pl.skills_on_disk);
+  assert.strictEqual(rep.total_chars, rep.posts.reduce((n, p) => n + p.chars, 0),
+    'the total must remain exactly the sum of the posts, i.e. loaded-only');
+  assert.strictEqual(rep.potential_approx_tokens, 350, 'the disabled weight must be its own top-level figure; got ' + rep.potential_approx_tokens);
+  assert.ok(rep.total_approx_tokens < rep.total_approx_tokens + rep.potential_approx_tokens, 'sanity');
+});
+
+t('a directory literally named *.disabled is never counted as loaded', () => {
+  const fx = buildPluginFixture('cbx-en-disableddir');
+  const pl = post(cb.measure(fx.root, { paths: pluginPaths(fx) }), 'skill_catalog_plugins');
+  assert.ok(!pl.files.some((f) => /plugin\.disabled/.test(f.skill)),
+    'a *.disabled directory leaked into the loaded set: ' + JSON.stringify(pl.files.map((f) => f.skill)));
+  const dead = (pl.disabled_files || []).find((f) => /plugin\.disabled/.test(f.skill));
+  assert.ok(dead, 'the *.disabled skill is not even reported as disabled');
+  assert.ok(/disabled/i.test(dead.reason), 'the reason does not say why: ' + dead.reason);
+});
+
+t('a STALE copy of an enabled plugin (not the installed path) is not loaded', () => {
+  const fx = buildPluginFixture('cbx-en-stale');
+  const pl = post(cb.measure(fx.root, { paths: pluginPaths(fx) }), 'skill_catalog_plugins');
+  const stale = (pl.disabled_files || []).find((f) => /0\.9\.0/.test(f.skill));
+  assert.ok(stale, 'the old version was counted as loaded: ' + JSON.stringify(pl.files.map((f) => f.skill)));
+  assert.ok(/stale|not the installed/i.test(stale.reason), stale.reason);
+});
+
+t('an enabled plugin whose recorded install path is GONE is still found by its own manifest', () => {
+  const fx = buildPluginFixture('cbx-en-relocated');
+  const pl = post(cb.measure(fx.root, { paths: pluginPaths(fx) }), 'skill_catalog_plugins');
+  assert.ok(pl.files.some((f) => /relocated/.test(f.skill)),
+    'the relocated copy of an enabled plugin was dropped: ' + JSON.stringify(pl.files.map((f) => f.skill)));
+  const attr = pl.plugin_attribution.find((a) => a.plugin_key && /moved-plugin/.test(a.plugin_key) && a.enabled);
+  assert.ok(attr, 'no attribution row for the relocated plugin: ' + JSON.stringify(pl.plugin_attribution));
+});
+
+t('an UNATTRIBUTABLE plugin skill is counted as LOADED and flagged — over-reporting is the safe direction', () => {
+  const fx = buildPluginFixture('cbx-en-unknown');
+  const pl = post(cb.measure(fx.root, { paths: pluginPaths(fx) }), 'skill_catalog_plugins');
+  assert.ok(pl.files.some((f) => /loose/.test(f.skill)), 'the unattributable skill was silently dropped');
+  assert.strictEqual(pl.unattributed_skills, 1, 'the unattributable count is not reported; got ' + pl.unattributed_skills);
+  assert.ok(/unattribut/i.test(pl.note), 'the note does not mention unattributed skills: ' + pl.note);
+});
+
+t('with NO settings.json every SETTINGS-dependent skill counts as loaded and the meter says the split is unknown', () => {
+  const fx = buildPluginFixture('cbx-en-nosettings', { skipSettings: true });
+  const rep = cb.measure(fx.root, { paths: pluginPaths(fx) });
+  const pl = post(rep, 'skill_catalog_plugins');
+  // 5 of 6: without an enablement source no settings-based exclusion can be trusted, so everything counts —
+  // over-reporting is the safe direction for a budget. The one exception is the `*.disabled` DIRECTORY, which
+  // is filesystem-level truth and does not depend on settings.json at all.
+  assert.strictEqual(pl.skills, 5, 'without an enablement source the settings-dependent skills must all count; got ' + pl.skills);
+  assert.strictEqual(pl.disabled_skills, 1, 'only the *.disabled directory stays excluded; got ' + pl.disabled_skills);
+  assert.ok((pl.disabled_files || []).every((f) => /plugin\.disabled/.test(f.skill)),
+    'something other than the *.disabled directory was excluded without an enablement source: ' + JSON.stringify(pl.disabled_files));
+  assert.ok(/enablement/i.test(pl.note) && /(unavailable|could not|no settings)/i.test(pl.note),
+    'the note must say the enablement source was unreadable: ' + pl.note);
+  assert.strictEqual(rep.plugin_enablement.available, false, JSON.stringify(rep.plugin_enablement));
+});
+
+t('the project and global skill catalogs are untouched by plugin enablement', () => {
+  const fx = buildPluginFixture('cbx-en-others');
+  const rep = cb.measure(fx.root, { paths: pluginPaths(fx) });
+  for (const id of ['skill_catalog_project', 'skill_catalog_global']) {
+    const p = post(rep, id);
+    assert.strictEqual(p.disabled_skills, 0, id + ' must have no disabled split — it is not plugin-managed');
+    assert.strictEqual(p.disabled_chars, 0, id + ' reported disabled chars');
+  }
+});
+
+t('skillSourceLine reports the loaded count AND the not-loaded-but-present count', () => {
+  const fx = buildPluginFixture('cbx-en-line');
+  const line = cb.skillSourceLine(cb.measure(fx.root, { paths: pluginPaths(fx) }));
+  assert.ok(/plugins 3/.test(line), 'the loaded plugin count is not in the line: ' + line);
+  assert.ok(/3 (disabled|not loaded|off)/i.test(line), 'the not-loaded count is missing from the line: ' + line);
+});
+
+t('a baseline recorded on the OLD (everything-counted) figure does not read as a regression', () => {
+  const fx = buildPluginFixture('cbx-en-baseline');
+  cb.writeBaseline(fx.root, { paths: pluginPaths(fx) });
+  const rep = cb.measure(fx.root, { paths: pluginPaths(fx) });
+  assert.ok(rep.findings.every((f) => f.kind !== 'over_baseline' && f.kind !== 'over_baseline_total'),
+    'measuring twice in a row produced growth findings: ' + JSON.stringify(rep.findings));
+});
+
+// --- WP-SKILLBUDGET: user-only skills (disable-model-invocation: true) are NOT in the listing ---
+function writeSkillFile(dir, rel, frontmatter) {
+  fs.mkdirSync(path.join(dir, rel), { recursive: true });
+  fs.writeFileSync(path.join(dir, rel, 'SKILL.md'), '---\n' + frontmatter + '\n---\n\n# body\n');
+}
+t('a project skill with disable-model-invocation: true is NOT counted as loaded, but is reported separately', () => {
+  const fx = buildFixture('cbx-useronly');
+  const skillsDir = path.join(fx.root, '.claude', 'skills');
+  // "user-only"(9) + 41 = 50 chars, plain `true`
+  writeSkillFile(skillsDir, 'user-only', 'name: user-only\ndescription: ' + 'u'.repeat(41) + '\ndisable-model-invocation: true');
+  // "user-quoted"(11) + 39 = 50 chars, quoted "true" with the key BEFORE description
+  writeSkillFile(skillsDir, 'user-quoted', 'name: user-quoted\ndisable-model-invocation: "true"\ndescription: "' + 'q'.repeat(39) + '"');
+  // counterfactual: `false` stays a normal, loaded skill — "explicit-off"(12) + 28 = 40 chars
+  writeSkillFile(skillsDir, 'explicit-off', 'name: explicit-off\ndescription: ' + 'x'.repeat(28) + '\ndisable-model-invocation: false');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const sc = post(rep, 'skill_catalog_project');
+  // loaded = the two buildFixture skills (138) + explicit-off (40) = 178; the two user-only skills add 0
+  assert.strictEqual(sc.skills, 3, 'loaded count wrong; got ' + sc.skills + ' — ' + JSON.stringify(sc.files.map((f) => f.skill)));
+  assert.strictEqual(sc.chars, 178, 'user-only skills leaked into the loaded chars; got ' + sc.chars);
+  assert.ok(!sc.files.some((f) => /^user-/.test(f.skill)), 'a user-only skill is listed as loaded');
+  assert.strictEqual(sc.user_only_skills, 2, 'user-only count wrong; got ' + sc.user_only_skills);
+  assert.strictEqual(sc.user_only_chars, 100, 'user-only chars wrong; got ' + sc.user_only_chars);
+  assert.deepStrictEqual(sc.user_only_files.map((f) => f.skill).sort(), ['user-only', 'user-quoted']);
+  assert.ok(sc.user_only_files.every((f) => /disable-model-invocation/.test(f.reason)), 'the reason does not say why');
+  assert.strictEqual(sc.skills_on_disk, 5, 'every file found must still be accounted for on disk; got ' + sc.skills_on_disk);
+  assert.strictEqual(sc.skills + sc.disabled_skills + sc.user_only_skills, sc.skills_on_disk, 'loaded + disabled + user-only != on disk');
+  assert.ok(/user-only/.test(sc.note), 'the note does not mention the user-only skills: ' + sc.note);
+  // the listing and the totals see the loaded set only; user-only weight is not "potential" weight either
+  const listingSum = rep.skill_sources.reduce((n, s) => n + s.chars, 0);
+  assert.strictEqual(rep.skill_listing.chars, listingSum, 'skill_listing.chars must be the sum of the loaded sources');
+  assert.strictEqual(rep.total_chars, rep.posts.reduce((n, p) => n + p.chars, 0), 'total must remain the sum of the posts');
+  assert.strictEqual(rep.potential_chars, 0, 'user-only weight must not be reported as switched-off plugin weight');
+  const src = rep.skill_sources.find((s) => s.id === 'skill_catalog_project');
+  assert.strictEqual(src.user_only_skills, 2, 'skill_sources row does not carry the user-only count');
+});
+t('a user-only skill under an ENABLED plugin is excluded from the plugin listing and is not counted as disabled', () => {
+  const fx = buildPluginFixture('cbx-en-useronly');
+  const dir = path.join(fx.plugins, 'cache', 'mp', 'on-plugin', '1.0.0', 'skills', 'manual');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: manual\ndescription: ' + 'm'.repeat(94) + '\ndisable-model-invocation: true\n---\n');
+  const pl = post(cb.measure(fx.root, { paths: pluginPaths(fx) }), 'skill_catalog_plugins');
+  // identical to the plain plugin fixture: 3 loaded / 450 chars, 3 disabled / 1400 chars
+  assert.strictEqual(pl.skills, 3, 'loaded count changed; got ' + pl.skills);
+  assert.strictEqual(pl.chars, 450, 'the user-only plugin skill leaked into the loaded chars; got ' + pl.chars);
+  assert.strictEqual(pl.disabled_skills, 3, 'the user-only skill must not be counted as a disabled plugin skill');
+  assert.strictEqual(pl.disabled_chars, 1400);
+  assert.strictEqual(pl.user_only_skills, 1);
+  assert.strictEqual(pl.user_only_chars, 100);
+  assert.strictEqual(pl.skills_on_disk, 7);
+});
+
+// --- the real machine ------------------------------------------------------------------------------------
+realMachine('on the REAL machine the plugin catalog reports FEWER loaded skills than sit on disk', HAS_PLUGIN_CATALOG, 'no non-trivial ~/.claude/plugins catalog on this machine (0 skills on disk — an absent OR an empty/scaffold-only plugins folder is the truth here, not a broken walk)', () => {
+  const rep = cb.measure(path.resolve(__dirname, '..', '..'), {});
+  const pl = post(rep, 'skill_catalog_plugins');
+  // The exact count is machine state, not a property of this code: it legitimately moves whenever a
+  // plugin is installed or upgraded. Measured 2026-08-03: upgrading the Codex CLI (0.142.3 -> 0.146.0,
+  // done to reach the gpt-5.6-sol model) took it 112 -> 135 and turned the doctor red for a change that
+  // is not a defect. A pin that has to be edited every plugin upgrade teaches people to edit assertions
+  // instead of reading them — so the load-bearing invariants (loaded < on-disk, some skills recognised
+  // as not-loaded, and loaded + not-loaded accounting for EVERY file) stay strict below, while the raw
+  // count only has to be a plausible non-trivial catalog. A walk that finds ~2 files (the depth-4 bug
+  // this test was written for) still fails here.
+  assert.ok(pl.skills_on_disk >= 50,
+    'the plugin catalog looks implausibly small (' + pl.skills_on_disk + ') — a shallow/broken walk, not a real catalog');
+  assert.ok(pl.skills < pl.skills_on_disk,
+    'every plugin skill is still being counted as loaded (' + pl.skills + ' of ' + pl.skills_on_disk + ')');
+  assert.ok(pl.disabled_skills > 0, 'no plugin skill was recognised as not-loaded');
+  // WP-SKILLBUDGET: user-only skills (disable-model-invocation: true) are a third, separately
+  // reported bucket, so the every-file-accounted-for invariant now names all three — still exact, not widened.
+  assert.strictEqual(pl.skills + pl.disabled_skills + pl.user_only_skills, pl.skills_on_disk,
+    'loaded + not-loaded + user-only must account for every file found: ' + pl.skills + ' + ' + pl.disabled_skills
+    + ' + ' + pl.user_only_skills + ' != ' + pl.skills_on_disk);
+  assert.ok(rep.potential_approx_tokens > 0, 'the not-loaded weight is reported as zero on a machine that has disabled plugins');
+});
+
+realMachine('the REAL total no longer includes the weight of switched-off plugins', HAS_GLOBAL_CHAIN && HAS_PLUGIN_CATALOG, 'the before/after figures this compares were measured on a machine with a global chain and a plugin catalog; neither exists here', () => {
+  const rep = cb.measure(path.resolve(__dirname, '..', '..'), {});
+  // N3 (2026-09-26 re-audit): this used to compare against fixed historical figures (38.251 / 24.809 est.
+  // tokens, recorded 2026-08-01) from the author's own machine at one point in time — exactly the kind of
+  // absolute, real-machine-state-dependent number this audit exists to remove. A real global/plugin catalog
+  // legitimately grows between runs (a marketplace sync, a newly installed plugin), so the fixed bar went
+  // stale and started failing on ordinary machine drift, not a regression. Both checks below are
+  // self-relative — they hold no matter how large the real catalog happens to be right now.
+  const naiveTotal = rep.total_approx_tokens + rep.potential_approx_tokens;
+  assert.ok(rep.potential_approx_tokens > 0, 'nothing is reported as switched-off on this real machine — the comparison below would be vacuous');
+  assert.ok(rep.total_approx_tokens < naiveTotal,
+    'the reported total must be strictly less than total+potential — the disabled weight is leaking into the total; got total=' + rep.total_approx_tokens + ' potential=' + rep.potential_approx_tokens);
+  const projectOnly = post(rep, 'skill_catalog_project').approx_tokens;
+  assert.ok(rep.total_approx_tokens > projectOnly,
+    'the widened total must still exceed the project-only catalog by itself; got total=' + rep.total_approx_tokens + ' project-only=' + projectOnly);
+});
+
+// ============================================================================================================
+// LAPTOP + CI SHAPES (2026-09-26 re-audit): the realMachine tests above depend on whatever THIS developer's
+// own ~/.claude happens to contain right now. These two are deterministic on every machine that runs this
+// suite — they point HOME/USERPROFILE at a throwaway dir so the exact two shapes the audit found (Claude
+// Code installed but ~/.claude otherwise empty; no ~/.claude at all) are proven directly, not just skipped.
+// ============================================================================================================
+function withHome(fakeHome, fn) {
+  const prevHome = process.env.HOME, prevProfile = process.env.USERPROFILE;
+  process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
+  try { return fn(); }
+  finally {
+    if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+    if (prevProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevProfile;
+  }
+}
+
+t('laptop shape: ~/.claude exists but is completely empty (no skills, no plugins, no CLAUDE.md) never throws and reports honest zeros', () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cbx-laptop-home-'));
+  fs.mkdirSync(path.join(fakeHome, '.claude'), { recursive: true });
+  const rep = withHome(fakeHome, () => cb.measure(path.resolve(__dirname, '..', '..'), {}));
+  const g = post(rep, 'skill_catalog_global');
+  const pl = post(rep, 'skill_catalog_plugins');
+  assert.strictEqual(g.skills_on_disk, 0, 'global skills_on_disk must be an honest 0 on this shape, got ' + g.skills_on_disk);
+  assert.strictEqual(pl.skills_on_disk, 0, 'plugin skills_on_disk must be an honest 0 on this shape, got ' + pl.skills_on_disk);
+  assert.strictEqual(g.skills, 0);
+  assert.strictEqual(pl.skills, 0);
+  assert.ok(!rep.findings.some((f) => f.kind === 'depth_capped'), 'an empty catalog must never report a depth cap');
+  assert.strictEqual(post(rep, 'global_claude_md').exists, false);
+  assert.strictEqual(rep.skill_sources.length, 3, 'the structural three-sources breakdown stays even when two of them are empty');
+});
+
+t('CI shape: no ~/.claude at all (not even the folder) never throws either, and reports the same honest zeros', () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cbx-noclaude-home-'));
+  // deliberately do NOT create .claude here — this is the "no ~/.claude at all" CI shape
+  const rep = withHome(fakeHome, () => cb.measure(path.resolve(__dirname, '..', '..'), {}));
+  const g = post(rep, 'skill_catalog_global');
+  const pl = post(rep, 'skill_catalog_plugins');
+  assert.strictEqual(g.skills_on_disk, 0);
+  assert.strictEqual(pl.skills_on_disk, 0);
+  assert.strictEqual(post(rep, 'global_claude_md').exists, false);
+});
+
+// ============================================================================================================
+// CLI --help / -h (2026-09-26 re-audit, CLI sweep): used to be silently ignored — the CLI fell through
+// to a full measure() run instead of printing usage. Not a hang, but not usage either. Both spellings, and a
+// counterfactual proving it does NOT run a real measurement in the process.
+// ============================================================================================================
+t('CLI --help prints usage and exits 0, without running a real measurement', () => {
+  const r = runCLI(['--help']);
+  assert.strictEqual(r.status, 0, 'exit was ' + r.status + ' stderr=' + r.stderr);
+  assert.ok(/^Usage: node forge-contextbudget\.cjs/.test(r.stdout), 'no usage line: ' + JSON.stringify(r.stdout));
+  assert.ok(!/TOTAL LOADED/.test(r.stdout), 'a real measurement ran instead of printing usage: ' + r.stdout);
+});
+t('CLI -h is the same short spelling and behaves identically', () => {
+  const r = runCLI(['-h']);
+  assert.strictEqual(r.status, 0, 'exit was ' + r.status + ' stderr=' + r.stderr);
+  assert.ok(/^Usage: node forge-contextbudget\.cjs/.test(r.stdout));
+});
+t('CLI --help wins even alongside other flags (checked first, before any argument is otherwise parsed)', () => {
+  const r = runCLI(['--json', '--write-baseline', '--help']);
+  assert.strictEqual(r.status, 0, 'exit was ' + r.status + ' stderr=' + r.stderr);
+  assert.ok(/^Usage: node forge-contextbudget\.cjs/.test(r.stdout));
+  assert.ok(!/baseline written/.test(r.stdout), '--write-baseline must not have run: ' + r.stdout);
+});
+t('CLI counterfactual: without --help, the CLI still runs its real report (--json included, for a fast/cheap real check)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cbx-cli-real-'));
+  const r = runCLI(['--root', dir, '--json']);
+  assert.strictEqual(r.status, 0, 'exit was ' + r.status + ' stderr=' + r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.ok(typeof rep.total_approx_tokens === 'number', 'a real report was not produced: ' + r.stdout.slice(0, 200));
+});
+
+// =============================================================================================================
+// COMMANDS/*.MD POST — a slash command's FULL body loads on invocation and then stays for the
+// rest of the session; nothing tracked its growth at all before this wave (usage-minimisation research,
+// commands/forge.md alone estimated at 6.800-8.000 tokens on every /forge, uncounted).
+// =============================================================================================================
+function writeCommand(root, relFile, chars) {
+  const abs = path.join(root, '.claude', 'commands', relFile);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, 'x'.repeat(chars));
+}
+
+t('commands_dir counts the FULL body of every *.md under .claude/commands, not just frontmatter', () => {
+  const fx = buildFixture('cbx-cmd-basic');
+  writeCommand(fx.root, 'forge.md', 300);
+  writeCommand(fx.root, 'commit.md', 120);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const cmd = post(rep, 'commands_dir');
+  assert.ok(cmd, 'commands_dir post missing entirely');
+  assert.strictEqual(cmd.exists, true);
+  assert.strictEqual(cmd.chars, 420, 'expected the sum of both full files (300+120); got ' + cmd.chars);
+  assert.strictEqual(cmd.files.length, 2, JSON.stringify(cmd.files));
+  assert.strictEqual(cmd.in_project, true, 'commands/ is a project-relative path, unlike the global/plugin skill catalogs');
+});
+
+t('commands_dir finds a NAMESPACED command in a subfolder (bounded, symlink-safe walk, same discipline as the skill catalog walk)', () => {
+  const fx = buildFixture('cbx-cmd-nested');
+  writeCommand(fx.root, path.join('frontend', 'component.md'), 88);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const cmd = post(rep, 'commands_dir');
+  assert.strictEqual(cmd.chars, 88);
+  assert.ok(cmd.files.some((f) => f.file === 'frontend/component.md'), 'catalog-relative path not recorded: ' + JSON.stringify(cmd.files));
+});
+
+t('commands_dir with no .claude/commands directory at all is an honest zero, never a throw', () => {
+  const fx = buildFixture('cbx-cmd-absent');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const cmd = post(rep, 'commands_dir');
+  assert.strictEqual(cmd.exists, false);
+  assert.strictEqual(cmd.chars, 0);
+  assert.ok(/no such directory/i.test(cmd.note), cmd.note);
+});
+
+t('commands_dir participates in the SAME generic baseline/growth check every other post gets, with no special-casing', () => {
+  const fx = buildFixture('cbx-cmd-baseline');
+  writeCommand(fx.root, 'forge.md', 100);
+  cb.writeBaseline(fx.root, { paths: paths(fx) });
+  writeCommand(fx.root, 'forge.md', 5000); // simulate real re-growth of the command file
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const grown = rep.findings.filter((f) => f.kind === 'over_baseline' && f.id === 'commands_dir');
+  assert.strictEqual(grown.length, 1, 'commands_dir growth was not caught by the generic baseline check: ' + JSON.stringify(rep.findings));
+});
+
+t('commands_dir is included in total_chars exactly once (no double count)', () => {
+  const fx = buildFixture('cbx-cmd-total');
+  writeCommand(fx.root, 'forge.md', 777);
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(rep.total_chars, rep.posts.reduce((n, p) => n + p.chars, 0));
+  assert.ok(post(rep, 'commands_dir').chars === 777);
+});
+
+// =============================================================================================================
+// SKILL-LISTING BUDGET — distinct from max_skill_depth (which bounds the WALK): does the total
+// LOADED name+description across all three skill catalogs still fit Anthropic's roughly 1%-of-context-window
+// listing budget. Once it overflows, Claude Code drops descriptions for the least-used skills first.
+// =============================================================================================================
+t('skill_listing is reported on every measurement, budget computed from a 200K-token context by default', () => {
+  const fx = buildFixture('cbx-listing-default');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.ok(rep.skill_listing, 'skill_listing missing from the report');
+  assert.strictEqual(rep.skill_listing.context_window_tokens, cb.DEFAULT_CONTEXT_WINDOW_TOKENS);
+  assert.strictEqual(rep.skill_listing.budget_pct, cb.DEFAULT_SKILL_LISTING_BUDGET_PCT);
+  assert.strictEqual(rep.skill_listing.budget_approx_tokens, Math.floor(cb.DEFAULT_CONTEXT_WINDOW_TOKENS * cb.DEFAULT_SKILL_LISTING_BUDGET_PCT));
+  assert.strictEqual(rep.skill_listing.chars, rep.skill_sources.reduce((n, s) => n + s.chars, 0), 'must equal the sum of the three LOADED catalog posts, never the disabled/potential weight');
+});
+t('a tiny fixture is comfortably UNDER the default listing budget — no finding, ok stays true', () => {
+  const fx = buildFixture('cbx-listing-under');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  assert.strictEqual(rep.skill_listing.over_budget, false);
+  assert.strictEqual(rep.findings.filter((f) => f.kind === 'over_listing_budget').length, 0);
+  assert.strictEqual(rep.ok, true);
+});
+t('the SAME small fixture trips over_listing_budget once the budget is configured small enough (the check is real, not decorative)', () => {
+  const fx = buildFixture('cbx-listing-over');
+  const rep = cb.measure(fx.root, { paths: paths(fx), contextWindowTokens: 1000, skillListingBudgetPct: 0.01 });
+  // budget = floor(1000*0.01)=10 tokens = 40 chars at chars_per_token 4; the fixture's three skill posts
+  // (138+90+68=296 chars) are comfortably over that on purpose.
+  assert.strictEqual(rep.skill_listing.over_budget, true, JSON.stringify(rep.skill_listing));
+  const finding = rep.findings.find((f) => f.kind === 'over_listing_budget');
+  assert.ok(finding, 'over_listing_budget finding missing: ' + JSON.stringify(rep.findings));
+  assert.strictEqual(finding.id, 'skill_listing');
+  assert.ok(/least-used skills first/i.test(finding.detail), finding.detail);
+  assert.strictEqual(rep.ok, false, 'an over-budget listing must make the report not-ok (advisory, but reported)');
+});
+t('the listing budget is CONFIG-overridable (context_window_tokens / skill_listing_budget_pct), same posture as chars_per_token', () => {
+  const fx = buildFixture('cbx-listing-config');
+  const cfg = cb.readConfig(fx.root);
+  cfg.context_window_tokens = 1000;
+  cfg.skill_listing_budget_pct = 0.01;
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx) }); // no opts override this time — reads from the saved config
+  assert.strictEqual(rep.skill_listing.context_window_tokens, 1000);
+  assert.strictEqual(rep.skill_listing.over_budget, true, 'the config-driven budget must be honored exactly like an opts override');
+});
+t('an opts override wins over a saved config value for the listing budget (same precedence as every other opts/config pair here)', () => {
+  const fx = buildFixture('cbx-listing-precedence');
+  const cfg = cb.readConfig(fx.root);
+  cfg.context_window_tokens = 1000; // would trip over_budget alone
+  cb.saveConfig(fx.root, cfg);
+  const rep = cb.measure(fx.root, { paths: paths(fx), contextWindowTokens: 1000000 }); // opts wins -> huge budget
+  assert.strictEqual(rep.skill_listing.context_window_tokens, 1000000);
+  assert.strictEqual(rep.skill_listing.over_budget, false);
+});
+t('CLI human output prints the skill listing budget line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cbx-cli-listing-'));
+  const r = runCLI(['--root', dir]);
+  assert.strictEqual(r.status, 0, 'exit was ' + r.status + ' stderr=' + r.stderr);
+  assert.ok(/skill listing budget:/.test(r.stdout), 'CLI output missing the listing-budget line: ' + r.stdout);
+});
+
+console.log('');
+// Skips horen in de tally: een overgeslagen assertie die nergens verschijnt is niet te onderscheiden van
+// een assertie die slaagde — dat is precies het verschil dat deze scheiding zichtbaar moest maken.
+console.log(passed + ' passed, ' + failed + ' failed' + (skipped ? ', ' + skipped + ' skipped' : ''));
+process.exit(failed ? 1 : 0);

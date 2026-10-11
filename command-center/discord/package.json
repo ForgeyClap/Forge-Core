@@ -1,0 +1,16 @@
+{
+  "name": "forge-discord-canary",
+  "private": true,
+  "type": "module",
+  "description": "Optional Discord bridge for the Forge-Core Command Center.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "demo": "node src/demo-mock.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  }
+}

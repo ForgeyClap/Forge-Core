@@ -1,0 +1,12 @@
+{
+  "name": "forge-command-center-gateway",
+  "private": true,
+  "type": "module",
+  "description": "Local gateway for the Forge-Core Command Center (health, projects, runs, events).",
+  "scripts": {
+    "start": "node bin.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,124 @@
+{
+  "_doc": "Forge model routing = the GOAT router (: adopt the Model Routing Playbook by @donimas COMPLETELY and ALWAYS, as a HARD rule; supersedes the 2026-07-03 Opus-Lead / Haiku-trivial tiering). The Lead (main session) is the ROUTER on sonnet / effort medium: it never does the work itself, it triages (Head Chef), dispatches the owning Boss on the route's model + effort, has Verify Boss check every work package, and escalates ONCE on a FAIL. Route by ALIAS (sonnet/opus/fable) via the Agent-tool `model` param (overrides the Boss frontmatter `model:`); the Agent tool has NO effort param, so effort = the Boss frontmatter `effort:` default, or the route effort via a Workflow agent({agentType, model, effort}). NEVER set CLAUDE_CODE_SUBAGENT_MODEL or CLAUDE_CODE_EFFORT_LEVEL (they flatten every per-agent model/effort). Forge logs the ACTUAL model used in FORGE_AGENT_LEDGER.md + the dashboard event 'agent_model_used' (registered 2026-08-01 in forge-dashboard/log-event.cjs + forge-bin/forge-verify.cjs + forge-dashboard/app.js), shaped {event_type:'agent_model_used', agent, model, source, note}. The model field is MANDATORY and must be null when the runtime model is genuinely not observable — a placeholder or guess is STRICT-REFUSED, so this event is never a claim about a model nobody checked. Never overrides governance, security, QA, or TOKEN_EFFICIENCY_GLOBAL_POLICY. Forge cannot auto-switch the session model; it may only recommend.",
+  "version": "goat-2026-10-06",
+  "source": "Model Routing Playbook by @donimas (famous-mandarin-287.notion.site, checked 2026-10-05). Global HARD MUST: ~/.claude/CLAUDE.md (GOAT model routing).",
+  "rules": [
+    "1. Tune effort before you touch models. Most tasks don't need high.",
+    "2. Don't default to the top model (fable). One tier below solves nearly as much for a fraction of the price.",
+    "3. Route by task type and risk with plain rules: triage -> quick | build | deep.",
+    "4. Verify with code (tests, types, lint). On FAIL escalate ONCE: more effort first, then a bigger model.",
+    "5. Log every miss and turn it into a rule (one-line lesson memory)."
+  ],
+  "precedence": "The routes below are the defaults. Risk wins over convenience: anything touching architecture, migrations, auth, payments, data, production or security, or anything unclear, is route 'deep' regardless of size. 'escalate' (fable) is never chosen up front. Haiku is not part of the standard: no route uses it.",
+  "session": {
+    "lead": {
+      "route": "router",
+      "model": "sonnet",
+      "recommendedAlias": "sonnet[1m]",
+      "effort": "medium",
+      "note": "The main session is the router: /model sonnet (keep 1M context = sonnet[1m]), effort medium. It classifies via triage (Head Chef) and delegates; it does not do the build work itself. Changing the session model mid-task rebuilds the prompt cache, so the router stays on sonnet and the routes change per dispatch instead."
+    }
+  },
+  "routes": {
+    "triage":   { "model": "sonnet", "effort": "low",    "forgeAgent": "head-chef",   "when": "FIRST for every coding task / work package. Read-mostly. Returns {\"route\":\"quick|build|deep\",\"risk\":\"low|medium|high\",\"checks\":[\"tests\",\"typecheck\",\"lint\",\"review\"]} and records it on the package's agent_work_package_created event." },
+    "quick":    { "model": "sonnet", "effort": "low",    "when": "Small and well-specified, one or two files." },
+    "build":    { "model": "opus",   "effort": "medium", "when": "A normal feature or bug fix." },
+    "deep":     { "model": "opus",   "effort": "xhigh",  "when": "Architecture, migrations, auth, payments, data, production, security, or anything unclear." },
+    "escalate": { "model": "fable",  "effort": "high",   "when": "ONLY after a failed Verify Boss check on a deep-route package (one step up from deep) — never chosen up front." },
+    "verifier": { "model": "sonnet", "effort": "medium", "forgeAgent": "verify-boss", "when": "After EVERY work package. Runs the triage checks scaled to risk (low = tests for the touched files; high = full suite + typecheck + lint + a careful diff read) and replies PASS/FAIL with evidence. NEVER edits." }
+  },
+  "agentDefaults": {
+    "_note": "Default route per agent. Must equal the agent frontmatter model/effort == agent-model-map.json claudeTier/claudeEffort == agent-tool-policy.json model. Per dispatch the Lead may run any Boss on another route's model (Agent `model` param) — e.g. build-boss on 'quick' for a one-file fix. EFFORT HONESTY: the Agent tool has no effort param, so such a dispatch runs at the Boss FRONTMATTER effort (build-boss on the quick model = sonnet/medium, a build-boss package triaged deep = opus/medium). When the route effort differs, dispatch via a Workflow agent({agentType, model, effort}) or pick a Boss whose default route matches (boss/review-boss/security-boss for deep work), and log the ACTUAL effort, never the route effort that could not be set.",
+    "head-chef": "triage",
+    "verify-boss": "verifier",
+    "test-boss": "verifier",
+    "codex-reviewer": "verifier",
+    "docs-boss": "quick",
+    "skill-boss": "quick",
+    "search-boss": "quick",
+    "seo-boss": "quick",
+    "scribe": "quick",
+    "build-boss": "build",
+    "ui-boss": "build",
+    "integration-boss": "build",
+    "data-scientist": "build",
+    "electron-pro": "build",
+    "mcp-developer": "build",
+    "ml-engineer": "build",
+    "boss": "deep",
+    "review-boss": "deep",
+    "security-boss": "deep",
+    "payment-integration": "deep"
+  },
+  "escalation": {
+    "maxPerTask": 1,
+    "processFailure": {
+      "signal": "Verify Boss FAIL because the worker skipped a file or did not run the tests.",
+      "step": "MORE EFFORT first: same Boss, effort one level up (low -> medium -> high -> xhigh) via Workflow agent({agentType, model, effort}); without a Workflow, the next route (quick -> build)."
+    },
+    "capabilityFailure": {
+      "signal": "Verify Boss FAIL although the worker had the full context.",
+      "step": "BIGGER MODEL: build -> deep -> escalate (fable/high)."
+    },
+    "secondFail": "Stop. Report honestly to the owner with the evidence. No repair loop — failed cheap runs cost more than 4x a successful one.",
+    "afterEscalation": "Append ONE line to the lessons file: '<YYYY-MM-DD> <task pattern> -> <route that worked>'."
+  },
+  "lessons": {
+    "file": ".claude/agent-memory/head-chef/MEMORY.md",
+    "format": "<YYYY-MM-DD> <task pattern> -> <route that worked>",
+    "writer": "Head Chef (or the Lead on its behalf) after any escalation.",
+    "reader": "Head Chef reads it before every triage; a matching lesson overrides the default route."
+  },
+  "fable": {
+    "model": "fable",
+    "effort": "high",
+    "use": "ONLY as the 'escalate' route after a failed check. Never a default, never chosen up front, never the Lead."
+  },
+  "agentToolFacts": {
+    "modelParam": "The Agent tool's `model` param (sonnet|opus|haiku|fable) OVERRIDES the agent frontmatter model. Forge passes the route model.",
+    "effortParam": "The Agent tool has NO effort param. Effort comes from the agent frontmatter `effort:` (low|medium|high|xhigh|max), or from a Workflow agent({agentType, model, effort}) option.",
+    "unsupportedEffort": "An effort the model does not support is silently lowered (xhigh/max -> high).",
+    "forbiddenEnv": ["CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL"],
+    "noGlobalPerModelEffort": "Do not keep modelSettings.*.effortLevel overrides — they fight per-agent effort.",
+    "checkRouting": "/tasks shows each running subagent's model and effort."
+  },
+  "ultracodeDispatch": {
+    "default": true,
+    "setting": "~/.claude/settings.json \"ultracode\": true (on by default for every session since 2026-10-06; also gateway/Discord-spawned claude runs; live-probed: works from --settings and settings files)",
+    "what": "Standing dynamic-workflow orchestration: for every substantive task the Lead (router) authors a FRESH Workflow (often several in sequence: understand -> implement -> verify), one fresh-context agent() per part. NO fixed templates (owner rejected templates; the only bundled workflow is /deep-research). Quality patterns (adversarial verify, completeness critic, loop-until-dry, judge panel) are model-chosen guidance. Applies to every domain.",
+    "requires": "dynamic workflows enabled (/config) and an xhigh-capable session model",
+    "preferredDispatch": "Workflow agent({agentType:'<boss>', label:'<Boss Name> · <part>', model:<route model>, effort:<route effort>})",
+    "routedAgentRule": "Every agent() gets its route via agentType of an agent whose frontmatter fixes model + effort (GOAT agents triage/quick/build/deep/escalate/verifier, Forge Bosses) or via explicit opts model + effort. Opts override the frontmatter: pass them when the route differs from the agent default (a Boss on a non-default route, the escalation step).",
+    "liveProbe": "2026-10-06, wf_d46d1b07-6bb: agentType 'quick' no opts -> sonnet/low (frontmatter applies); agentType 'quick' + effort 'high' -> high (opts override); opts model+effort -> applied; no agentType + no opts -> inherited the SESSION model (forbidden leak).",
+    "guard": "~/.claude/hooks/goat-workflow-guard.cjs (PreToolUse, matcher Workflow, timeout 10 s; has its own test file): checks VALUES, not just keys (F3) — a call passes with explicit opts carrying a real model (sonnet|opus|haiku|fable or a claude-* id) AND a real effort (low|medium|high|xhigh|max or an integer), as a literal or a const bound to one, with the goat('<route>') / GOAT.<route> helper, or with an agentType whose agent file declares both model (not inherit) and effort; undefined/null/empty, an unresolvable value, or a later key/spread that may override it counts as missing, and such an agent() is denied. Named workflows cannot be inspected and pass. Off: env GOAT_WORKFLOW_GUARD=off.",
+    "pipeline": [
+      "triage (head-chef, sonnet/low)",
+      "worker part(s) (owning Boss, route model + effort)",
+      "verifier (verify-boss, sonnet/medium)",
+      "on FAIL: one escalation step",
+      "one lesson line in .claude/agent-memory/head-chef/MEMORY.md"
+    ],
+    "costControl": "Ultracode removes the built-in cost guards (hides the large-workflow warning, no concurrency limit for Agent-tool subagents, tells the model cost is no constraint). Keep the Dynamic workflow size guideline, the budget and the usage-guard pauses; triage + the low/medium routes are the cost control.",
+    "leadEffort": "Claude Code 2.1.220: ultracode pins the Lead (router) to xhigh (still sonnet). From 2.1.284 ultracode is a separate toggle that keeps the chosen effort, so the Lead stays sonnet/medium (session.lead). Owner approved updating to the latest (v2.1.291) at the end of run forge-2026-10-06-model-routing-goat.",
+    "fallbackDispatch": "Agent({subagent_type:'<boss>', model:<route model>}) with effort = Boss frontmatter — when ultracode or dynamic workflows are off",
+    "solo": "Trivial or conversational turns stay solo (no workflow).",
+    "realAgentsOnly": "agentType must be a real Boss/agent file; label starts with the registered Boss name.",
+    "switchOff": "Remove \"ultracode\" from ~/.claude/settings.json (one session: claude --settings '{\"ultracode\":false}'); guard only: env GOAT_WORKFLOW_GUARD=off."
+  },
+  "testGate": {
+    "hook": "~/.claude/hooks/goat-stop-gate.cjs (global Stop hook, on by default)",
+    "projectConfig": ".claude/goat-gate.json",
+    "optOut": "Set \"enabled\": false (or \"mode\": \"off\") in .claude/goat-gate.json, or env GOAT_GATE=off for one session. See config/orchestration/HOOKS_OPT_IN.md."
+  },
+  "quotaHygiene": [
+    "/clear between unrelated tasks",
+    "reference files by path (don't paste full content)",
+    "targeted reads/diffs, not whole-repo dumps",
+    "don't re-read a just-edited file",
+    "summarize logs to a path pointer",
+    "smallest team that fits (over-spawning is the #1 waste)",
+    "compact internal output; full only for deliverables",
+    "change effort before model; a model switch mid-task costs a prompt-cache miss"
+  ],
+  "honesty": "Log the ACTUAL model each subagent ran on (agent_model_used; null when not observable). Never claim a model, a verifier PASS or an escalation that did not happen. Never fabricate quota 'savings' numbers — real savings need real measurement (solve rate and cost per solved task, escalation rate, false passes)."
+}

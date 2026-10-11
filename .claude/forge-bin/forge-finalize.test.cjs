@@ -1,0 +1,1268 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * forge-finalize.cjs — het ene eindverdict. Hermetisch: eigen temp-root met een
+ * echte writer-kopie + minimale hard-rules, zodat finalize het ECHTE contract draait.
+ */
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+let pass = 0, fail = 0;
+const t = (name, cond, extra) => { if (cond) { pass++; console.log('  ok  ' + name); } else { fail++; console.error('  FAIL ' + name + (extra ? ' :: ' + extra : '')); } };
+
+const FIN = path.join(__dirname, 'forge-finalize.cjs');
+const F = require(FIN);
+/** a gate is green ONLY when its raw output is readable and
+ *  hash-verified, so every fixture root carries the real output file its evidence manifest points at
+ *  (<root>/gate-output/suite.txt) and the manifests pin ITS sha256 — never a bare 'a'.repeat(64) placeholder. */
+const crypto = require('crypto');
+const OUT_TEXT = 'suite: 3 passed, 0 failed\n';
+const OUT_SHA = crypto.createHash('sha256').update(OUT_TEXT).digest('hex');
+function zaaiOutput(root) {
+  fs.mkdirSync(path.join(root, 'gate-output'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'gate-output', 'suite.txt'), OUT_TEXT);
+  return root;
+}
+/** legacy eligibility is AUTHENTICATED by the per-project allowlist (run id + sha256 of the receipt bytes).
+ *  allowlistReceipt() registers the receipt file AS IT IS ON DISK RIGHT NOW under the given generation. */
+function allowlistReceipt(root, run, generation) {
+  const file = path.join(root, F.LEGACY_RECEIPTS_REL);
+  let j = { schema: F.LEGACY_RECEIPTS_SCHEMA, receipts: [] };
+  try { j = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first entry */ }
+  const buf = fs.readFileSync(path.join(root, '.claude', 'forge-runs', run, 'run-finalized.json'));
+  j.receipts.push({ run_id: run, sha256: crypto.createHash('sha256').update(buf).digest('hex'), generation });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(j, null, 2));
+}
+
+// hermetische root met echte writer + echte runcontract + een MINIMALE rules-set (1 altijd-groene regel)
+const ROOT = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-')));
+fs.mkdirSync(path.join(ROOT, '.claude', 'forge-dashboard'), { recursive: true });
+fs.mkdirSync(path.join(ROOT, '.claude', 'forge-bin'), { recursive: true });
+fs.mkdirSync(path.join(ROOT, '.claude', 'config', 'orchestration'), { recursive: true });
+fs.copyFileSync(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'), path.join(ROOT, '.claude', 'forge-dashboard', 'log-event.cjs'));
+fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(ROOT, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+fs.copyFileSync(FIN, path.join(ROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+try { fs.mkdirSync(path.join(ROOT, '.claude', 'config', 'agents'), { recursive: true }); fs.copyFileSync(path.join(__dirname, '..', 'config', 'agents', 'agent-registry.json'), path.join(ROOT, '.claude', 'config', 'agents', 'agent-registry.json')); } catch { }
+fs.writeFileSync(path.join(ROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+  owners_allowlist: ['owner'],
+  rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+}, null, 2));
+
+const LOGEVT = path.join(ROOT, '.claude', 'forge-dashboard', 'log-event.cjs');
+/** R5-06/R5-07 (vijfde herreview): finalize eist sinds deze ronde een BINDBARE bewijsset — een receipt
+ *  met `evidence_digest: null` sloeg alle nieuwe controles over en kreeg toch FINALIZED. Elke fixture
+ *  krijgt daarom bij zijn eerste event een minimale, GROENE bewijsset; tests die juist willen aantonen
+ *  dat gewijzigd of ongeldig bewijs faalt, overschrijven hem daarna expliciet. */
+const zaaiBewijs = (run) => {
+  const d = path.join(ROOT, '.claude', 'forge-runs', run);
+  fs.mkdirSync(d, { recursive: true });
+  const f = path.join(d, 'gate-evidence.json');
+  if (!fs.existsSync(f)) fs.writeFileSync(f, JSON.stringify({ run_id: run, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }] }));
+};
+const log = (run, type, extra) => {
+  zaaiBewijs(run);
+  return spawnSync(process.execPath, [LOGEVT, run, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+};
+
+console.log('forge-finalize (hermetisch, root=' + ROOT + ')');
+
+// 1) een complete run finaliseert; idempotente herhaling; check = FINALIZED
+{
+  const RUN = 'fin-ok';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar', note: 'af' });
+  const r = F.finalize(ROOT, RUN);
+  t('1 finalize slaagt op een complete run met groen contract', r.ok === true && r.verdict === 'finalized', JSON.stringify(r).slice(0, 200));
+  // sinds de r4-#9/#10-herbouw pint de receipt de log INCLUSIEF het run_finalized-slotevent (3 events)
+  t('1 de receipt pint digest/bytes/aantal events (incl. het run_finalized-slotevent)', r.receipt && r.receipt.digest && r.receipt.events === 3 && r.receipt.bytes > 0, JSON.stringify(r.receipt || {}).slice(0, 160));
+  t('1 het run_finalized-audittrail-event is gelogd', r.event_logged === true, r.event_error);
+  const again = F.finalize(ROOT, RUN);
+  t('1 een tweede finalize is een idempotente herbevestiging (geen tweede event)', again.ok === true && again.idempotent === true);
+  const c = F.check(ROOT, RUN);
+  t('1 check = FINALIZED (de run_finalized-staart is verdisconteerd)', c.verdict === 'FINALIZED', JSON.stringify(c).slice(0, 160));
+}
+
+// 2) na-finalisatie-groei met een ANDER event = STALE (het ene eindverdict signaleert de inconsistentie)
+{
+  const RUN = 'fin-groei';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  F.finalize(ROOT, RUN);
+  log(RUN, 'agent_note', { note: 'nagekomen werk?!' });
+  const c = F.check(ROOT, RUN);
+  t('2 een gefinaliseerde run die nog events krijgt wordt STALE', c.verdict === 'STALE', c.verdict + ' — ' + (c.reason || ''));
+  const re = F.finalize(ROOT, RUN);
+  // r5 #10 verscherpte de weigering: een werk-event na run_completed wordt nu al VOOR de receipt-check
+  // afgekeurd ("werk-event"); de oudere "veranderd"-tekst geldt op het pad zonder illegale staart.
+  t('2 herfinaliseren over de gegroeide log wordt geweigerd met uitleg', re.ok === false && /veranderd|werk-event/.test(re.reason), re.reason);
+}
+
+// 3) fail-closed op de logtoestanden: corrupt en partial finaliseren NOOIT
+{
+  const RUN = 'fin-corrupt';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'k' });
+  const f = path.join(ROOT, '.claude', 'forge-runs', RUN, 'events.jsonl');
+  const orig = fs.readFileSync(f, 'utf8');
+  const lines = orig.trim().split('\n');
+  fs.writeFileSync(f, lines[0] + '\n{{{kapot\n' + lines[1] + '\n');
+  const r = F.finalize(ROOT, RUN);
+  t('3 een corrupte middenregel weigert finalisatie met de toestand benoemd', r.ok === false && /corrupt/.test(r.reason));
+  fs.writeFileSync(f, orig + '{"event_type":"trunca');
+  const r2 = F.finalize(ROOT, RUN);
+  t('3 een afgekapte staart (partial) weigert ook', r2.ok === false && /partial/.test(r2.reason));
+  fs.rmSync(f, { force: true });
+  const r3 = F.finalize(ROOT, RUN);
+  t('3 een ontbrekende log weigert (missing)', r3.ok === false && /missing/.test(r3.reason));
+}
+
+// 4) zonder run_completed of met een rood contract wordt niet gefinaliseerd
+{
+  const RUN = 'fin-open';
+  log(RUN, 'run_started', { note: 's' });
+  const r = F.finalize(ROOT, RUN);
+  t('4 zonder run_completed valt er niets te finaliseren', r.ok === false && /run_completed/.test(r.reason));
+  const RUN2 = 'fin-roodcontract';
+  // run_completed maar ZONDER run_started -> de fixture-regel has-start is rood
+  log(RUN2, 'run_completed', { command: 'x', output: 'k' });
+  const r2 = F.finalize(ROOT, RUN2);
+  t('4 een rood contract blokkeert finalisatie met de contract-uitvoer erbij', r2.ok === false && /contract/.test(r2.reason));
+}
+
+// 5) r4 #10-rest: vervalste of extra run_finalized-staartregels maken het verdict STALE — de receipt is
+//    een EXACTE digest-match over de hele log, er bestaat geen "toegestane staart" om te vervalsen.
+{
+  const RUN = 'fin-forge-tail';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const r = F.finalize(ROOT, RUN);
+  t('5 finalize slaagt als basis', r.ok === true);
+  const f = path.join(ROOT, '.claude', 'forge-runs', RUN, 'events.jsonl');
+  const good = fs.readFileSync(f, 'utf8');
+  // (a) een EXTRA vervalste run_finalized-regel (zonder geldige keten) achter de echte staart
+  fs.writeFileSync(f, good + JSON.stringify({ run_id: RUN, event_type: 'run_finalized', agent: 'orchestrator', note: 'vervalst' }) + '\n');
+  t('5a een vervalste extra run_finalized-regel => STALE', F.check(ROOT, RUN).verdict === 'STALE');
+  // (b) truncatie tot exact receipt.bytes MINUS het slotevent (de oude prefix-aanval)
+  const receipt = F.readReceipt(ROOT, RUN);
+  const lines5 = good.trim().split('\n');
+  fs.writeFileSync(f, lines5.slice(0, -1).join('\n') + '\n');
+  t('5b truncatie die het run_finalized-slotevent verwijdert => STALE', F.check(ROOT, RUN).verdict === 'STALE');
+  // (c) exacte herstel-bytes => weer FINALIZED (bewijst dat de match byte-exact is, niet heuristisch)
+  fs.writeFileSync(f, good);
+  t('5c exact herstel van de gepinde bytes => weer FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED');
+  t('5d de receipt pint domein en ruleset-hash (r4 #8-rest)', receipt && 'domain' in receipt && typeof receipt.ruleset_sha256 === 'string', JSON.stringify(receipt || {}).slice(0, 200));
+}
+
+// 6) r4 #8: run_completed gevolgd door rework/check_failed is NIET terminaal — finalize weigert
+{
+  const RUN = 'fin-rework';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  log(RUN, 'check_failed', { command: 'toets', output: 'rood', note: 'na de afronding alsnog rood' });
+  const r = F.finalize(ROOT, RUN);
+  t('6 run_completed -> check_failed: de gereduceerde lifecycle-staat blokkeert finalisatie', r.ok === false && /lifecycle|check_failed/.test(r.reason), r.reason);
+}
+
+// 7) 2 GELIJKTIJDIGE finalizers (echte processen): exact één receipt, exact één run_finalized-event,
+//    en check() eindigt FINALIZED — geen dubbele audittrail, geen gescheurde receipt.
+{
+  const RUN = 'fin-race';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const FINCLI = path.join(ROOT, '.claude', 'forge-bin', 'forge-finalize.cjs');
+  const { spawn } = require('child_process');
+  const kids = [1, 2].map(() => spawn(process.execPath, [FINCLI, 'finalize', '--run', RUN, '--root', ROOT], { stdio: 'ignore' }));
+  const t0 = Date.now();
+  let done = 0;
+  for (const k of kids) k.on('exit', () => { done++; });
+  while (done < 2 && Date.now() - t0 < 30000) { try { require('child_process').execSync(process.platform === 'win32' ? 'ping -n 1 127.0.0.1 > NUL' : 'sleep 0.1'); } catch { } }
+  const evs = fs.readFileSync(path.join(ROOT, '.claude', 'forge-runs', RUN, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const finEvents = evs.filter((e) => e.event_type === 'run_finalized');
+  t('7 twee gelijktijdige finalizers: exact EEN run_finalized-event', finEvents.length === 1, String(finEvents.length));
+  t('7 en het eindverdict is FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED', JSON.stringify(F.check(ROOT, RUN)).slice(0, 160));
+}
+
+// 8) r4 #7: het completionpad in EEN commando — contract --finalize eindigt pas groen met een receipt
+{
+  const RUN = 'fin-e2e';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const RC = path.join(ROOT, '.claude', 'forge-bin', 'forge-runcontract.cjs');
+  const r = spawnSync(process.execPath, [RC, 'check', '--run', RUN, '--root', ROOT, '--finalize'], { encoding: 'utf8' });
+  t('8 contract --finalize: groen contract + receipt in een stap (exit 0)', r.status === 0, (r.stdout || '').slice(0, 200));
+  t('8 de uitvoer toont de FINALIZED-digest', /FINALIZED @/.test(r.stdout || ''));
+  t('8 en check() bevestigt het ene eindverdict', F.check(ROOT, RUN).verdict === 'FINALIZED');
+  // een run zonder afronding eindigt met --finalize NIET in exit 0
+  const RUN2 = 'fin-e2e-open';
+  log(RUN2, 'run_started', { note: 's' });
+  const r2 = spawnSync(process.execPath, [RC, 'check', '--run', RUN2, '--root', ROOT, '--finalize'], { encoding: 'utf8' });
+  t('8 zonder run_completed geeft het gecombineerde pad geen exit 0', r2.status !== 0);
+}
+
+/** 9) run.json blijft niet "running" claimen na finalisatie.
+ *  GEMETEN DEFECT (volledige doctor): `run liveness` wees aan als
+ *  "still marked running but proven not alive (stalled, silent 12h)" — terwijl die run een GELDIGE
+ *  receipt had. finalize las run.json wel (voor het domein) maar schreef hem nooit terug, dus elke
+ *  gefinaliseerde run bleef liveness claimen die hij niet waarmaakte. De receipt (digest over
+ *  events.jsonl) is en blijft het gezag; run.json is metadata — daarom mag een mislukte statusupdate
+ *  een geslaagde finalize NOOIT degraderen. */
+{
+  const RUN = 'fin-runjson';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  fs.writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ run_id: RUN, status: 'running', mission: 'blijft staan' }, null, 2));
+  const r = F.finalize(ROOT, RUN);
+  const j = JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8'));
+  t('9 finalize slaagt', r.ok === true, JSON.stringify(r).slice(0, 160));
+  t('9 run.json claimt na finalisatie geen liveness meer', j.status !== 'running', 'status=' + j.status);
+  t('9 en gebruikt het BESTAANDE vocabulaire (completed), geen nieuwe waarde', j.status === 'completed', 'status=' + j.status);
+  t('9 de receipt-digest is als kruisverwijzing vastgelegd', j.finalize_digest === r.receipt.digest && j.finalized_at === r.receipt.finalized_at);
+  t('9 bestaande velden blijven behouden', j.mission === 'blijft staan' && j.run_id === RUN);
+  t('9 finalize rapporteert de statuswijziging eerlijk', r.run_meta && r.run_meta.updated === true && r.run_meta.status_before === 'running');
+  // het gezag ligt bij de receipt: de log mag door deze metadata-update niet verschoven zijn
+  t('9 de log is NIET aangeraakt (check blijft FINALIZED)', F.check(ROOT, RUN).verdict === 'FINALIZED');
+}
+{
+  // fail-safe: een onparseerbare of ontbrekende run.json mag een geldige finalisatie niet omverhalen
+  const RUN = 'fin-runjson-corrupt';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  fs.writeFileSync(path.join(dir, 'run.json'), '{ dit is geen json');
+  const r = F.finalize(ROOT, RUN);
+  t('9 een corrupte run.json degradeert de finalisatie NIET', r.ok === true && r.verdict === 'finalized', JSON.stringify(r).slice(0, 160));
+  t('9 en de corrupte run.json wordt met rust gelaten (niet overschreven)', fs.readFileSync(path.join(dir, 'run.json'), 'utf8') === '{ dit is geen json');
+  t('9 finalize meldt eerlijk dat de metadata niet is bijgewerkt', r.run_meta && r.run_meta.updated === false && /onparseerbaar/.test(r.run_meta.reason || ''));
+
+  const RUN2 = 'fin-runjson-afwezig';
+  log(RUN2, 'run_started', { note: 's' });
+  log(RUN2, 'run_completed', { command: 'x', output: 'klaar' });
+  const r2 = F.finalize(ROOT, RUN2);
+  t('9 een ONTBREKENDE run.json degradeert de finalisatie evenmin', r2.ok === true && r2.run_meta && r2.run_meta.updated === false);
+}
+
+/** 10) R3-05 (derde Codex-herreview): de receipt pinde de eventlog en de ruleset maar NIET de bewijsset,
+ *  dus `gate-evidence.json` kon ná finalisatie veranderen terwijl het gezaghebbende verdict FINALIZED
+ *  bleef — een TOCTOU-gat precies op de plek waar het oordeel definitief hoort te zijn. */
+{
+  const RUN = 'fin-evidence';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  const schrijfBewijs = (sha) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: sha, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }] }));
+  };
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  schrijfBewijs(OUT_SHA);
+  const r = F.finalize(ROOT, RUN);
+  t('10 finalize pint de canonieke bewijsdigest in de receipt', r.ok === true && typeof r.receipt.evidence_digest === 'string' && r.receipt.evidence_digest.length === 64, JSON.stringify(r.receipt && r.receipt.evidence_digest));
+  t('10 en check meldt FINALIZED zolang het bewijs ongewijzigd is', F.check(ROOT, RUN).verdict === 'FINALIZED');
+  // nu het bewijs veranderen ZONDER de log aan te raken — precies het TOCTOU-scenario
+  schrijfBewijs('b'.repeat(64));
+  const na = F.check(ROOT, RUN);
+  t('10 gewijzigd bewijs na finalisatie maakt het verdict STALE', na.verdict === 'STALE' && /bewijsset/.test(na.reason || ''), na.verdict + ' — ' + (na.reason || ''));
+  // en een verwijderde/ongeldige bewijsset is evenmin stilzwijgend in orde
+  fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({ gates: [{}] }));
+  t('10 een ONGELDIGE bewijsset na finalisatie is ook STALE', F.check(ROOT, RUN).verdict === 'STALE');
+}
+
+/** 11) R4-03 (vierde herreview): de IDEMPOTENTE herbevestiging vergeleek alleen logdigest/bytes en gaf
+ *  direct succes, terwijl check() op hetzelfde bewijs wél STALE meldde. Twee ingangen naar hetzelfde
+ *  verdict die van elkaar verschillen zijn erger dan één strenge ingang: je kiest dan gewoon de ingang
+ *  die groen zegt. */
+{
+  const RUN = 'fin-idem-evidence';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  const schrijfBewijs = (sha) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: sha, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }] }));
+  };
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  schrijfBewijs(OUT_SHA);
+  t('11 eerste finalisatie slaagt', F.finalize(ROOT, RUN).ok === true);
+  t('11 en een herbevestiging op ONGEWIJZIGD bewijs blijft idempotent groen', F.finalize(ROOT, RUN).idempotent === true);
+  schrijfBewijs('b'.repeat(64));
+  const na = F.finalize(ROOT, RUN);
+  t('11 maar op GEWIJZIGD bewijs weigert de herbevestiging', na.ok === false && /bewijsset/.test(na.reason || ''), JSON.stringify(na).slice(0, 200));
+  t('11 en check() zegt hetzelfde (geen ingang die milder is)', F.check(ROOT, RUN).verdict === 'STALE');
+}
+{
+  // een gewijzigde REGELSET betekent dat het oordeel tegen ANDERE regels gold. (2026-10-09, audit
+  // S7): dat is HISTORICAL (cause 'ruleset'), niet langer STALE — elke regelwijziging maakte anders ELKE
+  // receipt ooit rood (gemeten: 6 van de 14 echte receipts). De herbevestiging weigert nog steeds (finalize
+  // bevestigt alleen de HUIDIGE staat) en na herstel is hij weer FINALIZED.
+  const RUN = 'fin-ruleset';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  t('11 finalisatie slaagt op de oorspronkelijke regelset', F.finalize(ROOT, RUN).ok === true);
+  const regels = path.join(ROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json');
+  const origineel = fs.readFileSync(regels, 'utf8');
+  const gewijzigd = JSON.parse(origineel);
+  gewijzigd.rules.push({ id: 'nieuw', rule: 'x', trigger: 'always', check: { type: 'event-present', key: ['iets'] }, severity: 'warn', override: 'n/a', source: 'test' });
+  fs.writeFileSync(regels, JSON.stringify(gewijzigd, null, 2));
+  const na = F.check(ROOT, RUN);
+  // the receipt's rules are stored next to it (ruleset-pinned.json), so the contract is
+  // RE-JUDGED under those pinned rules — green there = HISTORICAL and genuinely re-verified (reverified:true).
+  t('11 WP-1/F02: een gewijzigde regelset maakt het verdict HISTORICAL (cause ruleset), herbevestigd onder de gepinde regels', na.verdict === 'HISTORICAL' && na.cause === 'ruleset' && na.reverified === true && na.judged_under === 'pinned-ruleset', JSON.stringify(na).slice(0, 300));
+  const herbevestiging = F.finalize(ROOT, RUN);
+  t('11 en de herbevestiging weigert eveneens, gemarkeerd als historical', herbevestiging.ok === false && herbevestiging.historical === true, JSON.stringify(herbevestiging).slice(0, 200));
+  fs.writeFileSync(regels, origineel);
+  t('11 na herstel van de regelset is het verdict weer FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED');
+}
+
+/** 12) R5-06/R5-07: een receipt zonder bindbare pins is geen receipt, en de pins moeten OVERLEVEN. */
+{
+  const RUN = 'fin-geen-bewijs';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  fs.rmSync(path.join(dir, 'gate-evidence.json'), { force: true });
+  const r = F.finalize(ROOT, RUN);
+  t('12 zonder bewijsset WEIGERT finalize (i.p.v. een onbindbare receipt te schrijven)',
+    r.ok === false && /bewijsset/.test(r.reason || ''), JSON.stringify(r).slice(0, 180));
+  t('12 en er ligt geen receipt', !fs.existsSync(path.join(dir, 'run-finalized.json')));
+}
+{
+  // een HANDGESCHREVEN receipt zonder pins mag nooit als geldig eindverdict gelden
+  const RUN = 'fin-legacy-receipt';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const ok = F.finalize(ROOT, RUN);
+  t('12 de normale finalisatie slaagt', ok.ok === true, JSON.stringify(ok).slice(0, 160));
+  const echt = JSON.parse(fs.readFileSync(path.join(dir, 'run-finalized.json'), 'utf8'));
+  for (const veld of ['evidence_digest', 'ruleset_sha256']) {
+    const zonder = Object.assign({}, echt); delete zonder[veld];
+    fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(zonder, null, 2));
+    t('12 een receipt ZONDER ' + veld + ' is ongeldig, niet "oud maar goed"', F.check(ROOT, RUN).verdict !== 'FINALIZED');
+  }
+  const oudSchema = Object.assign({}, echt, { schema: 1 });
+  fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(oudSchema, null, 2));
+  t('12 en schema 1 evenmin (alleen schema 2 bindt bewijs en regelset)', F.check(ROOT, RUN).verdict !== 'FINALIZED');
+  fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(echt, null, 2));
+  t('12 de echte receipt is daarna gewoon weer FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED');
+}
+
+/** 13) R4-07/R5-08: het gezaghebbende eindverdict draagt zijn eigen BEPERKING mee. Zonder dit leest een
+ *  consument FINALIZED als principal-onafhankelijk, terwijl de scheiding op agentlabel rust. */
+{
+  const RUN = 'fin-caveat';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const r = F.finalize(ROOT, RUN);
+  const iv = r.receipt && r.receipt.independent_verification;
+  t('13 de receipt draagt een independent_verification-status', !!iv, JSON.stringify(r.receipt || {}).slice(0, 200));
+  t('13 en die status zegt EXPLICIET dat de scheiding label-only is', iv && iv.label_only === true);
+  t('13 met een leesbare caveat die naar de owner-gate verwijst', iv && (!iv.caveat || /OWNER-GATED/.test(iv.caveat) || iv.available === false));
+  const c = F.check(ROOT, RUN);
+  t('13 ook de check-uitslag draagt de caveat (niet alleen de receipt)', c.label_only === true && !!c.independent_verification);
+  t('13 en het verdict zelf is gewoon FINALIZED', c.verdict === 'FINALIZED');
+}
+
+/** 14) RONDE 7 — vier gaten in finalize, waarvan drie claims van mijzelf weerspraken. */
+{
+  const RUN = 'fin-r7';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  t('14 basisfinalisatie slaagt', F.finalize(ROOT, RUN).ok === true);
+  const echt = JSON.parse(fs.readFileSync(path.join(dir, 'run-finalized.json'), 'utf8'));
+
+  // de IDEMPOTENTE tak valideerde de receipt niet via receiptState
+  for (const [veld, waarde] of [['schema', 1], ['run_id', 'een-andere-run'], ['contract', 'nope']]) {
+    fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(Object.assign({}, echt, { [veld]: waarde }), null, 2));
+    const r = F.finalize(ROOT, RUN);
+    t('14 R7-01 een receipt met ongeldige ' + veld + ' krijgt GEEN idempotent succes', r.ok === false, JSON.stringify(r).slice(0, 160));
+    t('14 R7-01 en check() zegt hetzelfde (geen mildere ingang)', F.check(ROOT, RUN).verdict !== 'FINALIZED');
+  }
+  fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(echt, null, 2));
+  t('14 R7-01 de echte receipt is daarna weer gewoon FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED');
+
+  // receipt en independent_verification mogen elkaar niet tegenspreken
+  const iv = echt.independent_verification;
+  t('14 R7-08 de receipt spreekt zichzelf niet tegen (FINALIZED naast een rode iv-status)',
+    !!iv && (iv.applicable === false || iv.ok === true || iv.available === false), JSON.stringify(iv));
+}
+{
+  // pins worden VOOR de contractcheck genomen; een lege/ongeldige regelset is fataal, geen null
+  const RUN = 'fin-r7-pins';
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const regels = path.join(ROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json');
+  const origineel = fs.readFileSync(regels, 'utf8');
+  fs.rmSync(regels, { force: true });
+  const r = F.finalize(ROOT, RUN);
+  t('14 R7-02 zonder leesbare regelset finaliseert hij NIET met een null-pin', r.ok === false, JSON.stringify(r).slice(0, 200));
+  fs.writeFileSync(regels, origineel);
+  t('14 R7-02 en met de regelset terug slaagt hij gewoon', F.finalize(ROOT, RUN).ok === true);
+}
+
+/** 15) R8-05: de receipt pinde log, bewijs en regelset — maar niet de CODE. Na finalisatie kon de commit
+ *  waarop het bewijs draaide veranderen terwijl check() FINALIZED bleef zeggen. */
+{
+  const RUN = 'fin-codepin';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  const bewijsOpCommit = (commit) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit, worktree_clean: true, stable: true } }] }));
+  };
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  bewijsOpCommit('a'.repeat(40));
+  const r = F.finalize(ROOT, RUN);
+  t('15 de receipt pint de commit waarop het bewijs draaide', r.ok === true && r.receipt.code_commit === 'a'.repeat(40), JSON.stringify(r.receipt && r.receipt.code_commit));
+  t('15 en check meldt FINALIZED zolang die commit klopt', F.check(ROOT, RUN).verdict === 'FINALIZED');
+  bewijsOpCommit('b'.repeat(40));
+  const na = F.check(ROOT, RUN);
+  t('15 bewijs dat naar een ANDERE commit verschuift maakt het verdict STALE', na.verdict === 'STALE', na.verdict + ' — ' + (na.reason || ''));
+}
+
+// ================================================================================================
+// 16) FINALIZE-FAILED-GATE (out-p5.md) — a red gate in the evidence set refuses finalize on
+//     EVERY complexity, not only inside the L2+ independent-review rule.
+// ================================================================================================
+{
+  const RUN = 'fin-failed-gate';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({
+    run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 1, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }],
+  }));
+  log(RUN, 'run_started', { note: 's' });
+  log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const r = F.finalize(ROOT, RUN);
+  t('16 a red gate (exit_code:1) in the evidence set refuses finalize even though the run-contract rule is otherwise green', r.ok === false, JSON.stringify(r).slice(0, 200));
+  t('16 the reason names the failed gate', /gefaalde poort/.test(r.reason || ''));
+  t('16 no receipt was written', !fs.existsSync(F.receiptFileOf(ROOT, RUN)));
+}
+
+// ================================================================================================
+// 17) RECEIPT-FORGERY (out-p5.md) — acceptance (`check()`) RE-EVALUATES the contract instead
+//     of trusting the receipt's own `contract:"ok"` string. Proven with a REAL post-finalize state change
+//     (an armed-but-unfinished manifest package) that changes NOTHING the receipt's pinned hashes cover
+//     (events.jsonl bytes, gate-evidence.json, FORGE_HARD_RULES.json) — only a genuine re-run of the
+//     contract can catch it.
+// ================================================================================================
+{
+  // OWN fresh root — forge-runcontract.cjs caches its parsed rules file by PATH at module scope
+  // (_rulesCache); the shared ROOT's rules path was already read (and cached) by tests 1-16, so
+  // overwriting its bytes here would silently evaluate against the stale cached content instead.
+  const FROOT = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-forgery-')));
+  fs.mkdirSync(path.join(FROOT, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(FROOT, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(FROOT, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(FROOT, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(FROOT, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(FROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-manifest.cjs'), path.join(FROOT, '.claude', 'forge-bin', 'forge-manifest.cjs'));
+  // evidence-satisfied/verify-checked (RC-MANIFEST-STALE's gated ids) so this run's baseline can be
+  // genuinely green before proving the post-finalize manifest gate catches it.
+  fs.writeFileSync(path.join(FROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [
+      { id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' },
+      { id: 'evidence-satisfied', rule: 'evidence exists', trigger: 'always', check: { type: 'event-present', key: ['check_passed'] }, severity: 'block', override: 'n/a', source: 'test' },
+      { id: 'verify-checked', rule: 'a check ran', trigger: 'always', check: { type: 'event-present', key: ['check_passed'] }, severity: 'block', override: 'n/a', source: 'test' },
+    ],
+  }, null, 2));
+  const RUN = 'fin-receipt-forgery';
+  const flog = (type, extra) => { const d = path.join(FROOT, '.claude', 'forge-runs', RUN); fs.mkdirSync(d, { recursive: true });
+    const f = path.join(d, 'gate-evidence.json');
+    if (!fs.existsSync(f)) fs.writeFileSync(f, JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }] }));
+    return spawnSync(process.execPath, [path.join(FROOT, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+  };
+  flog('run_started', { note: 's' });
+  flog('check_passed', { task: 'suite', command: 'node test', output: 'ok' });
+  flog('run_completed', { command: 'x', output: 'klaar' });
+  const F_FORGERY = require(path.join(FROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  const before = F_FORGERY.finalize(FROOT, RUN);
+  t('17 setup: a genuine finalize succeeds first', before.ok === true, JSON.stringify(before).slice(0, 160));
+  t('17 setup: check() confirms FINALIZED before any manifest is armed', F_FORGERY.check(FROOT, RUN).verdict === 'FINALIZED');
+  // arm a manifest WITHOUT --log-event: events.jsonl (and therefore the receipt's pinned digest) is
+  // byte-for-byte unchanged — only a real contract re-evaluation can see the new, unfinished obligation.
+  const MANIFEST = require(path.join(FROOT, '.claude', 'forge-bin', 'forge-manifest.cjs'));
+  const armed = MANIFEST.arm({ run_id: RUN, wps: [{ wp_id: 'wp-forge', agent: 'Build Boss', narrowed_prompt: 'do a thing' }] }, { root: FROOT });
+  t('17 setup: arm() wrote a manifest without touching events.jsonl', armed.ok === true);
+  const after = F_FORGERY.check(FROOT, RUN);
+  t('RECEIPT-FORGERY: acceptance re-evaluates the contract and catches the new unfinished obligation — no longer FINALIZED', after.verdict !== 'FINALIZED', JSON.stringify(after).slice(0, 220));
+  // V22 (2026-09-24 second Codex recheck, out-p7.md): the SAME still-unfinished manifest state must make a
+  // REPEAT (idempotent-shaped: events.jsonl digest is byte-for-byte unchanged) finalize() call refuse too —
+  // before this fix the idempotent branch never re-ran the contract at all and would have reported success.
+  const idempotentAfterArm = F_FORGERY.finalize(FROOT, RUN);
+  t('V22: an idempotent (repeat) finalize() also refuses once the contract has genuinely gone red, not just check()', idempotentAfterArm.ok === false, JSON.stringify(idempotentAfterArm).slice(0, 220));
+  try { fs.rmSync(FROOT, { recursive: true, force: true }); } catch { }
+}
+
+// ================================================================================================
+// 18) FINALIZE-STALE-CODE (out-p5.md) — a receipt's code_commit pin must be compared against
+//     the REAL current git HEAD, not just against the (unchanged) gate-evidence.json it was pinned from.
+//     Uses its OWN real git repo — ROOT above has none, so resolveHeadCommit() there is always null.
+// ================================================================================================
+{
+  const GITROOT = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-git-')));
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const git = (...args) => spawnSync('git', args, { cwd: GITROOT, encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT, 'seed.txt'), 'seed\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'seed');
+  const head1 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT, encoding: 'utf8' }).stdout.trim();
+  const noGit = head1 === '' || !/^[0-9a-f]{40}$/i.test(head1);
+  if (noGit) {
+    console.log('  SKIP 18 FINALIZE-STALE-CODE: no working `git` in this environment — cannot exercise a real HEAD change');
+  } else {
+    const RUN = 'fin-stale-code';
+    const gitLog = (type, extra) => { const d = path.join(GITROOT, '.claude', 'forge-runs', RUN); fs.mkdirSync(d, { recursive: true });
+      const f = path.join(d, 'gate-evidence.json');
+      if (!fs.existsSync(f)) fs.writeFileSync(f, JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: head1, worktree_clean: true, stable: true } }] }));
+      return spawnSync(process.execPath, [path.join(GITROOT, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    };
+    gitLog('run_started', { note: 's' });
+    gitLog('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_GIT = require(path.join(GITROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const r1 = FIN_GIT.finalize(GITROOT, RUN);
+    t('18 finalize succeeds on the real git HEAD', r1.ok === true && r1.receipt.code_commit === head1, JSON.stringify(r1).slice(0, 200));
+    t('18 check() reports FINALIZED while HEAD is unchanged', FIN_GIT.check(GITROOT, RUN).verdict === 'FINALIZED');
+    // move HEAD without touching gate-evidence.json (still declares the OLD commit) or events.jsonl
+    fs.writeFileSync(path.join(GITROOT, 'seed2.txt'), 'seed2\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'a real second commit');
+    const afterHeadChange = FIN_GIT.check(GITROOT, RUN);
+    t('FINALIZE-STALE-CODE: a real HEAD change after finalization downgrades the verdict to HISTORICAL, not a stale-looking FINALIZED', afterHeadChange.verdict === 'HISTORICAL', JSON.stringify(afterHeadChange).slice(0, 220));
+
+    // V22 (2026-09-24 second Codex recheck, out-p7.md): the exact same moved-HEAD state must make a REPEAT
+    // (idempotent-shaped) finalize() call REFUSE, not silently re-succeed — finalize's job is to confirm
+    // CURRENT correctness, so "historical" is never an acceptable outcome from finalize() itself, only from
+    // the read-only check() query above.
+    const idempotentAfterHeadChange = FIN_GIT.finalize(GITROOT, RUN);
+    t('V22: an idempotent (repeat) finalize() REFUSES once real HEAD has moved, it does not silently re-succeed', idempotentAfterHeadChange.ok === false, JSON.stringify(idempotentAfterHeadChange).slice(0, 220));
+    t('V22: the refusal is explicitly flagged historical, not a generic failure', idempotentAfterHeadChange.historical === true);
+    t('V22: check() still agrees (no receipt was corrupted/overwritten by the refused finalize attempt)', FIN_GIT.check(GITROOT, RUN).verdict === 'HISTORICAL');
+  }
+  try { fs.rmSync(GITROOT, { recursive: true, force: true }); } catch { }
+}
+
+// ================================================================================================
+// 18b) — a run whose independent verification is bound to the finalized commit. Once HEAD moves on
+//      (a later docs commit), check() must say HISTORICAL, not STALE: the contract is judged as of the commit the
+//      receipt, the evidence and the review are bound to. Before this fix the contract was re-run against the NEW
+//      HEAD, the review's commit binding could no longer match, and every such receipt read as STALE (seen on the
+//      and release runs). Without drift the verdict stays FINALIZED.
+// ================================================================================================
+{
+  const GITROOT = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-git-iv-')));
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [
+      { id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' },
+      { id: 'independent-verification', rule: 'someone else confirms the work', trigger: 'complexity:>=L2', check: { type: 'independent-verification' }, severity: 'block', override: 'UN-OVERRIDABLE', source: 'test', cannot_override: true },
+    ],
+  }, null, 2));
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'config', 'agents'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'config', 'agents', 'agent-registry.json'), path.join(GITROOT, '.claude', 'config', 'agents', 'agent-registry.json'));
+  // the strict writer accepts the Bosses from the registry and project agents from their definition file
+  fs.mkdirSync(path.join(GITROOT, '.claude', 'agents'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'agents', 'verify-boss.md'), path.join(GITROOT, '.claude', 'agents', 'verify-boss.md'));
+  const git = (...args) => spawnSync('git', args, { cwd: GITROOT, encoding: 'utf8' });
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT, '.gitignore'), '.claude/forge-runs/\n');
+  fs.writeFileSync(path.join(GITROOT, 'seed.txt'), 'seed\n');
+  git('add', '.');
+  git('commit', '-q', '-m', 'seed');
+  const head1 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT, encoding: 'utf8' }).stdout.trim();
+  if (head1 === '' || !/^[0-9a-f]{40}$/i.test(head1)) {
+    console.log('  SKIP 18b WP-F1: no working `git` in this environment');
+  } else {
+    const RUN = 'fin-iv-historical';
+    const runDir = path.join(GITROOT, '.claude', 'forge-runs', RUN);
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ run_id: RUN, status: 'running', complexity: 'L2' }, null, 2));
+    fs.writeFileSync(path.join(runDir, 'gate-evidence.json'), JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: head1, worktree_clean: true, stable: true } }] }));
+    const logIv = (type, extra) => {
+      const r = spawnSync(process.execPath, [path.join(GITROOT, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error('18b fixture log failed: ' + type + ' :: ' + r.stdout + r.stderr);
+    };
+    const lastHash = () => { const lines = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8').trim().split('\n'); return JSON.parse(lines[lines.length - 1]).entry_hash; };
+    const RC_GIT = require(path.join(GITROOT, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+    logIv('run_started', { note: 's' });
+    logIv('check_passed', { agent: 'build boss', check: 'the work', command: 'node test', output: '1 passed' });
+    logIv('review_started', { agent: 'verify boss', review_id: 'rv-18b', subject: 'independent review of the work in this run' });
+    const dig = RC_GIT.canonicalEvidenceDigest(GITROOT, RUN);
+    logIv('review_completed', { agent: 'verify boss', review_id: 'rv-18b', verdict: 'PASS', summary: 'reviewed', subject_log_hash: lastHash(), commit_sha: head1, evidence_digest: dig && dig.digest });
+    logIv('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_GIT = require(path.join(GITROOT, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const r1 = FIN_GIT.finalize(GITROOT, RUN);
+    t('18b setup: finalize succeeds with a real independent verification bound to the git HEAD', r1.ok === true && r1.receipt.code_commit === head1 && r1.receipt.independent_verification && r1.receipt.independent_verification.ok === true, JSON.stringify(r1).slice(0, 300));
+    t('18b check() reports FINALIZED while HEAD is unchanged', FIN_GIT.check(GITROOT, RUN).verdict === 'FINALIZED');
+    fs.writeFileSync(path.join(GITROOT, 'notes.md'), 'a later docs-only commit\n');
+    git('add', 'notes.md');
+    git('commit', '-q', '-m', 'docs');
+    const after = FIN_GIT.check(GITROOT, RUN);
+    t('18b WP-F1: after a later commit a verified receipt is HISTORICAL, not STALE', after.verdict === 'HISTORICAL', JSON.stringify(after).slice(0, 300));
+    t('18b WP-F1: the HISTORICAL verdict names the commit then and now', after.code_commit_then === head1 && typeof after.code_commit_now === 'string' && after.code_commit_now !== head1);
+    t('18b WP-F1: a repeat finalize() still refuses once HEAD moved (it confirms CURRENT correctness only)', FIN_GIT.finalize(GITROOT, RUN).ok === false);
+  }
+  try { fs.rmSync(GITROOT, { recursive: true, force: true }); } catch { }
+}
+
+// ================================================================================================
+// 19) V22 REGRESSION (2026-09-24 THIRD Codex recheck, out-p8.md) — evaluateAcceptance() must compare the
+//     CURRENT evidence's OWN commit (nuSet.commit) against receipt.code_commit directly, independent of the
+//     separate live-HEAD-vs-receipt.code_commit drift check further below. A receipt whose code_commit field
+//     is hand-edited to equal the CURRENT HEAD, while the evidence set (gate-evidence.json — and therefore the
+//     still-matching digest) genuinely names an OLDER commit, must be refused by both check() and a repeat
+//     finalize() despite a green re-run contract and a HEAD that "matches" the (forged) receipt field.
+// ================================================================================================
+{
+  const GITROOT2 = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-git-v22-')));
+  fs.mkdirSync(path.join(GITROOT2, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT2, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT2, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT2, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT2, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT2, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT2, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const git2 = (...args) => spawnSync('git', args, { cwd: GITROOT2, encoding: 'utf8' });
+  git2('init', '-q');
+  git2('config', 'user.email', 'test@example.com');
+  git2('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT2, 'seed.txt'), 'seed\n');
+  git2('add', '.');
+  git2('commit', '-q', '-m', 'seed');
+  const headA = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT2, encoding: 'utf8' }).stdout.trim();
+  const noGit2 = headA === '' || !/^[0-9a-f]{40}$/i.test(headA);
+  if (noGit2) {
+    console.log('  SKIP 19 V22-REGRESSION: no working `git` in this environment — cannot exercise a real HEAD change');
+  } else {
+    const RUN = 'fin-v22-commit-forgery';
+    const gitLog2 = (type, extra) => { const d = path.join(GITROOT2, '.claude', 'forge-runs', RUN); fs.mkdirSync(d, { recursive: true });
+      const f = path.join(d, 'gate-evidence.json');
+      if (!fs.existsSync(f)) fs.writeFileSync(f, JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: headA, worktree_clean: true, stable: true } }] }));
+      return spawnSync(process.execPath, [path.join(GITROOT2, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    };
+    gitLog2('run_started', { note: 's' });
+    gitLog2('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_GIT2 = require(path.join(GITROOT2, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const setup = FIN_GIT2.finalize(GITROOT2, RUN);
+    t('19 setup: finalize succeeds with evidence pinned to commit A (current HEAD at the time)', setup.ok === true && setup.receipt.code_commit === headA, JSON.stringify(setup).slice(0, 200));
+
+    // advance real HEAD to B WITHOUT touching gate-evidence.json (still genuinely names commit A) or events.jsonl
+    fs.writeFileSync(path.join(GITROOT2, 'seed2.txt'), 'seed2\n');
+    git2('add', '.');
+    git2('commit', '-q', '-m', 'a real second commit');
+    const headB = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT2, encoding: 'utf8' }).stdout.trim();
+
+    // forge the RECEIPT's own code_commit field to equal the NEW current HEAD (B) — the digest/evidence set
+    // itself is untouched (still genuinely commit A), so the forged claim is purely in this plain field.
+    const receiptPath = FIN_GIT2.receiptFileOf(GITROOT2, RUN);
+    const realReceipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+    t('19 setup: the real receipt is genuinely pinned to commit A before forgery', realReceipt.code_commit === headA);
+    fs.writeFileSync(receiptPath, JSON.stringify(Object.assign({}, realReceipt, { code_commit: headB }), null, 2));
+
+    const forgedCheck = FIN_GIT2.check(GITROOT2, RUN);
+    t('V22 REGRESSION: check() REFUSES a receipt whose code_commit was forged to match current HEAD while the evidence still names a different commit', forgedCheck.verdict === 'STALE', JSON.stringify(forgedCheck).slice(0, 240));
+    t('V22 REGRESSION: the refusal names the commit mismatch, not a generic reason', /commit/.test(forgedCheck.reason || ''), forgedCheck.reason);
+
+    const forgedFinalize = FIN_GIT2.finalize(GITROOT2, RUN);
+    t('V22 REGRESSION: a repeat (idempotent-shaped) finalize() ALSO refuses the commit-forged receipt', forgedFinalize.ok === false, JSON.stringify(forgedFinalize).slice(0, 240));
+  }
+  try { fs.rmSync(GITROOT2, { recursive: true, force: true }); } catch { }
+}
+
+// ================================================================================================
+// 20) D2 (fresh-laptop re-audit) — a genuinely git-less project can reach a
+//     FINALIZED receipt with code_commit:null, but ONLY when an INDEPENDENT probe of the CURRENT root
+//     confirms that no-git claim (never a flag gate-evidence.json itself wrote). A no-git claim on a
+//     root that actually has git is refused both at finalize() (write time, 20b) and at check() (read
+//     time, on a hand-forged receipt, 20c). The 40-hex requirement is unchanged for every other project
+//     (every earlier test above already proves that, on ROOT's own fake-but-well-formed git commits).
+// ================================================================================================
+{
+  // 20a: ROOT above has no real .git directory (see test 18's own comment: "resolveHeadCommit() there
+  // is always null") — an HONEST no-git evidence set on THIS root must let finalize() succeed with
+  // code_commit:null.
+  const RUN = 'fin-nogit-ok';
+  const dir = path.join(ROOT, '.claude', 'forge-runs', RUN);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({
+    run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: null, worktree_clean: null, stable: true, no_git: true, reason: 'geen git-repository' } }],
+  }));
+  const nogitLog = (type, extra) => spawnSync(process.execPath, [LOGEVT, RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+  nogitLog('run_started', { note: 's' });
+  nogitLog('run_completed', { command: 'x', output: 'klaar' });
+  const r = F.finalize(ROOT, RUN);
+  t('20a a genuinely git-less project finalizes with an honest no-git evidence set', r.ok === true && r.receipt && r.receipt.code_commit === null, JSON.stringify(r).slice(0, 220));
+  t('20a check() confirms FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED', JSON.stringify(F.check(ROOT, RUN)).slice(0, 160));
+}
+{
+  // 20b: a REAL git root whose gate-evidence.json FABRICATES a no_git claim (despite git genuinely being
+  // present) must be refused by finalize() itself — the independent probe catches the contradiction.
+  const GITROOT3 = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-nogit-forged-')));
+  fs.mkdirSync(path.join(GITROOT3, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT3, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT3, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT3, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT3, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT3, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT3, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const git3 = (...args) => spawnSync('git', args, { cwd: GITROOT3, encoding: 'utf8' });
+  git3('init', '-q');
+  git3('config', 'user.email', 'test@example.com');
+  git3('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT3, 'seed.txt'), 'seed\n');
+  git3('add', '.');
+  git3('commit', '-q', '-m', 'seed');
+  const head3 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT3, encoding: 'utf8' }).stdout.trim();
+  const noGit3 = head3 === '' || !/^[0-9a-f]{40}$/i.test(head3);
+  if (noGit3) {
+    console.log('  SKIP 20b D2-NOGIT-FORGED: no working `git` in this environment — cannot exercise a real git root');
+  } else {
+    const RUN = 'fin-nogit-forged';
+    const dir3 = path.join(GITROOT3, '.claude', 'forge-runs', RUN);
+    fs.mkdirSync(dir3, { recursive: true });
+    fs.writeFileSync(path.join(dir3, 'gate-evidence.json'), JSON.stringify({
+      run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: null, worktree_clean: null, stable: true, no_git: true, reason: 'geen git-repository (vervalst)' } }],
+    }));
+    const g3log = (type, extra) => spawnSync(process.execPath, [path.join(GITROOT3, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    g3log('run_started', { note: 's' });
+    g3log('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_G3 = require(path.join(GITROOT3, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const r = FIN_G3.finalize(GITROOT3, RUN);
+    t('20b a no-git claim on a root that DOES have git is refused by finalize()', r.ok === false && /git-repository/.test(r.reason || ''), JSON.stringify(r).slice(0, 240));
+    t('20b no receipt was written', !fs.existsSync(FIN_G3.receiptFileOf(GITROOT3, RUN)));
+  }
+  try { fs.rmSync(GITROOT3, { recursive: true, force: true }); } catch { }
+}
+{
+  // 20c: a receipt hand-forged to CLAIM code_commit:null (no-git) on a root that genuinely has git is
+  // refused as invalid by receiptState/check() at READ time too — never trusted at face value just
+  // because it is already sitting on disk as a "finalized" receipt.
+  const GITROOT4 = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-nogit-receipt-')));
+  fs.mkdirSync(path.join(GITROOT4, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT4, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT4, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT4, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT4, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT4, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT4, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const git4 = (...args) => spawnSync('git', args, { cwd: GITROOT4, encoding: 'utf8' });
+  git4('init', '-q');
+  git4('config', 'user.email', 'test@example.com');
+  git4('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT4, 'seed.txt'), 'seed\n');
+  git4('add', '.');
+  git4('commit', '-q', '-m', 'seed');
+  const head4 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT4, encoding: 'utf8' }).stdout.trim();
+  const noGit4 = head4 === '' || !/^[0-9a-f]{40}$/i.test(head4);
+  if (noGit4) {
+    console.log('  SKIP 20c D2-NOGIT-RECEIPT-FORGED: no working `git` in this environment — cannot exercise a real git root');
+  } else {
+    const RUN = 'fin-nogit-receipt-forged';
+    const dir4 = path.join(GITROOT4, '.claude', 'forge-runs', RUN);
+    const g4log = (type, extra) => {
+      fs.mkdirSync(dir4, { recursive: true });
+      const f = path.join(dir4, 'gate-evidence.json');
+      if (!fs.existsSync(f)) fs.writeFileSync(f, JSON.stringify({ run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: head4, worktree_clean: true, stable: true } }] }));
+      return spawnSync(process.execPath, [path.join(GITROOT4, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    };
+    g4log('run_started', { note: 's' });
+    g4log('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_G4 = require(path.join(GITROOT4, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const setup = FIN_G4.finalize(GITROOT4, RUN);
+    t('20c setup: a genuine git-bound finalize succeeds first', setup.ok === true && setup.receipt.code_commit === head4, JSON.stringify(setup).slice(0, 200));
+    // hand-edit the receipt to claim code_commit:null (a forged no-git claim) — bypasses finalize()
+    const receiptPath4 = FIN_G4.receiptFileOf(GITROOT4, RUN);
+    const realReceipt4 = JSON.parse(fs.readFileSync(receiptPath4, 'utf8'));
+    fs.writeFileSync(receiptPath4, JSON.stringify(Object.assign({}, realReceipt4, { code_commit: null }), null, 2));
+    const forged = FIN_G4.check(GITROOT4, RUN);
+    t('20c a receipt forged to claim code_commit:null on a root that DOES have git is refused (STALE)', forged.verdict === 'STALE', JSON.stringify(forged).slice(0, 240));
+    t('20c the refusal names the git-repository contradiction', /git-repository/.test(forged.reason || ''), forged.reason);
+  }
+  try { fs.rmSync(GITROOT4, { recursive: true, force: true }); } catch { }
+}
+
+// ================================================================================================
+// (2.1, 2026-09-26 laptop re-audit, review C VERDICT FAIL) — headProbeOf must refuse (ok:false)
+// on an UNDETERMINED git state, never silently agree with a no-git claim the way it used to when
+// resolveHeadCommit's plain `null` covered both "confirmed no git" and "could not determine". 20d and 20e
+// mirror 20b (a genuinely no-git-incapable-of-confirming root) using the two concrete UNDETERMINED
+// triggers named in the finding: a repo with no commits yet, and a poisoned GIT_DIR on a real repo.
+// ================================================================================================
+{
+  // 20d: a repo with NO COMMITS YET (git genuinely present, but rev-parse HEAD refuses — UNDETERMINED,
+  // never no-repo) whose gate-evidence.json fabricates a no_git claim must be refused by finalize(),
+  // with an honest "could not be independently determined" reason — never accepted as confirmed no-git.
+  const GITROOT5 = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-nogit-nocommits-')));
+  fs.mkdirSync(path.join(GITROOT5, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT5, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT5, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT5, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT5, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT5, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT5, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const gitInitOk5 = spawnSync('git', ['init', '-q'], { cwd: GITROOT5, encoding: 'utf8' });
+  if (!gitInitOk5 || gitInitOk5.status !== 0) {
+    console.log('  SKIP 20d D2-vs-2.1 (no commits yet): no working `git` in this environment');
+  } else {
+    const RUN = 'fin-nogit-nocommits';
+    const dir5 = path.join(GITROOT5, '.claude', 'forge-runs', RUN);
+    fs.mkdirSync(dir5, { recursive: true });
+    fs.writeFileSync(path.join(dir5, 'gate-evidence.json'), JSON.stringify({
+      run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: null, worktree_clean: null, stable: true, no_git: true, reason: 'geen git-repository (vervalst — echte staat is UNDETERMINED, geen commits)' } }],
+    }));
+    const g5log = (type, extra) => spawnSync(process.execPath, [path.join(GITROOT5, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    g5log('run_started', { note: 's' });
+    g5log('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_G5 = require(path.join(GITROOT5, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const r = FIN_G5.finalize(GITROOT5, RUN);
+    t('20d a no-git claim on a repo with NO COMMITS YET (undetermined, not confirmed no-repo) is refused by finalize()', r.ok === false && /onafhankelijk.*vastgesteld/i.test(r.reason || ''), JSON.stringify(r).slice(0, 260));
+    t('20d no receipt was written', !fs.existsSync(FIN_G5.receiptFileOf(GITROOT5, RUN)));
+  }
+  try { fs.rmSync(GITROOT5, { recursive: true, force: true }); } catch { }
+}
+{
+  // 20e: a poisoned GIT_DIR (nonexistent path) on a REAL repo (with a real commit) — before this fix,
+  // resolveHeadCommit() would return null here exactly as it does on a genuine no-git root, so a no-git
+  // claim would have been wrongly accepted. Now gitProbe()'s env-hardening sees straight through the
+  // poisoning to the real commit, so this must refuse for the SAME reason 20b does (a repo that DOES
+  // have git), not the "could not be determined" reason.
+  const GITROOT6 = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-nogit-poisoned-')));
+  fs.mkdirSync(path.join(GITROOT6, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT6, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT6, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT6, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT6, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT6, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT6, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const git6 = (...args) => spawnSync('git', args, { cwd: GITROOT6, encoding: 'utf8' });
+  git6('init', '-q');
+  git6('config', 'user.email', 'test@example.com');
+  git6('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT6, 'seed.txt'), 'seed\n');
+  git6('add', '.');
+  git6('commit', '-q', '-m', 'seed');
+  const head6 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT6, encoding: 'utf8' }).stdout.trim();
+  const noGit6 = head6 === '' || !/^[0-9a-f]{40}$/i.test(head6);
+  if (noGit6) {
+    console.log('  SKIP 20e D2-vs-2.1 (poisoned GIT_DIR): no working `git` in this environment');
+  } else {
+    const RUN = 'fin-nogit-poisoned';
+    const dir6 = path.join(GITROOT6, '.claude', 'forge-runs', RUN);
+    fs.mkdirSync(dir6, { recursive: true });
+    fs.writeFileSync(path.join(dir6, 'gate-evidence.json'), JSON.stringify({
+      run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: null, worktree_clean: null, stable: true, no_git: true, reason: 'geen git-repository (vervalst onder een poisoned GIT_DIR)' } }],
+    }));
+    const g6log = (type, extra) => spawnSync(process.execPath, [path.join(GITROOT6, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    g6log('run_started', { note: 's' });
+    g6log('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_G6 = require(path.join(GITROOT6, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const savedGitDir6 = process.env.GIT_DIR;
+    try {
+      process.env.GIT_DIR = path.join(os.tmpdir(), 'finalize-nonexistent-gitdir-' + Date.now());
+      const r = FIN_G6.finalize(GITROOT6, RUN);
+      t('20e a poisoned GIT_DIR cannot smuggle a no-git claim through on a real repo — finalize() still sees the real commit and refuses', r.ok === false && /git-repository/.test(r.reason || ''), JSON.stringify(r).slice(0, 260));
+      t('20e no receipt was written', !fs.existsSync(FIN_G6.receiptFileOf(GITROOT6, RUN)));
+    } finally {
+      if (savedGitDir6 === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = savedGitDir6;
+    }
+  }
+  try { fs.rmSync(GITROOT6, { recursive: true, force: true }); } catch { }
+}
+
+// ================================================================================================
+// 21) ALSO-NOTED (2026-09-26 independent review, alongside N2/N3/N4/N6/N8) — evaluateAcceptance() used
+// to call resolveHeadCommit() directly, which collapses gitProbe's THREE states into commit-or-null, so a
+// LIVE-UNDETERMINED git state (git present, repo present, but rev-parse HEAD refuses for a reason other
+// than a clean "not a git repository") read exactly like a confirmed no-repo root: `headNow` was falsy
+// either way, so a receipt bound to a REAL commit silently fell through to {status:'current'} — reported
+// FINALIZED — instead of the honest "could not be determined". Reproduced here on a REAL repo that
+// already has a real commit: corrupt .git/HEAD AFTER a successful finalize (never delete .git itself, so
+// the .git entry is still there — this is exactly gitProbe's "inconsistent signal" undetermined path, not
+// a confirmed no-repo one).
+// ================================================================================================
+{
+  const GITROOT7 = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-undetermined-')));
+  fs.mkdirSync(path.join(GITROOT7, '.claude', 'forge-dashboard'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT7, '.claude', 'forge-bin'), { recursive: true });
+  fs.mkdirSync(path.join(GITROOT7, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GITROOT7, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GITROOT7, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GITROOT7, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.writeFileSync(path.join(GITROOT7, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }],
+  }, null, 2));
+  const git7 = (...args) => spawnSync('git', args, { cwd: GITROOT7, encoding: 'utf8' });
+  git7('init', '-q');
+  git7('config', 'user.email', 'test@example.com');
+  git7('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GITROOT7, 'seed.txt'), 'seed\n');
+  git7('add', '.');
+  git7('commit', '-q', '-m', 'seed');
+  const head7 = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT7, encoding: 'utf8' }).stdout.trim();
+  const noGit7 = head7 === '' || !/^[0-9a-f]{40}$/i.test(head7);
+  if (noGit7) {
+    console.log('  SKIP 21 also-noted (undetermined HEAD): no working `git` in this environment');
+  } else {
+    const RUN = 'fin-undetermined-head';
+    const dir7 = path.join(GITROOT7, '.claude', 'forge-runs', RUN);
+    fs.mkdirSync(dir7, { recursive: true });
+    fs.writeFileSync(path.join(dir7, 'gate-evidence.json'), JSON.stringify({
+      run_id: RUN, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: head7, worktree_clean: true, stable: true } }],
+    }));
+    const g7log = (type, extra) => spawnSync(process.execPath, [path.join(GITROOT7, '.claude', 'forge-dashboard', 'log-event.cjs'), RUN, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    g7log('run_started', { note: 's' });
+    g7log('run_completed', { command: 'x', output: 'klaar' });
+    const FIN_G7 = require(path.join(GITROOT7, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const r7 = FIN_G7.finalize(GITROOT7, RUN);
+    t('21 setup: finalize succeeds on the real git HEAD', r7.ok === true && r7.receipt.code_commit === head7, JSON.stringify(r7).slice(0, 200));
+    t('21 setup: check() reports FINALIZED while HEAD is readable and unchanged', FIN_G7.check(GITROOT7, RUN).verdict === 'FINALIZED');
+
+    // Corrupt .git/HEAD so git itself can no longer answer rev-parse HEAD cleanly — the .git ENTRY is
+    // still there (never deleted), so this is gitProbe's UNDETERMINED path, never a confirmed no-repo one.
+    // (Verified live against forge-runcontract.cjs's own gitProbe() while writing this fix: the corrupted
+    // repo reports {state:'undetermined', reason:'... inconsistent signaal ...'}.)
+    const headFile = path.join(GITROOT7, '.git', 'HEAD');
+    const headFileBefore = fs.readFileSync(headFile, 'utf8');
+    fs.writeFileSync(headFile, 'garbage-not-a-ref\n');
+    const probeAfterCorruption = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GITROOT7, encoding: 'utf8' });
+    const corruptionReallyMadeGitRefuse = probeAfterCorruption.status !== 0;
+    if (!corruptionReallyMadeGitRefuse) {
+      console.log('  SKIP 21 also-noted (undetermined HEAD): this git version tolerated the corrupted .git/HEAD — cannot force UNDETERMINED here');
+    } else {
+      const afterCorruption = FIN_G7.check(GITROOT7, RUN);
+      t('21 also-noted: an UNDETERMINED live git state (receipt bound to a real commit) reports verdict UNDETERMINED — never FINALIZED, never HISTORICAL', afterCorruption.verdict === 'UNDETERMINED', JSON.stringify(afterCorruption).slice(0, 260));
+      t('21 also-noted: the reason honestly says the state could not be established', /niet.*vastgesteld|kon niet/i.test(afterCorruption.reason || ''), afterCorruption.reason);
+
+      const idempotentAfterCorruption = FIN_G7.finalize(GITROOT7, RUN);
+      t('21 also-noted: an idempotent (repeat) finalize() also REFUSES on an undetermined git state, never silently re-succeeds', idempotentAfterCorruption.ok === false, JSON.stringify(idempotentAfterCorruption).slice(0, 260));
+      t('21 also-noted: the refusal is NOT flagged historical (we have no evidence of drift, only of not-knowing)', idempotentAfterCorruption.historical !== true);
+    }
+    // restore .git/HEAD before this fixture is torn down (tidy, even though the dir is about to be removed)
+    try { fs.writeFileSync(headFile, headFileBefore); } catch { /* best-effort tidy */ }
+  }
+  try { fs.rmSync(GITROOT7, { recursive: true, force: true }); } catch { }
+}
+
+// 22) F6 (2026-09-26 independent review, NOTE): check()'s acceptance -> verdict mapping used to only NAME
+// the statuses to REJECT (fail/historical/undetermined) and let anything else — including a status this
+// code has never seen — fall through to the strongest verdict, FINALIZED. verdictForAcceptance() is now the
+// one, exported, directly-testable mapping: FINALIZED only for the exact known-good 'current' status; a
+// genuinely unrecognized status is mapped to UNDETERMINED, exactly like 'undetermined' itself, never trusted
+// as green. evaluateAcceptance() itself only ever returns the four known statuses today, so this exercises
+// the mapping directly (a synthetic/future status can never reach evaluateAcceptance() through real input).
+console.log('\n22) F6 fix — an unrecognized acceptance status is never trusted as FINALIZED');
+{
+  const receipt = { evidence_digest: 'e'.repeat(64), code_commit: 'c'.repeat(40), independent_verification: { available: true } };
+  const unknown = F.verdictForAcceptance({ status: 'some-status-this-code-has-never-seen' }, receipt);
+  t('22a an unrecognized acceptance.status never returns FINALIZED', unknown.verdict !== 'FINALIZED', JSON.stringify(unknown));
+  t('22b an unrecognized acceptance.status maps to UNDETERMINED (the same honest, non-committal verdict as a real undetermined git state)', unknown.verdict === 'UNDETERMINED', JSON.stringify(unknown));
+  t('22c the reason names the exact unrecognized status, so it is diagnosable', unknown.reason && unknown.reason.includes('some-status-this-code-has-never-seen'), unknown.reason);
+  t('22d the receipt is still carried through on the unrecognized-status verdict (never dropped)', unknown.receipt === receipt);
+
+  // every KNOWN status must still map exactly as before (no regression from the refactor into
+  // verdictForAcceptance()):
+  const cur = F.verdictForAcceptance({ status: 'current' }, receipt);
+  t('22e status "current" still returns FINALIZED', cur.verdict === 'FINALIZED', JSON.stringify(cur));
+  t('22e FINALIZED still carries evidence_pinned/independent_verification/label_only', cur.evidence_pinned === true && cur.label_only === true && cur.independent_verification === receipt.independent_verification);
+
+  const und = F.verdictForAcceptance({ status: 'undetermined', reason: 'kon niet worden vastgesteld' }, receipt);
+  t('22f status "undetermined" still returns UNDETERMINED with its own reason (unchanged)', und.verdict === 'UNDETERMINED' && und.reason === 'kon niet worden vastgesteld');
+
+  const failed = F.verdictForAcceptance({ status: 'fail', reason: 'bewijs gewijzigd' }, receipt);
+  t('22g status "fail" still returns STALE (unchanged)', failed.verdict === 'STALE' && failed.reason === 'bewijs gewijzigd');
+
+  const hist = F.verdictForAcceptance({ status: 'historical', reason: 'commit gedreven', code_commit_then: 'a'.repeat(40), code_commit_now: 'b'.repeat(40) }, receipt);
+  t('22h status "historical" still returns HISTORICAL with its commit fields (unchanged)', hist.verdict === 'HISTORICAL' && hist.code_commit_then === 'a'.repeat(40) && hist.code_commit_now === 'b'.repeat(40));
+  const histR = F.verdictForAcceptance({ status: 'historical', cause: 'ruleset', reverified: false, reason: 'r', ruleset_version_then: 1, ruleset_version_now: 2, contract_under_current_ruleset: { ok: true, missing: [], unevaluated: [] } }, receipt);
+  t('22i WP-1: HISTORICAL carries cause/reverified/ruleset_version_* through to the verdict', histR.verdict === 'HISTORICAL' && histR.cause === 'ruleset' && histR.reverified === false && histR.ruleset_version_then === 1 && histR.ruleset_version_now === 2 && !!histR.contract_under_current_ruleset);
+}
+
+// ================================================================================================
+// 23) (audit S7 + the receipt data model).
+//     Measured before the change on this project's 14 real receipts: 13 STALE, not one tampered with —
+//     6 because FORGE_HARD_RULES.json was edited after finalization, 3 because the canonical evidence form
+//     changed (D2), 4 because they come from an older finalize generation. The rules: a ruleset change is
+//     HISTORICAL, never fail; evidence/commit/log tampering stays fail (STALE); the receipt records the
+//     ruleset version; legacy receipts and the legacy evidence form are historical/accepted, never FINALIZED
+//     by accident and never overwritten.
+// ================================================================================================
+console.log('\n23) WP-1 — ruleset edits are HISTORICAL, tampering is still STALE, legacy receipts are records');
+{
+  const maakRoot = (prefix, regels) => {
+    const R = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+    for (const d of ['forge-dashboard', 'forge-bin', path.join('config', 'orchestration'), path.join('config', 'agents')]) fs.mkdirSync(path.join(R, '.claude', d), { recursive: true });
+    fs.copyFileSync(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'), path.join(R, '.claude', 'forge-dashboard', 'log-event.cjs'));
+    fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(R, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+    fs.copyFileSync(FIN, path.join(R, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    try { fs.copyFileSync(path.join(__dirname, '..', 'config', 'agents', 'agent-registry.json'), path.join(R, '.claude', 'config', 'agents', 'agent-registry.json')); } catch { }
+    fs.writeFileSync(path.join(R, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify(regels, null, 2));
+    return R;
+  };
+  const basisRegel = { id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' };
+  const V = maakRoot('finalize-wp1-', { version: 7, owners_allowlist: ['owner'], rules: [basisRegel] });
+  const regelsV = path.join(V, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json');
+  const regelsV7 = fs.readFileSync(regelsV, 'utf8');
+  const bewijsVan = (run, sha) => JSON.stringify({ run_id: run, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: sha || OUT_SHA, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }] });
+  const logV = (run, type, extra) => {
+    const d = path.join(V, '.claude', 'forge-runs', run);
+    fs.mkdirSync(d, { recursive: true });
+    if (!fs.existsSync(path.join(d, 'gate-evidence.json'))) fs.writeFileSync(path.join(d, 'gate-evidence.json'), bewijsVan(run));
+    return spawnSync(process.execPath, [path.join(V, '.claude', 'forge-dashboard', 'log-event.cjs'), run, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+  };
+  const runDirV = (run) => path.join(V, '.claude', 'forge-runs', run);
+  const receiptV = (run) => path.join(runDirV(run), 'run-finalized.json');
+
+  // 23a the receipt records the ruleset version (and null when the ruleset declares none)
+  const RUN = 'fin-wp1';
+  logV(RUN, 'run_started', { note: 's' });
+  logV(RUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const r1 = F.finalize(V, RUN);
+  t('23a finalize records ruleset_version from the ruleset it pinned (version 7)', r1.ok === true && r1.receipt.ruleset_version === 7, JSON.stringify(r1).slice(0, 240));
+  t('23a and the receipt stays schema 2 (an older fleet checker that requires schema 2 still reads it)', r1.ok === true && r1.receipt.schema === 2);
+  const okReceipt = F.readReceipt(ROOT, 'fin-ok');
+  t('23a a ruleset without a version field gives ruleset_version:null (never invented)', !!okReceipt && okReceipt.ruleset_version === null, JSON.stringify(okReceipt || {}).slice(0, 200));
+  t('23a check() is FINALIZED on the unchanged ruleset', F.check(V, RUN).verdict === 'FINALIZED');
+
+  // 23b editing the rules file — even adding a BLOCK rule this run never satisfied — turns the receipt HISTORICAL
+  const v8 = JSON.parse(regelsV7);
+  v8.version = 8;
+  v8.rules.push({ id: 'nieuw-blok', rule: 'a rule added after finalization', trigger: 'always', check: { type: 'event-present', key: ['iets_nieuws'] }, severity: 'block', override: 'n/a', source: 'test' });
+  fs.writeFileSync(regelsV, JSON.stringify(v8, null, 2));
+  const h = F.check(V, RUN);
+  t('23b a rules edit turns an existing receipt HISTORICAL (cause ruleset), not STALE', h.verdict === 'HISTORICAL' && h.cause === 'ruleset', JSON.stringify(h).slice(0, 300));
+  t('23b F02: it IS re-verified under its own PINNED rules (ruleset-pinned.json) — reverified:true, a completion proof', h.reverified === true && h.judged_under === 'pinned-ruleset' && h.completion_proof === true && h.contract_under_pinned_ruleset && h.contract_under_pinned_ruleset.ok === true, JSON.stringify(h).slice(0, 300));
+  t('23b F02: finalize wrote the pinned copy, hashing exactly to the receipt pin', F.pinnedRulesetOf(V, RUN, r1.receipt.ruleset_sha256).state === 'present' && r1.receipt.ruleset_pinned_file === 'ruleset-pinned.json');
+  t('23b it names the ruleset then/now by hash AND version', h.ruleset_then === r1.receipt.ruleset_sha256 && typeof h.ruleset_now === 'string' && h.ruleset_now !== h.ruleset_then && h.ruleset_version_then === 7 && h.ruleset_version_now === 8);
+  t('23b the current-rules outcome is reported, not hidden: red on the NEW rule only', !!h.contract_under_current_ruleset && h.contract_under_current_ruleset.ok === false && h.contract_under_current_ruleset.missing.length === 1 && h.contract_under_current_ruleset.missing[0] === 'nieuw-blok');
+  t('23b evaluateAcceptance (exported for consumers) says historical too', F.evaluateAcceptance(V, RUN, F.readReceipt(V, RUN)).status === 'historical');
+  const refused = F.finalize(V, RUN);
+  t('23b a repeat finalize() still refuses (it confirms CURRENT state only) and flags it historical', refused.ok === false && refused.historical === true);
+
+  // 23c with the ruleset STILL edited, every tamper check still gives STALE (fail)
+  const ev0 = fs.readFileSync(path.join(runDirV(RUN), 'gate-evidence.json'), 'utf8');
+  fs.writeFileSync(path.join(runDirV(RUN), 'gate-evidence.json'), bewijsVan(RUN, 'b'.repeat(64)));
+  const tEv = F.check(V, RUN);
+  t('23c evidence tampering under an edited ruleset is still STALE (fail), never softened to HISTORICAL', tEv.verdict === 'STALE' && /bewijsset/.test(tEv.reason || ''), JSON.stringify(tEv).slice(0, 200));
+  t('23c evaluateAcceptance agrees: fail', F.evaluateAcceptance(V, RUN, F.readReceipt(V, RUN)).status === 'fail');
+  fs.writeFileSync(path.join(runDirV(RUN), 'gate-evidence.json'), ev0);
+  const rc0 = fs.readFileSync(receiptV(RUN), 'utf8');
+  fs.writeFileSync(receiptV(RUN), JSON.stringify(Object.assign(JSON.parse(rc0), { code_commit: 'b'.repeat(40) }), null, 2));
+  const tCommit = F.check(V, RUN);
+  t('23c commit tampering (receipt.code_commit edited) under an edited ruleset is still STALE (fail)', tCommit.verdict === 'STALE' && /commit/.test(tCommit.reason || ''), JSON.stringify(tCommit).slice(0, 200));
+  fs.writeFileSync(receiptV(RUN), rc0);
+  const evFile = path.join(runDirV(RUN), 'events.jsonl');
+  const log0 = fs.readFileSync(evFile, 'utf8');
+  fs.writeFileSync(evFile, log0 + JSON.stringify({ run_id: RUN, event_type: 'agent_note', agent: 'orchestrator', note: 'nagekomen' }) + '\n');
+  t('23c log tampering under an edited ruleset is still STALE (fail)', F.check(V, RUN).verdict === 'STALE');
+  fs.writeFileSync(evFile, log0);
+  t('23c after restoring evidence, receipt and log it is HISTORICAL again (the checks are exact, not sticky)', F.check(V, RUN).verdict === 'HISTORICAL');
+
+  // 23d S6 x S7: a NEWER rules file with a check type this checker predates never crashes acceptance
+  const vToekomst = JSON.parse(regelsV7);
+  vToekomst.version = 9;
+  // part A: 'closure' became a KNOWN check type, so the "newer than this checker" fixture
+  // uses a genuinely unknown future type name with the same shape.
+  vToekomst.rules.push({ id: 'toekomst-closure', rule: 'every requirement is closed', trigger: 'always', check: { type: 'zz-future-closure', open: 'owner_requirement_noted', close: ['requirement_resolved'], key: 'requirement_id' }, severity: 'block', override: 'n/a', source: 'test' });
+  fs.writeFileSync(regelsV, JSON.stringify(vToekomst, null, 2));
+  let toekomst = null, toekomstThrew = null;
+  try { toekomst = F.check(V, RUN); } catch (e) { toekomstThrew = e; }
+  t('23d a rules file with an unknown check type: check() does not throw and the receipt is HISTORICAL', toekomstThrew === null && !!toekomst && toekomst.verdict === 'HISTORICAL', toekomstThrew ? toekomstThrew.message : JSON.stringify(toekomst).slice(0, 200));
+  t('23d the un-judgeable new rule is reported as unknown-rule:<id> under the current rules, never as satisfied', !!toekomst && toekomst.contract_under_current_ruleset.missing.includes('unknown-rule:toekomst-closure') && toekomst.contract_under_current_ruleset.unevaluated.includes('toekomst-closure'));
+
+  // 23e a missing rules file is reported (ruleset_now null), never a crash
+  fs.rmSync(regelsV, { force: true });
+  let weg = null, wegThrew = null;
+  try { weg = F.check(V, RUN); } catch (e) { wegThrew = e; }
+  t('23e no rules file at all: HISTORICAL with ruleset_now:null and the contract error reported, never a throw', wegThrew === null && !!weg && weg.verdict === 'HISTORICAL' && weg.ruleset_now === null && !!weg.contract_under_current_ruleset.error, wegThrew ? wegThrew.message : JSON.stringify(weg).slice(0, 200));
+  fs.writeFileSync(regelsV, regelsV7);
+  t('23e restoring the exact ruleset bytes makes it FINALIZED again', F.check(V, RUN).verdict === 'FINALIZED');
+
+  // 23f the LEGACY receipt generation (no evidence_digest/code_commit/independent_verification)
+  const LRUN = 'fin-wp1-legacy';
+  logV(LRUN, 'run_started', { note: 's' });
+  logV(LRUN, 'run_completed', { command: 'x', output: 'klaar' });
+  const lr = F.finalize(V, LRUN);
+  t('23f setup: a normal finalize', lr.ok === true);
+  const echt = JSON.parse(fs.readFileSync(receiptV(LRUN), 'utf8'));
+  const legacy = Object.assign({}, echt);
+  for (const k of ['evidence_digest', 'code_commit', 'independent_verification', 'ruleset_version']) delete legacy[k];
+  const legacyText = JSON.stringify(legacy, null, 2);
+  fs.writeFileSync(receiptV(LRUN), legacyText);
+  // the legacy SHAPE alone authenticates nothing — a stripped NEW receipt is invalid (STALE) until
+  // the exact bytes are on the per-project allowlist.
+  t('23f F01: a receipt lacking the three binding fields is INVALID/STALE while it is not on the legacy allowlist', F.receiptState(V, LRUN).state === 'invalid' && F.check(V, LRUN).verdict === 'STALE', JSON.stringify(F.receiptState(V, LRUN)).slice(0, 200));
+  allowlistReceipt(V, LRUN, 'pre-evidence');
+  t('23f receiptState classifies that exact shape as legacy once allowlisted (run id + sha256 of the bytes)', F.receiptState(V, LRUN).state === 'legacy');
+  const lc = F.check(V, LRUN);
+  t('23f a legacy receipt with an intact log is HISTORICAL (cause legacy-receipt), never STALE, never FINALIZED', lc.verdict === 'HISTORICAL' && lc.cause === 'legacy-receipt' && lc.legacy_receipt === true && lc.reverified === false, JSON.stringify(lc).slice(0, 240));
+  const logBytesBefore = fs.readFileSync(path.join(runDirV(LRUN), 'events.jsonl'));
+  const lf = F.finalize(V, LRUN);
+  t('23f finalize() refuses a legacy receipt and flags it historical', lf.ok === false && lf.historical === true, JSON.stringify(lf).slice(0, 200));
+  t('23f and it does NOT overwrite the legacy receipt or append to the log', fs.readFileSync(receiptV(LRUN), 'utf8') === legacyText && Buffer.compare(fs.readFileSync(path.join(runDirV(LRUN), 'events.jsonl')), logBytesBefore) === 0);
+  const lLog = path.join(runDirV(LRUN), 'events.jsonl');
+  fs.writeFileSync(lLog, logBytesBefore.toString('utf8') + JSON.stringify({ run_id: LRUN, event_type: 'agent_note', agent: 'orchestrator', note: 'x' }) + '\n');
+  t('23f a legacy receipt over a tampered log is STALE (the log is still checked byte-exact)', F.check(V, LRUN).verdict === 'STALE');
+  fs.writeFileSync(lLog, logBytesBefore);
+  const zonderRegelset = Object.assign({}, legacy); delete zonderRegelset.ruleset_sha256;
+  fs.writeFileSync(receiptV(LRUN), JSON.stringify(zonderRegelset, null, 2));
+  t('23f a "legacy" receipt without a well-formed ruleset_sha256 is STALE (that generation always pinned it)', F.check(V, LRUN).verdict === 'STALE');
+  const deels = Object.assign({}, echt); delete deels.evidence_digest;
+  fs.writeFileSync(receiptV(LRUN), JSON.stringify(deels, null, 2));
+  t('23f a NEW receipt with only evidence_digest stripped is STALE, not legacy (R5-06 unchanged)', F.receiptState(V, LRUN).state === 'invalid' && F.check(V, LRUN).verdict === 'STALE');
+  fs.writeFileSync(receiptV(LRUN), JSON.stringify(echt, null, 2));
+  t('23f the real receipt is FINALIZED again', F.check(V, LRUN).verdict === 'FINALIZED');
+
+  // 23g the pre-D2 canonical evidence form of the SAME evidence is accepted; any other digest is not
+  const RC_V = require(path.join(V, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  const set = RC_V.canonicalEvidenceDigest(V, LRUN);
+  const metLegacyVorm = Object.assign({}, echt, { evidence_digest: set.legacy_digests[0] });
+  fs.writeFileSync(receiptV(LRUN), JSON.stringify(metLegacyVorm, null, 2));
+  // an older canonical evidence form is accepted ONLY for an allowlisted receipt
+  t('23g F03: a receipt pinned with an OLDER evidence form is STALE while it is not on the allowlist', F.check(V, LRUN).verdict === 'STALE', JSON.stringify(F.check(V, LRUN)).slice(0, 240));
+  allowlistReceipt(V, LRUN, 'pre-pinned-ruleset');
+  const lv = F.check(V, LRUN);
+  t('23g a receipt pinned with the pre-D2 form of unchanged evidence is accepted once allowlisted (FINALIZED, evidence_canon legacy)', lv.verdict === 'FINALIZED' && lv.evidence_canon === 'legacy', JSON.stringify(lv).slice(0, 240));
+  fs.writeFileSync(receiptV(LRUN), JSON.stringify(Object.assign({}, echt, { evidence_digest: 'f'.repeat(64) }), null, 2));
+  t('23g any OTHER digest is still STALE (the legacy form is an exact alternative, not a wildcard)', F.check(V, LRUN).verdict === 'STALE');
+  fs.writeFileSync(receiptV(LRUN), JSON.stringify(echt, null, 2));
+  try { fs.rmSync(V, { recursive: true, force: true }); } catch { }
+}
+
+// 23h end-to-end: a REVIEW event pinned with the pre-D2 evidence form still satisfies independent
+// verification (3 real runs depend on exactly this), while a review with any other digest does not.
+{
+  const GR = zaaiOutput(fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-wp1-iv-')));
+  for (const d of ['forge-dashboard', 'forge-bin', path.join('config', 'orchestration'), path.join('config', 'agents'), 'agents']) fs.mkdirSync(path.join(GR, '.claude', d), { recursive: true });
+  fs.copyFileSync(LOGEVT, path.join(GR, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-runcontract.cjs'), path.join(GR, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+  fs.copyFileSync(FIN, path.join(GR, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+  fs.copyFileSync(path.join(__dirname, '..', 'config', 'agents', 'agent-registry.json'), path.join(GR, '.claude', 'config', 'agents', 'agent-registry.json'));
+  fs.copyFileSync(path.join(__dirname, '..', 'agents', 'verify-boss.md'), path.join(GR, '.claude', 'agents', 'verify-boss.md'));
+  fs.writeFileSync(path.join(GR, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({
+    version: 1, owners_allowlist: ['owner'],
+    rules: [
+      { id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' },
+      { id: 'independent-verification', rule: 'someone else confirms the work', trigger: 'complexity:>=L2', check: { type: 'independent-verification' }, severity: 'block', override: 'UN-OVERRIDABLE', source: 'test', cannot_override: true },
+    ],
+  }, null, 2));
+  const git = (...args) => spawnSync('git', args, { cwd: GR, encoding: 'utf8' });
+  git('init', '-q'); git('config', 'user.email', 'test@example.com'); git('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(GR, '.gitignore'), '.claude/forge-runs/\n');
+  fs.writeFileSync(path.join(GR, 'seed.txt'), 'seed\n');
+  git('add', '.'); git('commit', '-q', '-m', 'seed');
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: GR, encoding: 'utf8' }).stdout.trim();
+  if (!/^[0-9a-f]{40}$/i.test(head)) {
+    console.log('  SKIP 23h: no working `git` in this environment');
+  } else {
+    const FIN_GR = require(path.join(GR, '.claude', 'forge-bin', 'forge-finalize.cjs'));
+    const RC_GR = require(path.join(GR, '.claude', 'forge-bin', 'forge-runcontract.cjs'));
+    const draai = (run, kiesDigest) => {
+      const dir = path.join(GR, '.claude', 'forge-runs', run);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ run_id: run, status: 'running', complexity: 'L2' }, null, 2));
+      fs.writeFileSync(path.join(dir, 'gate-evidence.json'), JSON.stringify({ run_id: run, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: head, worktree_clean: true, stable: true } }] }));
+      const logR = (type, extra) => { const r = spawnSync(process.execPath, [path.join(GR, '.claude', 'forge-dashboard', 'log-event.cjs'), run, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' }); if (r.status !== 0) throw new Error('23h fixture log failed: ' + type + ' :: ' + r.stdout + r.stderr); };
+      const lastHash = () => { const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n'); return JSON.parse(lines[lines.length - 1]).entry_hash; };
+      logR('run_started', { note: 's' });
+      logR('check_passed', { agent: 'build boss', check: 'the work', command: 'node test', output: '1 passed' });
+      logR('review_started', { agent: 'verify boss', review_id: 'rv-23h', subject: 'independent review of the work in this run' });
+      logR('review_completed', { agent: 'verify boss', review_id: 'rv-23h', verdict: 'PASS', summary: 'reviewed', subject_log_hash: lastHash(), commit_sha: head, evidence_digest: kiesDigest(RC_GR.canonicalEvidenceDigest(GR, run)) });
+      logR('run_completed', { command: 'x', output: 'klaar' });
+      return FIN_GR.finalize(GR, run);
+    };
+    // a LIVE run's review must pin the CURRENT (strict) evidence form — the older forms are
+    // recognised only for allowlisted receipts, never for a live independent-verification binding.
+    const metStrict = draai('fin-wp1-iv-strict', (s) => s.digest);
+    t('23h a review pinned with the current evidence digest satisfies independent verification (finalize succeeds)', metStrict.ok === true && metStrict.receipt.independent_verification && metStrict.receipt.independent_verification.ok === true, JSON.stringify(metStrict).slice(0, 300));
+    t('23h and check() is FINALIZED', FIN_GR.check(GR, 'fin-wp1-iv-strict').verdict === 'FINALIZED');
+    const metLegacy = draai('fin-wp1-iv-legacy', (s) => s.legacy_digests[0]);
+    t('23h F03: a review pinned with an OLDER evidence form no longer satisfies a live run (finalize refused)', metLegacy.ok === false && /contract/.test(metLegacy.reason || ''), JSON.stringify(metLegacy).slice(0, 300));
+    const metOnzin = draai('fin-wp1-iv-other', () => 'f'.repeat(64));
+    t('23h a review pinned with any OTHER digest still fails independent verification (finalize refused)', metOnzin.ok === false && /contract/.test(metOnzin.reason || ''), JSON.stringify(metOnzin).slice(0, 200));
+  }
+  try { fs.rmSync(GR, { recursive: true, force: true }); } catch { }
+}
+
+// Codex R3 SC-08: the scribe pin is never taken on trust. Unit level against a temp scribe store; the
+// end-to-end recovery refusal (a dangling run_finalized slot with a caller-supplied pin) is in forge-scribe-hook.test.cjs F12.
+{
+  console.log('\nSC-08 scribe pin hardening');
+  const SR = fs.mkdtempSync(path.join(os.tmpdir(), 'finalize-sc08-'));
+  try {
+    const SCR = require('./forge-scribe.cjs');
+    const ledger = path.join(SR, '.claude', 'forge-scribe', 'ledger.jsonl');
+    const inbox = path.join(SR, '.claude', 'forge-scribe', 'inbox.jsonl');
+    fs.mkdirSync(path.dirname(ledger), { recursive: true });
+    fs.writeFileSync(ledger, '');
+    const empty = F.scribePinOf(SR);
+    t('SC-08a an EMPTY ledger file is refused at finalize (never a zero-byte pin that binds nothing)', !!(empty && empty.error && /empty|zero-byte/.test(empty.error)), JSON.stringify(empty));
+    fs.unlinkSync(ledger);
+    const S = require('./forge-scribe-store.cjs');
+    S.appendChained(inbox, { v: 1, pid: 'P-000001', ts: '2026-10-10T08:00:00.000Z', session_id: 's1', source: 'hook', text: 'Voeg een kaart toe', redacted: false, text_sha256: S.sha256('Voeg een kaart toe') });
+    const orphan = F.scribePinOf(SR);
+    t('SC-08b inbox prompts without a ledger (a crash between the appends) are refused, never "the scribe is not in use"', !!(orphan && orphan.error && /inbox holds 1/.test(orphan.error)), JSON.stringify(orphan));
+    SCR.capture('Voeg een prijspagina toe', { root: SR, source: 'cli', run_id: 'fin-sc08-run' }); // also recovers P-000001
+    const good = F.scribePinOf(SR);
+    t('SC-08c an intact ledger gives a pin with chain_ok true and a non-zero byte count', !!(good && !good.error && good.chain_ok === true && good.bytes > 0), JSON.stringify(good));
+    const ok = F.scribeBindingOf(SR, { scribe_ledger_sha256: good.sha256, scribe_ledger_bytes: good.bytes, scribe_ledger_lines: good.lines, scribe_chain_ok: true }, null);
+    t('SC-08d (control) a correct pin binds', ok.ok === true && ok.applicable === true, JSON.stringify(ok));
+    const zero = F.scribeBindingOf(SR, { scribe_ledger_sha256: crypto.createHash('sha256').update('').digest('hex'), scribe_ledger_bytes: 0, scribe_ledger_lines: 0, scribe_chain_ok: true }, null);
+    t('SC-08e a zero-byte pin (sha256 of nothing) is not a binding — not ok', zero.ok === false && /zero-byte/.test(zero.reason || ''), JSON.stringify(zero));
+    const noChain = F.scribeBindingOf(SR, { scribe_ledger_sha256: good.sha256, scribe_ledger_bytes: good.bytes, scribe_ledger_lines: good.lines, scribe_chain_ok: false }, null);
+    t('SC-08f a pin whose chain was not verified OK (scribe_chain_ok:false) — not ok', noChain.ok === false && /chain/.test(noChain.reason || ''), JSON.stringify(noChain));
+    const strippedEarly = F.scribeBindingOf(SR, { finalized_at: '2999-01-01T00:00:00.000Z' }, { event_type: 'run_finalized' }, { runId: 'fin-sc08-run', events: [] });
+    t('SC-08g a receipt with NO binding whose run had scribe items before it was finalized is not ok (stripped binding)', strippedEarly.ok === false && /fin-sc08-run|owner requests/.test(strippedEarly.reason || ''), JSON.stringify(strippedEarly));
+    const notYet = F.scribeBindingOf(SR, { finalized_at: '2000-01-01T00:00:00.000Z' }, { event_type: 'run_finalized' }, { runId: 'fin-sc08-run', events: [] });
+    t('SC-08h (control) items that name the run only AFTER it was finalized do not count against an unbound receipt', notYet.ok === true && notYet.applicable === false, JSON.stringify(notYet));
+    fs.appendFileSync(ledger, '{"v":1,"seq":99,"prev_sha256":"' + 'e'.repeat(64) + '"}\n');
+    const broken = F.scribePinOf(SR);
+    t('SC-08i a ledger with a broken hash chain is refused at finalize (never pinned with chain_ok:false)', !!(broken && broken.error && /chain/.test(broken.error)), JSON.stringify(broken));
+  } catch (e) { t('SC-08 block ran without throwing', false, e && e.stack); }
+  try { fs.rmSync(SR, { recursive: true, force: true }); } catch { }
+}
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+
+try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { }
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+process.exitCode = fail ? 1 : 0;

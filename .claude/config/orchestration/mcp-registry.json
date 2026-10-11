@@ -1,0 +1,116 @@
+{
+  "_doc": "Forge WAVE G1 — DORMANT catalog of known MCP servers a Boss MAY be granted access to (see mcp-grants.json for the per-Boss least-privilege matrix). This file is a REGISTRY only: it never installs, connects to, or activates anything. Every entry's 'status' MUST start (and stay, until the owner explicitly opts in) at 'not-installed' — 'active' is FORBIDDEN in this file; forge-mcp-gate.cjs::status() treats any non-registry activation signal without a matching opt-in marker as a hard error. Tiers (least-privilege, doctrine #2): 0 = read-only LOCAL (docs/LSP read) · 1 = read-only REMOTE (web search, docs fetch, GitHub READ) · 2 = SANDBOXED action (browser-QA drive, no persistent writes) · 3 = WRITE-PRIMITIVE (any mcp write: GitHub write, file write, deploy, publish) — tier-3 tools ALWAYS route through forge-actiongate.cjs, never auto-used. Opt-in marker: an entry becomes usable only when config/orchestration/mcp-opt-in.json (owner-authored, not shipped by Forge) lists its id — absence means dormant/native-fallback, logged honestly (event mcp_native_fallback).",
+  "version": 1,
+  "servers": [
+    {
+      "id": "context7",
+      "purpose": "Up-to-date library/API documentation lookup (versioned docs, not stale training data).",
+      "tier": 1,
+      "network": "read",
+      "credentials_needed": false,
+      "install_hint": "MCP host config: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] } — see https://github.com/upstash/context7",
+      "status": "not-installed",
+      "notes": "Read-only docs fetch. Tier 1 because it is a remote network read, even without credentials."
+    },
+    {
+      "id": "playwright",
+      "purpose": "Browser automation for QA/visual verification — drive a real browser, no persistent writes outside its own sandboxed profile.",
+      "tier": 2,
+      "network": "read-write",
+      "credentials_needed": false,
+      "install_hint": "MCP host config: { command: 'npx', args: ['-y', '@playwright/mcp'] } — see https://github.com/microsoft/playwright-mcp",
+      "status": "not-installed",
+      "notes": "It drives a real browser to click, fill fields, and screenshot pages the static screenshot loop can't reach. Off by default like every entry here — nothing runs until the owner opts it in via /forge plus a real grant. Chosen as tier 2, not 3: doctrine's own tier-2 definition already covers navigate/click/type/screenshot as ephemeral, sandboxed browser state — never a project write-primitive. An action with a real external effect (submitting a live payment, publishing content, anything beyond this project's own QA session) is write-shaped and must be routed through forge-actiongate.cjs like every other tier-3 write; this tier-2 grant never covers that by itself."
+    },
+    {
+      "id": "chrome-devtools",
+      "purpose": "Chrome DevTools Protocol automation — performance traces, console/network inspection, screenshot QA.",
+      "tier": 2,
+      "network": "read-write",
+      "credentials_needed": false,
+      "install_hint": "MCP host config: { command: 'npx', args: ['-y', 'chrome-devtools-mcp'] } — see https://github.com/ChromeDevTools/chrome-devtools-mcp",
+      "status": "not-installed",
+      "notes": "Sandboxed action tier, same reasoning as playwright — a browser-QA driver, not a repo/system write-primitive."
+    },
+    {
+      "id": "github-read",
+      "purpose": "Read-only GitHub access — issues, PRs, code search, file contents.",
+      "tier": 1,
+      "network": "read",
+      "credentials_needed": true,
+      "install_hint": "MCP host config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] } scoped to a READ-ONLY token — see https://github.com/github/github-mcp-server",
+      "status": "not-installed",
+      "notes": "SPLIT from github-write per doctrine #4/#2 — a read token must never also carry write scopes."
+    },
+    {
+      "id": "github-write",
+      "purpose": "Write GitHub access — create/update issues, PRs, commits, branches, releases.",
+      "tier": 3,
+      "network": "read-write",
+      "credentials_needed": true,
+      "install_hint": "MCP host config: same server as github-read but with a WRITE-scoped token — see https://github.com/github/github-mcp-server. Keep the token in env, never in a committed file.",
+      "status": "not-installed",
+      "notes": "WRITE-PRIMITIVE (doctrine #3): every use ALWAYS routes through forge-actiongate.cjs; never auto-used; requires an explicit per-use owner grant, exactly like deploy/push/spend."
+    },
+    {
+      "id": "exa",
+      "purpose": "Neural/semantic web search for current information and research.",
+      "tier": 1,
+      "network": "read",
+      "credentials_needed": true,
+      "install_hint": "MCP host config: { command: 'npx', args: ['-y', 'exa-mcp-server'] }, EXA_API_KEY in env — see https://github.com/exa-labs/exa-mcp-server",
+      "status": "not-installed",
+      "notes": "Read-only remote search. Credential is a search API key, not a write scope."
+    },
+    {
+      "id": "firecrawl",
+      "purpose": "Web scraping / page-to-markdown extraction for research and content ingestion.",
+      "tier": 1,
+      "network": "read",
+      "credentials_needed": true,
+      "install_hint": "MCP host config: { command: 'npx', args: ['-y', 'firecrawl-mcp'] }, FIRECRAWL_API_KEY in env — see https://github.com/mendableai/firecrawl-mcp-server",
+      "status": "not-installed",
+      "notes": "Read-only remote fetch/scrape — respect robots.txt/rate limits per this project's scraping doctrine even when opted in."
+    },
+    {
+      "id": "serena-lsp",
+      "purpose": "Semantic code intelligence via a real language server — go-to-definition, references, symbol search.",
+      "tier": 0,
+      "network": "none",
+      "credentials_needed": false,
+      "install_hint": "MCP host config: { command: 'uvx', args: ['--from', 'git+https://github.com/oraios/serena', 'serena', 'start-mcp-server'] } — see https://github.com/oraios/serena",
+      "status": "not-installed",
+      "notes": "Purely local read (LSP over the project's own source) — no network call, lowest tier."
+    },
+    {
+      "id": "claude-flow",
+      "purpose": "claude-flow / Ruflo orchestration + memory MCP (~400 tools incl. terminal_execute, http_fetch, github_pr_manage)",
+      "tier": 3,
+      "network": "read-write",
+      "credentials_needed": false,
+      "install_hint": "enabled via .claude/settings.local.json enabledMcpjsonServers",
+      "status": "connected",
+      "notes": "REAL, CONNECTED on the owner machine (recorded 2026-08-04 after the audit found it governed by no tier at all). Tier 3 because it exposes write primitives (terminal execution, outbound HTTP, PR management). status:\"connected\" describes REALITY, not permission: use still requires the owner opt-in file plus a per-use, verified owner grant via forge-mcp-gate. Memory/coordination tools remain the sanctioned use per the owner CLAUDE.md."
+    },
+    {
+      "id": "n8n",
+      "purpose": "n8n workflow MCP (workflow read/write, credentials metadata)",
+      "tier": 3,
+      "network": "read-write",
+      "credentials_needed": true,
+      "install_hint": "global mcpServers in ~/.claude.json; requires OAuth authorization before its tools work",
+      "status": "connected",
+      "notes": "REAL, CONNECTED (global) on the owner machine, recorded 2026-08-04. Tier 3: it can create/activate workflows. Live activation stays owner-gated per the n8n governance; presence in this registry is NOT permission."
+    },
+    {
+      "id": "n8n-mcp",
+      "purpose": "n8n node documentation lookup + workflow validation (validate_node/validate_workflow) for forge-n8n — read-only reference, distinct from the 'n8n' entry above which is a live, credentialed connection.",
+      "tier": 1,
+      "network": "read",
+      "credentials_needed": false,
+      "install_hint": "MCP host config: { command: 'npx', args: ['n8n-mcp'], env: { MCP_MODE: 'stdio' } } (docs-only mode, verified via the project README 2026-09-24) — see https://github.com/czlonkowski/n8n-mcp. Do NOT add N8N_API_URL/N8N_API_KEY here: that upgrades it to a live n8n-management server (create/update real workflows), a separate, higher-tier capability this entry deliberately excludes.",
+      "status": "not-installed",
+      "notes": "It looks up real n8n node docs and validates a workflow's JSON before you build, so Claude stops guessing node fields. Off by default like every entry here — nothing runs until the owner opts it in via /forge plus a real grant. Pointing it at a live n8n instance (an API URL + key) is a different, write-capable tier and stays out of this entry."
+    }
+  ]
+}

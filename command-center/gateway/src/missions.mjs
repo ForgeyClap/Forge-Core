@@ -1,0 +1,436 @@
+// Derives a normalized "mission" view (work packages / tasks / decisions / verdicts) from a
+// run's OWN events.jsonl — nothing else. Reuses events.mjs's readEvents() (after=0, the full
+// history) instead of re-reading the file itself, so the SAME incremental cache serves both
+// /api/events and /api/missions.
+//
+// HONESTY NOTE (A2 assumption test, WP3 T3.4 — read before trusting `wp_guess`): this run's own
+// events.jsonl was never written with a structured, per-task work-package-id field. Only ONE
+// `agent_work_package_created` event exists for the whole run (`wp:"WP0-WP13"`, a single bulk
+// range logged once at planning time, not one event per WP). The only per-task WP signal that
+// exists AT ALL is a soft, human-authored NAMING CONVENTION inside the free-text `role` field
+// (e.g. "cc-wp3-gateway", "cc-t1.1-stack", "cc-t0.8-verify") — never a dedicated, schema-enforced
+// field. `guessWp()` below is therefore an INFERENCE, not a verified fact, and is labelled with an
+// explicit confidence tag on every task so a consumer can never mistake it for ground truth. One
+// concrete ambiguity found while building this: role "cc-t17-slice" is a dropped-dot abbreviation
+// of task T1.7 (WP1) — a naive `\d+` match would read it as "WP17" instead, which does not exist
+// in this mission's real TODO graph. The heuristic below special-cases exactly-two-digit,
+// no-dot forms (major digit + minor digit) to resolve that specific collision correctly, but is
+// still flagged at a lower confidence than an explicit "wp<N>" or "t<N>.<N>" match.
+import { safeIdOk } from './security.mjs';
+import { readEvents } from './events.mjs';
+// WP-CC1 (Lead review round 2): a role:'reviewer' task closes at its own review_completed (no
+// dispatch_id at all), never at subagent_completed — see reviewer-pairing.mjs's own header. Matched
+// by agent SLUG through the same name index runs.mjs/agent-dispatches.mjs already use.
+import { createReviewerTracker } from './reviewer-pairing.mjs';
+import { buildAgentNameIndex } from './agent-names.mjs';
+
+function guessWp(role) {
+  if (!role || typeof role !== 'string') return null;
+  const wpMatch = role.match(/\bwp(\d+)\b/i);
+  if (wpMatch) return { wp_guess: 'WP' + wpMatch[1], wp_guess_confidence: 'explicit-wp-prefix-in-role' };
+  const dotMatch = role.match(/\bt(\d+)\.(\d+)\b/i);
+  if (dotMatch) return { wp_guess: 'WP' + dotMatch[1], wp_guess_confidence: 'explicit-t-major.minor-in-role' };
+  const collapsedMatch = role.match(/\bt(\d)(\d)\b/i); // e.g. "t17" -> T1.7, collapsed/ambiguous
+  if (collapsedMatch) return { wp_guess: 'WP' + collapsedMatch[1], wp_guess_confidence: 'inferred-collapsed-dotless-ambiguous' };
+  const bareMatch = role.match(/\bt(\d+)\b/i);
+  if (bareMatch) return { wp_guess: 'WP' + bareMatch[1], wp_guess_confidence: 'inferred-low-confidence' };
+  return { wp_guess: null, wp_guess_confidence: 'no-naming-signal-found' };
+}
+
+const START_EVENTS = new Set(['subagent_started', 'agent_started']);
+const COMPLETE_EVENTS = new Set(['subagent_completed', 'agent_completed']);
+const FAIL_EVENTS = new Set(['subagent_failed', 'agent_failed']);
+
+// A run-level event proving the run itself is over. `run_completed` is the only such event that
+// exists anywhere in this project's real history (18 occurrences across 34 runs, measured); a
+// future `run_failed`/`run_aborted` would simply be added here. Note what this signal is and is
+// not: it is a CLAIM by the orchestrator that the RUN ended, never per-task evidence about who
+// succeeded. It is therefore allowed to move a leftover task out of 'running' (a task cannot keep
+// running inside a run that has demonstrably ended) but is NEVER allowed to mark one 'completed'.
+const TERMINAL_RUN_EVENTS = new Set(['run_completed']);
+
+// How long an agent may stay completely silent before its still-open task stops being reported as
+// 'running'. WP-CC1 (item 7) LOWERED this from the original 24h to 10 minutes, deliberately, so
+// this view agrees with agent-dispatches.mjs's new run-log heartbeat window (item 5: "running means
+// ... the last activity inside a heartbeat window of about 10 min") — before this change, the SAME
+// dispatch could read "running" here for up to 24h while the Agent Dispatches view already called
+// it "stalled" after 10 minutes, a direct, confusing contradiction on one dashboard. Reaching this
+// window produces the label 'stalled' — never 'completed', never a completion time; it is a LABEL
+// that a subsequent real event can still correct, not a destructive verdict, so the cost of being
+// 10-minutes-eager is a soft, correctable one.
+export const STALE_TASK_MS = 10 * 60 * 1000;
+
+/**
+ * The ONLY fallback key, and only ever consulted when a completion carries no `dispatch_id` at
+ * all. Both halves are mandatory: matching on `agent` alone was measured against the 79 pairs where
+ * both sides do carry a real dispatch_id and scored 22/79 with 57 MISATTRIBUTIONS ("Build Boss" is
+ * dispatched up to 15x in one run under different roles), which is precisely the failure that
+ * would show a live task as finished. (agent, role) scored 70/79 with ZERO misattributions — its
+ * nine misses were all "no candidate found", i.e. it declined to guess and left the task alone.
+ *
+ * Even (agent, role) is not sufficient on its own: it is unique enough to never cross-match two
+ * DIFFERENT jobs, but a Boss is regularly dispatched twice under the SAME role at the same moment,
+ * and then the key cannot distinguish the two. PASS 2 therefore requires the key to resolve to
+ * exactly ONE open start before it will pair anything — see the uniqueness rule there.
+ */
+function fallbackKey(agent, role) {
+  const a = typeof agent === 'string' ? agent.trim() : '';
+  const r = typeof role === 'string' ? role.trim() : '';
+  if (a === '' || r === '') return null;
+  return a + '\u0000' + r;
+}
+
+/** Epoch ms for a real ISO timestamp, or null — an unreadable time is never treated as evidence. */
+function parseTs(ts) {
+  if (typeof ts !== 'string' || ts === '') return null;
+  const ms = Date.parse(ts);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export function buildMission(projectPath, runId, options = {}) {
+  if (!safeIdOk(runId)) return { ok: false, error: 'invalid run id' };
+  const raw = readEvents(projectPath, runId, 0);
+  if (!raw.ok) return raw;
+
+  // WP-CC1 (Lead review round 2): built once, used only by the review_completed pairing below.
+  const nameIndex = buildAgentNameIndex(projectPath);
+  const reviewerTracker = createReviewerTracker();
+
+  const wps = [];
+  const tasksByDispatch = new Map(); // dispatch_id (string) | Symbol -> task record
+  const taskList = [];               // same records, in real file (dispatch) order
+  const orphanCandidates = [];       // completions with no exact-key home, in real file order
+  const decisions = [];
+  const verdicts = [];
+  const lastEventByAgent = new Map(); // agent -> latest timestamp of ANY event it logged
+  let terminalRunAt = null;           // latest run-level "this run is over" timestamp
+
+  for (const ev of raw.events) {
+    const et = ev.event_type;
+
+    // Liveness bookkeeping, gathered from every event regardless of type. Deliberately keyed per
+    // AGENT rather than per run: the 2026-08-01 status reconciliation appended `decision_logged`
+    // events (agent "orchestrator") to 13 long-dead runs, so "the run's newest event" now reads as
+    // hours old for runs that have been dead for weeks. Per-agent recency is not contaminated by
+    // that bookkeeping, and it is the same predicate forge-runwatch.cjs already uses.
+    if (typeof ev.agent === 'string' && ev.agent !== '' && typeof ev.timestamp === 'string') {
+      const prev = lastEventByAgent.get(ev.agent);
+      if (prev === undefined || ev.timestamp > prev) lastEventByAgent.set(ev.agent, ev.timestamp);
+    }
+    if (TERMINAL_RUN_EVENTS.has(et) && typeof ev.timestamp === 'string') {
+      if (terminalRunAt === null || ev.timestamp > terminalRunAt) terminalRunAt = ev.timestamp;
+    }
+
+    if (et === 'agent_work_package_created') {
+      // WP-CC1 (item 7): modern events carry `wp_id` (the canonical lowercase id, e.g. "rs-1") AND
+      // `wp` (the human display code, e.g. "RS-1") as TWO separate fields (verified live) — `wp`
+      // alone (kept as `id`, unchanged, for backward compat) stays the display code; `wp_id` is new.
+      // `summary` is the modern field (`note` is the older one this project's real events used
+      // before) — read whichever is present, never assume only one exists.
+      wps.push({
+        id: ev.wp != null ? ev.wp : null,
+        wp_id: typeof ev.wp_id === 'string' ? ev.wp_id : null,
+        note: ev.summary || ev.note || null,
+        agent: ev.agent || null,
+        timestamp: ev.timestamp || null,
+      });
+    } else if (START_EVENTS.has(et)) {
+      // WP-CC1 (item 7/5) F-05 dedup: a resumed dispatch logging a SECOND start under the exact
+      // same dispatch_id must never overwrite an already-TERMINAL task (that would erase a real
+      // completion and spawn a phantom "still running" duplicate — the exact bug item 5 names).
+      // Deliberately narrower than "any repeat dispatch_id": a run with several DISTINCT,
+      // concurrently-open dispatches that happen to share one non-unique dispatch_id (a REAL,
+      // already-fixed shape this project has — forge-demo-10agents-layout-preview logs TEN starts
+      // under the literal id "demo-preview", see the header comment on `taskList` below) must keep
+      // getting one row per start, exactly as before — that case is untouched because its EXISTING
+      // record is still 'running', never terminal, when the next start under the same id arrives.
+      const existingForDispatchId = ev.dispatch_id ? tasksByDispatch.get(ev.dispatch_id) : null;
+      if (existingForDispatchId && existingForDispatchId.status !== 'running') {
+        existingForDispatchId.resumed_start_count = (existingForDispatchId.resumed_start_count || 0) + 1;
+        continue;
+      }
+      const key = ev.dispatch_id || Symbol('no-dispatch-id-on-start-' + tasksByDispatch.size);
+      const wpGuess = guessWp(ev.role);
+      const record = {
+        role: ev.role || null,
+        agent: ev.agent || null,
+        dispatch_id: ev.dispatch_id || null,
+        // WP-CC1 (item 7): the real, authoritative wp_id when the event carries one — never a
+        // guess when the evidence is explicit. `wp_guess`/`wp_guess_confidence` (below, via
+        // `...wpGuess`) stay exactly as before for older runs/events that carry no wp_id at all.
+        wp_id: typeof ev.wp_id === 'string' ? ev.wp_id : null,
+        ...wpGuess,
+        task: ev.task || null,
+        started_at: ev.timestamp || null,
+        completed_at: null,
+        status: 'running',
+        notes: [],
+        verdict: null,
+        resumed_start_count: 0,
+        is_verify: /verify/i.test(String(ev.role || '')),
+        // Provenance of how this task reached its status — so a consumer can always tell an exact
+        // dispatch_id match from the deliberately weaker fallback, and never mistake one for the other.
+        match_method: null,
+        match_confidence: null,
+        // Z1: true when at least one completion could NOT be assigned to this task because another
+        // still-open start shared its exact (agent, role). It is a REFUSAL marker, never a
+        // qualifier on a match — see PASS 2. `pairing_ambiguous === true` therefore always implies
+        // "not closed by the fallback", and both fields below explain the refusal to a reader.
+        pairing_ambiguous: false,
+        pairing_ambiguity_reason: null,
+        declined_completions: 0,
+        completion_before_start: false,
+        ended_reason: null,
+        stale_since: null,
+      };
+      tasksByDispatch.set(key, record);
+      taskList.push(record);
+      // WP-CC1 (Lead review round 2): a reviewer start is ALSO registered with the tracker, so a
+      // later review_completed (which carries no dispatch_id) can find and close it by agent slug —
+      // a worker start never is, so a review can structurally never close one, even from the same
+      // agent. Only possible when this start DID carry a real dispatch_id (the Symbol-keyed,
+      // no-dispatch-id shape has nothing a review could ever reference anyway).
+      if (record.role === 'reviewer' && typeof ev.dispatch_id === 'string' && ev.dispatch_id) {
+        reviewerTracker.openReviewer(nameIndex, record.agent, ev.dispatch_id);
+      }
+    } else if (et === 'review_completed') {
+      // WP-CC1 (Lead review round 2): review_completed carries NO dispatch_id at all (self-reported
+      // by the reviewing agent, a genuinely separate logging path from the Lead's own
+      // subagent_started) — closes the OLDEST still-open role:'reviewer' task for the SAME agent
+      // (by slug), never a role:'worker' one. A reviewing agent legitimately never logs
+      // subagent_completed at all (see reviewer-pairing.mjs's own header), so without this branch a
+      // reviewer's task stays 'running' forever, only ever escaped via PASS 3/4's coarser labels.
+      const closedDispatchId = reviewerTracker.closeReviewer(nameIndex, ev.agent);
+      const record = closedDispatchId !== null ? tasksByDispatch.get(closedDispatchId) : null;
+      if (record) {
+        record.completed_at = ev.timestamp || record.completed_at;
+        // Unconditionally 'completed': review_completed is the ONE event type a reviewing agent
+        // logs for its own finished work — its `verdict` (e.g. "changes_required") is the review's
+        // own judgement, a separate concern from whether the DISPATCH itself finished.
+        record.status = 'completed';
+        record.match_method = 'review_completed';
+        record.match_confidence = 'exact-review-completed-by-agent-slug';
+        if (typeof ev.verdict === 'string' && ev.verdict) record.verdict = ev.verdict;
+        if (ev.note) record.notes.push(ev.note);
+        if (ev.summary) record.notes.push(ev.summary);
+      }
+      // else: an honest orphan (no open reviewer dispatch for this agent) — never fabricated. This
+      // run's own review_started/review_completed pairing is proof.mjs's own job (buildReviews());
+      // a review with nothing here to close is not silently lost, it just has no TASK to update.
+    } else if (COMPLETE_EVENTS.has(et) || FAIL_EVENTS.has(et)) {
+      const dispatchId = ev.dispatch_id || null;
+      const record = dispatchId && tasksByDispatch.has(dispatchId) ? tasksByDispatch.get(dispatchId) : null;
+      if (record) {
+        // UNCHANGED primary path: dispatch_id present on both sides is exact proof and always wins,
+        // including the real case of two completions sharing one dispatch_id (their notes merge).
+        record.completed_at = ev.timestamp || record.completed_at;
+        record.status = FAIL_EVENTS.has(et) ? 'failed' : 'completed';
+        record.match_method = 'dispatch_id';
+        record.match_confidence = 'exact-dispatch-id';
+        // WP-CC1 (item 7): modern completions carry `verdict` (e.g. "PASS") and `summary` (the rich
+        // narrative) instead of/alongside the older `note` — both are captured, never only one.
+        if (typeof ev.verdict === 'string' && ev.verdict) record.verdict = ev.verdict;
+        if (record.wp_id === null && typeof ev.wp_id === 'string') record.wp_id = ev.wp_id;
+        if (ev.note) record.notes.push(ev.note);
+        if (ev.summary) record.notes.push(ev.summary);
+      } else {
+        // Honest gap: a completion with no matching start in THIS run's own history. Seen for
+        // real in this very run: one `subagent_completed` carried the literal string
+        // "none — no ... subagent_started event exists ... (not fabricated)" as its dispatch_id
+        // instead of a real id — an explanatory annotation, not a usable key.
+        //
+        // Such a completion is deliberately NOT eligible for the fallback below: an id that is
+        // PRESENT but unusable is not the same thing as an ABSENT id, and only a genuinely absent
+        // one unlocks the weaker link. It is parked here and either consumed by the fallback pass
+        // or reported as an orphan exactly as before, preserving the original file order.
+        orphanCandidates.push({
+          fallbackKey: dispatchId === null ? fallbackKey(ev.agent, ev.role) : null,
+          failed: FAIL_EVENTS.has(et),
+          // WP-CC1 (item 7): prefer the modern `summary` text over the older `note` when both/either exist.
+          note: ev.summary || ev.note || null,
+          timestamp: ev.timestamp || null,
+          consumed: false,
+          shape: {
+            role: ev.role || null,
+            agent: ev.agent || null,
+            dispatch_id: dispatchId,
+            wp_id: typeof ev.wp_id === 'string' ? ev.wp_id : null,
+            verdict: typeof ev.verdict === 'string' ? ev.verdict : null,
+            note: ev.summary || ev.note || null,
+            status: FAIL_EVENTS.has(et) ? 'failed' : 'completed',
+            completed_at: ev.timestamp || null,
+            is_verify: /verify/i.test(String(ev.role || '')),
+            // Filled in by PASS 2 when this completion is refused rather than merely unmatched, so
+            // the orphan list itself says WHY — an ambiguity must not vanish into a generic orphan.
+            pairing_ambiguous: false,
+            unmatched_reason: null,
+          },
+        });
+      }
+    } else if (et === 'decision_logged') {
+      // WP-CC1 (item 7): modern decision events carry `decision_summary` (verified live) instead of
+      // `note` — a bare `ev.decision || ev.note` fallback chain keeps every older run readable too,
+      // and `decision_summary` is also exposed as its own explicit field for a consumer that wants
+      // the raw source rather than the normalized `note`.
+      decisions.push({
+        agent: ev.agent || null, role: ev.role || null,
+        note: ev.decision_summary || ev.decision || ev.note || null,
+        decision_summary: ev.decision_summary || ev.decision || null,
+        evidence: ev.evidence || null, timestamp: ev.timestamp || null,
+      });
+    } else if (et === 'check_passed' || et === 'check_failed') {
+      // WP-CC1 (item 7): modern check events carry `check` (the check's own NAME — 23 of 46 real
+      // events in this fleet have no `command` at all) and `summary` (the narrative) — both are new
+      // fields here; `command`/`exit_code`/`output`/`evidence` stay exactly as before (often null
+      // now, honestly, rather than a fabricated value).
+      verdicts.push({
+        agent: ev.agent || null, role: ev.role || null, event_type: et,
+        check: typeof ev.check === 'string' ? ev.check : null,
+        summary: typeof ev.summary === 'string' ? ev.summary : null,
+        command: ev.command || null, exit_code: ev.exit_code != null ? ev.exit_code : null,
+        output: ev.output || null, evidence: ev.evidence || null, timestamp: ev.timestamp || null,
+      });
+    }
+  }
+
+  // ── PASS 2: (agent, role) fallback, for completions that carry NO dispatch_id at all ──────────
+  // Runs only after every exact dispatch_id match is already settled, so the strong key always gets
+  // first refusal on every task. Three hard rules keep this one-way conservative:
+  //   * a completion may only close a task that is still open, and only one that shares BOTH agent
+  //     and role. It can never re-open, re-route or overwrite an exact match.
+  //   * at most ONE completion may be consumed per start. Real data (scout-adopt: 2 starts, 4
+  //     completions on Build Boss|builder; full-audit: three keys with 1 start / 2 completions)
+  //     shows completions are re-logged, and a counting match would then close MORE work than
+  //     actually finished. Surplus completions stay orphans.
+  //   * UNIQUENESS (Z1). If MORE THAN ONE open start shares the key at the moment a completion is
+  //     considered, nothing is paired at all.
+  //
+  // Why that third rule replaced the previous "pick the earliest still-open start". Picking one of
+  // several indistinguishable candidates made the COUNT of finished work right and the IDENTITY a
+  // coin flip: the arbitrary pick could stamp 'completed' on the dispatch that is genuinely still
+  // running while the one that genuinely finished stayed 'running' — PAIR INVERSION. The run level
+  // still read 'running', but the task/inspector panel showed LIVE work as done, which is the exact
+  // failure this module exists to prevent. Measured on the real fleet: 10 of 26 fallback closures
+  // carried that ambiguity. Under-reporting finished work is an acceptable cost; presenting a
+  // running task as finished is not, so the ambiguous pairing is refused outright.
+  //
+  // A refusal is never silent: every candidate start is flagged `pairing_ambiguous` with a reason
+  // and a count, the completion stays an honest orphan carrying its own `unmatched_reason`, and the
+  // `liveness` block reports the totals. The blocked starts keep their current status, so passes 3
+  // and 4 may still relabel them 'ended_unknown'/'stalled' — honest, non-completed outcomes.
+  //
+  // Timestamps are NOT used as a filter — a completion logged 95s before its own start is real in
+  // this fleet (full-audit, Build Boss|wp5-evidence) and is a clock artifact, not proof of life.
+  const fallbackConsumed = new Set();
+  const ambiguousTasks = new Set();
+  let declinedAmbiguous = 0;
+  for (const cand of orphanCandidates) {
+    if (cand.fallbackKey === null) continue;
+    const open = taskList.filter(
+      (t) => t.status === 'running' && !fallbackConsumed.has(t) && fallbackKey(t.agent, t.role) === cand.fallbackKey,
+    );
+    if (open.length === 0) continue; // declines to guess — the task is left exactly as it was
+    if (open.length > 1) {
+      // Z1: indistinguishable candidates. Refuse, record on all of them, and move on. Deliberately
+      // NOT consumed, so this completion is still reported as an orphan rather than disappearing.
+      declinedAmbiguous += 1;
+      cand.shape.pairing_ambiguous = true;
+      cand.shape.unmatched_reason =
+        'ambiguous: ' + open.length + ' open starts share (agent, role) "' + cand.fallbackKey +
+        '" — no evidence names which one finished, so none was closed';
+      for (const t of open) {
+        t.pairing_ambiguous = true;
+        t.declined_completions += 1;
+        t.pairing_ambiguity_reason =
+          open.length + ' open starts share (agent, role) "' + cand.fallbackKey + '"; ' +
+          t.declined_completions + ' completion(s) with no dispatch_id could not be assigned to a ' +
+          'specific one, so none was matched (refusing to pair beats pairing wrong)';
+        ambiguousTasks.add(t);
+      }
+      continue;
+    }
+    const chosen = open[0];
+    fallbackConsumed.add(chosen);
+    cand.consumed = true;
+    chosen.status = cand.failed ? 'failed' : 'completed';
+    chosen.completed_at = cand.timestamp || chosen.completed_at;
+    // WP-CC1 (item 7): the fallback-matched completion's own verdict/wp_id (cand.shape, set above)
+    // reach the task record here too — the fallback path must carry the same real fields the
+    // primary dispatch_id path already does.
+    if (cand.shape && typeof cand.shape.verdict === 'string' && cand.shape.verdict) chosen.verdict = cand.shape.verdict;
+    if (cand.shape && chosen.wp_id === null && typeof cand.shape.wp_id === 'string') chosen.wp_id = cand.shape.wp_id;
+    if (cand.note) chosen.notes.push(cand.note);
+    chosen.match_method = 'agent-role-fallback';
+    chosen.match_confidence = 'weaker-than-dispatch-id: (agent, role), and only when it was the SOLE open start for that key';
+    const st = parseTs(chosen.started_at);
+    const ct = parseTs(chosen.completed_at);
+    if (st !== null && ct !== null && ct < st) chosen.completion_before_start = true;
+  }
+
+  // ── PASS 3: a terminal run signal closes whatever cannot still be running ────────────────────
+  // Only ever demotes 'running' to 'ended_unknown': the run is over, but nothing here says this
+  // particular task succeeded, so no completion and no completion time is invented. A task that
+  // started AFTER the signal is left alone — events do get appended past a run_completed in this
+  // fleet, and retro-closing those would be exactly the false-finish this fix exists to prevent.
+  const terminalAt = parseTs(terminalRunAt);
+  if (terminalAt !== null) {
+    for (const t of taskList) {
+      if (t.status !== 'running') continue;
+      const st = parseTs(t.started_at);
+      if (st !== null && st > terminalAt) continue;
+      t.status = 'ended_unknown';
+      t.ended_reason = 'run-terminal-event';
+      t.stale_since = terminalRunAt;
+    }
+  }
+
+  // ── PASS 4: prolonged agent silence is a LABEL, never a completion ───────────────────────────
+  // Last resort for the shapes no evidence can close: a start whose completion was never logged at
+  // all (v9-selfaudit), a run with neither a terminal event nor usable completions (command-center),
+  // and starts collapsed by a non-unique dispatch_id (demo-preview). Judged per agent, so an agent
+  // that is still emitting anything keeps its task 'running' no matter how old the dispatch is.
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+  for (const t of taskList) {
+    if (t.status !== 'running') continue;
+    const ref = (t.agent !== null ? lastEventByAgent.get(t.agent) : null) || t.started_at;
+    const refMs = parseTs(ref);
+    if (refMs === null) continue; // no readable clock for this task -> leave it running
+    if (nowMs - refMs <= STALE_TASK_MS) continue;
+    t.status = 'stalled';
+    t.ended_reason = 'agent-silent-past-stale-window';
+    t.stale_since = ref;
+  }
+
+  return {
+    ok: true,
+    run_id: runId,
+    wps,
+    // `taskList`, not `tasksByDispatch.values()`. A dispatch_id is supposed to be unique but is
+    // not enforced to be: forge-demo-10agents-layout-preview logs TEN `subagent_started` events
+    // that all carry the literal dispatch_id "demo-preview", and keying tasks solely by the Map
+    // silently overwrote nine of them — ten real dispatches rendered as one task. Keeping the
+    // per-start list preserves every logged dispatch; the Map still owns exact-key LOOKUP, so for
+    // any correctly-formed run (every dispatch_id unique) the two are identical.
+    tasks: taskList,
+    orphan_completions: orphanCandidates.filter((c) => !c.consumed).map((c) => c.shape),
+    decisions,
+    verdicts,
+    // How this run's task statuses were reached, so the derivation is auditable from the payload
+    // itself rather than only from this file.
+    liveness: {
+      primary_key: 'dispatch_id',
+      fallback_key: 'agent+role, and ONLY when it is the sole open start for that key (Z1: no ambiguous pairing)',
+      fallback_matches: fallbackConsumed.size,
+      /** Completions refused because >1 open start shared their (agent, role). They stay orphans. */
+      fallback_declined_ambiguous: declinedAmbiguous,
+      /** Starts left unclosed by that refusal — the honest, measurable cost of not guessing. */
+      ambiguous_tasks: ambiguousTasks.size,
+      terminal_run_at: terminalRunAt,
+      stale_task_ms: STALE_TASK_MS,
+      evaluated_at: new Date(nowMs).toISOString(),
+    },
+    captured_at: new Date().toISOString(),
+    age_ms: 0,
+    provenance: 'DERIVED',
+  };
+}

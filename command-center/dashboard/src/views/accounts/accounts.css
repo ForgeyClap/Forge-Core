@@ -1,0 +1,163 @@
+/*
+ * AccountRotationView. Tokens only; nothing animates except hover/active transforms.
+ * Status is never colour-only: every status has an icon and a word, and an over-threshold bar also
+ * shows the threshold marker it crossed.
+ */
+
+.fw-rot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fw-gap);
+  block-size: 100%;
+  min-block-size: 0;
+  min-inline-size: 0;
+  padding: var(--fw-gutter);
+  overflow-y: auto;
+}
+.fw-rot__head { display: flex; flex-direction: column; gap: var(--forge-space-1); }
+.fw-rot__title { font-size: var(--forge-text-xl); font-weight: var(--forge-weight-semibold); letter-spacing: var(--forge-tracking-tight); color: var(--forge-color-text); }
+.fw-rot__subtitle { max-inline-size: var(--forge-layout-reading); font-size: var(--forge-text-sm); line-height: var(--forge-leading-normal); color: var(--forge-color-text-muted); }
+
+.fw-rot__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-areas: 'hero facts' 'accounts accounts';
+  gap: var(--forge-space-4);
+  align-items: start;
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.fw-rot-hero {
+  grid-area: hero;
+  display: flex;
+  flex-direction: column;
+  gap: var(--forge-space-2);
+  padding: var(--forge-space-5);
+  border: var(--forge-border-hair) solid var(--forge-color-line);
+  border-radius: var(--forge-radius-xl);
+  background: var(--forge-color-raised);
+  box-shadow: var(--forge-shadow-md);
+}
+.fw-rot-hero[data-state='recommend'] { border-color: var(--forge-color-accent); box-shadow: var(--forge-shadow-md), 0 0 0 4px var(--forge-color-accent-quiet); }
+.fw-rot-hero__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--forge-space-3);
+  font-size: var(--forge-text-3xl);
+  font-weight: var(--forge-weight-semibold);
+  letter-spacing: var(--forge-tracking-tight);
+  line-height: var(--forge-leading-tight);
+  color: var(--forge-color-text);
+  overflow-wrap: anywhere;
+}
+.fw-rot-hero[data-state='steady'] .fw-rot-hero__line { font-size: var(--forge-text-2xl); color: var(--forge-color-text-secondary); }
+.fw-rot-hero__from { color: var(--forge-color-text-faint); font-weight: var(--forge-weight-medium); }
+.fw-rot-hero__arrow { color: var(--forge-color-accent); }
+.fw-rot-hero__why, .fw-rot-hero__how { max-inline-size: var(--forge-layout-reading); font-size: var(--forge-text-sm); line-height: var(--forge-leading-normal); color: var(--forge-color-text-secondary); }
+.fw-rot-hero__how { color: var(--forge-color-text-muted); }
+
+/* ------------------------------------------------------------------ facts */
+
+.fw-rot-facts {
+  grid-area: facts;
+  display: grid;
+  gap: var(--forge-space-3);
+  margin: 0;
+  padding: var(--forge-space-4);
+  border: var(--forge-border-hair) solid var(--forge-color-line);
+  border-radius: var(--forge-radius-lg);
+  background: var(--forge-color-surface-1);
+  box-shadow: var(--forge-shadow-sm);
+}
+.fw-rot-facts div { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.fw-rot-facts dt { font-size: var(--forge-text-2xs); text-transform: uppercase; letter-spacing: var(--forge-tracking-eyebrow); color: var(--forge-color-text-faint); }
+.fw-rot-facts dd { margin: 0; font-size: var(--forge-text-sm); color: var(--forge-color-text); overflow-wrap: anywhere; }
+
+/* ------------------------------------------------------------------ accounts */
+
+.fw-rot-accounts { grid-area: accounts; display: flex; flex-direction: column; gap: var(--forge-space-2); }
+.fw-rot-accounts__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--forge-space-3); list-style: none; margin: 0; padding: 0; }
+.fw-rot-account {
+  display: flex;
+  flex-direction: column;
+  gap: var(--forge-space-3);
+  padding: var(--forge-space-4);
+  border: var(--forge-border-hair) solid var(--forge-color-line);
+  border-radius: var(--forge-radius-lg);
+  background: var(--forge-color-surface-1);
+  box-shadow: var(--forge-shadow-sm);
+}
+.fw-rot-account[data-recommended='true'] { border-color: var(--forge-color-accent); }
+.fw-rot-account[data-active='true'] { background: var(--forge-color-surface-2); }
+.fw-rot-account__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--forge-space-2); }
+.fw-rot-account__name { font-size: var(--forge-text-md); font-weight: var(--forge-weight-semibold); color: var(--forge-color-text); margin-inline-end: auto; }
+.fw-rot-account__windows { display: flex; flex-direction: column; gap: var(--forge-space-3); }
+.fw-rot-account__none { font-size: var(--forge-text-sm); color: var(--forge-color-text-muted); }
+.fw-rot-account__foot { display: flex; flex-wrap: wrap; gap: var(--forge-space-3); font-size: var(--forge-text-xs); color: var(--forge-color-text-faint); }
+
+.fw-rot-tag {
+  padding: 1px var(--forge-space-2);
+  border-radius: var(--forge-radius-full);
+  font-size: var(--forge-text-2xs);
+  font-weight: var(--forge-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--forge-tracking-wide);
+}
+.fw-rot-tag[data-tone='active'] { background: var(--forge-color-solid); color: var(--forge-color-solid-text); }
+.fw-rot-tag[data-tone='next'] { background: var(--forge-color-accent-quiet); color: var(--forge-color-accent); border: var(--forge-border-hair) solid var(--forge-color-accent); }
+
+.fw-rot-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--forge-space-2);
+  border: var(--forge-border-hair) solid var(--forge-color-line);
+  border-radius: var(--forge-radius-full);
+  font-size: var(--forge-text-2xs);
+  color: var(--forge-color-text-secondary);
+}
+.fw-rot-status[data-status='live'] { border-color: var(--forge-status-completed-line); background: var(--forge-status-completed-soft); color: var(--forge-status-completed); }
+.fw-rot-status[data-status='estimated'] { border-style: dashed; border-color: var(--forge-status-waiting-line); background: var(--forge-status-waiting-soft); color: var(--forge-status-waiting); }
+.fw-rot-status[data-status='unknown'] { border-style: dashed; }
+.fw-rot-status[data-status='unmeasurable'] { border-style: dotted; border-color: var(--forge-status-blocked-line); background: var(--forge-status-blocked-soft); color: var(--forge-status-blocked); }
+.fw-rot-flag { display: inline-flex; align-items: center; gap: 4px; color: var(--forge-status-failed); }
+
+/* ------------------------------------------------------------------ usage window */
+
+.fw-rot-window { display: flex; flex-direction: column; gap: 4px; }
+.fw-rot-window__row { display: flex; justify-content: space-between; gap: var(--forge-space-2); font-size: var(--forge-text-xs); }
+.fw-rot-window__label { color: var(--forge-color-text-secondary); }
+.fw-rot-window__value { color: var(--forge-color-text); }
+.fw-rot-window[data-over='true'] .fw-rot-window__value { color: var(--forge-status-failed); font-weight: var(--forge-weight-semibold); }
+.fw-rot-window__track {
+  position: relative;
+  block-size: 8px;
+  border-radius: var(--forge-radius-full);
+  background: var(--forge-color-sunken);
+  box-shadow: var(--forge-shadow-inset);
+  overflow: visible;
+}
+.fw-rot-window__fill {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  border-radius: inherit;
+  background: var(--forge-color-line-loud);
+}
+.fw-rot-window[data-over='true'] .fw-rot-window__fill { background: var(--forge-status-failed); }
+.fw-rot-window__threshold {
+  position: absolute;
+  inset-block: -3px;
+  inline-size: 2px;
+  margin-inline-start: -1px;
+  border-radius: 1px;
+  background: var(--forge-color-text);
+}
+.fw-rot-window__reset { font-size: var(--forge-text-2xs); color: var(--forge-color-text-faint); }
+
+@media (max-width: 820px) {
+  .fw-rot__grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'hero' 'facts' 'accounts'; }
+  .fw-rot-hero__line { font-size: var(--forge-text-2xl); }
+}

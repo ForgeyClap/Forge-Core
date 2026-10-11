@@ -1,0 +1,93 @@
+# Secrets — never commit real env files (placeholders live in .env.example)
+.env
+.env.*
+!.env.example
+
+# Dependencies / build
+node_modules/
+dist/
+build/
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Forge run/event logs (local only). NOTE: ignore the run-dir CONTENTS, not the directory itself —
+# git cannot re-include a keeper (below) if its parent dir is excluded (fix 2026-07-09 checkup).
+.claude/forge-runs/*/*
+.claude/forge-dashboard/PORT
+.claude/forge-dashboard/DASHBOARD_STATE.json
+
+# Generated tool state / caches (deep-scan hygiene 2026-07-07)
+.claude-flow/
+graphify-out/
+.claude/graphify-out/
+*.mp4
+
+# Forge run keepers — explicit exceptions to the local-only rule above
+!.claude/forge-runs/*/run.json
+!.claude/forge-runs/*/final-report.md
+!.claude/forge-runs/*/mission-blueprint.md
+
+# leaked/copied Claude system prompt — never commit, never load globally
+claude-fable-5.md
+
+# ChatGPT research PDF (keep local)
+NVIDIA Build and NIM Model Mapping for Permanent Forge Agent Roles.pdf
+
+# Editor/checkup backups + local guard ack state (never commit — fix 2026-07-09 checkup)
+*.bak-*
+.claude/FORGE_USAGE_GUARD_ACK.json
+# Owner approval files of the usage guard (security review M5 + Codex p12 M5-A): the owner secret and the
+# per-machine override grant record are never committed — the same two lines the installer snippet adds to a project.
+.claude/config/forge-owner-grant.txt
+.claude/config/forge-usage-guard-override-grant.json
+# Single-use /forge config approvals (2026-09-26 laptop re-audit) — see templates/gitignore.snippet,
+# which adds the same two lines to every installed project.
+.claude/FORGE_CONFIG.once.*.consumed.*.json
+.claude/FORGE_CONFIG.once.*.pending.json
+
+# Forge user-state files (never shipped, never committed) — see templates/gitignore.snippet for the
+# full explanation. Also excluded here so a local install-then-test cycle in THIS clone never stages
+# them. Exact filenames confirmed by the Lead once the source-side split lands.
+.claude/.forge-install-manifest.json
+.claude/config/orchestration/FORGE_STANDING_RULES.user.json
+.claude/config/orchestration/FORGE_SCOUT_VETTING.user.json
+.claude/config/orchestration/codex-review.user.json
+
+# Local-only installer test scratch — throwaway install/uninstall runs against fake
+# HOME/project dirs, never real state, never committed.
+_itest/
+# Forge onboarding — temp key fill-file + runtime markers (never commit)
+.env.forge-setup
+.env.forge-tmp
+.claude/.forge-setup.json
+.forge-global.json
+
+# Derived, local-only: the tool-index is rebuilt from your own events.jsonl. A committed copy would
+# publish local run text and go stale the moment you run anything.
+.claude/forge-index/
+
+# Per-install state — meaningless (and machine-identifying) in a distribution: FORGE_VERSION.json and
+# forge-sync-receipt.json record the LOCAL template path and project path, so a sync into this clone
+# would otherwise publish the maintainer's own directory layout. Excluded 2026-08-04 after the
+# pre-push owner-path scan caught exactly that.
+.claude/FORGE_VERSION.json
+.claude/forge-sync-receipt.json
+.claude/forge-backups/
+
+# Vendored third-party skills that this distribution deliberately does NOT ship under .claude/skills/ (see
+# .claude/skills/VENDORED-SKILLS.md for source + pinned commit). A `forge-sync install` into this clone copies
+# them in from the maintainer's tree; ignoring them here keeps that from silently re-adding them.
+# forge-prd was wrongly listed here ("shipped once under plugins/forge/skills/") — the FULL install copies
+# .claude/ only, so every full install lacked the PRD skill the router requires. It ships again.
+.claude/skills/gsap/
+.claude/skills/humanizer/
+
+# runtime marker written by the precompact hook and consumed by SessionStart (holds a local transcript path)
+.claude/.forge-snapshot-due.json
+
+# Command Center runtime data (conversations, attachments, edit logs, Discord state): per machine, never shipped
+command-center/.data/

@@ -1,0 +1,62 @@
+{
+  "_doc": "Project-local SEED of durable owner defaults that pre-fill intake. Read via .claude/forge-bin/forge-prefs.cjs::resolve() — do not change this file's shape without updating that reader's validateEntry(). Every pref is {value, source, confidence, scope}: value is the actual default; source is the shipped document (or the owner's own words, once they said them) that evidences it — never invented; confidence is 'evidenced' or 'inferred'; scope is 'global' or 'domain:<x>'. honesty_core.cannot_override_core:true is the untouchable invariant — no later rule may weaken it, only reinforce it. The global copy (~/.claude/FORGE_OWNER_PROFILE.json) is owner-write-only and layers on top of this file.",
+  "_doc_seed": "2026-09-23 (external audit II-D): the distribution used to ship the AUTHOR's own preferences here, each quoted as an owner rule (\"source: owner AskUserQuestion answer this session\") — applied to users who never answered anything. The nine entries below are now Forge's PRODUCT DEFAULTS: each `source` names the shipped document that defines the behaviour, not a person. `/forge remember <text>` adds your own rules on top: they land as active standing rules in this project's .claude/config/orchestration/FORGE_STANDING_RULES.json (written by forge-standing.cjs) and win over these defaults (precedence.md: standing rules > owner-profile defaults). A global ~/.claude/FORGE_OWNER_PROFILE.json, if you create one yourself, also layers on top of this file. Forge's on/off switches are not prefs: see /forge config.",
+  "version": 1,
+  "seeded_at": "2026-09-23",
+  "prefs": {
+    "never_auto_push": {
+      "value": true,
+      "source": "Forge default — .claude/commands/forge.md: push, deploy, spend, DNS, production and outbound sends are hard gates; git push only on an explicit owner instruction",
+      "confidence": "evidenced",
+      "scope": "global"
+    },
+    "language": {
+      "value": { "ui": "match-owner (reply in the language the owner writes)", "code_docs": "en" },
+      "source": "Forge default — .claude/skills/forge-core/SKILL.md (v8 owner-memory: language follows the owner's messages; code and docs stay English)",
+      "confidence": "evidenced",
+      "scope": "global"
+    },
+    "deep_research_first": {
+      "value": true,
+      "source": "Forge default — .claude/skills/forge-scout/SKILL.md: research tasks start from sources, never from memory alone",
+      "confidence": "evidenced",
+      "scope": "domain:research"
+    },
+    "real_file_testing_for_correctness_critical": {
+      "value": true,
+      "source": "Forge honesty core — CLAUDE.md 'Honesty (REQUIRED)': never claim a check or test ran if it did not; correctness-critical work needs real fixtures",
+      "confidence": "evidenced",
+      "scope": "global"
+    },
+    "codex_on_high_risk": {
+      "value": "optional-on-request",
+      "source": "Forge default — CLAUDE.md 'Codex (optional reviewer)': available for important changes, read-only, never a blocker",
+      "confidence": "evidenced",
+      "scope": "global"
+    },
+    "ui_quality_default": {
+      "value": true,
+      "source": "Forge default — .claude/skills/forge-website/SKILL.md: responsive screenshot loop, no template look, purposeful motion for web and full-stack work",
+      "confidence": "evidenced",
+      "scope": "domain:website"
+    },
+    "autonomy_default": {
+      "value": "continue-within-mission",
+      "source": "Forge default — .claude/commands/forge.md: autonomy `continue-within-mission` (no phase re-asking); hard gates always interrupt",
+      "confidence": "evidenced",
+      "scope": "global"
+    },
+    "outreach_draft_only": {
+      "value": true,
+      "source": "Forge default — .claude/skills/forge-bots/SKILL.md and forge-scraping: outreach is drafted only; nothing is sent without explicit owner approval",
+      "confidence": "evidenced",
+      "scope": "global"
+    },
+    "honesty_core": {
+      "value": { "cannot_override_core": true },
+      "source": "Forge honesty core — CLAUDE.md 'Honesty (REQUIRED)' (untouchable)",
+      "confidence": "evidenced",
+      "scope": "global"
+    }
+  }
+}

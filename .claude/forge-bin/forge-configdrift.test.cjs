@@ -1,0 +1,563 @@
+#!/usr/bin/env node
+'use strict';
+// forge-configdrift.test.cjs — real tests for the run-scoped governance-config baseline + drift check
+//. Every fixture builds its own throwaway project under os.tmpdir(); this file NEVER reads or
+// writes the owner's real project outside its own tmp dirs, except for two explicitly read-only
+// measurements against the real repo at the end.
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const assert = require('assert');
+const cd = require('./forge-configdrift.cjs');
+const spawnSync = require('child_process').spawnSync;
+
+let passed = 0, failed = 0, skipped = 0;
+function t(name, fn) {
+  try { fn(); passed++; console.log('  ok   ' + name); }
+  catch (e) { failed++; console.log('  FAIL ' + name + ' — ' + e.message); }
+}
+/** pinned(name, fn) — an assertion whose expected value is a property of THIS installation rather than of
+ *  the code under test (here: "this project has 57 skills"). It is a genuine drift guard in the development
+ *  tree — it is how a skill walk that stops one directory too shallow gets caught — and it is meaningless
+ *  in the published distribution, which deliberately omits the 9 vendored third-party skills and therefore
+ *  honestly has fewer. Relaxing the number to a range or a list of acceptable counts would delete exactly
+ *  the drift detection the assertion exists for, so instead it asks which tree it is in and says out loud
+ *  when it decided not to look. A skipped assertion that prints nothing is worse than a failing one.
+ *  installationProfile is a SOFT dependency, the same posture forge-doctor.cjs itself takes towards its
+ *  siblings: if it cannot be loaded the pin is skipped with that as the stated reason, never assumed. */
+let INSTALL_PROFILE;
+try {
+  INSTALL_PROFILE = require('./forge-doctor.cjs').installationProfile(path.resolve(__dirname, '..', '..'));
+} catch (e) {
+  INSTALL_PROFILE = { profile: 'unknown', reason: 'forge-doctor.cjs installationProfile unavailable (' + e.message + ')' };
+}
+function pinned(name, fn) {
+  if (INSTALL_PROFILE.profile === 'development') { t(name, fn); return; }
+  skipped++;
+  console.log('  SKIP ' + name + ' — installation-dependent assertion · ' + INSTALL_PROFILE.reason);
+}
+
+console.log('forge-configdrift tests (governance-config baseline + drift)');
+
+/** buildProject — a synthetic project carrying exactly the governance surface this module claims to guard:
+ *  the agent registry, the agent tool policy, the two orchestration policy files, the project CLAUDE.md and
+ *  two project skills. Returns {root, runId, runDir} with the run dir already created so a baseline can be
+ *  written next to the run exactly as it is in the real layout. */
+function buildProject(prefix) {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'));
+  const root = path.join(base, 'project');
+  const c = path.join(root, '.claude');
+  fs.mkdirSync(path.join(c, 'config', 'agents'), { recursive: true });
+  fs.mkdirSync(path.join(c, 'config', 'orchestration'), { recursive: true });
+  fs.mkdirSync(path.join(c, 'skills', 'alpha'), { recursive: true });
+  fs.mkdirSync(path.join(c, 'skills', 'beta'), { recursive: true });
+  const runId = 'run-drift-1';
+  const runDir = path.join(c, 'forge-runs', runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(c, 'config', 'agents', 'agent-registry.json'),
+    JSON.stringify({ agents: [{ name: 'Search Boss', model: 'claude-opus-5' }] }, null, 2) + '\n');
+  fs.writeFileSync(path.join(c, 'config', 'agents', 'agent-tool-policy.json'),
+    JSON.stringify({ 'Search Boss': { allow: ['Read', 'Grep'] } }, null, 2) + '\n');
+  fs.writeFileSync(path.join(c, 'config', 'orchestration', 'FORGE_HARD_RULES.json'),
+    JSON.stringify({ rules: [{ id: 'no-deploy', text: 'never deploy without the owner' }] }, null, 2) + '\n');
+  fs.writeFileSync(path.join(c, 'config', 'orchestration', 'FORGE_RECOVERY_POLICY.json'),
+    JSON.stringify({ min_alternatives: 3 }, null, 2) + '\n');
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# project rules\nonly this folder.\n');
+  fs.writeFileSync(path.join(c, 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json'),
+    JSON.stringify({ settings: { council: { type: 'enum', default: 'auto' } }, locked: [] }, null, 2) + '\n');
+  fs.writeFileSync(path.join(c, 'FORGE_MODEL_ROUTING.json'),
+    JSON.stringify({ routes: { quick: { model: 'sonnet', effort: 'low' }, build: { model: 'opus', effort: 'medium' } } }, null, 2) + '\n');
+  fs.writeFileSync(path.join(c, 'config', 'agents', 'agent-model-map.json'),
+    JSON.stringify({ agents: { 'search-boss': { claudeTier: 'sonnet', claudeEffort: 'low' } } }, null, 2) + '\n');
+  // no .claude/FORGE_CONFIG.json on purpose: a project without owner settings is the normal case
+  fs.writeFileSync(path.join(c, 'skills', 'alpha', 'SKILL.md'),
+    '---\nname: alpha\ndescription: does alpha things\n---\n\n# alpha\n\nbody text that is not governance.\n');
+  fs.writeFileSync(path.join(c, 'skills', 'beta', 'SKILL.md'),
+    '---\nname: beta\ndescription: does beta things\n---\n\n# beta\n');
+  return { base, root, runId, runDir };
+}
+function writeEvents(fx, events) {
+  fs.writeFileSync(path.join(fx.runDir, 'events.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+}
+function findingKinds(rep) { return rep.findings.map((f) => f.kind).sort(); }
+function byId(list, id) { return list.find((x) => x.id === id); }
+
+// --- the surface it claims to guard -------------------------------------------------------------------
+t('snapshot() covers every governance source the design names, each with a hash', () => {
+  const fx = buildProject('cd-surface');
+  const snap = cd.snapshot(fx.root);
+  const ids = snap.entries.map((e) => e.id);
+  for (const want of ['agent_registry', 'agent_tool_policy', 'hard_rules', 'recovery_policy', 'project_claude_md', 'config_schema', 'owner_config', 'model_routing', 'agent_model_map']) {
+    assert.ok(ids.includes(want), 'missing governance source ' + want + ' — got ' + JSON.stringify(ids));
+  }
+  assert.ok(ids.includes('skill_frontmatter:alpha'), 'skill frontmatter is not a source — got ' + JSON.stringify(ids));
+  assert.ok(ids.includes('skill_frontmatter:beta'), 'skill frontmatter is not a source — got ' + JSON.stringify(ids));
+  const owner = byId(snap.entries, 'owner_config');
+  assert.deepStrictEqual([owner.optional, owner.exists, owner.sha256], [true, false, null], 'the optional owner settings file is still an entry');
+  for (const e of snap.entries) {
+    if (e.optional && !e.exists) continue;
+    assert.ok(e.exists, e.id + ' should exist in the fixture');
+    assert.ok(/^[0-9a-f]{64}$/.test(e.sha256), e.id + ' has no sha256: ' + e.sha256);
+  }
+});
+
+t('a NESTED bundle skill is a governance source too — the walk is not depth-1', () => {
+  const fx = buildProject('cd-nested');
+  fs.mkdirSync(path.join(fx.root, '.claude', 'skills', 'bundle', 'nested-one'), { recursive: true });
+  fs.writeFileSync(path.join(fx.root, '.claude', 'skills', 'bundle', 'nested-one', 'SKILL.md'),
+    '---\nname: nested-one\ndescription: lives one level deeper\n---\n');
+  const ids = cd.snapshot(fx.root).entries.map((e) => e.id);
+  assert.ok(ids.includes('skill_frontmatter:bundle/nested-one'),
+    'a nested skill is not covered — got ' + JSON.stringify(ids.filter((i) => i.startsWith('skill_frontmatter'))));
+});
+
+t('a SKILL.md hash covers ONLY the frontmatter — a body edit is not a governance change', () => {
+  const fx = buildProject('cd-frontmatter');
+  const before = byId(cd.snapshot(fx.root).entries, 'skill_frontmatter:alpha');
+  const p = path.join(fx.root, '.claude', 'skills', 'alpha', 'SKILL.md');
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8') + '\n\nan extra paragraph of prose in the body.\n');
+  const afterBody = byId(cd.snapshot(fx.root).entries, 'skill_frontmatter:alpha');
+  assert.strictEqual(afterBody.sha256, before.sha256, 'a body-only edit changed the frontmatter hash');
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace('does alpha things', 'does alpha things AND may write files'));
+  const afterFm = byId(cd.snapshot(fx.root).entries, 'skill_frontmatter:alpha');
+  assert.notStrictEqual(afterFm.sha256, before.sha256, 'a frontmatter edit did NOT change the hash');
+});
+
+// --- direction 1: a change nobody announced ------------------------------------------------------------
+t('direction 1 — an UNANNOUNCED governance change is a finding', () => {
+  const fx = buildProject('cd-unannounced');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started', agent: 'orchestrator' }]);
+  // an agent quietly widens its own tool grant mid-run
+  fs.writeFileSync(path.join(fx.root, '.claude', 'config', 'agents', 'agent-tool-policy.json'),
+    JSON.stringify({ 'Search Boss': { allow: ['Read', 'Grep', 'Bash', 'Write'] } }, null, 2) + '\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, false, 'an unannounced change must not read as ok');
+  assert.ok(findingKinds(rep).includes('unannounced_change'), JSON.stringify(findingKinds(rep)));
+  const f = rep.findings.find((x) => x.kind === 'unannounced_change');
+  assert.strictEqual(f.id, 'agent_tool_policy', 'the finding does not name the changed source: ' + f.id);
+  assert.ok(/agent_tool_policy|agent-tool-policy/.test(f.detail), 'the detail does not name the file: ' + f.detail);
+});
+
+t('GOAT routing (2026-10-06): an UNANNOUNCED model/effort change in agent-model-map.json or FORGE_MODEL_ROUTING.json is a finding', () => {
+  const fx = buildProject('cd-routing');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started', agent: 'orchestrator' }]);
+  // an agent quietly moves itself to the top model
+  fs.writeFileSync(path.join(fx.root, '.claude', 'config', 'agents', 'agent-model-map.json'),
+    JSON.stringify({ agents: { 'search-boss': { claudeTier: 'fable', claudeEffort: 'max' } } }, null, 2) + '\n');
+  fs.writeFileSync(path.join(fx.root, '.claude', 'FORGE_MODEL_ROUTING.json'),
+    JSON.stringify({ routes: { quick: { model: 'opus', effort: 'xhigh' } } }, null, 2) + '\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, false, 'an unannounced routing change must not read as ok');
+  const ids = rep.findings.filter((x) => x.kind === 'unannounced_change').map((x) => x.id).sort();
+  assert.deepStrictEqual(ids, ['agent_model_map', 'model_routing'], JSON.stringify(rep.findings));
+});
+
+t('an ANNOUNCED real change is clean and is reported as an announced change', () => {
+  const fx = buildProject('cd-announced');
+  cd.writeBaseline(fx.root, fx.runId);
+  const policyPath = path.join(fx.root, '.claude', 'config', 'agents', 'agent-tool-policy.json');
+  writeEvents(fx, [
+    { event_type: 'run_started', agent: 'orchestrator' },
+    { event_type: 'file_changed', agent: 'Config Boss', path: policyPath, note: 'granted Bash to Search Boss' },
+  ]);
+  fs.writeFileSync(policyPath, JSON.stringify({ 'Search Boss': { allow: ['Read', 'Grep', 'Bash'] } }, null, 2) + '\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, 'an announced, real change must be clean: ' + JSON.stringify(rep.findings));
+  assert.ok(rep.announced_changes.some((a) => a.id === 'agent_tool_policy'),
+    'the announced change is not reported: ' + JSON.stringify(rep.announced_changes));
+});
+
+t('a relative path on the announcing event still matches the source it names', () => {
+  const fx = buildProject('cd-relpath');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'claude_md_updated', agent: 'orchestrator', path: 'CLAUDE.md', note: 'tightened isolation' }]);
+  fs.writeFileSync(path.join(fx.root, 'CLAUDE.md'), '# project rules\nonly this folder. no exceptions.\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, 'a relative announcement path did not match: ' + JSON.stringify(rep.findings));
+});
+
+// --- direction 2: a claim that changed nothing ----------------------------------------------------------
+t('direction 2 — a CLAIMED change where before == after is a rejected NO-OP', () => {
+  const fx = buildProject('cd-noop');
+  cd.writeBaseline(fx.root, fx.runId);
+  // the agent says it rewrote the hard rules; the bytes are identical
+  writeEvents(fx, [
+    { event_type: 'file_changed', agent: 'Rules Boss', path: path.join(fx.root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), note: 'added the no-force-push rule' },
+  ]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, false, 'a no-op claim must not read as ok');
+  const f = rep.findings.find((x) => x.kind === 'noop_claim');
+  assert.ok(f, 'no noop_claim finding: ' + JSON.stringify(findingKinds(rep)));
+  assert.strictEqual(f.id, 'hard_rules', 'the no-op finding names the wrong source: ' + f.id);
+  assert.ok(/no-op|noop/i.test(f.detail) && /reject/i.test(f.detail),
+    'the detail must say the claim is rejected as a no-op: ' + f.detail);
+  assert.ok(f.claimed_by === 'Rules Boss', 'the finding does not attribute the claim: ' + f.claimed_by);
+});
+
+t('a claimed skill-frontmatter change that only touched the body is also a NO-OP', () => {
+  const fx = buildProject('cd-noop-skill');
+  cd.writeBaseline(fx.root, fx.runId);
+  const p = path.join(fx.root, '.claude', 'skills', 'beta', 'SKILL.md');
+  writeEvents(fx, [{ event_type: 'custom_skill_updated', agent: 'Skill Boss', path: p, note: 'widened the beta trigger' }]);
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8') + '\nmore body prose.\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  const f = rep.findings.find((x) => x.kind === 'noop_claim' && x.id === 'skill_frontmatter:beta');
+  assert.ok(f, 'a body-only edit claimed as a trigger change is not caught: ' + JSON.stringify(rep.findings));
+});
+
+// --- honest non-findings ---------------------------------------------------------------------------------
+t('reformatting a JSON policy without changing its meaning is a NOTE, not a drift finding', () => {
+  const fx = buildProject('cd-format');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started', agent: 'orchestrator' }]);
+  const p = path.join(fx.root, '.claude', 'config', 'orchestration', 'FORGE_RECOVERY_POLICY.json');
+  fs.writeFileSync(p, JSON.stringify({ min_alternatives: 3 }) + '\n'); // same meaning, different whitespace
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, 'pure reformatting must not be reported as drift: ' + JSON.stringify(rep.findings));
+  assert.ok(rep.notes.some((n) => n.kind === 'formatting_only' && n.id === 'recovery_policy'),
+    'a reformat is not even noted: ' + JSON.stringify(rep.notes));
+});
+
+t('no baseline is an honest "not comparable", never a false red', () => {
+  const fx = buildProject('cd-nobaseline');
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, 'a missing baseline must not be a finding');
+  assert.strictEqual(rep.comparable, false, 'it must say it could not compare');
+  assert.ok(/baseline/i.test(rep.reason), 'the reason does not mention the missing baseline: ' + rep.reason);
+  assert.strictEqual(rep.findings.length, 0);
+});
+
+t('a run with no events.jsonl still compares hashes and still says nothing was announced', () => {
+  const fx = buildProject('cd-noevents');
+  cd.writeBaseline(fx.root, fx.runId);
+  fs.writeFileSync(path.join(fx.root, 'CLAUDE.md'), '# project rules\nrewritten.\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, false);
+  assert.ok(rep.findings.some((f) => f.kind === 'unannounced_change' && f.id === 'project_claude_md'),
+    JSON.stringify(rep.findings));
+});
+
+t('a governance file that disappears mid-run is its own finding, not a silent pass', () => {
+  const fx = buildProject('cd-removed');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  fs.unlinkSync(path.join(fx.root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.ok(rep.findings.some((f) => f.kind === 'source_removed' && f.id === 'hard_rules'), JSON.stringify(rep.findings));
+});
+
+t('a NEW skill appearing mid-run without an announcement is a finding', () => {
+  const fx = buildProject('cd-added');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  fs.mkdirSync(path.join(fx.root, '.claude', 'skills', 'gamma'), { recursive: true });
+  fs.writeFileSync(path.join(fx.root, '.claude', 'skills', 'gamma', 'SKILL.md'),
+    '---\nname: gamma\ndescription: appeared out of nowhere\n---\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.ok(rep.findings.some((f) => f.kind === 'source_added' && f.id === 'skill_frontmatter:gamma'), JSON.stringify(rep.findings));
+});
+
+t('nothing changed and nothing claimed = clean, with the unchanged count reported', () => {
+  const fx = buildProject('cd-clean');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started' }, { event_type: 'agent_completed', agent: 'Search Boss' }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, JSON.stringify(rep.findings));
+  assert.strictEqual(rep.comparable, true);
+  assert.ok(rep.unchanged >= 7, 'unchanged count looks wrong: ' + rep.unchanged);
+});
+
+// --- the settings schema + the owner's own settings file ------------------------------------------------
+// forge-config.cjs is required with its env seams pointed at a per-test temp home, so no test ever touches the
+// owner's real ~/.claude; the project root is always the fixture.
+const forgeConfig = require('./forge-config.cjs');
+function ownerOpts(fx) { return { projectRoot: fx.root, configHome: path.join(fx.base, 'home') }; }
+const ownerFile = (fx) => path.join(fx.root, '.claude', 'FORGE_CONFIG.json');
+
+t('a project WITHOUT .claude/FORGE_CONFIG.json (the normal case) is never a finding', () => {
+  const fx = buildProject('cd-owner-absent');
+  const res = cd.writeBaseline(fx.root, fx.runId);
+  assert.deepStrictEqual(res.baseline.fixed_ids, cd.FIXED_SOURCES.map((s) => s.id), 'the baseline records which fixed sources it knew');
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, JSON.stringify(rep.findings));
+  assert.deepStrictEqual([rep.notes.length, rep.owner_config_changes.length], [0, 0], JSON.stringify(rep.notes));
+});
+
+t('the owner creates the settings file mid-run + config_changed logged = announced, and the report names the setting', () => {
+  const fx = buildProject('cd-owner-created');
+  cd.writeBaseline(fx.root, fx.runId);
+  forgeConfig.set('council', 'off', ownerOpts(fx));
+  writeEvents(fx, [{ event_type: 'config_changed', agent: 'orchestrator', note: 'council: auto -> off', changed: [{ key: 'council', from: 'auto', to: 'off', source: 'project' }], count: 1 }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, JSON.stringify(rep.findings));
+  const a = byId(rep.announced_changes, 'owner_config');
+  assert.ok(a && a.kind === 'created' && a.announced_by === 'orchestrator', JSON.stringify(rep.announced_changes));
+  assert.deepStrictEqual(rep.owner_config_changes.map((c) => [c.key, c.value, c.set_by]), [['council', 'off', 'owner /forge config set']]);
+  assert.ok(/owner changed 1 setting\(s\) mid-run \(council\)/.test(cd.summarize(rep)), cd.summarize(rep));
+});
+
+t('an owner change WITHOUT config_changed is a finding that names the setting and the diff --run fix', () => {
+  const fx = buildProject('cd-owner-unannounced');
+  fs.writeFileSync(ownerFile(fx), JSON.stringify({ version: 1, settings: { 'ui-quality': { value: false, set_at: '2026-01-01T00:00:00.000Z', set_by: 'owner /forge config set' } } }, null, 2) + '\n');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  forgeConfig.set('council', 'off', ownerOpts(fx));
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  const f = rep.findings.find((x) => x.kind === 'unannounced_change' && x.id === 'owner_config');
+  assert.ok(f, JSON.stringify(rep.findings));
+  assert.ok(f.detail.includes('the owner changed 1 setting(s) mid-run: council="off"'), f.detail);
+  assert.ok(f.detail.includes('forge-config.cjs diff --run ' + fx.runId), f.detail);
+  assert.deepStrictEqual(rep.owner_config_changes.map((c) => c.key), ['council'], 'a setting set BEFORE the run start is not a mid-run change');
+});
+
+t('config_changed with an unchanged project file is NOT a no-op claim (the change came from another layer)', () => {
+  const fx = buildProject('cd-owner-elsewhere');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'config_changed', agent: 'orchestrator', changed: [{ key: 'usage-guard.pause-at', source: 'global' }], count: 1 }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, JSON.stringify(rep.findings));
+  assert.ok(!rep.findings.some((x) => x.kind === 'noop_claim'), JSON.stringify(rep.findings));
+  // the file is absent before and after here, so there is nothing to note either; now with a present, unchanged file:
+  const fx2 = buildProject('cd-owner-elsewhere-2');
+  fs.writeFileSync(ownerFile(fx2), JSON.stringify({ version: 1, settings: {} }) + '\n');
+  cd.writeBaseline(fx2.root, fx2.runId);
+  writeEvents(fx2, [{ event_type: 'config_changed', agent: 'orchestrator', changed: [{ key: 'usage-guard.pause-at', source: 'global' }], count: 1 }]);
+  const rep2 = cd.checkDrift(fx2.root, fx2.runId);
+  assert.strictEqual(rep2.ok, true, JSON.stringify(rep2.findings));
+  const n = rep2.notes.find((x) => x.kind === 'owner_setting_elsewhere' && x.id === 'owner_config');
+  assert.ok(n && n.detail.includes('usage-guard.pause-at'), JSON.stringify(rep2.notes));
+});
+
+t('a file_changed claim on the schema with identical bytes IS a no-op; an unannounced schema edit IS drift', () => {
+  const fx = buildProject('cd-schema');
+  cd.writeBaseline(fx.root, fx.runId);
+  const schema = path.join(fx.root, '.claude', 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json');
+  writeEvents(fx, [{ event_type: 'file_changed', agent: 'Build Boss', path: schema, note: 'added a setting' }]);
+  assert.ok(cd.checkDrift(fx.root, fx.runId).findings.some((x) => x.kind === 'noop_claim' && x.id === 'config_schema'));
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  fs.writeFileSync(schema, JSON.stringify({ settings: { council: { type: 'enum', default: 'off' } }, locked: [] }, null, 2) + '\n');
+  assert.ok(cd.checkDrift(fx.root, fx.runId).findings.some((x) => x.kind === 'unannounced_change' && x.id === 'config_schema'));
+});
+
+t('a baseline written BEFORE the new sources existed: a note (not comparable), never a false source_added', () => {
+  const fx = buildProject('cd-old-baseline');
+  const res = cd.writeBaseline(fx.root, fx.runId);
+  const old = JSON.parse(fs.readFileSync(res.path, 'utf8'));
+  delete old.fixed_ids;
+  old.entries = old.entries.filter((e) => e.id !== 'config_schema' && e.id !== 'owner_config');
+  fs.writeFileSync(res.path, JSON.stringify(old, null, 2));
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  assert.strictEqual(rep.ok, true, JSON.stringify(rep.findings));
+  assert.deepStrictEqual(rep.notes.map((x) => [x.kind, x.id]), [['not_in_baseline', 'config_schema']], JSON.stringify(rep.notes));
+});
+
+t('CLI diff prints the owner change line', () => {
+  const fx = buildProject('cd-owner-cli');
+  cd.writeBaseline(fx.root, fx.runId);
+  forgeConfig.set('council', 'off', ownerOpts(fx));
+  writeEvents(fx, [{ event_type: 'config_changed', agent: 'orchestrator', changed: [{ key: 'council' }], count: 1 }]);
+  const r = spawnSync(process.execPath, [path.join(__dirname, 'forge-configdrift.cjs'), 'diff', fx.runId, '--root', fx.root], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.ok(/owner setting changed mid-run: council="off"/.test(r.stdout), r.stdout);
+});
+
+// --- the baseline file itself -----------------------------------------------------------------------------
+t('writeBaseline writes config-baseline.json NEXT TO THE RUN and nowhere else', () => {
+  const fx = buildProject('cd-baselinefile');
+  const res = cd.writeBaseline(fx.root, fx.runId);
+  assert.strictEqual(path.resolve(res.path), path.resolve(path.join(fx.runDir, 'config-baseline.json')),
+    'baseline landed at ' + res.path);
+  const raw = JSON.parse(fs.readFileSync(res.path, 'utf8'));
+  assert.strictEqual(raw.run_id, fx.runId);
+  assert.ok(Array.isArray(raw.entries) && raw.entries.length >= 7, 'baseline entries: ' + (raw.entries || []).length);
+});
+
+t('a run_id that tries to escape the runs directory is refused', () => {
+  const fx = buildProject('cd-escape');
+  assert.throws(() => cd.writeBaseline(fx.root, '../../etc'), /invalid run_id/i);
+  assert.throws(() => cd.checkDrift(fx.root, 'a/b'), /invalid run_id/i);
+});
+
+t('checkDrift is READ-ONLY on the governance files it measures', () => {
+  const fx = buildProject('cd-readonly');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, [{ event_type: 'run_started' }]);
+  const p = path.join(fx.root, '.claude', 'config', 'agents', 'agent-registry.json');
+  const before = { bytes: fs.readFileSync(p), mtime: fs.statSync(p).mtimeMs };
+  cd.checkDrift(fx.root, fx.runId);
+  assert.ok(before.bytes.equals(fs.readFileSync(p)), 'checkDrift modified a governance file');
+  assert.strictEqual(fs.statSync(p).mtimeMs, before.mtime, 'checkDrift touched a governance file mtime');
+});
+
+// --- the forge-verify wiring: SURFACED, never gating ---------------------------------------------------------
+// forge-verify.cjs is where this check is shown, because it already reads the same run dir and events.jsonl and
+// already has an advisory-section convention (Evidence:, Loop:). These two tests pin BOTH halves of that
+// contract: the section is really printed, and a drift finding really does not move the exit code.
+function runVerify(fx, extra) {
+  const env = Object.assign({}, process.env, { FORGE_STORE_ROOT: path.join(fx.root, '.claude') });
+  return spawnSync(process.execPath,
+    [path.join(__dirname, 'forge-verify.cjs'), fx.runId, '--root', fx.root].concat(extra || []),
+    { env, encoding: 'utf8' });
+}
+/** a run that verify itself calls completely clean: one agent, one done task, no tickets, no PRD. */
+function cleanRunEvents() {
+  return [
+    { event_type: 'run_started', agent: 'orchestrator', ts: new Date().toISOString() },
+    { event_type: 'agent_started', agent: 'Search Boss', ts: new Date().toISOString() },
+    { event_type: 'check_passed', agent: 'Search Boss', command: 'node t.cjs', output: 'ok', ts: new Date().toISOString() },
+    { event_type: 'agent_completed', agent: 'Search Boss', ts: new Date().toISOString() },
+  ];
+}
+
+t('forge-verify prints a Config Drift section and names the undeclared change', () => {
+  const fx = buildProject('cd-verify-wire');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, cleanRunEvents());
+  fs.writeFileSync(path.join(fx.root, '.claude', 'config', 'agents', 'agent-tool-policy.json'),
+    JSON.stringify({ 'Search Boss': { allow: ['Read', 'Grep', 'Bash'] } }, null, 2) + '\n');
+  const r = runVerify(fx);
+  assert.ok(/Config Drift \(advisory, non-blocking\):/.test(r.stdout), 'no Config Drift section in verify output:\n' + r.stdout + r.stderr);
+  assert.ok(/UNANNOUNCED_CHANGE agent_tool_policy/.test(r.stdout),
+    'the undeclared change is not named:\n' + r.stdout);
+});
+
+t('a config-drift finding is ADVISORY — it does not change forge-verify\'s exit code', () => {
+  const fx = buildProject('cd-verify-advisory');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, cleanRunEvents());
+  const clean = runVerify(fx);
+  assert.strictEqual(clean.status, 0, 'the fixture run must be clean before the drift is introduced:\n' + clean.stdout);
+  fs.writeFileSync(path.join(fx.root, 'CLAUDE.md'), '# project rules\nquietly rewritten mid-run.\n');
+  const drifted = runVerify(fx);
+  assert.ok(/UNANNOUNCED_CHANGE project_claude_md/.test(drifted.stdout), 'drift not detected:\n' + drifted.stdout);
+  assert.strictEqual(drifted.status, 0,
+    'an advisory drift finding must NOT gate the run — exit was ' + drifted.status + ':\n' + drifted.stdout);
+});
+
+t('forge-verify --json carries the config-drift report', () => {
+  const fx = buildProject('cd-verify-json');
+  cd.writeBaseline(fx.root, fx.runId);
+  writeEvents(fx, cleanRunEvents().concat([
+    { event_type: 'file_changed', agent: 'Rules Boss', path: path.join(fx.root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), note: 'added a rule' },
+  ]));
+  const r = runVerify(fx, ['--json']);
+  const j = JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+  assert.ok(j.config_drift, 'no config_drift key in --json output: ' + Object.keys(j).join(', '));
+  assert.strictEqual(j.config_drift.comparable, true);
+  assert.ok(j.config_drift.findings.some((f) => f.kind === 'noop_claim' && f.id === 'hard_rules'),
+    'the no-op claim is missing from --json: ' + JSON.stringify(j.config_drift.findings));
+});
+
+t('a run with no config baseline says so in verify instead of reading as clean', () => {
+  const fx = buildProject('cd-verify-nobaseline');
+  writeEvents(fx, cleanRunEvents());
+  const r = runVerify(fx);
+  assert.ok(/Config Drift \(advisory, non-blocking\):/.test(r.stdout), r.stdout);
+  assert.ok(/not comparable/i.test(r.stdout), 'a missing baseline must be stated, not hidden:\n' + r.stdout);
+  assert.strictEqual(r.status, 0);
+});
+
+// --- the real project (read-only) --------------------------------------------------------------------------
+t('on the REAL project every named governance source is found and hashed', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const snap = cd.snapshot(root);
+  for (const id of ['agent_registry', 'agent_tool_policy', 'hard_rules', 'recovery_policy', 'project_claude_md', 'config_schema']) {
+    const e = byId(snap.entries, id);
+    assert.ok(e, 'source ' + id + ' not produced at all');
+    assert.strictEqual(e.exists, true, id + ' does not exist at ' + e.path);
+    assert.ok(/^[0-9a-f]{64}$/.test(e.sha256), id + ' has no hash');
+  }
+  // installation-INDEPENDENT half: every tree, development or redistribution, must produce a non-empty
+  // hashed skill set. This stays strict everywhere — it is the part that catches a walk returning nothing.
+  const skills = snap.entries.filter((e) => e.id.startsWith('skill_frontmatter:'));
+  assert.ok(skills.length > 0, 'no skill was hashed at all on the real project');
+});
+
+// installation-DEPENDENT half, split out so the guard covers only what actually depends on the install.
+pinned('on the REAL project the full 57-skill catalog is hashed, nested bundles included', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const snap = cd.snapshot(root);
+  const skills = snap.entries.filter((e) => e.id.startsWith('skill_frontmatter:'));
+  // 57 = 49 at depth 1 + the 8-skill gsap bundle at depth 2 (the same 57 forge-contextbudget.cjs reports for
+  // this project's own catalog). A depth-1-only walk finds 49 and looks perfectly calm doing it. Both halves
+  // below are properties of the vendored bundle specifically: the distribution ships neither.
+  assert.ok(skills.length >= 57, 'this project has 57 skills; hashed only ' + skills.length);
+  assert.ok(skills.some((s) => s.id === 'skill_frontmatter:gsap/gsap-core'),
+    'the nested gsap bundle is not covered on the real project');
+});
+
+t('hashing the real project twice in a row is stable (no timestamps leak into the hash)', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const a = cd.snapshot(root), b = cd.snapshot(root);
+  const key = (s) => s.entries.map((e) => e.id + '=' + e.sha256).join('|');
+  assert.strictEqual(key(a), key(b), 'the same tree hashed differently twice');
+});
+
+// =====================================================================================================
+// NOOP_CLAIM REFINEMENT: bodyChangedPerGit() / the "how === 'same'" branch downgrade
+// to a body_only_change NOTE when git independently confirms the file really changed.
+// =====================================================================================================
+function gitOk(res) { return res && !res.error && res.status === 0; }
+/** initGitRepo(root) -> true iff a real local git repo was created and committed at `root`, with a
+ *  LOCAL (never global) identity — never touches the developer's real git config. Returns false (and the
+ *  caller SKIPs) when git itself is unavailable in this environment, exactly the fail-honest posture
+ *  bodyChangedPerGit() itself takes. */
+function initGitRepo(root) {
+  const run = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (!gitOk(run(['init', '-q']))) return false;
+  run(['config', 'user.email', 'forge-test@example.invalid']);
+  run(['config', 'user.name', 'forge-configdrift-test']);
+  if (!gitOk(run(['add', '-A']))) return false;
+  if (!gitOk(run(['commit', '-q', '-m', 'initial fixture commit']))) return false;
+  return true;
+}
+const GIT_USABLE = (() => { try { return gitOk(spawnSync('git', ['--version'], { encoding: 'utf8' })); } catch { return false; } })();
+function gitTest(name, fn) {
+  if (!GIT_USABLE) { skipped++; console.log('  SKIP ' + name + ' — git is not available in this environment'); return; }
+  t(name, fn);
+}
+
+gitTest('NOOP_CLAIM REFINEMENT: a real body-only edit, committed as a pending git change, downgrades to a body_only_change NOTE', () => {
+  const fx = buildProject('cd-body-only-git');
+  if (!initGitRepo(fx.root)) { console.log('  SKIP (git init failed in this sandbox) — treated as pass, not a false red'); return; }
+  cd.writeBaseline(fx.root, fx.runId);
+  const p = path.join(fx.root, '.claude', 'skills', 'beta', 'SKILL.md');
+  writeEvents(fx, [{ event_type: 'custom_skill_updated', agent: 'Skill Boss', path: p, note: 'widened the beta trigger' }]);
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8') + '\nmore body prose, a real uncommitted change git can see.\n');
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  const finding = rep.findings.find((x) => x.id === 'skill_frontmatter:beta');
+  assert.ok(!finding, 'git confirmed the body changed — this must NOT still be a noop_claim finding: ' + JSON.stringify(rep.findings));
+  const note = rep.notes.find((n) => n.kind === 'body_only_change' && n.id === 'skill_frontmatter:beta');
+  assert.ok(note, 'expected a body_only_change note: ' + JSON.stringify(rep.notes));
+  assert.ok(/frontmatter is unchanged; the body changed/.test(note.detail), 'note detail does not explain the downgrade: ' + note.detail);
+});
+
+gitTest('NOOP_CLAIM REFINEMENT: git confirming NO change at all still keeps the noop_claim finding', () => {
+  const fx = buildProject('cd-body-only-git-clean');
+  if (!initGitRepo(fx.root)) { console.log('  SKIP (git init failed in this sandbox) — treated as pass, not a false red'); return; }
+  cd.writeBaseline(fx.root, fx.runId);
+  const p = path.join(fx.root, '.claude', 'skills', 'beta', 'SKILL.md');
+  // no file edit at all — the claim is a pure fabrication, and git agrees nothing changed
+  writeEvents(fx, [{ event_type: 'custom_skill_updated', agent: 'Skill Boss', path: p, note: 'claims a change that never happened' }]);
+  const rep = cd.checkDrift(fx.root, fx.runId);
+  const f = rep.findings.find((x) => x.kind === 'noop_claim' && x.id === 'skill_frontmatter:beta');
+  assert.ok(f, 'git genuinely agreeing nothing changed must still reject the claim as a noop_claim: ' + JSON.stringify(rep.findings));
+  assert.ok(!rep.notes.some((n) => n.kind === 'body_only_change'), 'no body_only_change note should exist when git also says unchanged');
+});
+
+t('bodyChangedPerGit() fails honest (checked:false) outside a git working tree', () => {
+  const fx = buildProject('cd-nogit');
+  const p = path.join(fx.root, '.claude', 'skills', 'beta', 'SKILL.md');
+  const res = cd.bodyChangedPerGit(fx.root, p);
+  assert.strictEqual(res.checked, false, 'a plain tmp dir with no .git must never be reported as checked:true: ' + JSON.stringify(res));
+  assert.strictEqual(res.changed, false, 'fail-honest default must be changed:false');
+});
+
+console.log('');
+console.log(passed + ' passed, ' + failed + ' failed' + (skipped ? ', ' + skipped + ' skipped' : ''));
+process.exit(failed ? 1 : 0);
