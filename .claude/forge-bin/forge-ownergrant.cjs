@@ -29,7 +29,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1: the trusted root is this copy's OWN project — forge-paths.cjs scriptRootInfo, accepted only when the copy is
+// installed in a project (source 'script': byte-identical to the old __dirname/../.. answer). A plugin copy outside a
+// project gets null and every check fails CLOSED (no secret found): discovery would select the root from
+// CLAUDE_PROJECT_DIR / the cwd, and an environment-selected root is never accepted for an owner secret (see below).
+// Guarded: an older or missing forge-paths.cjs keeps the literal.
+const DEFAULT_ROOT = (() => {
+  try {
+    const P = require('./forge-paths.cjs');
+    if (P && typeof P.scriptRootInfo === 'function') { const i = P.scriptRootInfo(__dirname); return i.source === 'script' ? i.root : null; }
+  } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+})();
 
 /** relativeSecretLabel(file, root) -> a project-relative label for an owner-authorisation secret file
  *  path (OWNER-CREDENTIAL-PATH) — never the resolved absolute path, which can carry a
@@ -50,6 +61,7 @@ function readOwnerSecret(opts) {
   opts = opts || {};
   const root = opts.projectRoot ? path.resolve(opts.projectRoot) : DEFAULT_ROOT;
   const rel = opts.secretFile || path.join('.claude', 'config', 'forge-owner-grant.txt');
+  if (!root && !path.isAbsolute(rel)) return { value: null, source: 'none', file: null, label: rel.split(path.sep).join('/') + ' (no trusted project root: a copy outside any project)' };
   const file = path.isAbsolute(rel) ? rel : path.join(root, rel);
   const label = relativeSecretLabel(file, root);
   try {
@@ -112,6 +124,7 @@ function verifyOwnerGrant(opts) {
  *  which is already outside what any file-permission-based design in this repo defends against. */
 function overrideGrantFilePath(opts) {
   const root = (opts && opts.projectRoot) ? path.resolve(opts.projectRoot) : DEFAULT_ROOT;
+  if (!root) throw new Error('forge-ownergrant: no trusted project root (a copy outside any project) — pass opts.projectRoot');
   return path.join(root, '.claude', 'config', 'forge-usage-guard-override-grant.json');
 }
 

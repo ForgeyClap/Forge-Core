@@ -21,6 +21,8 @@ import { AUTO_PLAN_FOLLOWUP_MESSAGE, Composer, AUTO_PLAN_INTAKE_SUFFIX } from '@
 import type { ComposerProps } from '@/views/chat/Composer';
 import { RUN_PLAN_MESSAGE, sendArgsFor } from '@/views/chat/compose-args';
 import { Message } from '@/views/chat/Message';
+import { confirmBypass } from '@/views/chat/mode-storage';
+import { setUiMode } from '@/state/ui-mode';
 
 /* ========================================================================== */
 /*  1. sendArgsFor — pure, no rendering                                       */
@@ -94,6 +96,8 @@ function renderComposer(state: PrototypeState, onSend: ComposerProps['onSend'] =
     }),
     state,
   );
+  // Redesign 2A: attach, mode, model and effort live in the composer's "+" tray now; open it.
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   return { ...utils, onSend };
 }
 
@@ -102,10 +106,17 @@ function renderComposer(state: PrototypeState, onSend: ComposerProps['onSend'] =
 /* ========================================================================== */
 
 describe('Composer send-mode/effort picker (composer-modes-ui)', () => {
-  beforeEach(() => localStorage.clear());
+  // WP B3: Bypass is offered only in Uitgebreid and only after a per-project confirmation. These
+  // legacy cases exercise Bypass itself, so they run in Uitgebreid with p1 already confirmed.
+  beforeEach(() => {
+    localStorage.clear();
+    setUiMode('uitgebreid');
+    confirmBypass('p1');
+  });
   afterEach(() => {
     cleanup();
     localStorage.clear();
+    setUiMode('eenvoudig');
   });
 
   it('sends mode="bypass" and shows the one honest bypass sentence once Bypass is selected', () => {
@@ -122,23 +133,22 @@ describe('Composer send-mode/effort picker (composer-modes-ui)', () => {
     expect(onSend).toHaveBeenCalledWith('Do it.', 'bypass');
   });
 
-  // feat-forge-preamble: a fresh project (never persisted a choice) now defaults to Bypass, not
-  // Execute — see mode-storage.ts's own doc comment. "the default" below therefore means "once
-  // Execute is explicitly chosen", not "on a brand-new project with nothing selected yet".
+  // WP B3 rule: a fresh project starts at Accept edits ("Mag aanpassen"); Bypass exists only in
+  // Uitgebreid and only after a per-project confirmation (see mode-storage.ts). This case picks
+  // Execute explicitly and checks the bypass sentence is gone.
   it('never shows the bypass sentence once Execute is explicitly selected', () => {
     renderComposer(buildState({ activeProjectId: 'p1' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Execute' }));
     expect(screen.queryByText(/voert uit zonder goedkeuringsvragen/i)).toBeNull();
   });
 
-  // feat-forge-preamble: a project with no persisted mode choice yet starts at Bypass — see
-  // mode-storage.ts's own doc comment for the honest "a non-interactive session can never answer
-  // an approval prompt" reason. The composer's own hint paragraph must reflect this immediately,
-  // with no click needed.
-  it('a brand-new project (never persisted a choice) defaults to Bypass and shows the honest bypass sentence immediately', () => {
+  // WP B3 rule: a project with no persisted mode choice starts at Accept edits, never Bypass, and
+  // the bypass sentence is absent without any click.
+  it('WP B3: a brand-new project (never persisted a choice) starts at Accept edits, never Bypass', () => {
     renderComposer(buildState({ activeProjectId: 'p-new' }));
-    expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText(/voert uit zonder goedkeuringsvragen/i)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByText(/voert uit zonder goedkeuringsvragen/i)).toBeNull();
   });
 
   it('an existing persisted Execute choice for a project is NOT silently upgraded to Bypass on a later remount', () => {
@@ -193,6 +203,18 @@ describe('Composer send-mode/effort picker (composer-modes-ui)', () => {
     expect(screen.queryByText(/geen enkele tool beschikbaar/i)).toBeNull();
   });
 
+  it('WP B3: Uitgebreid with a stored bypass but no confirmation for that project sends accept-edits', () => {
+    localStorage.setItem('forge.prototype.chatSendMode.p-unconfirmed', 'bypass');
+    const onSend = vi.fn(() => true);
+    renderComposer(buildState({ activeProjectId: 'p-unconfirmed' }), onSend);
+    expect(screen.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'false');
+    const field = screen.getByRole('textbox', { name: /Message Forge/ });
+    fireEvent.change(field, { target: { value: 'Ga verder' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith('Ga verder', 'accept-edits');
+  });
+
   it('persists mode/effort/auto-plan choices across a remount via localStorage', () => {
     const state = buildState({ activeProjectId: 'p1' });
     const { unmount } = renderComposer(state);
@@ -216,14 +238,15 @@ describe('Composer send-mode/effort picker (composer-modes-ui)', () => {
   // is now ALSO every fresh project's own independent default (p2 landing on Bypass is its OWN
   // fresh default, not a leak of p1's pick).
   it('an Accept-edits choice made under one project does NOT carry over into a DIFFERENT project (remount with a different activeProjectId)', () => {
+    // WP B3: Accept edits is now every fresh project's default, so p1 picks Plan to prove isolation.
     const { unmount } = renderComposer(buildState({ activeProjectId: 'p1' }));
-    fireEvent.click(screen.getByRole('radio', { name: 'Accept edits' }));
-    expect(screen.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
+    expect(screen.getByRole('radio', { name: 'Plan' })).toHaveAttribute('aria-checked', 'true');
     unmount();
 
     renderComposer(buildState({ activeProjectId: 'p2' }));
-    expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'Plan' })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('the SAME project still restores its own Bypass choice across a remount (per-project persistence still works)', () => {
@@ -377,10 +400,15 @@ function rerenderWithMessages(
 }
 
 describe('Composer Auto-plan flow — 3 stages: intake (tool-capable) -> plan -> execute (coordinator finding 2026-07-30)', () => {
-  beforeEach(() => localStorage.clear());
+  // Lead decision 2026-11-02 (plan 4.2): Automatisch plannen exists only in Uitgebreid.
+  beforeEach(() => {
+    localStorage.clear();
+    setUiMode('uitgebreid');
+  });
   afterEach(() => {
     cleanup();
     localStorage.clear();
+    setUiMode('eenvoudig');
   });
 
   // The core bug this redesign fixes: plan mode cannot call ask_owner (or any tool) at all, so
@@ -404,7 +432,7 @@ describe('Composer Auto-plan flow — 3 stages: intake (tool-capable) -> plan ->
     // real point of this test is that it is NOT 'plan'.
     expect(onSend).toHaveBeenNthCalledWith(1, `Build the widget
 
-${AUTO_PLAN_INTAKE_SUFFIX}`, 'bypass');
+${AUTO_PLAN_INTAKE_SUFFIX}`, 'accept-edits');
   });
 
   /* MEASURED live (real gateway run): with Auto-plan on and the small clear request
@@ -425,7 +453,7 @@ ${AUTO_PLAN_INTAKE_SUFFIX}`, 'bypass');
     const field = screen.getByRole('textbox', { name: /Message Forge/ });
     fireEvent.change(field, { target: { value: 'Build the widget' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(onSend).toHaveBeenNthCalledWith(1, 'Build the widget', 'bypass');
+    expect(onSend).toHaveBeenNthCalledWith(1, 'Build the widget', 'accept-edits');
 
     // Auto-plan ON: the same text now carries the intake framing, and it really says "build nothing yet".
     fireEvent.click(screen.getByRole('switch', { name: 'Auto-plan' }));
@@ -457,7 +485,7 @@ ${AUTO_PLAN_INTAKE_SUFFIX}`, 'bypass');
     // Stage 1 (INTAKE): real mode (Bypass, the fresh-project default), never forced to plan.
     expect(onSend).toHaveBeenNthCalledWith(1, `Build the widget
 
-${AUTO_PLAN_INTAKE_SUFFIX}`, 'bypass');
+${AUTO_PLAN_INTAKE_SUFFIX}`, 'accept-edits');
     expect(screen.queryByRole('button', { name: 'Voer dit plan uit' })).toBeNull();
 
     // Stage 1 -> 2: the real intake reply "arrives" — this must automatically fire the real PLAN
@@ -481,7 +509,7 @@ ${AUTO_PLAN_INTAKE_SUFFIX}`, 'bypass');
 
     // Stage 3 (EXECUTE): the real follow-up text, in whatever mode is CURRENTLY selected (still
     // Bypass here, since only Auto-plan was toggled).
-    expect(onSend).toHaveBeenNthCalledWith(3, RUN_PLAN_MESSAGE, 'bypass');
+    expect(onSend).toHaveBeenNthCalledWith(3, RUN_PLAN_MESSAGE, 'accept-edits');
     expect(onSend).toHaveBeenCalledTimes(3);
 
     // The banner is a one-shot prompt for THIS proposal — gone the moment it is acted on.
@@ -515,5 +543,56 @@ ${AUTO_PLAN_INTAKE_SUFFIX}`, 'bypass');
     rerenderWithMessages(rerender, onSend, [userTurn, assistantTurn]);
 
     expect(screen.getByRole('button', { name: 'Voer dit plan uit' })).toBeInTheDocument();
+  });
+});
+
+/* ========================================================================== */
+/*  5. Eenvoudig vs Uitgebreid (Lead decision 2026-11-02, plan 4.2)           */
+/* ========================================================================== */
+
+describe('Composer: effort and Auto-plan live in Uitgebreid only', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setUiMode('eenvoudig');
+  });
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+    setUiMode('eenvoudig');
+  });
+
+  it('Eenvoudig shows the model button and the send modes, but no effort menu and no Auto-plan switch', () => {
+    renderComposer(buildState({ activeProjectId: 'p1' }));
+    expect(screen.getByTitle('Select a model')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Accept edits' })).toBeInTheDocument();
+    expect(screen.queryByTitle('Effort')).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Auto-plan' })).toBeNull();
+  });
+
+  it('Eenvoudig never applies a hidden effort or Auto-plan choice stored earlier in Uitgebreid', () => {
+    localStorage.setItem('forge.prototype.chatEffort', 'high');
+    localStorage.setItem('forge.prototype.chatAutoPlan', '1');
+    const onSend = vi.fn(() => true);
+    renderComposer(buildState({ activeProjectId: 'p1', activeConversationId: 'conv-1' }), onSend);
+    const field = screen.getByRole('textbox', { name: /Message Forge/ });
+    fireEvent.change(field, { target: { value: 'Maak de pagina' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith('Maak de pagina', 'accept-edits');
+  });
+
+  it('Eenvoudig does not offer the effort or auto-plan slash commands', () => {
+    renderComposer(buildState({ activeProjectId: 'p1' }));
+    const field = screen.getByRole('textbox', { name: /Message Forge/ });
+    fireEvent.change(field, { target: { value: '/auto' } });
+    expect(screen.queryByRole('option', { name: /\/auto-plan/ })).toBeNull();
+    fireEvent.change(field, { target: { value: '/effort' } });
+    expect(screen.queryByRole('option', { name: /\/effort-high/ })).toBeNull();
+  });
+
+  it('Uitgebreid shows both again', () => {
+    setUiMode('uitgebreid');
+    renderComposer(buildState({ activeProjectId: 'p1' }));
+    expect(screen.getByTitle('Effort')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Auto-plan' })).toBeInTheDocument();
   });
 });

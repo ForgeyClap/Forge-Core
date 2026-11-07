@@ -17,6 +17,7 @@ import { IconButton } from '@/components/primitives';
 
 import { groupForBranch, routeEdges } from './mindmap-layout';
 import type { LaidOutNode, MindMapLayout } from './mindmap-layout';
+import { useLocale } from '@/i18n/use-locale';
 
 interface View {
   readonly x: number;
@@ -40,6 +41,7 @@ export interface MindMapCanvasProps {
 }
 
 export function MindMapCanvas({ layout, selectedId, onSelect, label }: MindMapCanvasProps) {
+  const { t } = useLocale();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   // The view the person panned/zoomed to, remembered only for the map + viewport size it was made
@@ -172,7 +174,7 @@ export function MindMapCanvas({ layout, selectedId, onSelect, label }: MindMapCa
         data-dragging={dragging ? 'true' : 'false'}
         tabIndex={0}
         role="group"
-        aria-label={`${label}. Arrow keys pan, plus and minus zoom, 0 fits the map. Tab moves through the nodes.`}
+        aria-label={t('rd.map.canvasHelp', { label })}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -230,11 +232,11 @@ export function MindMapCanvas({ layout, selectedId, onSelect, label }: MindMapCa
         </div>
       </div>
 
-      <div className="fw-mm-canvas__controls" role="toolbar" aria-label="Zoom">
-        <IconButton icon="Minus" label="Zoom out" size="sm" onClick={() => zoomAt(1 / ZOOM_STEP, undefined, undefined, true)} />
-        <span className="fw-mm-canvas__zoom fg-machine" aria-live="polite">{Math.round(view.k * 100)}%</span>
-        <IconButton icon="Plus" label="Zoom in" size="sm" onClick={() => zoomAt(ZOOM_STEP, undefined, undefined, true)} />
-        <IconButton icon="Maximize" label="Fit the whole map" size="sm" onClick={fit} />
+      <div className="fw-mm-canvas__controls" role="toolbar" aria-label={t('rd.map.zoom')}>
+        <IconButton icon="Minus" label={t('rd.map.zoomOut')} size="sm" onClick={() => zoomAt(1 / ZOOM_STEP, undefined, undefined, true)} />
+        <span className="fw-mm-canvas__zoom" aria-live="polite">{Math.round(view.k * 100)}%</span>
+        <IconButton icon="Plus" label={t('rd.map.zoomIn')} size="sm" onClick={() => zoomAt(ZOOM_STEP, undefined, undefined, true)} />
+        <IconButton icon="Maximize" label={t('rd.map.zoomFit')} size="sm" onClick={fit} />
       </div>
     </div>
   );

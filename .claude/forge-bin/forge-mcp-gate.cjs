@@ -40,8 +40,14 @@
  *   planLoad({ task, boss }, opts) -> { boss, task, tools:[{id,tier,purpose}], native_fallback:[...] } —
  *     ONLY the tool ids relevant to the task text (keyword match), already filtered to the boss's granted +
  *     opted-in + in-tier servers (defer-loading — never return the whole registry).
- *   status(opts) -> per server { id, tier, installed, opted_in, active:false } — active is ALWAYS false;
- *     loadRegistry() itself hard-errors if any registry entry ever ships with status:"active".
+ *   status(opts) -> per server { id, tier, installed, opted_in, active:false, pin, pin_risk } — active is ALWAYS
+ *     false; loadRegistry() itself hard-errors if any registry entry ever ships with status:"active" or enabled:true.
+ *
+ * SUPPLY-CHAIN PIN GATE: validateGrant() and planLoad() refuse a server whose launch is not
+ *   provably pinned — forge-mcp-pin.cjs::classifyEntry() risk HIGH (bare name, moving tag, unversioned launcher,
+ *   mutable image tag) or UNVERIFIED (the registry honestly records no verified pin). The check runs after the
+ *   opt-in check and BEFORE the tier-3 branch, so not even a verified owner grant authorises a floating launch.
+ *   MEDIUM (a version range) is allowed but named in the reason. A missing pin module refuses every grant.
  *
  * EVENT_TYPES (declared here for Head Chef/G-integrate to wire into forge-dashboard/log-event.cjs — this
  * file does NOT call log-event.cjs itself, per the shared-file rule for this wave):
@@ -65,6 +71,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const actiongate = require('./forge-actiongate.cjs');
+// SUPPLY-CHAIN PIN GATE. A grant is refused for any server whose launch is not provably
+// pinned (forge-mcp-pin.cjs risk HIGH or UNVERIFIED). Guarded require: if the pin module cannot load, every
+// grant is refused (fail CLOSED) — an install missing the checker must never be read as "everything pinned".
+let pinTool = null;
+try { pinTool = require('./forge-mcp-pin.cjs'); } catch { pinTool = null; }
+function pinVerdict(serverEntry) {
+  if (!pinTool || typeof pinTool.classifyEntry !== 'function') {
+    return { blocking: true, risk: 'UNAVAILABLE', pin: null, reason: 'the supply-chain pin-check (forge-mcp-pin.cjs) did not load — refusing rather than assuming the launch is pinned' };
+  }
+  const c = pinTool.classifyEntry(serverEntry);
+  return { blocking: c.blocking, risk: c.risk, pin: c.pin, reason: c.reason };
+}
 
 /** verifyOwnerGrant(token, opts) -> {ok, reason, source} — AUDIT FIX 2026-08-03.
  *  A tier-3 (write-primitive) grant used to be ANY truthy value supplied by the same caller that
@@ -74,10 +92,22 @@ const actiongate = require('./forge-actiongate.cjs');
  *  No secret configured => refused (a missing lock is not an open door). Mirrors forge-genesis.cjs's
  *  ownerApprovalSecret()/tokenMatches() deliberately, so there is ONE approval convention to learn. */
 const MCP_GRANT_SECRET_REL = path.join('.claude', 'config', 'forge-mcp-owner-grant.txt');
+// WP 2.1: roots come from forge-paths.cjs scriptRootInfo (guarded: an older or missing copy keeps the literal). An
+// installed copy (<project>/.claude/forge-bin) answers its own project exactly as before. TRUSTED_ROOT (owner-grant
+// secret) accepts ONLY that installed answer — a plugin copy gets null and the grant fails CLOSED, because discovery
+// would let CLAUDE_PROJECT_DIR / the cwd pick where the secret is read from. DISCOVERED_ROOT (the read-only server
+// inventory) may use discovery.
+const SCRIPT_ROOT_INFO = (() => {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRootInfo === 'function') return P.scriptRootInfo(__dirname); } catch { /* the legacy literal */ }
+  return { root: path.resolve(__dirname, '..', '..'), source: 'script' };
+})();
+const TRUSTED_ROOT = SCRIPT_ROOT_INFO.source === 'script' ? SCRIPT_ROOT_INFO.root : null;
+const DISCOVERED_ROOT = SCRIPT_ROOT_INFO.root;
 function ownerGrantSecret(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
-  const root = opts.projectRoot ? path.resolve(opts.projectRoot) : path.resolve(__dirname, '..', '..');
+  const root = opts.projectRoot ? path.resolve(opts.projectRoot) : TRUSTED_ROOT;
+  if (!root) return { value: null, path: MCP_GRANT_SECRET_REL.split(path.sep).join('/') + ' (no trusted project root: a copy outside any project)', source: 'none' };
   const p = path.join(root, MCP_GRANT_SECRET_REL);
   // ENV IS NOT AN OWNER CHANNEL (broad Codex audit #8): the process requesting a
   // tier-3 write can set FORGE_MCP_OWNER_GRANT itself, which turned this verification into a mirror.
@@ -128,6 +158,9 @@ function loadRegistry(opts) {
     }
     if (s.status === 'active') {
       throw new Error('forge-mcp-gate: server "' + s.id + '" has status "active" in the registry — the registry must NEVER ship pre-activated; use the owner-authored opt-in file instead');
+    }
+    if (s.enabled === true) {
+      throw new Error('forge-mcp-gate: server "' + s.id + '" has enabled:true in the registry — the registry must NEVER ship a server switched on; the owner-authored opt-in file is the only activation channel');
     }
   }
   _regCache = { path: p, data };
@@ -220,6 +253,15 @@ function validateGrant(params, opts) {
   const isOptedIn = Array.isArray(optIn.opted_in) && optIn.opted_in.includes(serverId);
   if (!isOptedIn) return { allowed: false, tier, reason: 'server "' + serverId + '" is not opted-in (dormant by default) — native fallback required' };
 
+  // supply-chain pin gate — BEFORE the tier-3 branch, so not even a verified owner grant can authorise a
+  // server whose launch would run "whatever is newest". HIGH (floating) and UNVERIFIED (no verified pin) block.
+  const pinCheck = pinVerdict(serverEntry);
+  const pinInfo = { risk: pinCheck.risk, pin: pinCheck.pin };
+  if (pinCheck.blocking) {
+    return { allowed: false, tier, pin: pinInfo, reason: 'supply-chain pin-check ' + pinCheck.risk + ' for server "' + serverId + '": ' + pinCheck.reason + ' — record a verified exact version or image digest in mcp-registry.json before any grant' };
+  }
+  const pinNote = pinCheck.risk === 'MEDIUM' ? ' — WARNING pin-check MEDIUM: ' + pinCheck.reason : '';
+
   // Tier 3 (WRITE-PRIMITIVE) is NEVER a standing grant — always a separate, per-use, owner-approved
   // exception verified live through the real forge-actiongate.cjs classifier, regardless of max_tier/
   // allow_servers for this boss (doctrine #3/#4). This branch is intentionally reached BEFORE the
@@ -247,7 +289,7 @@ function validateGrant(params, opts) {
     const text = canonical + extra;
     const classified = actiongate.classify(text, gateOpts);
     if (classified.gate) {
-      return { allowed: true, tier, reason: 'owner-granted write-primitive confirmed via hard gate "' + classified.id + '" (' + classified.reason + ')', gate: classified, classifiedText: text };
+      return { allowed: true, tier, pin: pinInfo, reason: 'owner-granted write-primitive confirmed via hard gate "' + classified.id + '" (' + classified.reason + ')' + pinNote, gate: classified, classifiedText: text };
     }
     return { allowed: false, tier, reason: 'owner grant verified but forge-actiongate found no matching hard gate for this action — describe the real action via opts.text so it can be verified; it stays blocked otherwise', gate: classified, classifiedText: text };
   }
@@ -259,7 +301,7 @@ function validateGrant(params, opts) {
   if (tier > bossGrant.max_tier) {
     return { allowed: false, tier, reason: 'tier ' + tier + ' exceeds boss "' + bossSlug + '" max_tier ' + bossGrant.max_tier };
   }
-  return { allowed: true, tier, reason: 'boss "' + bossSlug + '" is granted server "' + serverId + '" at tier ' + tier + ' (max_tier ' + bossGrant.max_tier + ')' };
+  return { allowed: true, tier, pin: pinInfo, reason: 'boss "' + bossSlug + '" is granted server "' + serverId + '" at tier ' + tier + ' (max_tier ' + bossGrant.max_tier + ')' + pinNote };
 }
 
 // Keyword hints per server id, used ONLY for defer-loading relevance matching in planLoad() — not a
@@ -300,10 +342,11 @@ function planLoad(input, opts) {
     const inTier = server.tier <= bossGrant.max_tier;
     const granted = bossGrant.allow_servers.includes(server.id);
     const isOptedIn = Array.isArray(optIn.opted_in) && optIn.opted_in.includes(server.id);
-    if (inTier && granted && isOptedIn) {
+    const pinCheck = pinVerdict(server);
+    if (inTier && granted && isOptedIn && !pinCheck.blocking) {
       tools.push({ id: server.id, tier: server.tier, purpose: server.purpose });
     } else {
-      nativeFallback.push({ id: server.id, tier: server.tier, reason: !granted ? 'not granted to boss' : (!inTier ? 'above boss max_tier' : 'not opted-in') });
+      nativeFallback.push({ id: server.id, tier: server.tier, reason: !granted ? 'not granted to boss' : (!inTier ? 'above boss max_tier' : (!isOptedIn ? 'not opted-in' : 'pin-check ' + pinCheck.risk)) });
     }
   }
   return { boss: bossSlug, task: input.task || '', tools, native_fallback: nativeFallback };
@@ -323,6 +366,8 @@ function status(opts) {
     installed: s.status !== 'not-installed',
     opted_in: Array.isArray(optIn.opted_in) && optIn.opted_in.includes(s.id),
     active: false,
+    pin: typeof s.pin === 'string' ? s.pin : null,
+    pin_risk: pinVerdict(s).risk,
   }));
 }
 
@@ -365,12 +410,14 @@ function discoverConfiguredServers(opts) {
     if (obj.mcpServers && typeof obj.mcpServers === 'object') Object.keys(obj.mcpServers).forEach((k) => add(k, source));
     if (Array.isArray(obj.enabledMcpjsonServers)) obj.enabledMcpjsonServers.forEach((k) => add(k, source));
   };
-  const projectRoot = opts.projectRoot ? path.resolve(opts.projectRoot) : path.resolve(__dirname, '..', '..');
+  const projectRoot = opts.projectRoot ? path.resolve(opts.projectRoot) : DISCOVERED_ROOT;
   const home = opts.homeDir ? path.resolve(opts.homeDir) : require('os').homedir();
 
-  harvest(readJson(path.join(projectRoot, '.mcp.json'), '.mcp.json'), '.mcp.json');
-  harvest(readJson(path.join(projectRoot, '.claude', 'settings.json'), '.claude/settings.json'), '.claude/settings.json');
-  harvest(readJson(path.join(projectRoot, '.claude', 'settings.local.json'), '.claude/settings.local.json'), '.claude/settings.local.json');
+  if (projectRoot) { // WP 2.1: a plugin copy outside any project reads only the user-level sources below
+    harvest(readJson(path.join(projectRoot, '.mcp.json'), '.mcp.json'), '.mcp.json');
+    harvest(readJson(path.join(projectRoot, '.claude', 'settings.json'), '.claude/settings.json'), '.claude/settings.json');
+    harvest(readJson(path.join(projectRoot, '.claude', 'settings.local.json'), '.claude/settings.local.json'), '.claude/settings.local.json');
+  }
   harvest(readJson(path.join(home, '.claude', 'settings.json'), '~/.claude/settings.json'), '~/.claude/settings.json');
 
   const globalCfg = readJson(path.join(home, '.claude.json'), '~/.claude.json');
@@ -426,9 +473,13 @@ function unregisteredServers(opts) {
   };
 }
 
+/** __setPinToolForTest(mod) -> previous — TEST SEAM ONLY (same spirit as `allowEnv`): lets the suite prove the
+ *  fail-closed path when the pin module is missing. No production caller uses it. */
+function __setPinToolForTest(mod) { const prev = pinTool; pinTool = mod; return prev; }
+
 module.exports = {
   loadRegistry, loadGrants, loadOptIn, validateGrant, planLoad, status, normBoss,
-  discoverConfiguredServers, unregisteredServers,
+  discoverConfiguredServers, unregisteredServers, __setPinToolForTest,
   EVENT_TYPES, REGISTRY_PATH, GRANTS_PATH, OPTIN_PATH,
 };
 
@@ -461,7 +512,7 @@ if (require.main === module) {
     if (opts.cmd === 'registry') {
       const data = loadRegistry({});
       if (opts.json) console.log(JSON.stringify(data.servers));
-      else for (const s of data.servers) console.log(s.id + '\ttier=' + s.tier + '\t' + s.status + '\t' + s.purpose);
+      else for (const s of data.servers) console.log(s.id + '\ttier=' + s.tier + '\t' + s.status + '\tpin=' + (s.pin || '(none)') + '\t' + s.purpose);
       process.exitCode = 0;
     } else if (opts.cmd === 'grants') {
       const boss = opts.positional[0];
@@ -481,7 +532,7 @@ if (require.main === module) {
     } else if (opts.cmd === 'status') {
       const data = status({});
       if (opts.json) console.log(JSON.stringify(data));
-      else for (const s of data) console.log(s.id + '\ttier=' + s.tier + '\tinstalled=' + s.installed + '\topted_in=' + s.opted_in + '\tactive=' + s.active);
+      else for (const s of data) console.log(s.id + '\ttier=' + s.tier + '\tinstalled=' + s.installed + '\topted_in=' + s.opted_in + '\tactive=' + s.active + '\tpin=' + s.pin + '\tpin_risk=' + s.pin_risk);
       process.exitCode = 0;
     } else if (opts.cmd === 'plan') {
       const [boss] = opts.positional;

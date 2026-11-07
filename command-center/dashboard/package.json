@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:dist": "tsc --noEmit && vite build --mode dist && node scripts/check-dist-clean.mjs",
+    "check:dist": "node scripts/check-dist-clean.mjs",
     "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -14,6 +16,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:security": "vitest run --config vitest.security.config.ts",
     "test:load": "vitest run --config vitest.load.config.ts",
+    "test:legacy-bridge": "vitest run --config vitest.legacy-bridge.config.ts",
     "test:mutation": "stryker run",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
@@ -21,8 +24,8 @@
     "shots": "playwright test tests/e2e/screenshots.spec.ts",
     "theme": "node brand/build-theme.cjs",
     "theme:check": "node brand/build-theme.cjs --check",
-    "bridge": "node src/bridge/main.ts",
-    "bridge:health": "node src/bridge/main.ts --health",
+    "bridge": "node archive/bridge/main.ts",
+    "bridge:health": "node archive/bridge/main.ts --health",
     "backup": "node scripts/backup.cjs",
     "restore": "node scripts/restore.cjs",
     "doctor:workspace": "node scripts/doctor.cjs",
@@ -39,6 +42,7 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^9.39.0",
     "@playwright/test": "^1.57.0",
     "@stryker-mutator/core": "^9.6.1",

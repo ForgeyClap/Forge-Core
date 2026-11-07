@@ -1,15 +1,15 @@
 /*
  * Agents view.
  *
- * Rules obeyed here, without exception:
- *   - no raw hex / rgb() / hsl(). Every value is a var(--forge-*) token or a
- *     local --fw-* property derived from one.
- *   - status is carried by the status token trio (value / style / width) on top
- *     of an icon and an uppercase label, never by colour alone.
- *   - agent groups are told apart by luminance (--forge-group-*) plus a glyph.
- *     There is no hue to spend.
- *   - the ember accent appears only where the primitives already ration it:
- *     the focus ring and the running progress meter.
+ * Rules obeyed here, without exception (Forge Systeem v1.0, redesign):
+ *   - no raw hex / rgb() / hsl(). Every value is a var(--fs-*) token, a plain
+ *     number, or a local --fw-* property derived from one.
+ *   - no ALL CAPS and no mono labels; mono only for machine text (agent ids,
+ *     skill ids, model names).
+ *   - status is a dot plus a word (StatusBadge), never colour alone.
+ *   - agent groups are told apart by a glyph and a name. There is no hue to spend.
+ *   - the one accent (Pauw) appears only where the primitives ration it: the
+ *     focus ring, the running progress meter and a live helper chip.
  */
 
 /* =========================================================================
@@ -30,11 +30,11 @@
   padding: var(--fw-gutter);
   overflow: hidden;
 
-  --fw-agents-pad: var(--forge-space-4);
+  --fw-agents-pad: var(--fs-space-4);
 }
 
 :root[data-density='compact'] .fw-agents {
-  --fw-agents-pad: var(--forge-space-3);
+  --fw-agents-pad: var(--fs-space-3);
 }
 
 /* =========================================================================
@@ -53,22 +53,27 @@
 .fw-agents__heading {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: 1 1 22rem;
   min-inline-size: 0;
 }
 
 .fw-agents__title {
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: calc(var(--fs-text-13) * 2);
+  font-weight: 400;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  color: var(--fs-ink);
 }
 
 .fw-agents__subtitle {
-  max-inline-size: 52ch;
-  font-size: var(--forge-text-sm);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  margin: 0;
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents__toolbar {
@@ -90,32 +95,34 @@
 .fw-agents__live {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex: none;
   min-inline-size: 0;
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-1);
 }
 
 .fw-agents__live-head {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  color: var(--forge-color-text-faint);
+  gap: var(--fs-space-2);
+  color: var(--fs-ink-3);
+}
+
+.fw-agents__live-title {
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink-2);
 }
 
 .fw-agents__live-empty {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
-  font-style: italic;
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents__live-chips {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   list-style: none;
   margin: 0;
@@ -124,9 +131,10 @@
 }
 
 .fw-agents__live-note {
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-faint);
+  margin: 0;
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
   max-inline-size: 68ch;
 }
 
@@ -134,12 +142,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-inline-size: var(--forge-space-4);
-  padding-inline: var(--forge-space-1);
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-color-surface-3);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-2xs);
+  min-inline-size: var(--fs-space-4);
+  padding-inline: var(--fs-space-1);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-sunken);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
   font-variant-numeric: tabular-nums;
 }
 
@@ -148,8 +156,8 @@
    uses; this chip's own border simply matches that with the existing
    status-running token. */
 .fw-agents-chip[data-live='running'] {
-  border-color: var(--forge-status-running);
-  color: var(--forge-color-text);
+  border-color: var(--fs-accent);
+  color: var(--fs-ink);
 }
 
 .fw-agents-chip[data-live='dispatched'] {
@@ -157,31 +165,31 @@
 }
 
 /* WP-CCD (item 3): a real-log dispatch the gateway itself reports as stalled — the SAME existing
-   `--forge-status-blocked` token this app already uses for "something needs attention" (Run.status
+   `--fs-warn` token (the blocked status colour) this app already uses for "something needs attention" (Run.status
    'stalled' maps to `StatusKey` 'blocked' too — see `toRunStatusKey`), never a new colour. Dashed
    like `dispatched` (it is not running), but the border colour marks it apart from an ordinary
    finished dispatch. */
 .fw-agents-chip[data-live='stalled'] {
   border-style: dashed;
-  border-color: var(--forge-status-blocked);
-  color: var(--forge-color-text);
+  border-color: var(--fs-warn);
+  color: var(--fs-ink);
 }
 
 /* =========================================================================
    Filter row
-   Eight chips, each with a live count. Scrolls inside itself on a phone
-   rather than pushing the page wider.
+   Sentence-case words with a plain count. Only "All", the chosen filter and
+   statuses somebody is in are shown. Scrolls inside itself when narrow.
    ========================================================================= */
 
 .fw-agents__filters {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
   min-inline-size: 0;
   max-inline-size: 100%;
-  padding-block-end: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-end: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
   overflow-x: auto;
   overscroll-behavior-inline: contain;
 }
@@ -193,33 +201,22 @@
 .fw-agents__filter .fw-button__label {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   overflow: visible;
 }
 
 .fw-agents__filter-label {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
+  font-size: var(--fs-text-13);
 }
 
 .fw-agents__filter-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-inline-size: var(--forge-space-5);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-color-surface-1);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-tight);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-13);
   font-variant-numeric: tabular-nums;
 }
 
 .fw-agents__filter.is-active .fw-agents__filter-count {
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text);
+  color: var(--fs-ink-2);
 }
 
 /* =========================================================================
@@ -230,55 +227,55 @@
   flex: 1 1 auto;
   min-block-size: 0;
   min-inline-size: 0;
-  padding-block-start: var(--forge-space-1);
+  padding-block-start: var(--fs-space-1);
 }
 
 /* =========================================================================
    Group carrier
-   Resolves the seven --forge-group-* luminance steps into local properties so
+   Resolves the group tokens (all the neutral --fs-ink-2 since the redesign) into local properties so
    a card, a row or a band header can all wear the same tempering value.
    ========================================================================= */
 
 .fw-agents-group {
-  --fw-group-color: var(--forge-group-domain);
-  --fw-group-soft: var(--forge-group-domain-soft);
-  --fw-group-line: var(--forge-group-domain-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 
 .fw-agents-group[data-group='control'] {
-  --fw-group-color: var(--forge-group-control);
-  --fw-group-soft: var(--forge-group-control-soft);
-  --fw-group-line: var(--forge-group-control-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 .fw-agents-group[data-group='context'] {
-  --fw-group-color: var(--forge-group-context);
-  --fw-group-soft: var(--forge-group-context-soft);
-  --fw-group-line: var(--forge-group-context-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 .fw-agents-group[data-group='planning'] {
-  --fw-group-color: var(--forge-group-planning);
-  --fw-group-soft: var(--forge-group-planning-soft);
-  --fw-group-line: var(--forge-group-planning-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 .fw-agents-group[data-group='domain'] {
-  --fw-group-color: var(--forge-group-domain);
-  --fw-group-soft: var(--forge-group-domain-soft);
-  --fw-group-line: var(--forge-group-domain-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 .fw-agents-group[data-group='execution'] {
-  --fw-group-color: var(--forge-group-execution);
-  --fw-group-soft: var(--forge-group-execution-soft);
-  --fw-group-line: var(--forge-group-execution-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 .fw-agents-group[data-group='review'] {
-  --fw-group-color: var(--forge-group-review);
-  --fw-group-soft: var(--forge-group-review-soft);
-  --fw-group-line: var(--forge-group-review-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 .fw-agents-group[data-group='memory'] {
-  --fw-group-color: var(--forge-group-memory);
-  --fw-group-soft: var(--forge-group-memory-soft);
-  --fw-group-line: var(--forge-group-memory-line);
+  --fw-group-color: var(--fs-ink-2);
+  --fw-group-soft: var(--fs-sunken);
+  --fw-group-line: var(--fs-line);
 }
 
 /* =========================================================================
@@ -305,13 +302,13 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-inline-size: 0;
   padding: var(--fw-agents-pad);
-  padding-inline-start: calc(var(--fw-agents-pad) + var(--forge-space-2));
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-lg);
+  padding-inline-start: calc(var(--fw-agents-pad) + var(--fs-space-2));
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
 }
 
 /* The status edge. Drawn as a pseudo-element so a hover or selected rule can
@@ -320,7 +317,7 @@
 .fw-agents-row::before {
   content: '';
   position: absolute;
-  inset-block: var(--forge-space-4);
+  inset-block: var(--fs-space-4);
   inset-inline-start: 0;
   inline-size: 0;
   border-inline-start: var(--fw-status-width) var(--fw-status-style) var(--fw-status-color);
@@ -328,25 +325,25 @@
 
 .fw-agents-card:hover,
 .fw-agents-row:hover {
-  background: var(--forge-color-surface-2);
+  background: var(--fs-surface-2);
 }
 
 .fw-agents-card.is-selected,
 .fw-agents-row.is-selected {
-  background: var(--forge-color-selected);
-  border-color: var(--forge-color-line-strong);
+  background: var(--fs-accent-soft);
+  border-color: var(--fs-line-strong);
 }
 
 /* Keyboard focus is reported by the whole card, not by the bare name text. */
 .fw-agents-card:has(.fw-agents-card__hit:focus-visible),
 .fw-agents-row:has(.fw-agents-row__hit:focus-visible) {
-  box-shadow: var(--forge-shadow-focus-ring);
+  box-shadow: var(--fs-focus);
 }
 
 .fw-agents-card__top {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
@@ -364,10 +361,10 @@
 .fw-agents-row__hit {
   display: block;
   max-inline-size: 100%;
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-base);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-snug);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
   text-align: start;
   cursor: pointer;
   overflow: hidden;
@@ -380,7 +377,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: var(--forge-radius-lg);
+  border-radius: var(--fs-radius-md);
 }
 
 .fw-agents-card__hit:focus-visible,
@@ -389,36 +386,36 @@
 }
 
 .fw-agents-card__id {
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-tight);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-tight);
 }
 
 .fw-agents-card__group {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-card__glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  inline-size: var(--forge-control-xs);
-  block-size: var(--forge-control-xs);
-  border: var(--forge-border-hair) solid var(--fw-group-line);
-  border-radius: var(--forge-radius-xs);
+  inline-size: 22px;
+  block-size: 22px;
+  border: 1px solid var(--fw-group-line);
+  border-radius: var(--fs-radius-xs);
   background: var(--fw-group-soft);
   color: var(--fw-group-color);
 }
 
 .fw-agents-card__divider {
-  inline-size: var(--forge-border-hair);
-  block-size: var(--forge-space-3);
-  background: var(--forge-color-line);
+  inline-size: 1px;
+  block-size: var(--fs-space-3);
+  background: var(--fs-line);
 }
 
 .fw-agents-card__role {
@@ -427,59 +424,77 @@
   line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-card__task {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
-  padding: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
+  gap: var(--fs-space-1);
+  padding: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
 }
 
 .fw-agents-card__task-text {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
 }
 
 .fw-agents-card__task-text.is-none {
-  color: var(--forge-color-text-faint);
-  font-style: italic;
+  color: var(--fs-ink-3);
+}
+
+/* Small sentence-case labels inside a card (they replace the old caps eyebrows). */
+.fw-agents-card__label,
+.fw-agents-model__label {
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
+}
+
+.fw-agents-card__group-name {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
+}
+
+.fw-agents-card__when,
+.fw-agents-row__when {
+  font-size: var(--fs-text-12);
+  font-variant-numeric: tabular-nums;
 }
 
 .fw-agents-card__models {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-agents-model {
   display: flex;
   align-items: baseline;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-agents-model__key {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
   inline-size: 6.5rem;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-model__val {
   min-inline-size: 0;
   flex: 1 1 auto;
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -494,29 +509,36 @@
   overflow: visible;
 }
 
+/* A value in words ("niet ingesteld"), not machine text: body font, quiet. */
+.fw-agents-model__plain,
+.fw-agents-row__unset {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
 .fw-agents-card__skills {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-agents-card__foot {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
-  padding-block-start: var(--forge-space-2);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-start: var(--fs-space-2);
+  border-block-start: 1px solid var(--fs-line);
 }
 
 .fw-agents-card__activity {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin-inline-start: auto;
-  color: var(--forge-color-text-faint);
-  font-size: var(--forge-text-2xs);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
 }
 
 /* =========================================================================
@@ -526,7 +548,7 @@
 .fw-agents-list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -538,21 +560,21 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(0, 9rem);
   align-items: start;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-inline-size: 0;
-  padding: var(--forge-space-3);
-  padding-inline-start: var(--forge-space-4);
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
+  padding: var(--fs-space-3);
+  padding-inline-start: var(--fs-space-4);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
 }
 
 :root[data-density='compact'] .fw-agents-row {
-  padding-block: var(--forge-space-2);
+  padding-block: var(--fs-space-2);
 }
 
 .fw-agents-row::before {
-  inset-block: var(--forge-space-3);
+  inset-block: var(--fs-space-3);
 }
 
 .fw-agents-row__glyph {
@@ -560,10 +582,10 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  inline-size: var(--forge-control-md);
-  block-size: var(--forge-control-md);
-  border: var(--forge-border-hair) solid var(--fw-group-line);
-  border-radius: var(--forge-radius-sm);
+  inline-size: 30px;
+  block-size: 30px;
+  border: 1px solid var(--fw-group-line);
+  border-radius: var(--fs-radius-xs);
   background: var(--fw-group-soft);
   color: var(--fw-group-color);
 }
@@ -571,14 +593,14 @@
 .fw-agents-row__body {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-agents-row__line {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
@@ -588,13 +610,13 @@
 }
 
 .fw-agents-row__id {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-agents-row__role {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -603,43 +625,42 @@
 .fw-agents-row__task {
   display: flex;
   align-items: baseline;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
 }
 
 .fw-agents-row__task .fw-icon {
   flex: none;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-row__task.is-none {
-  color: var(--forge-color-text-faint);
-  font-style: italic;
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-row__meta {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   flex-wrap: wrap;
   min-inline-size: 0;
-  padding-block-start: var(--forge-space-1);
+  padding-block-start: var(--fs-space-1);
 }
 
 .fw-agents-row__meta-item {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  color: var(--forge-color-text-faint);
-  font-size: var(--forge-text-2xs);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
 }
 
 .fw-agents-row__meta-item .fg-machine {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -650,11 +671,11 @@
   align-items: center;
   justify-content: flex-end;
   min-inline-size: 0;
-  padding-block-start: var(--forge-space-1);
+  padding-block-start: var(--fs-space-1);
 }
 
 .fw-agents-row__progress-idle {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -678,11 +699,11 @@
 .fw-agents__band-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
-  padding-block-end: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-end: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-agents__band-glyph {
@@ -690,121 +711,112 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  inline-size: var(--forge-control-md);
-  block-size: var(--forge-control-md);
-  border: var(--forge-border-hair) solid var(--fw-group-line);
-  border-radius: var(--forge-radius-sm);
+  inline-size: 30px;
+  block-size: 30px;
+  border: 1px solid var(--fw-group-line);
+  border-radius: var(--fs-radius-xs);
   background: var(--fw-group-soft);
   color: var(--fw-group-color);
 }
 
 .fw-agents__band-title {
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-semibold);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  color: var(--fw-group-color);
+  margin: 0;
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  color: var(--fs-ink);
 }
 
 .fw-agents__band-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-inline-size: var(--forge-space-5);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-full);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-tight);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-13);
   font-variant-numeric: tabular-nums;
 }
 
 .fw-agents__band-note {
   flex: 1 1 16rem;
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents__band-empty {
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) dashed var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
    Chips, effort mark, skills
-   Every chip pairs an icon with an uppercase machine label, so none of them
+   Every chip pairs an icon with a sentence-case word, so none of them
    depend on their border treatment alone to be read.
    ========================================================================= */
 
 .fw-agents-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
-  block-size: var(--forge-control-xs);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-xs);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-muted);
+  block-size: 22px;
+  padding-inline: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-3);
 }
 
-.fw-agents-chip .fg-machine {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  line-height: var(--forge-leading-none);
+.fw-agents-chip .fg-machine,
+.fw-agents-chip__label {
+  font-size: var(--fs-text-12);
+  line-height: 1;
 }
 
 /* Permission: weight, never hue. More authority = a heavier edge. */
 .fw-agents-chip[data-permission='read-only'] {
   border-style: dotted;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 .fw-agents-chip[data-permission='standard'] {
   border-style: solid;
 }
 .fw-agents-chip[data-permission='elevated'] {
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text-secondary);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink-2);
 }
 .fw-agents-chip[data-permission='lead'] {
-  border-width: var(--forge-border-thick);
-  border-color: var(--forge-color-line-loud);
-  color: var(--forge-color-text);
+  border-width: 2px;
+  border-color: var(--fs-ink-3);
+  color: var(--fs-ink);
 }
 
 /* Verification state. Not one of the seven statuses, so it gets its own
    treatment out of the neutral line tokens rather than borrowing a status. */
 .fw-agents-chip[data-verification='verified'] {
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text-secondary);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink-2);
 }
 .fw-agents-chip[data-verification='pending'] {
   border-style: dashed;
 }
 .fw-agents-chip[data-verification='rejected'] {
-  border-width: var(--forge-border-thick);
-  border-color: var(--forge-color-line-loud);
-  color: var(--forge-color-text);
+  border-width: 2px;
+  border-color: var(--fs-ink-3);
+  color: var(--fs-ink);
 }
 .fw-agents-chip[data-verification='not-required'] {
   border-style: dotted;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-chip--skill {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-line-subtle);
+  background: var(--fs-sunken);
+  border-color: var(--fs-line);
 }
 
 .fw-agents-skills {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex-wrap: wrap;
   list-style: none;
   margin: 0;
@@ -813,40 +825,39 @@
 }
 
 .fw-agents-skills__none {
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-faint);
-  font-style: italic;
+  margin: 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-agents-effort {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
-.fw-agents-effort .fg-machine {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
+.fw-agents-effort__word {
+  font-size: var(--fs-text-12);
 }
 
 .fw-agents-effort__bars {
   display: inline-flex;
   align-items: flex-end;
-  gap: var(--forge-space-px);
-  block-size: var(--forge-space-3);
+  gap: 1px;
+  block-size: var(--fs-space-3);
 }
 
 .fw-agents-effort__bar {
-  inline-size: var(--forge-border-thick);
+  inline-size: 2px;
   block-size: 100%;
-  border-radius: var(--forge-radius-xs);
-  background: var(--forge-color-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-line);
 }
 
 .fw-agents-effort__bar.is-on {
-  background: var(--forge-color-text-muted);
+  background: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -868,9 +879,9 @@
   inline-size: 100%;
   min-inline-size: 0;
   overflow: hidden;
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-lg);
-  background: var(--forge-color-canvas);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-bg-side);
 }
 
 .fw-agents-graph__canvas {
@@ -895,7 +906,7 @@
 }
 
 .fw-agents-graph__world.is-smooth {
-  transition: transform var(--forge-motion-base) var(--forge-motion-ease-standard);
+  transition: transform var(--fs-dur-2) var(--fs-ease);
 }
 
 .fw-agents-graph__svg {
@@ -919,7 +930,7 @@
 
 .fw-agents-graph__edge {
   fill: none;
-  stroke: var(--forge-color-line-loud);
+  stroke: var(--fs-ink-3);
   stroke-width: 1.25;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
@@ -936,7 +947,7 @@
 }
 
 .fw-agents-graph__arrow {
-  fill: var(--forge-color-line-loud);
+  fill: var(--fs-ink-3);
 }
 
 /* ---- nodes: same group/status carriers the cards and rows already use ---- */
@@ -948,48 +959,48 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: var(--forge-space-1);
-  padding: var(--forge-space-2);
+  gap: var(--fs-space-1);
+  padding: var(--fs-space-2);
   overflow: hidden;
   text-align: start;
   cursor: pointer;
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--fw-group-line);
+  background: var(--fs-surface);
+  border: 1px solid var(--fw-group-line);
   /* The status border treatment, straight off the tokens (fw-status carrier). */
   border-inline-start: var(--fw-status-width) var(--fw-status-style) var(--fw-status-color);
-  border-radius: var(--forge-radius-md);
-  color: var(--forge-color-text);
-  box-shadow: var(--forge-shadow-sm);
+  border-radius: var(--fs-radius-sm);
+  color: var(--fs-ink);
+  box-shadow: var(--fs-shadow-1);
 }
 
 /* Boss: the sole root, weighted heavier so the top of the hierarchy reads
    instantly without depending on position alone. */
 .fw-agents-graph__node.is-root {
-  border-width: var(--forge-border-thick);
-  background: var(--forge-color-surface-2);
+  border-width: 2px;
+  background: var(--fs-surface-2);
 }
 
 .fw-agents-graph__node:hover {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-line-strong);
+  background: var(--fs-sunken);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-agents-graph__node.is-selected {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-text);
-  border-width: var(--forge-border-thick);
-  box-shadow: var(--forge-shadow-md);
+  background: var(--fs-sunken);
+  border-color: var(--fs-ink);
+  border-width: 2px;
+  box-shadow: var(--fs-shadow-2);
 }
 
 .fw-agents-graph__node:focus-visible {
   outline: none;
-  box-shadow: var(--forge-shadow-focus-ring);
+  box-shadow: var(--fs-focus);
 }
 
 .fw-agents-graph__node-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
@@ -999,44 +1010,44 @@
 }
 
 .fw-agents-graph__node-name {
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-tight);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  line-height: var(--fs-leading-tight);
 }
 
 .fw-agents-graph__node-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-agents-graph__node-role {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 /* ---- floating controls: screen-space, does not move with the world ---- */
 
 .fw-agents-graph__controls {
   position: absolute;
-  inset-block-start: var(--forge-space-3);
-  inset-inline-end: var(--forge-space-3);
+  inset-block-start: var(--fs-space-3);
+  inset-inline-end: var(--fs-space-3);
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-1) var(--forge-space-2);
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  box-shadow: var(--forge-shadow-sm);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  box-shadow: var(--fs-shadow-1);
 }
 
 .fw-agents-graph__zoom {
   min-inline-size: 4ch;
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -1119,33 +1130,33 @@
 
 .fw-agents-modelpick__panel {
   position: absolute;
-  inset-block-start: calc(100% + var(--forge-space-1));
+  inset-block-start: calc(100% + var(--fs-space-1));
   inset-inline-start: 0;
-  z-index: var(--forge-z-overlay);
+  z-index: 300;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-px);
+  gap: 1px;
   inline-size: max-content;
   min-inline-size: 8rem;
   max-inline-size: 16rem;
   max-block-size: 40vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-raised);
-  box-shadow: var(--forge-shadow-lg);
+  padding: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-3);
 }
 
 .fw-agents-modelpick__item {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2);
-  border-radius: var(--forge-radius-sm);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2);
+  border-radius: var(--fs-radius-xs);
   background: transparent;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
   text-align: start;
   cursor: pointer;
   min-inline-size: 0;
@@ -1153,14 +1164,14 @@
 
 .fw-agents-modelpick__item:hover,
 .fw-agents-modelpick__item:focus-visible {
-  background: var(--forge-color-hover);
-  color: var(--forge-color-text);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink);
 }
 
 .fw-agents-modelpick__check {
   flex: none;
   margin-inline-start: auto;
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
 }
 
 /* =========================================================================

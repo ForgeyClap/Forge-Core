@@ -1,6 +1,8 @@
 ---
 name: forge-brainstorm
-description: Forge structured-ideation playbook. Use BEFORE building when the approach isn't obvious — brainstorm, options, trade-offs, alternatives, design direction, which way to build.
+description: "Use when the approach is unclear (welke kant op, opties): one direction."
+# A10 original description (listing budget): "Use when the approach is unclear (welke kant op, opties, trade-offs): options + one design direction."
+# W2-BUDGET original description (listing budget): "Use when the approach is unclear (welke kant op, opties, trade-offs): one design direction."
 ---
 
 # Forge playbook — Structured ideation (brainstorm before build)

@@ -1,0 +1,130 @@
+{
+  "type": "generic",
+  "version": 1,
+  "title": "Generic (fallback for any other deliverable)",
+  "covers": "Any deliverable no other lens fits. Derive its professional bar first; use a closer lens as well whenever one partly fits.",
+  "domains": [],
+  "stakeholders": [
+    {
+      "id": "primary-user",
+      "who": "The person this deliverable is made for (work out who that is first)",
+      "cares_about": ["it does what they asked", "it looks and works finished", "they can use it without help"],
+      "would_notice": ["something that works but is not what they asked for", "placeholder or test content", "an error or empty screen with no explanation"]
+    },
+    {
+      "id": "checker",
+      "who": "A professional in this field reviewing the work",
+      "cares_about": ["the work meets the field's normal standard", "claims backed by evidence"],
+      "would_notice": ["'done' with nothing to show for it", "a weakness hidden instead of named", "a beginner's mistake any professional in the field would spot"]
+    },
+    {
+      "id": "next-maintainer",
+      "who": "Whoever has to run, change or hand on this work next",
+      "cares_about": ["knowing what was checked and what was not", "no secrets left behind"],
+      "would_notice": ["no note of what was verified", "a key or password in the files"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Who is this for, and what would they do with it first?",
+    "Use or open it cold as that person: what are the first three things you notice?",
+    "Does anything look unfinished, broken or like a template?"
+  ],
+  "checks": [
+    {
+      "id": "bar-derived",
+      "stakeholder": "checker",
+      "claim": "Before reviewing, the professional bar for this kind of deliverable is written down: who uses it, what good looks like, what breaks it.",
+      "how_to_inspect": "Write three short lists (users, signs of good work, typical failures) from the brief and, where needed, sourced research; mark them provisional.",
+      "evidence_required": "The three lists in the review.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "derive its professional bar (who uses it, what good looks like, what breaks it)" }
+    },
+    {
+      "id": "first-ten-seconds",
+      "stakeholder": "primary-user",
+      "claim": "The first-ten-seconds test was done cold, as the primary user: what they see, understand and would do first.",
+      "how_to_inspect": "Open or use the deliverable as that person would, without prior knowledge, and write down the first three things you notice.",
+      "evidence_required": "The three observations and what each led to.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "the first ten seconds" }
+    },
+    {
+      "id": "every-detail",
+      "stakeholder": "primary-user",
+      "claim": "Every visible detail was checked from that person's point of view: spacing, alignment, contrast, copy, empty and error states, naming, units.",
+      "how_to_inspect": "Go through the deliverable part by part with that list and write each finding down.",
+      "evidence_required": "The findings per part, with screenshots or excerpts.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "Check every visible detail from that person's point of view" }
+    },
+    {
+      "id": "no-test-content",
+      "stakeholder": "primary-user",
+      "claim": "No test mode, mock backend, sample data or placeholder content is left in what is handed over.",
+      "how_to_inspect": "Search the deliverable for test, mock, sample, lorem, todo and example, and look at every visible value.",
+      "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Universal", "quote": "No test mode, mock backend, or fake/sample data left in." }
+    },
+    {
+      "id": "matches-intent",
+      "stakeholder": "primary-user",
+      "claim": "The deliverable matches what the person actually asked for, not a technically nearby substitute.",
+      "how_to_inspect": "Put the original request next to the result and check every asked-for item.",
+      "evidence_required": "The request items with where each is met, or why it is not.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Architecture & design intent", "quote": "The delivered design matches the user's actual stated intent, not a technically-adjacent substitute." }
+    },
+    {
+      "id": "evidence-not-claims",
+      "stakeholder": "checker",
+      "claim": "Every 'done', 'works' or 'tested' in the hand-off is backed by evidence; nothing is claimed that did not run.",
+      "how_to_inspect": "Mark each claim in the hand-off and attach the command, screenshot or file that proves it.",
+      "evidence_required": "The claim list with evidence per claim.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/docs/forge-reference/playbook-template.md", "section": "Shared gates", "quote": "Never claim a check, test, build, eval, live call, charge, install or deploy that did not run." }
+    },
+    {
+      "id": "weakness-named",
+      "stakeholder": "checker",
+      "claim": "Whatever is still weak is fixed or named plainly in the hand-off: what it is, who would notice, and why it is not fixed now.",
+      "how_to_inspect": "Compare the review findings with the hand-off text and check every open finding appears there.",
+      "evidence_required": "The stated-weaknesses list.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "Fix it, or say plainly what is still weak." }
+    },
+    {
+      "id": "no-secrets",
+      "stakeholder": "next-maintainer",
+      "claim": "No secret sits in code, bundles, logs, error messages, documents or git; placeholders only.",
+      "how_to_inspect": "Search everything handed over for key, token, password and secret.",
+      "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/docs/forge-reference/playbook-template.md", "section": "Shared gates", "quote": "never in code, client bundles, logs, error messages or git" }
+    },
+    {
+      "id": "handover-honest",
+      "stakeholder": "next-maintainer",
+      "claim": "The hand-off says what was verified and what was assumed, and lists open owner actions.",
+      "how_to_inspect": "Read the hand-off as the next person and check both lists are there.",
+      "evidence_required": "The verified, assumed and open lists.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "What was verified vs. assumed is stated explicitly." }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Nearest-template output", "symptom": "the deliverable follows the pattern of another project type instead of what this one needs" },
+    { "defect": "Done without proof", "symptom": "'works' and 'tested' in the report with no command, screenshot or file behind it" },
+    { "defect": "Hidden weakness", "symptom": "a known problem left out of the hand-off, found later by the owner" },
+    { "defect": "Leftover scaffolding", "symptom": "sample data, mock responses or TODO notes in what was handed over" }
+  ]
+}

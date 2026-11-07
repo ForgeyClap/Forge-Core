@@ -400,8 +400,10 @@ t('maand-sweep.cmd refuses to start the run when no cap could be resolved', () =
 
 t('the cap change touches ONLY unattended wrappers — no interactive entry point is capped', () => {
   // The owner's own interactive session must keep working exactly as before. The only files allowed to
-  // carry --max-budget-usd are this module, its test, and the unattended wrappers.
-  const allowed = new Set(['forge-run-budget.cjs', 'forge-run-budget.test.cjs', 'maand-sweep.cmd']);
+  // carry --max-budget-usd are this module, its test, and the unattended wrappers. WP I.5 (registered in 2.9c):
+  // forge-intel-evals.cjs `live --yes` is one: owner-gated, one non-interactive `claude -p` session per scenario,
+  // each capped (default 0.5, hard cap 5); its test only checks the args with an injected spawn.
+  const allowed = new Set(['forge-run-budget.cjs', 'forge-run-budget.test.cjs', 'maand-sweep.cmd', 'forge-intel-evals.cjs', 'forge-intel-evals.test.cjs']);
   const offenders = fs.readdirSync(__dirname)
     .filter((f) => !allowed.has(f))
     .filter((f) => { try { return /--max-budget-usd/.test(fs.readFileSync(path.join(__dirname, f), 'utf8')); } catch { return false; } });

@@ -1,6 +1,8 @@
 ---
 name: forge-worktrees
-description: Forge safe-parallel-work playbook using git worktrees. Use when more than one Boss writes code in the same repo at once — parallel agents, worktree, isolate, avoid conflicts.
+description: "Use when 2+ Bosses write one repo at once (parallel bouwen, worktree)."
+# A10 original description (listing budget): "Use when 2+ Bosses write one repo at once (parallel bouwen, worktree): isolate the work, avoid conflicts."
+# W2-BUDGET original description (listing budget): "Use when 2+ Bosses write one repo at once (parallel bouwen, worktree): isolate the work."
 ---
 
 # Forge playbook — Safe parallel work via git worktrees
@@ -25,32 +27,13 @@ wrapper: when Forge reaches for isolation, and who owns merging the result back.
   not either/or.
 
 ## When to isolate
-- Head Chef is running two or more Bosses concurrently against the same repo (e.g. Build Boss + UI Boss
-  on different modules of the same app in the same run).
-- A large/risky change (major refactor, dependency upgrade) that should stay reviewable as its own diff
-  before merging into the main line.
-- Codex write-delegation (`/codex:rescue` or any `--write` task) — per `CODEX_GLOBAL_POLICY.md` (an owner-level policy in `~/.claude` when present; on an install without it, the defaults stated in this skill apply — read-only, never a blocker), Codex
-  runs on a **separate worktree/branch**, never concurrently with Claude in the same tree.
-
-Do NOT isolate: single-agent sequential work, trivial 1-2 file edits, or tasks with no real parallelism
-(isolation overhead without benefit).
+Two or more Bosses writing the same repo at once, a large/risky change that must stay reviewable as its own diff, or any Codex write-delegation. Not for single-agent sequential work or a trivial 1-2 file edit. Full text of these four sections: `references/isolation-and-integration.md`.
 
 ## Create & integrate
-1. **Create.** Detect existing isolation first; otherwise create a worktree per independent Boss/agent
-   (`git worktree add <path> -b <branch>`), scoped to that Boss's exact work package.
-2. **Dispatch.** Each Boss works only inside its own worktree, on files relevant to its own package —
-   commits stay scoped, no unrelated files bundled in.
-3. **Integrate.** The Lead (Head Chef, or whichever Boss owns the integration for that run) merges each
-   worktree's branch back into the target branch, resolving any conflicts itself rather than leaving them
-   for the next agent.
+One worktree per independent Boss (`git worktree add <path> -b <branch>`), each Boss stays inside its own; the Lead merges each branch back and resolves conflicts itself.
 
 ## Lead is the integration layer
-Per the project's standing rule, the agent coordinating parallel work is the one responsible for merging
-it back cleanly — an individual Boss does not merge its own worktree into main unilaterally when other
-parallel work is still in flight. The Lead verifies the assembled result (a real integration check, not
-just "each worktree's own tests passed") before treating the parallel build as done.
+A Boss never merges its own worktree into main while other parallel work is in flight; the Lead verifies the ASSEMBLED result with a real integration check before the parallel build counts as done.
 
 ## Cleanup
-After a successful merge: remove the worktree (`git worktree remove <path>`) and delete the now-merged
-branch if the project's convention is to prune merged branches. Never delete a worktree/branch that still
-has unmerged, uncommitted, or unreviewed work without explicit owner confirmation.
+After a successful merge remove the worktree; never delete a worktree/branch with unmerged, uncommitted or unreviewed work without explicit owner confirmation.

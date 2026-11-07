@@ -1196,6 +1196,36 @@ async function run() {
     assert.deepStrictEqual(after, before, 'with no reserved-name candidates present, --apply must be a true no-op on the real project');
   });
 
+  // WP 3.5: `stats` dispatches to forge-routing-stats.cjs (read-only routing statistics).
+  {
+    const statsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-runinfo-stats-'));
+    const sRuns = path.join(statsRoot, '.claude', 'forge-runs', 'r1');
+    fs.mkdirSync(sRuns, { recursive: true });
+    fs.writeFileSync(path.join(sRuns, 'events.jsonl'), JSON.stringify({ event_type: 'wp_completed', wp_id: 'a', agent: 'build-boss', route: 'build', timestamp: '2026-10-01T10:00:00Z', note: 'PRIVATE-NOTE' }) + '\n');
+    await tAsync('CLI: `stats --root <fixture> --json` exits 0 and reports the fixture run with its actual route', async () => {
+      const r = spawnSync(process.execPath, [TOOL, 'stats', '--root', statsRoot, '--json'], { encoding: 'utf8', timeout: 20000 });
+      assert.strictEqual(r.status, 0, 'stderr: ' + r.stderr);
+      const j = JSON.parse(r.stdout);
+      assert.strictEqual(j.runs_measured, 1);
+      assert.strictEqual(j.per_route.build.packages, 1);
+      assert.ok(!r.stdout.includes('PRIVATE-NOTE'), 'note text must never be printed');
+    });
+    await tAsync('CLI: `stats` with a bad argument exits 2 (the exit code is no longer swallowed)', async () => {
+      const r = spawnSync(process.execPath, [TOOL, 'stats', '--bogus'], { encoding: 'utf8', timeout: 20000 });
+      assert.strictEqual(r.status, 2, 'stdout: ' + r.stdout + ' stderr: ' + r.stderr);
+      assert.ok(/unknown argument/.test(r.stderr), r.stderr);
+    });
+    await tAsync('CLI: `stats` without --root uses this project and prints the honest header', async () => {
+      const r = spawnSync(process.execPath, [TOOL, 'stats', '--runs', '5'], { encoding: 'utf8', timeout: 20000 });
+      assert.strictEqual(r.status, 0, 'stderr: ' + r.stderr);
+      assert.ok(/^Forge routing stats - measured from \d+ runs, \d+ with route data/.test(r.stdout), r.stdout.split('\n')[0]);
+    });
+    await tAsync('help lists the stats mode', async () => {
+      const r = spawnSync(process.execPath, [TOOL], { encoding: 'utf8', timeout: 10000 });
+      assert.ok(/\bstats\b.*routing statistics/.test(r.stdout), r.stdout);
+    });
+  }
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed' + (skipped ? ', ' + skipped + ' skipped' : ''));
   process.exitCode = fail ? 1 : 0;
 }

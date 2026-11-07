@@ -58,8 +58,14 @@ let configLoadError = null;
 try { configTool = require('./forge-config.cjs'); } catch (e) { configLoadError = e.message; }
 const OVERRIDE_SOURCES = ['project', 'global', 'flag'];
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
-const DEFAULT_LOG_EVENT_PATH = path.join(PROJECT_ROOT_DEFAULT, '.claude', 'forge-dashboard', 'log-event.cjs');
+// WP 2.1: the fallback root comes from forge-paths.cjs scriptRoot — an installed copy acts on its own project exactly as
+// before; a plugin copy discovers the project and answers null outside one (emit then refuses). Guarded: an older or
+// missing forge-paths.cjs keeps the literal. The event writer is an install file (.claude/forge-dashboard).
+const PROJECT_ROOT_DEFAULT = (() => {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRoot === 'function') return P.scriptRoot(__dirname); } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+})();
+const DEFAULT_LOG_EVENT_PATH = PROJECT_ROOT_DEFAULT ? path.join(PROJECT_ROOT_DEFAULT, '.claude', 'forge-dashboard', 'log-event.cjs') : null;
 const MAX_SAMPLES = 5;
 
 /** configPart(opts) -> { ok:true, count, overrides, samples, changed, notes } | { ok:false, reason } — the
@@ -147,6 +153,9 @@ function emitEcho(runId, matchParams, opts) {
   opts = opts || {};
   if (!runId || !/^[A-Za-z0-9_-]+$/.test(runId)) {
     throw new Error('forge-echo: emitEcho requires a valid run_id (allowed: A-Z a-z 0-9 _ -), got: ' + JSON.stringify(runId));
+  }
+  if (!opts.logEventPath && !opts.root && !PROJECT_ROOT_DEFAULT) {
+    throw new Error('forge-echo: no project root found (this copy is not inside a project) — pass opts.root or opts.logEventPath');
   }
   const echo = composeEcho(matchParams, opts);
   const logEventPath = opts.logEventPath

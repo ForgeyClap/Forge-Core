@@ -88,6 +88,23 @@ console.log('\n2) --only <id> runs exactly one scenario');
   t('a loud usage-error message names the unknown id on stderr', /this-scenario-does-not-exist/.test(r.stderr) && /0 scenario/.test(r.stderr));
   t('the JSON body itself is honest about the outcome too', parsed.outcome === 'usage_error' && parsed.exitCode === 2);
 }
+{
+  // PORTABLE: a synced project may set its owner switch nvidia=off (26h2 does). The provider scenarios must
+  // still exercise the REAL retry path, so their probes read an isolated empty config. Proven with an install-shaped
+  // FORGE_PROJECT_ROOT whose FORGE_CONFIG.json says nvidia=false (before the fix every provider scenario was a policy refusal).
+  const offRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-chaos-test-nvidia-off-'));
+  fs.mkdirSync(path.join(offRoot, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(offRoot, '.claude', 'FORGE_CONFIG.json'), JSON.stringify({ version: 1, settings: { nvidia: { value: false, set_at: '2026-10-08T20:05:10.591Z', set_by: 'owner /forge config set' } } }));
+  const offEnv = Object.assign({}, process.env, { FORGE_PROJECT_ROOT: offRoot, FORGE_CONFIG_HOME: offRoot });
+  const cfgSeen = spawnSync(process.execPath, [path.join(__dirname, 'forge-config.cjs'), 'get', 'nvidia'], { encoding: 'utf8', timeout: 15000, env: offEnv });
+  t('PORTABLE fixture: forge-config really reads nvidia = off from the install-shaped root (the fixture is not vacuous)', /nvidia = off/.test(cfgSeen.stdout));
+  for (const id of ['provider_offline', 'provider_rate_limited_429']) {
+    const r = spawnSync(process.execPath, [CLI, '--json', '--only', id], { encoding: 'utf8', timeout: 60000, env: offEnv });
+    let p = null; try { p = JSON.parse(r.stdout); } catch { p = null; }
+    t('PORTABLE: with the install owner config at nvidia=off, ' + id + ' still runs the real retry path and passes', r.status === 0 && !!p && p.results.length === 1 && p.results[0].status === 'pass');
+  }
+  fs.rmSync(offRoot, { recursive: true, force: true });
+}
 
 // =====================================================================================================
 // 2b) classifyRun() — the pure exit-code decision (WP5 CHAOS FIX): a SKIP / 0-ran run must
@@ -360,7 +377,7 @@ console.log('\n8) mock-short-circuit control (closes the pre-mortem-flagged fals
     '(async () => { const out = await P.chat({ role: "fast", prompt: "hi" }); process.stdout.write(JSON.stringify(out)); })();',
   ].join('\n'), 'utf8');
   const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-chaos-test-emptyhome-'));
-  const env = Object.assign({}, process.env, { USERPROFILE: emptyHome, HOME: emptyHome, NVIDIA_SKIP_ENV_FILES: '1' });
+  const env = Object.assign({}, process.env, { USERPROFILE: emptyHome, HOME: emptyHome, NVIDIA_SKIP_ENV_FILES: '1', FORGE_PROJECT_ROOT: emptyHome, FORGE_CONFIG_HOME: emptyHome }); // no owner config either
   delete env.NVIDIA_API_KEY;
   const r = spawnSync(process.execPath, [scriptPath], { encoding: 'utf8', timeout: 10000, env });
   let out = null; try { out = JSON.parse(r.stdout); } catch { /* handled by the assertion below */ }

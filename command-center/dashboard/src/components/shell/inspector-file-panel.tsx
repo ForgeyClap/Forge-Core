@@ -7,8 +7,9 @@
  */
 
 import { ExampleTag, Icon, Machine } from '@/components/primitives';
+import { t } from '@/i18n';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { CHANGE_LABEL, Diff, Fields, KIND_LABEL, Section, findFile } from './inspector-shared';
+import { CHANGE_LABEL, Diff, Fields, KIND_LABEL, Section, findFile, Quiet } from './inspector-shared';
 import type { Detail, SelectFn } from './inspector-shared';
 
 export function buildFileDetail(
@@ -29,37 +30,34 @@ export function buildFileDetail(
       <>
         <Fields
           rows={[
-            { label: 'Kind', value: <Machine>{file.kind}</Machine> },
+            { label: t('rd.details.field.kind'), value: file.kind === 'dir' ? t('rd.details.kindDir') : t('rd.details.kindFile') },
             {
-              label: 'Change',
+              label: t('rd.details.field.change'),
               value: file.changed ? (
                 <span className="fw-inspector__change" data-change={file.changed}>
-                  <Machine>{CHANGE_LABEL[file.changed]}</Machine>
+                  <span className="fw-sentence">{CHANGE_LABEL[file.changed]}</span>
                 </span>
               ) : production ? (
                 // The real gateway has no git-diff concept (see
                 // gateway-files.ts's header) — "unchanged" would claim a
                 // check that never ran. Honest absence instead.
-                <Machine muted>not tracked</Machine>
+                <Quiet>{t('rd.details.notTracked')}</Quiet>
               ) : (
-                <Machine muted>unchanged</Machine>
+                <Quiet>{t('rd.details.unchanged')}</Quiet>
               ),
             },
-            { label: 'Size', value: <Machine muted>{file.size ?? '—'}</Machine> },
-            { label: 'Updated', value: <Machine muted>{file.updatedAt ?? '—'}</Machine> },
+            { label: t('rd.details.field.size'), value: <Quiet>{file.size ?? '—'}</Quiet> },
+            { label: t('rd.details.field.updated'), value: <Quiet>{file.updatedAt ?? '—'}</Quiet> },
           ]}
         />
         {file.diff ? (
-          <Section title="Example change" defaultOpen count={<ExampleTag />}>
+          <Section title={t('rd.details.section.exampleChange')} defaultOpen count={<ExampleTag />}>
             <Diff text={file.diff} />
-            <p className="fw-inspector__hint">
-              Hand-written diff text. Nothing was read from disk — the prototype has no
-              filesystem access.
-            </p>
+            <p className="fw-inspector__hint">{t('rd.details.exampleDiffHint')}</p>
           </Section>
         ) : null}
         {children.length > 0 ? (
-          <Section title="Contents" count={children.length}>
+          <Section title={t('rd.details.section.contents')} count={children.length}>
             <div className="fw-inspector__links">
               {children.map((child) => (
                 <button

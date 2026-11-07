@@ -37,6 +37,29 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.t
 function homeDir() { return process.env.USERPROFILE || process.env.HOME || os.homedir(); }
 function defaultRoot() { return path.join(homeDir(), 'Documents'); }
 
+// WP 2.1 state paths: each scanned project is read in ITS OWN layout via forge-paths.cjs (the opt-in .forge/ folder
+// when that project has one, else the legacy .claude/forge-* folders exactly as before). Guarded: a missing or older
+// forge-paths.cjs keeps the legacy paths. Read-only, so a project forge-paths cannot judge is read the legacy way.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function forgeLayout(root) { try { return !!forgePaths && forgePaths.layout(root) === 'forge'; } catch { return false; } }
+/** stateDirsOf(root, key) -> [active, legacy] in the forge layout (a reader sees both, active first), else [legacy]. */
+function stateDirsOf(root, key) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgeLayout(root)) return [legacy];
+  try { return [forgePaths.stateDir(root, key), legacy]; } catch { return [legacy]; }
+}
+/** runDirOf(root, id) -> the run's folder: the first runs folder that holds it, else the active one. */
+function runDirOf(root, id) {
+  const dirs = stateDirsOf(root, 'runs');
+  return path.join(dirs.find((d) => fs.existsSync(path.join(d, id))) || dirs[0], id);
+}
+/** memoryReadPath(root, name) -> where a FORGE_* memory file is read (forge layout: .forge/memory, legacy fallback). */
+function memoryReadPath(root, name) {
+  const legacy = path.join(root, '.claude', name);
+  if (!forgeLayout(root) || typeof forgePaths.memoryFile !== 'function') return legacy;
+  try { return forgePaths.memoryFile(root, name, { read: true }); } catch { return legacy; }
+}
+
 /** findProjects(root, maxDepth) — bounded read-only walk; a project = a dir containing .claude/forge-dashboard. */
 function findProjects(root, maxDepth) {
   maxDepth = maxDepth == null ? 3 : maxDepth;
@@ -64,7 +87,7 @@ function readTextGuarded(file) { try { return fs.readFileSync(file, 'utf8').repl
 
 // stack from FORGE_PROJECT_PROFILE.md's "Detected stack:" line (guarded, first ~120 chars)
 function stackFromProfile(projDir) {
-  const txt = readTextGuarded(path.join(projDir, '.claude', 'FORGE_PROJECT_PROFILE.md'));
+  const txt = readTextGuarded(memoryReadPath(projDir, 'FORGE_PROJECT_PROFILE.md'));
   if (!txt) return null;
   const m = txt.match(/(?:detected\s+stack|stack)\s*:\**\s*([^\n]+)/i);
   if (!m) return null;
@@ -73,27 +96,39 @@ function stackFromProfile(projDir) {
 
 /** newest run.json in .claude/forge-runs/ — prefer the state's latest_run_id, else the highest-sorting run dir. */
 function newestRun(projDir, preferredId) {
-  const runsDir = path.join(projDir, '.claude', 'forge-runs');
   if (preferredId && /^[A-Za-z0-9_-]+$/.test(preferredId)) {
-    const j = readJsonGuarded(path.join(runsDir, preferredId, 'run.json'));
+    const j = readJsonGuarded(path.join(runDirOf(projDir, preferredId), 'run.json'));
     if (j) return j;
   }
-  let ids = []; try { ids = fs.readdirSync(runsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return null; }
+  // every runs folder of this project's layout (WP 2.1: active first; a run id seen in an earlier folder wins)
+  const where = new Map();
+  let any = false;
+  for (const runsDir of stateDirsOf(projDir, 'runs')) {
+    let ents; try { ents = fs.readdirSync(runsDir, { withFileTypes: true }); any = true; } catch { continue; }
+    for (const e of ents) if (e.isDirectory() && !where.has(e.name)) where.set(e.name, runsDir);
+  }
+  if (!any) return null;
+  const ids = Array.from(where.keys());
   ids.sort(); // run ids are date-stamped, so lexical sort ≈ chronological
-  for (let i = ids.length - 1; i >= 0; i--) { const j = readJsonGuarded(path.join(runsDir, ids[i], 'run.json')); if (j) return j; }
+  for (let i = ids.length - 1; i >= 0; i--) { const j = readJsonGuarded(path.join(where.get(ids[i]), ids[i], 'run.json')); if (j) return j; }
   return null;
 }
 
 function countTickets(projDir) {
-  const dir = path.join(projDir, '.claude', 'forge-tickets');
-  let files = []; try { files = fs.readdirSync(dir); } catch { return 0; }
-  return files.filter((f) => f.endsWith('.json') && f !== 'index.jsonl').length;
+  const names = new Set();
+  let any = false;
+  for (const dir of stateDirsOf(projDir, 'tickets')) {
+    let files; try { files = fs.readdirSync(dir); any = true; } catch { continue; }
+    for (const f of files) names.add(f);
+  }
+  if (!any) return 0;
+  return Array.from(names).filter((f) => f.endsWith('.json') && f !== 'index.jsonl').length;
 }
 
 // test_status from the newest run's doctor.json, if one exists (WP7 produces these); else 'unknown'.
 function testStatus(projDir, runId) {
   if (!runId || !/^[A-Za-z0-9_-]+$/.test(runId)) return 'unknown';
-  const doc = readJsonGuarded(path.join(projDir, '.claude', 'forge-runs', runId, 'doctor.json'));
+  const doc = readJsonGuarded(path.join(runDirOf(projDir, runId), 'doctor.json'));
   if (!doc) return 'unknown';
   if (typeof doc.ok === 'boolean') return doc.ok ? 'pass' : 'fail';
   if (doc.status) return String(doc.status);

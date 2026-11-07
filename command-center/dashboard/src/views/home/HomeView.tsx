@@ -1,983 +1,265 @@
 ﻿/**
- * Home — the landing surface of the Forge Workspace prototype.
+ * Start — the new-chat empty state (DESIGN.md §3.1, mockups/01-start*.png).
  *
- * A place to resume from, not an analytics dashboard. In production every count
- * is read from the live store (projects, conversations, active runs, agents), or
- * shown as an honest empty state; in fixture mode the numbers come from the local
- * example dataset. The quick-start cards fire a toast and do nothing else.
+ * One question ("Wat wil je maken?"), the composer, three suggestions, and below that either the
+ * "Start hier" card (a beginner's three first steps) or, for a returning user, one quiet "Verder met"
+ * row. Never shown here: stat cards, project counts or example-data banners — those live on their own
+ * pages (Mijn projecten, Overzicht).
  *
- * Navigation goes through the router the shell mounts (HashRouter, so a built
- * prototype opens from a file:// path). A view names a destination and nothing
- * more — it never imports the shell itself.
+ * Sending is real: in production the first message starts a NEW conversation in the active project
+ * (the same `useChatSend()` controller the chat uses; an active conversation is cleared first so the
+ * message never lands in an older one), then the chat opens. A suggestion only fills the composer; it
+ * never sends. Without the production controller (fixtures) Send says honestly that nothing is sent.
+ * With no active project (`chat.disabledReason`), one short Dutch line sits above the composer and Send keeps
+ * the draft instead of raising the controller's English error. "Nieuw project" shows once: the
+ * composer's project chip already reads "Nieuw project…" and opens the dialog, so the line has no second
+ * button (text budget, DESIGN.md §5: Start stays within 35 words).
+ *
+ * Above the composer also: the quiet usage line (`UsageLine`, only at 80 % of a current limit or more).
+ * The "Start hier" steps read real signals only (see `start-checklist.ts`): an account, not the gateway
+ * connection; the proof step opens Klussen & bewijs (/jobs, as Leer Forge lesson 3) and ticks only
+ * once a real proof was on screen in a klus (JobDetail.tsx).
  */
 
 import './home.css';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Button,
-  EmptyState,
-  Eyebrow,
-  ExampleTag,
-  Icon,
-  IconButton,
-  KeyHint,
-  Machine,
-  Meter,
-  Panel,
-  StatusBadge,
-} from '@/components/primitives';
-import { nextToastId, selectFilteredProjects, usePrototype } from '@/prototype/state/prototype-store';
-import { pollProjectInstall } from '@/components/shell/gateway-actions';
-import type { ProjectType, StatusKey } from '@/prototype/types/prototype-types';
-import { isProductionMode } from '@/config/mode';
-import { NewProjectDialog } from '@/components/shell/NewProjectDialog';
-import { useGatewayActiveRuns } from '@/prototype/state/gateway-adapter';
-import type { ActiveRunRow, ActiveRunsResult } from '@/prototype/state/gateway-adapter';
 
-/* ------------------------------------------------------------------ local helpers */
+import { Icon, IconButton } from '@/components/primitives';
+import { UsageLine } from '@/components/usage/UsageLine';
+import type { MessageKey } from '@/i18n';
+import { useLocale } from '@/i18n/use-locale';
+import { useChatSend } from '@/prototype/state/chat-send';
+import { useGatewayConnection } from '@/prototype/state/gateway-adapter';
+import type { ChatSendEffort, ChatSendMode, ChatSendModel, ChatSendOutcome } from '@/prototype/state/chat-send';
+import { nextToastId, usePrototype } from '@/prototype/state/prototype-store';
+import { Composer } from '@/views/chat/Composer';
+import type { ComposerSendResult } from '@/views/chat/Composer';
 
-const AGO_UNITS: Readonly<Record<string, number>> = {
-  sec: 1 / 60,
-  secs: 1 / 60,
-  second: 1 / 60,
-  seconds: 1 / 60,
-  min: 1,
-  mins: 1,
-  minute: 1,
-  minutes: 1,
-  hr: 60,
-  hrs: 60,
-  hour: 60,
-  hours: 60,
-  day: 1440,
-  days: 1440,
-  week: 10080,
-  weeks: 10080,
-};
+import { useAccountReady, useStartChecklist } from './start-checklist';
 
-/**
- * Minutes since `label`, for ordering only.
- *
- * `Conversation.updatedAt` is still a real ISO timestamp. `Project.lastActivity` is NOT any more —
- * the adapter now formats it to a relative label at the source, because a 24-character ISO string
- * was being truncated inside a meta slot sized for "4 min ago". So both branches below are real
- * production paths now, not "ISO in production, relative for fixtures". The adapter deliberately
- * emits the exact "<number> <unit word>" shape this parser accepts, keeping this sort correct
- * without an edit here — a contract between two files, so do not change either format alone.
- */
-function agoMinutes(label: string): number {
-  const parsed = Date.parse(label);
-  if (!Number.isNaN(parsed)) return Math.max(0, (Date.now() - parsed) / 60000);
-  const match = /^(\d+)\s+([a-z]+)/.exec(label.trim().toLowerCase());
-  if (!match) return 0;
-  return Number(match[1]) * (AGO_UNITS[match[2]] ?? 1);
-}
-
-/** First readable prose line of an example markdown body, trimmed for a card. */
-function plainSnippet(markdown: string, max = 150): string {
-  const line = markdown
-    .split('\n')
-    .map((raw) => raw.trim())
-    .find(
-      (raw) =>
-        raw.length > 0 &&
-        !raw.startsWith('#') &&
-        !raw.startsWith('|') &&
-        !raw.startsWith('```') &&
-        !raw.startsWith('- ') &&
-        !raw.startsWith('> '),
-    );
-  const text = (line ?? '').replace(/[*`_]/g, '');
-  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
-}
-
-const TYPE_ICON: Readonly<Record<ProjectType, string>> = {
-  website: 'Globe',
-  'full-stack': 'Layers',
-  automation: 'Workflow',
-  chatbot: 'MessagesSquare',
-  scraping: 'Radar',
-  prediction: 'TrendingUp',
-  integration: 'Cable',
-  research: 'FlaskConical',
-  // Unclassified project — the dashed circle is this app's existing "not determined" mark, never
-  // one of the eight real type icons (see Sidebar.tsx for the full reasoning).
-  unknown: 'CircleDashed',
-};
-
-const ARTIFACT_ICON: Readonly<Record<string, string>> = {
-  screenshot: 'Image',
-  report: 'FileText',
-  diagram: 'GitBranch',
-  markdown: 'FileText',
-  log: 'ScrollText',
-  receipt: 'ReceiptText',
-  proof: 'ShieldCheck',
-};
-
-const EVENT_ICON: Readonly<Record<string, string>> = {
-  mission: 'Flag',
-  'work-package': 'Package',
-  agent: 'Bot',
-  task: 'ListChecks',
-  artifact: 'Paperclip',
-  test: 'FlaskConical',
-  verify: 'ShieldCheck',
-  review: 'Eye',
-  system: 'Activity',
-};
-
-interface Template {
+interface Suggestion {
   readonly id: string;
-  readonly name: string;
   readonly icon: string;
-  readonly detail: string;
+  readonly labelKey: MessageKey;
+  readonly exampleKey: MessageKey;
 }
 
-const TEMPLATES: readonly Template[] = [
-  { id: 'website', name: 'Website', icon: 'Globe', detail: 'Landing page or studio site, cut from the monochrome kit.' },
-  { id: 'full-stack', name: 'Full-stack app', icon: 'Layers', detail: 'Frontend, API, database and auth planned as one mission.' },
-  { id: 'automation', name: 'Automation', icon: 'Workflow', detail: 'Scheduled jobs and webhooks, retry policy required.' },
-  { id: 'chatbot', name: 'Chatbot', icon: 'MessagesSquare', detail: 'Source-aware answers, or an honest "I do not know".' },
-  { id: 'scraper', name: 'Scraper', icon: 'Radar', detail: 'Public sources only, rate limited, draft-only output.' },
-  { id: 'research', name: 'Research', icon: 'FlaskConical', detail: 'A question, a method, and findings marked provisional.' },
+const SUGGESTIONS: readonly Suggestion[] = [
+  { id: 'site', icon: 'Globe', labelKey: 'rd.start.suggestions.site', exampleKey: 'rd.start.siteExample' },
+  { id: 'mail', icon: 'Mail', labelKey: 'rd.start.suggestions.mail', exampleKey: 'rd.start.mailExample' },
+  { id: 'research', icon: 'Search', labelKey: 'rd.start.suggestions.research', exampleKey: 'rd.start.researchExample' },
 ];
 
-/**
- * A cell of the workspace overview strip. In production the strip carries only
- * counts with a real source in the live data (projects, conversations, active
- * runs, agents); figures with no real source are omitted rather than invented. In
- * fixture mode it keeps the original example strip.
- */
-interface OverviewCell {
-  readonly value: string;
-  readonly label: string;
+type SendArgs = readonly [string, ChatSendMode?, ChatSendEffort?, ChatSendModel?];
+
+interface PendingStart {
+  readonly args: SendArgs;
+  readonly resolve: (outcome: ChatSendOutcome) => void;
 }
 
-/**
- * A calm, honest greeting subtitle built from real counts only. No invented
- * mission narrative: with no projects it is an orientation line; otherwise it
- * states the project count and whether anything is actually running.
- */
-function productionGreetingLead(projectCount: number, activeRuns: number): string {
-  if (projectCount === 0) {
-    return 'No projects in the workspace yet. Start your first one from a template below.';
-  }
-  const projectWord = projectCount === 1 ? 'project' : 'projects';
-  if (activeRuns === 0) {
-    return `${projectCount} ${projectWord} in the workspace. Nothing is running right now.`;
-  }
-  const runWord = activeRuns === 1 ? 'run' : 'runs';
-  return `${projectCount} ${projectWord} in the workspace, ${activeRuns} ${runWord} active right now.`;
+/** Minutes-free ordering for "Verder met": the newest real `updatedAt` wins; unparseable sorts last. */
+function newestFirst(a: string, b: string): number {
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  return (Number.isNaN(tb) ? -Infinity : tb) - (Number.isNaN(ta) ? -Infinity : ta);
 }
-
-/**
- * WP-CCD (item 7): one shared shape for "a mission currently running", whether it came from the
- * cross-project `GET /api/active-runs` (when available) or the current-project `Run[]` this view
- * already has (the honest fallback, used until that route lands — see this file's own call site
- * for the exact precedence). Never mixes the two within one render: either every row is real
- * cross-project data, or every row is the pre-existing current-project derivation.
- */
-interface HomeActiveMission {
-  readonly key: string;
-  readonly title: string;
-  readonly projectLabel: string;
-  readonly agentCount: number;
-  /** `null` when no real work-package/dispatch count exists for this row (a cross-project row
-   *  before the endpoint reports one) — rendered as an honest absence, never a fabricated 0. */
-  readonly workPackageCount: number | null;
-  readonly duration: string;
-  /** Only a current-project row carries a real `StatusKey` badge — a cross-project row's status
-   *  badge would be a bare inference ("it's in this list, so it must be running"), so it renders
-   *  a plain "RUNNING" label via `data-cross-project`, not `<StatusBadge>`, to stay honest about
-   *  what is and is not a verified per-task status. */
-  readonly crossProject: boolean;
-  readonly status: StatusKey;
-}
-
-/**
- * WP-RB-CC (review finding L-1): the "Active missions" panel used to claim "Real active runs across
- * every project in the workspace" with no honest caveat, even when the gateway's own fleet-wide
- * sweep (`GET /api/active-runs`) hit its own project-count/run-count budget and truncated the real
- * result — every count shown (the overview strip's "active runs" cell, this panel's own list) was
- * quietly PART of the workspace, not all of it, with nothing on screen saying so. One plain sentence
- * added only when `truncated` is genuinely true — no new component, no new style.
- */
-function activeMissionsSubtitle(production: boolean, activeRunsAcrossWorkspace: ActiveRunsResult): string {
-  if (!production) return 'Example runs across the workspace.';
-  if (!activeRunsAcrossWorkspace.available) {
-    return 'Active runs for this project. (Workspace-wide active-run reporting is not available from this gateway yet.)';
-  }
-  return activeRunsAcrossWorkspace.truncated
-    ? 'Real active runs across every project in the workspace — showing part of your projects and runs, there are more than this list can show right now.'
-    : 'Real active runs across every project in the workspace.';
-}
-
-function activeRunRowToMission(row: ActiveRunRow): HomeActiveMission {
-  return {
-    key: `${row.project}::${row.runId}`,
-    title: row.title ?? row.runId,
-    projectLabel: row.project,
-    agentCount: row.agents.length,
-    workPackageCount: row.openDispatches,
-    duration: '',
-    crossProject: true,
-    status: 'running',
-  };
-}
-
-/* --------------------------------------------------------------------- view */
 
 export default function HomeView() {
   const { state, dispatch } = usePrototype();
   const navigate = useNavigate();
-  const { projects, conversations, runs, artifacts, events, agents, gates, proof, tasks } = state.data;
+  const { t } = useLocale();
+  const chat = useChatSend();
+  const checklist = useStartChecklist();
+  const accountReady = useAccountReady(!checklist.closed);
+  // while the gateway is still connecting nothing is known yet, so
+  // Start must not say "Geen project gekozen." or "0 van 3" as if there were no data (DESIGN.md §4).
+  const connection = useGatewayConnection();
+  const connecting = chat !== null && connection.status === 'CONNECTING';
+  // No active project: Start says so itself (one Dutch line), never the controller's English reason.
+  const noProject = chat !== null && chat.disabledReason !== null && !connecting;
 
-  // In production the view renders real values or honest empty states; in fixture
-  // mode it keeps the example chrome the theme showcase and tests depend on.
-  const production = isProductionMode();
+  // A suggestion fills the composer through a seed: the composer owns its draft, so the seed carries a
+  // counter (picking the same suggestion twice still refills it).
+  const [seed, setSeed] = useState<{ readonly text: string; readonly n: number } | null>(null);
 
-  // WP-CCD (item 7): `GET /api/active-runs` — real active missions ACROSS EVERY PROJECT, not just
-  // the one currently open. `available: false` today (the route does not exist on this gateway
-  // build yet — verified live before writing this) falls back to the pre-existing CURRENT-PROJECT
-  // derivation below, now also excluding a synthetic/example run (`Run.synthetic`) — a real, honest
-  // improvement regardless of whether the cross-project route has landed.
-  const activeRunsAcrossWorkspace = useGatewayActiveRuns();
-  const currentProjectRunningMissions = runs.filter((run) => run.status === 'running' && !run.synthetic);
-  const activeMissions: readonly HomeActiveMission[] = activeRunsAcrossWorkspace.available
-    ? activeRunsAcrossWorkspace.rows.map(activeRunRowToMission)
-    : currentProjectRunningMissions.map((run) => {
-        const owner = projects.find((p) => p.id === run.projectId);
-        return {
-          key: run.id,
-          title: run.goal,
-          projectLabel: owner ? owner.name : production ? 'No project' : 'Example project',
-          agentCount: run.agentIds.length,
-          workPackageCount: run.workPackageIds.length,
-          duration: run.duration,
-          crossProject: false,
-          status: run.status,
-        };
-      });
-  const activeRunCount = activeMissions.length;
+  const { conversations } = state.data;
+  const resume = [...conversations].sort((a, b) => newestFirst(a.updatedAt, b.updatedAt))[0];
 
-  // build-lastdemos: the "Start something" template cards open the SAME real
-  // `NewProjectDialog` `Sidebar` uses (never a duplicate), seeded with the
-  // template's own name as a starting suggestion — see NewProjectDialog's
-  // header for exactly what "the template only names the project" means.
-  const [templateDialog, setTemplateDialog] = useState<{ readonly open: boolean; readonly name: string }>({
-    open: false,
-    name: '',
-  });
-
-  const query = state.projectQuery.trim();
-  const matchedProjects = query ? selectFilteredProjects(state).slice(0, 4) : [];
-  const matchedConversations = query
-    ? conversations.filter((c) => c.title.toLowerCase().includes(query.toLowerCase())).slice(0, 3)
-    : [];
-
-  const recentConversations = [...conversations].sort(
-    (a, b) => agoMinutes(a.updatedAt) - agoMinutes(b.updatedAt),
+  const toast = useCallback(
+    (title: string, detail?: string, icon?: string) =>
+      dispatch({ type: 'toast/push', toast: { id: nextToastId(), title, detail, icon } }),
+    [dispatch],
   );
-  const recentProjects = [...projects].sort((a, b) => {
-    const pinned = Number(b.pinned) - Number(a.pinned);
-    return pinned !== 0 ? pinned : agoMinutes(a.lastActivity) - agoMinutes(b.lastActivity);
-  });
 
-  const resumeConversation = recentConversations[0];
-  // WP-CCD (item 1): the resume card is about continuing THIS session in THIS project, so it
-  // stays current-project-scoped — but a synthetic/example run never stands in as "the" active
-  // mission to resume.
-  const resumeRun = currentProjectRunningMissions[0] ?? runs.find((r) => !r.synthetic) ?? runs[0];
-  const resumeProject = projects.find((p) => p.id === resumeConversation?.projectId);
-  const resumeRunProject = projects.find((p) => p.id === resumeRun?.projectId);
+  /* ------------------------------------------------------------------ send: always a new conversation */
 
-  const runTasks = resumeRun ? tasks.filter((t) => resumeRun.workPackageIds.includes(t.workPackageId)) : [];
-  const runProgress =
-    runTasks.length > 0
-      ? Math.round(runTasks.reduce((sum, t) => sum + t.progress, 0) / runTasks.length)
-      : 0;
+  const pending = useRef<PendingStart | null>(null);
 
-  const lastMessage = resumeConversation?.messages[resumeConversation.messages.length - 1];
+  const finish = useCallback(
+    (outcome: ChatSendOutcome) => {
+      if (outcome.ok) navigate('/chat');
+      else if (outcome.error !== null) toast(t('chat.view.notSent'), outcome.error, 'TriangleAlert');
+      return outcome;
+    },
+    [navigate, toast, t],
+  );
 
-  const pending = [
-    ...proof
-      .filter((entry) => entry.verdict === 'pending')
-      .map((entry) => ({
-        id: entry.id,
-        status: 'verify' as StatusKey,
-        claim: entry.claim,
-        who: entry.agent,
-        machine: entry.command,
-      })),
-    ...gates
-      .filter((gate) => gate.status === 'verify')
-      .map((gate) => ({
-        id: gate.id,
-        status: gate.status,
-        claim: `${gate.name} is holding ${gate.evidenceCount} artifacts for a second look`,
-        who: 'Verify Agent',
-        machine: `${gate.id} · last run ${gate.lastRun}`,
-      })),
-  ].slice(0, 4);
+  // The deferred send: once the cleared conversation id has reached the controller, the first message
+  // creates a brand-new conversation (the controller does that for an empty id).
+  useEffect(() => {
+    const job = pending.current;
+    if (job === null || chat === null || state.activeConversationId !== '') return;
+    pending.current = null;
+    void chat.send(...job.args).then((outcome) => job.resolve(finish(outcome)));
+  }, [chat, state.activeConversationId, finish]);
 
-  const trouble = [
-    ...agents
-      .filter((a) => a.status === 'failed' || a.status === 'blocked')
-      .map((a) => ({
-        id: a.id,
-        status: a.status,
-        title: a.name,
-        detail: a.currentTask ?? a.summary,
-        origin: a.id,
-      })),
-    ...projects
-      .filter((p) => p.status === 'failed' || p.status === 'blocked')
-      .map((p) => ({ id: p.id, status: p.status, title: p.name, detail: p.description, origin: p.id })),
-    ...gates
-      .filter((g) => g.status === 'failed' || g.status === 'blocked')
-      .map((g) => ({
-        id: g.id,
-        status: g.status,
-        title: g.name,
-        detail: `Quality gate has not produced a passing result since ${g.lastRun}.`,
-        origin: g.id,
-      })),
-  ].slice(0, 5);
+  const handleSend = useCallback(
+    (body: string, mode?: ChatSendMode, effort?: ChatSendEffort, model?: ChatSendModel): boolean | Promise<ComposerSendResult> => {
+      if (chat === null) {
+        toast(t('chat.view.newConversation'), t('chat.view.newPlaceholder'), 'Plus');
+        return false;
+      }
+      // The line above the composer already says why; the draft stays while a project is picked or made.
+      if (chat.disabledReason !== null) return false;
+      const args: SendArgs = [body, mode, effort, model];
+      if (state.activeConversationId === '') return chat.send(...args).then(finish);
+      return new Promise<ChatSendOutcome>((resolve) => {
+        pending.current = { args, resolve };
+        dispatch({ type: 'conversation/activate', id: '' });
+      });
+    },
+    [chat, state.activeConversationId, dispatch, finish, toast, t],
+  );
 
-  // Production: only counts with a real source in the live data this view already
-  // receives. Metrics with no real source in this build (skills available, tests
-  // passed, pending reviews — their backing operations are UNAVAILABLE) are
-  // omitted rather than fabricated. A real 0 beats a fake 1,185.
-  // WP-CCD (item 7): "agents" used to mean the ROSTER size (every installed agent, working or
-  // not) — the real, distinct signal is how many are WORKING right now; the roster size is kept
-  // as its own separately-labelled cell rather than dropped.
-  const workingAgentCount = agents.filter((a) => a.status === 'running').length;
-  const overview: readonly OverviewCell[] = production
-    ? [
-        { value: String(projects.length), label: projects.length === 1 ? 'project' : 'projects' },
-        {
-          value: String(conversations.length),
-          label: conversations.length === 1 ? 'conversation' : 'conversations',
-        },
-        { value: String(activeRunCount), label: activeRunCount === 1 ? 'active run' : 'active runs' },
-        { value: String(workingAgentCount), label: workingAgentCount === 1 ? 'agent working' : 'agents working' },
-        { value: String(agents.length), label: agents.length === 1 ? 'installed agent' : 'installed agents' },
-      ]
-    : [
-        { value: String(projects.length), label: 'projects' },
-        { value: '2', label: 'running missions' },
-        { value: String(agents.length), label: 'agents available' },
-        { value: '22', label: 'skills available' },
-        { value: '1,185', label: 'example tests passed' },
-        { value: '3', label: 'pending reviews' },
-      ];
+  /* ------------------------------------------------------------------ "Start hier" */
 
-  function openProject(id: string): void {
-    dispatch({ type: 'project/activate', id });
-    dispatch({ type: 'select', selection: { kind: 'project', id } });
-    navigate('/project');
+  const steps: readonly { readonly id: string; readonly labelKey: MessageKey; readonly done: boolean }[] = [
+    { id: 'account', labelKey: 'rd.start.checklist.account', done: accountReady },
+    { id: 'ask', labelKey: 'rd.start.checklist.ask', done: conversations.length > 0 },
+    { id: 'proof', labelKey: 'rd.start.checklist.proof', done: checklist.proofSeen },
+  ];
+  const doneCount = steps.filter((step) => step.done).length;
+  const beginner = !checklist.closed && doneCount < steps.length;
+
+  function openStep(id: string): void {
+    if (id === 'account') {
+      navigate('/settings');
+      return;
+    }
+    if (id === 'ask') {
+      document.querySelector<HTMLTextAreaElement>('.fw-start .fw-chat-composer__field')?.focus();
+      return;
+    }
+    // The one proof destination (Leer Forge lesson 3 too). Ticked there, once a proof is really shown.
+    navigate('/jobs');
   }
 
-  function openConversation(id: string): void {
+  function openResume(id: string, projectId: string): void {
     dispatch({ type: 'conversation/activate', id });
+    if (projectId !== '') dispatch({ type: 'project/activate', id: projectId });
     navigate('/chat');
   }
 
-  /** Opens the real "New project" dialog seeded with one template's name. */
-  function openTemplateDialog(template: Template): void {
-    setTemplateDialog({ open: true, name: template.name });
-  }
-
-  /** The dialog created a real project — close it, then reuse the same open/activate flow the
-   *  sidebar's own "New project" button already uses (openProject above). Install feedback mirrors
-   *  Sidebar's handleProjectCreated exactly: without it, a template-created project would install
-   *  Forge in the background with no outcome ever reported — the same silent gap the sidebar path
-   *  just closed, alive on the second entrance to the identical flow. */
-  function handleTemplateProjectCreated(id: string): void {
-    setTemplateDialog((current) => ({ ...current, open: false }));
-    openProject(id);
-    dispatch({
-      type: 'toast/push',
-      toast: { id: nextToastId(), title: 'Project created', detail: 'Forge is being installed…', icon: 'Loader' },
-    });
-    pollProjectInstall(id, (result) => {
-      const installed = result.state === 'installed';
-      dispatch({
-        type: 'toast/push',
-        toast: {
-          id: nextToastId(),
-          title: installed ? 'Forge installed' : 'Forge install failed',
-          detail: installed ? `Forge installed for ${id}.` : (result.reason ?? result.note ?? 'The Forge installer did not complete.'),
-          icon: installed ? 'CircleCheck' : 'TriangleAlert',
-        },
-      });
-    });
-  }
-
   return (
-    <div className="fw-home">
-      <div className="fw-home__scroll fw-scroll">
-        <div className="fw-home__inner">
-          {/* ------------------------------------------------------ greeting */}
-          <header className="fw-home__greeting">
-            <h1 className="fw-home__title">Good to see you back.</h1>
-            {production ? (
-              <p className="fw-home__lead">{productionGreetingLead(projects.length, activeRunCount)}</p>
-            ) : (
-              <>
-                <p className="fw-home__lead">
-                  Two missions are running, three reviews are waiting, and the barbershop booking build is
-                  one honest screenshot away from closing.
-                </p>
-                <p className="fw-home__disclosure">
-                  <ExampleTag detail="Everything on this screen is local example data. No runtime, session or registry is attached." />
-                  <span>Everything below is local example data — nothing is connected.</span>
-                </p>
-              </>
-            )}
-          </header>
+    <div className="fw-start">
+      <div className="fw-start__inner">
+        <h1 className="fw-start__question">{t('rd.start.title')}</h1>
 
-          {/* -------------------------------------------------------- search */}
-          <section className="fw-home__search" role="search" aria-label="Search the workspace">
-            <div className="fw-home__search-field">
-              <Icon name="Search" size="sm" className="fw-home__search-icon" />
-              <input
-                id="fw-home-search"
-                className="fw-home__search-input"
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="Search projects, conversations and missions"
-                placeholder="Search projects, conversations and missions"
-                value={state.projectQuery}
-                onChange={(event) => dispatch({ type: 'project/query', query: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') navigate('/projects');
-                }}
-              />
-              {query ? (
-                <IconButton
-                  icon="X"
-                  label="Clear the search"
-                  size="sm"
-                  onClick={() => dispatch({ type: 'project/query', query: '' })}
-                />
-              ) : (
-                <KeyHint keys={['Ctrl', 'K']} />
-              )}
+        <div className="fw-start__compose">
+          {noProject ? (
+            <div className="fw-start__note" role="status">
+              <Icon name="Info" size="sm" className="fw-start__note-icon" />
+              {/* Key from the XR-START locale patch; the cast goes once the patch is merged. */}
+              <span className="fw-start__note-text">{t('rd.start.noProject')}</span>
             </div>
+          ) : null}
+          <UsageLine />
 
-            {query ? (
-              <div className="fw-home__matches">
-                <p className="fw-home__matches-head">
-                  <Machine muted>
-                    {matchedProjects.length + matchedConversations.length} match
-                    {matchedProjects.length + matchedConversations.length === 1 ? '' : 'es'}
-                  </Machine>
-                  <span>Press Enter to open the project browser.</span>
-                </p>
-                {matchedProjects.length + matchedConversations.length === 0 ? (
-                  <p className="fw-home__matches-empty">
-                    {production ? 'Nothing matches that.' : 'Nothing in the example dataset matches that.'}
-                  </p>
-                ) : (
-                  <ul className="fw-home__matches-list">
-                    {matchedProjects.map((project) => (
-                      <li key={project.id}>
-                        <button
-                          type="button"
-                          className="fw-home__match"
-                          onClick={() => openProject(project.id)}
-                        >
-                          <Icon name={TYPE_ICON[project.type]} size="sm" />
-                          <span className="fw-home__match-label fw-truncate">{project.name}</span>
-                          <Machine muted>project</Machine>
-                        </button>
-                      </li>
-                    ))}
-                    {matchedConversations.map((conversation) => (
-                      <li key={conversation.id}>
-                        <button
-                          type="button"
-                          className="fw-home__match"
-                          onClick={() => openConversation(conversation.id)}
-                        >
-                          <Icon name="MessageSquare" size="sm" />
-                          <span className="fw-home__match-label fw-truncate">{conversation.title}</span>
-                          <Machine muted>conversation</Machine>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
-          </section>
-
-          {/* ----------------------------------------------- system overview */}
-          <section className="fw-home__system" aria-label="Workspace overview">
-            <ul className="fw-home__system-list">
-              {overview.map((cell) => (
-                <li key={cell.label} className="fw-home__system-cell">
-                  <Machine className="fw-home__system-value">{cell.value}</Machine>
-                  <span className="fw-home__system-label">{cell.label}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {/* ---------------------------------------------- continue working */}
-          <Panel
-            flush
-            padded={false}
-            title="Continue working"
-            subtitle="Where you left the workspace last."
-            className="fw-home__section"
-          >
-            <div className="fw-home__resume">
-              {resumeConversation ? (
-                <article className="fw-home__resume-card">
-                  <header className="fw-home__resume-head">
-                    <Eyebrow>Last conversation</Eyebrow>
-                    <Machine muted>{resumeConversation.updatedAt}</Machine>
-                  </header>
-                  <h3 className="fw-home__resume-title" title={resumeConversation.title}>{resumeConversation.title}</h3>
-                  {lastMessage ? (
-                    <p className="fw-home__resume-body">{plainSnippet(lastMessage.body)}</p>
-                  ) : null}
-                  <footer className="fw-home__resume-foot">
-                    <span className="fw-home__resume-meta">
-                      <Icon name="MessageSquare" size="xs" />
-                      <Machine muted>{resumeConversation.messageCount} messages</Machine>
-                    </span>
-                    {resumeProject ? (
-                      <span className="fw-home__resume-meta">
-                        <Icon name={TYPE_ICON[resumeProject.type]} size="xs" />
-                        <span className="fw-truncate">{resumeProject.name}</span>
-                      </span>
-                    ) : null}
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      icon="CornerDownLeft"
-                      onClick={() => openConversation(resumeConversation.id)}
-                    >
-                      Resume
-                    </Button>
-                  </footer>
-                </article>
-              ) : null}
-
-              {resumeRun ? (
-                <article className="fw-home__resume-card">
-                  <header className="fw-home__resume-head">
-                    <Eyebrow>Active mission</Eyebrow>
-                    <StatusBadge status={resumeRun.status} size="sm" />
-                  </header>
-                  <h3 className="fw-home__resume-title" title={resumeRun.goal}>{resumeRun.goal}</h3>
-                  <div className="fw-home__resume-meter">
-                    <Meter
-                      value={runProgress}
-                      label={production ? 'Task progress' : 'Example task progress'}
-                      tone={resumeRun.status === 'running' ? 'accent' : 'default'}
-                      showValue
-                    />
-                  </div>
-                  <footer className="fw-home__resume-foot">
-                    <Machine muted>{resumeRun.id}</Machine>
-                    <span className="fw-home__resume-meta">
-                      <Icon name="Timer" size="xs" />
-                      <Machine muted>{resumeRun.duration}</Machine>
-                    </span>
-                    <span className="fw-home__resume-meta">
-                      <Icon name="Users" size="xs" />
-                      <Machine muted>{resumeRun.agentIds.length} agents</Machine>
-                    </span>
-                    {resumeRunProject ? (
-                      <span className="fw-home__resume-meta fw-truncate">{resumeRunProject.name}</span>
-                    ) : null}
-                    <Button size="sm" icon="Workflow" onClick={() => navigate('/mission')}>
-                      Open mission control
-                    </Button>
-                  </footer>
-                </article>
-              ) : null}
-            </div>
-          </Panel>
-
-          {/* ------------------------------------------- projects + convos */}
-          <div className="fw-home__pair">
-            <Panel
-              flush
-              padded={false}
-              title="Recent projects"
-              subtitle="Pinned first, then by last activity."
-              actions={
-                <Button variant="quiet" size="sm" iconRight="ArrowRight" onClick={() => navigate('/projects')}>
-                  All projects
-                </Button>
-              }
-              className="fw-home__section"
-            >
-              {recentProjects.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon="FolderSearch"
-                  title="No projects yet"
-                  detail="Projects will appear here once the workspace has one."
-                />
-              ) : (
-              <ul className="fw-home__list">
-                {recentProjects.slice(0, 4).map((project) => (
-                  <li key={project.id}>
-                    <button
-                      type="button"
-                      className="fw-home__row fw-home__row--project"
-                      onClick={() => openProject(project.id)}
-                    >
-                      <span className="fw-home__row-glyph">
-                        <Icon name={TYPE_ICON[project.type]} size="sm" />
-                      </span>
-                      <span className="fw-home__row-main">
-                        <span className="fw-home__row-title fw-truncate">{project.name}</span>
-                        <span className="fw-home__row-detail fw-truncate">{project.description}</span>
-                      </span>
-                      <span className="fw-home__row-side">
-                        {project.pinned ? (
-                          <Icon name="Pin" size="xs" className="fw-home__row-pin" label="Pinned" />
-                        ) : null}
-                        <StatusBadge status={project.status} size="sm" />
-                        <Machine muted>{project.lastActivity}</Machine>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              )}
-            </Panel>
-
-            <Panel
-              flush
-              padded={false}
-              title="Recent conversations"
-              subtitle="The threads still warm."
-              actions={
-                <Button variant="quiet" size="sm" iconRight="ArrowRight" onClick={() => navigate('/chat')}>
-                  Open chat
-                </Button>
-              }
-              className="fw-home__section"
-            >
-              {recentConversations.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon="MessageSquareDashed"
-                  title="No conversations yet"
-                  detail="Start one from the chat view and it will appear here."
-                />
-              ) : (
-              <ul className="fw-home__list">
-                {recentConversations.slice(0, 5).map((conversation) => {
-                  const owner = projects.find((p) => p.id === conversation.projectId);
-                  return (
-                    <li key={conversation.id}>
-                      <button
-                        type="button"
-                        className="fw-home__row"
-                        onClick={() => openConversation(conversation.id)}
-                      >
-                        <span className="fw-home__row-glyph">
-                          <Icon name="MessageSquare" size="sm" />
-                        </span>
-                        <span className="fw-home__row-main">
-                          <span className="fw-home__row-title fw-truncate">{conversation.title}</span>
-                          <span className="fw-home__row-detail fw-truncate">
-                            {owner ? owner.name : production ? 'No project' : 'Example project'}
-                          </span>
-                        </span>
-                        <span className="fw-home__row-side">
-                          <Machine muted>{conversation.messageCount} msg</Machine>
-                          <Machine muted>{conversation.updatedAt}</Machine>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              )}
-            </Panel>
-          </div>
-
-          {/* ------------------------------------------------ active missions */}
-          <Panel
-            flush
-            padded={false}
-            title="Active missions"
-            subtitle={activeMissionsSubtitle(production, activeRunsAcrossWorkspace)}
-            actions={
-              <Button variant="quiet" size="sm" iconRight="ArrowRight" onClick={() => navigate('/mission')}>
-                Mission control
-              </Button>
-            }
-            className="fw-home__section"
-          >
-            {activeMissions.length === 0 ? (
-              <EmptyState
-                compact
-                icon="Workflow"
-                title="No active missions"
-                detail="Nothing is running right now — it will appear here the moment a run starts."
-              />
-            ) : (
-            <ul className="fw-home__missions">
-              {activeMissions.map((mission) => {
-                // WP-CCD (item 7): a real per-task progress figure only exists for a CURRENT-
-                // project row (the shared `tasks` collection this view already has is scoped to
-                // the active project) — a cross-project row honestly omits the meter rather than
-                // fabricating a progress figure for a project this view has no task data for.
-                const own = !mission.crossProject ? tasks.filter((t) => runs.find((r) => r.id === mission.key)?.workPackageIds.includes(t.workPackageId)) : [];
-                const progress = own.length > 0 ? Math.round(own.reduce((sum, t) => sum + t.progress, 0) / own.length) : 0;
-                return (
-                  <li key={mission.key} className="fw-home__mission">
-                    <div className="fw-home__mission-head">
-                      {/* A cross-project row's status is a real fact, not an inference: being
-                          listed by the gateway's own /api/active-runs literally means running —
-                          `mission.status` is always 'running' for one (see
-                          `activeRunRowToMission`), so the SAME real `StatusBadge` applies. */}
-                      <StatusBadge status={mission.status} size="sm" />
-                      <Machine muted>{mission.key}</Machine>
-                      <span className="fw-home__mission-project fw-truncate">
-                        {mission.projectLabel !== '' ? mission.projectLabel : production ? 'No project' : 'Example project'}
-                      </span>
-                    </div>
-                    <p className="fw-home__mission-goal">{mission.title}</p>
-                    <div className="fw-home__mission-foot">
-                      {!mission.crossProject ? (
-                        <Meter
-                          value={progress}
-                          label={production ? 'Task progress' : 'Example task progress'}
-                          tone="accent"
-                          showValue
-                        />
-                      ) : null}
-                      <span className="fw-home__mission-meta">
-                        {mission.duration !== '' ? <Machine muted>{mission.duration}</Machine> : null}
-                        {mission.workPackageCount !== null ? (
-                          <Machine muted>{mission.workPackageCount} {mission.crossProject ? 'open dispatches' : 'WP'}</Machine>
-                        ) : null}
-                        <Machine muted>{mission.agentCount} agents</Machine>
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            )}
-          </Panel>
-
-          {/* --------------------------------------------------- quick start */}
-          <Panel
-            flush
-            padded={false}
-            title="Start something"
-            subtitle="Six shapes Forge already knows how to plan."
-            className="fw-home__section"
-          >
-            <ul className="fw-home__templates">
-              {TEMPLATES.map((template) => (
-                <li key={template.id}>
-                  <button
-                    type="button"
-                    className="fw-home__template"
-                    onClick={() => openTemplateDialog(template)}
-                    title={`Suggests "${template.name}" as the new project's name — no template content or scaffolding is created yet.`}
-                  >
-                    <span className="fw-home__template-glyph">
-                      <Icon name={template.icon} size="md" />
-                    </span>
-                    <span className="fw-home__template-name">{template.name}</span>
-                    <span className="fw-home__template-detail">{template.detail}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-
-          {/* ------------------------------------- verification + failures */}
-          <div className="fw-home__pair">
-            <Panel
-              flush
-              padded={false}
-              title="Pending verification"
-              subtitle="Claims still waiting on evidence."
-              actions={<ExampleTag />}
-              className="fw-home__section"
-            >
-              {pending.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon="ShieldCheck"
-                  title="Nothing pending"
-                  detail="No claim is waiting on evidence right now."
-                />
-              ) : (
-              <ul className="fw-home__list">
-                {pending.map((item) => (
-                  <li key={item.id} className="fw-home__stack-row">
-                    <div className="fw-home__stack-head">
-                      <StatusBadge status={item.status} size="sm" />
-                      <Machine muted>{item.who}</Machine>
-                    </div>
-                    <p className="fw-home__stack-claim">{item.claim}</p>
-                    <Machine muted className="fw-home__stack-machine fw-truncate">
-                      {item.machine}
-                    </Machine>
-                  </li>
-                ))}
-              </ul>
-              )}
-            </Panel>
-
-            <Panel
-              flush
-              padded={false}
-              title="Failures and blockers"
-              subtitle="What is not moving, and why."
-              actions={
-                <Button variant="quiet" size="sm" iconRight="ArrowRight" onClick={() => navigate('/tests')}>
-                  Tests &amp; proof
-                </Button>
-              }
-              className="fw-home__section"
-            >
-              {trouble.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon="CircleCheck"
-                  title="Nothing blocked"
-                  detail="No agent, project or gate is failing or blocked right now."
-                />
-              ) : (
-              <ul className="fw-home__list">
-                {trouble.map((item) => (
-                  <li key={item.id} className="fw-home__stack-row" data-status={item.status}>
-                    <div className="fw-home__stack-head">
-                      <StatusBadge status={item.status} size="sm" />
-                      <span className="fw-home__stack-title fw-truncate">{item.title}</span>
-                    </div>
-                    <p className="fw-home__stack-claim fw-home__stack-claim--clamp">{item.detail}</p>
-                    <Machine muted className="fw-home__stack-machine">
-                      {item.origin}
-                    </Machine>
-                  </li>
-                ))}
-              </ul>
-              )}
-            </Panel>
-          </div>
-
-          {/* ------------------------------------- artifacts + activity feed */}
-          <div className="fw-home__pair">
-            <Panel
-              flush
-              padded={false}
-              title="Recent artifacts"
-              subtitle={production ? 'Evidence produced by your runs.' : 'Produced by the example mission.'}
-              actions={
-                <Button variant="quiet" size="sm" iconRight="ArrowRight" onClick={() => navigate('/artifacts')}>
-                  All artifacts
-                </Button>
-              }
-              className="fw-home__section"
-            >
-              {artifacts.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon="PackageOpen"
-                  title="No artifacts yet"
-                  detail="Evidence produced by your runs will appear here."
-                />
-              ) : (
-              <ul className="fw-home__list">
-                {artifacts.slice(0, 5).map((artifact) => (
-                  <li key={artifact.id}>
-                    <button
-                      type="button"
-                      className="fw-home__row"
-                      onClick={() => dispatch({ type: 'select', selection: { kind: 'artifact', id: artifact.id } })}
-                    >
-                      <span className="fw-home__row-glyph">
-                        <Icon name={ARTIFACT_ICON[artifact.kind] ?? 'File'} size="sm" />
-                      </span>
-                      <span className="fw-home__row-main">
-                        <Machine className="fw-home__row-title fw-truncate">{artifact.name}</Machine>
-                        <span className="fw-home__row-detail fw-truncate">
-                          {artifact.producedBy}
-                        </span>
-                      </span>
-                      <span className="fw-home__row-side">
-                        <Machine muted>{artifact.size}</Machine>
-                        <Machine muted>{artifact.createdAt}</Machine>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              )}
-            </Panel>
-
-            <Panel
-              flush
-              padded={false}
-              title="Activity"
-              subtitle={production ? 'The last six entries of the activity feed.' : 'The last six entries of the example feed.'}
-              actions={
-                <Button variant="quiet" size="sm" iconRight="ArrowRight" onClick={() => navigate('/activity')}>
-                  Full timeline
-                </Button>
-              }
-              className="fw-home__section"
-            >
-              {events.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon="Activity"
-                  title="No activity yet"
-                  detail="Steps from your runs will appear here as they happen."
-                />
-              ) : (
-              <ol className="fw-home__timeline">
-                {events.slice(0, 6).map((event) => (
-                  <li key={event.id} className="fw-home__event">
-                    <span className="fw-home__event-rail" aria-hidden="true">
-                      <Icon name={EVENT_ICON[event.kind] ?? 'Activity'} size="xs" />
-                    </span>
-                    <div className="fw-home__event-body">
-                      <p className="fw-home__event-message">{event.message}</p>
-                      <p className="fw-home__event-meta">
-                        <Machine muted>{event.timestamp}</Machine>
-                        <Machine muted>{event.kind}</Machine>
-                        {event.agent ? <Machine muted>{event.agent}</Machine> : null}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              )}
-            </Panel>
-          </div>
+          <Composer
+            variant="start"
+            onSend={handleSend}
+            onStop={() => undefined}
+            streaming={false}
+            conversationTitle={t('rd.start.title')}
+            fieldLabel={t('rd.chat.composer.messageLabel')}
+            placeholder={t('rd.start.placeholder')}
+            production={chat !== null}
+            seed={seed}
+          />
         </div>
-      </div>
 
-      <NewProjectDialog
-        open={templateDialog.open}
-        initialName={templateDialog.name}
-        onClose={() => setTemplateDialog((current) => ({ ...current, open: false }))}
-        onCreated={handleTemplateProjectCreated}
-      />
+        <ul className="fw-start__suggestions">
+          {SUGGESTIONS.map((suggestion) => (
+            <li key={suggestion.id}>
+              <button
+                type="button"
+                className="fw-start__suggestion"
+                onClick={() => setSeed((current) => ({ text: t(suggestion.exampleKey), n: (current?.n ?? 0) + 1 }))}
+              >
+                <Icon name={suggestion.icon} size="sm" className="fw-start__suggestion-icon" />
+                <span>{t(suggestion.labelKey)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        {beginner ? (
+          <section className="fw-start__card" aria-labelledby="fw-start-here" aria-busy={connecting || undefined}>
+            <header className="fw-start__card-head">
+              <h2 id="fw-start-here" className="fw-start__card-title">
+                {t('rd.start.checklist.title')}
+              </h2>
+              {/* While connecting the count is hidden, but the meta span stays as the spacer that keeps the close button right-aligned. */}
+              <span className="fw-start__card-meta" aria-hidden={connecting || undefined}>
+                {connecting ? null : t('rd.start.checklist.progress', { done: doneCount, total: steps.length })}
+              </span>
+              <IconButton icon="X" label={t('rd.start.checklist.close')} size="sm" onClick={checklist.close} />
+            </header>
+            <span className="fw-start__meter" aria-hidden="true">
+              <span
+                className="fw-start__meter-fill"
+                style={{ transform: `scaleX(${connecting ? 0 : doneCount / steps.length})` }}
+              />
+            </span>
+            <ul className="fw-start__steps">
+              {steps.map((step) => (
+                <li key={step.id}>
+                  {connecting ? (
+                    // Quiet placeholder row: the label at its real row height, no tick and no action
+                    // until the real state is known (static, no shimmer, DESIGN.md §4).
+                    <span className="fw-start__step is-pending" data-step-pending="">
+                      <span className="fw-start__tick is-pending" aria-hidden="true" />
+                      <span>{t(step.labelKey)}</span>
+                    </span>
+                  ) : step.done ? (
+                    <span className="fw-start__step is-done">
+                      <span className="fw-start__tick is-done" aria-hidden="true">
+                        <Icon name="Check" size="xs" strokeWidth={3} />
+                      </span>
+                      <span>{t(step.labelKey)}</span>
+                      <span className="fw-visually-hidden">{t('rd.chat.strip.done')}</span>
+                    </span>
+                  ) : (
+                    <button type="button" className="fw-start__step" onClick={() => openStep(step.id)}>
+                      <span className="fw-start__tick" aria-hidden="true" />
+                      <span>{t(step.labelKey)}</span>
+                      <Icon name="ChevronRight" size="sm" className="fw-start__chev" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : resume ? (
+          <button type="button" className="fw-start__resume" onClick={() => openResume(resume.id, resume.projectId)}>
+            <Icon name="MessageSquare" size="sm" className="fw-start__resume-icon" />
+            <span className="fw-start__resume-text fw-truncate">{t('rd.start.resume', { name: resume.title })}</span>
+            <Icon name="ChevronRight" size="sm" className="fw-start__chev" />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

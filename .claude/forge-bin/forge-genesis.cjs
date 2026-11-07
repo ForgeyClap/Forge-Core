@@ -48,7 +48,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1: FORGE_PROJECT_ROOT keeps first place (unchanged); the fallback is this copy's OWN project from forge-paths.cjs
+// scriptRootInfo, accepted only for an installed copy (byte-identical to the old __dirname/../.. answer). A plugin copy
+// gets null — NOT discovery — because this root also locates the owner approval secret (approve() fails closed without
+// one) and a root picked by CLAUDE_PROJECT_DIR / the cwd must not select where that secret is read from. Guarded: an
+// older or missing forge-paths.cjs keeps the literal.
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (() => {
+  try {
+    const P = require('./forge-paths.cjs');
+    if (P && typeof P.scriptRootInfo === 'function') { const i = P.scriptRootInfo(__dirname); return i.source === 'script' ? i.root : null; }
+  } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+})();
 
 function slugify(s) {
   return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'skill';
@@ -153,6 +164,7 @@ function buildDraftSkillMd(fields) {
 function proposeSkill(params, opts) {
   params = params || {}; opts = opts || {};
   const root = opts.root || PROJECT_ROOT;
+  if (!root) return { ok: false, staged: false, reason: 'no project root found (a plugin copy outside any project: set FORGE_PROJECT_ROOT or pass opts.root)' };
   const gap = params.gap != null ? String(params.gap).trim() : '';
   if (!gap) return { ok: false, staged: false, reason: 'no gap description supplied — refusing to invent a capability gap' };
 
@@ -243,6 +255,7 @@ function promoteContent(content, record) {
 function approve(params, opts) {
   params = params || {}; opts = opts || {};
   const root = opts.root || PROJECT_ROOT;
+  if (!root) return { ok: false, promoted: false, reason: 'no project root found (a plugin copy outside any project: set FORGE_PROJECT_ROOT or pass opts.root)' };
   const name = slugify(params.name || '');
   if (!name || name === 'skill') return { ok: false, promoted: false, reason: 'a proposal name is required' };
 
@@ -300,6 +313,7 @@ function approve(params, opts) {
 function list(opts) {
   opts = opts || {};
   const root = opts.root || PROJECT_ROOT;
+  if (!root && !opts.stagingDir) return { proposals: [], reason: 'no project root found (a plugin copy outside any project: set FORGE_PROJECT_ROOT or pass opts.root)' };
   const staging = stagingDirFor(root, opts);
   let entries = [];
   try { entries = fs.readdirSync(staging, { withFileTypes: true }); } catch { return { proposals: [] }; }

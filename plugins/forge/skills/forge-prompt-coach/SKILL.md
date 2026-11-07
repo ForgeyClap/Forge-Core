@@ -1,25 +1,12 @@
 ---
 name: forge-prompt-coach
-description: "Makes a vague request buildable (9 ingredients, F1-F13, one 2-3-option question): vague/one-word asks, \"maak het beter\", a bug without symptom, before intake, or to help users ask better."
+description: "Use on vague asks (maak het beter, doe iets): make them buildable."
+# W2-BUDGET original description (listing budget): "Use on vague asks before intake (maak het beter, doe iets, make it better): make them buildable."
 ---
 
 # forge-prompt-coach — from a vague request to a buildable one
 
-**Evidence base.** Every rule below is grounded in Forge's own internal UX research (35 sources). The ids in square brackets, such as [GOOG] or [G-Q], are short internal
-source labels kept for traceability during development — the underlying research file is a dev-only
-artifact and is not part of a fresh install, so the labels are not meant to be dereferenced by the shipped
-product; treat this SKILL.md as self-contained. Nothing here is new research. Where this skill makes a
-Forge design choice that no source states (for example the exact gap ranking in §2), it says so.
-
-**Why this exists.** The owner builds Forge for beginners who do not think in computer terms. Beginners
-write short requests: successful prompts are about 21 words, first attempts fewer than 9 [GOOG]. They expect
-the AI to understand them the way a person would [JOHNNY] and often cannot put into words what they want
-[NNG-AB]. One good clarifying question gives a large gain (more than 170% better retrieval in [ALI]); asking
-only where the intent is genuinely uncertain doubles the benefit [ZC]; bad questions make things worse ([ZOU],
-secondary, abstract not verified). Anthropic lists checking in or asking clarifying questions too often on
-simple agentic tasks as something to avoid [CONST]. So this skill does two things: it fills most gaps
-**silently** with safe, stated assumptions, and when one gap really matters it asks **one** easy
-multiple-choice question.
+**Evidence base and why this exists.** Every rule is grounded in Forge's own internal UX research (35 sources); bracketed ids such as [GOOG] are traceability labels only, and this SKILL.md is self-contained. Beginners write short requests, so this skill fills most gaps **silently** with safe, stated assumptions, and when one gap really matters it asks **one** easy multiple-choice question. Full text: `references/evidence-and-why.md`.
 
 ## When to use
 - A raw owner request is vague: only a vague verb ("maak het beter", "improve", "fix", "regelen"), fewer than
@@ -47,23 +34,7 @@ Read with `node .claude/forge-bin/forge-config.cjs get <key>`. If the config too
 | `explain-mode` | `true` | `true`: the one-line teaching tip of §6 may be shown. `false`: never show it. |
 
 ## 1. The 9 ingredients of a buildable request
-
-| # | Ingredient | Beginner line (EN) | Beginner line (NL) | Text signals (heuristic) | Sources |
-|---|---|---|---|---|---|
-| 1 | Result | "Say what you want to have at the end." | "Zeg wat er aan het eind moet staan." | a deliverable noun (website, page, bot, workflow, list, dashboard, form, report) plus a concrete verb (build, make, add, connect, remove); missing when only vague verbs appear | [CC-BP][PBP] |
-| 2 | Why and for whom | "Say who it's for and why." | "Zeg voor wie het is en waarom." | `voor/for` + a person (customers, members, team, me); `zodat/so that/omdat/because/om te` | [CONST][CARE] |
-| 3 | What already exists | "Say what you already have and where." | "Zeg wat er al is en waar het staat." | URL, path, extension, folder name, existing/current/"we hebben"; RISK: "mijn site", "de app" without an anchor | [CC-BP][SUPA] |
-| 4 | How we see it is done | "Say how we'll both see it worked." | "Zeg hoe we zien dat het gelukt is." | `klaar als/is goed als/done when/moet kunnen`, numbers, `test`, "ik wil kunnen…" | [CC-BP][DEF-SUCCESS] |
-| 5 | One example | "Show one example instead of adjectives." | "Laat één voorbeeld zien in plaats van 'modern'." | URL, `zoals/net als/like/bijvoorbeeld`, a quote, a pasted error, a screenshot; RISK: taste words (modern, strak, mooi, professioneel, cool) without a reference | [PBP][LOV][EXMAP] |
-| 6 | What must not change | "Say what must stay the same." | "Zeg wat niet mag veranderen." | `niet/geen/zonder/alleen/blijft/laat…staan/don't/only/keep` | [LOV][CODEX] |
-| 7 | Size of the first step | "Ask for the smallest useful first version." | "Vraag eerst de kleinste versie die al nuttig is." | `eerst/first/alleen/simpel/één pagina/demo/MVP`; RISK: platform names (Facebook, Uber, Airbnb, Amazon, Bol, Marktplaats), `alles`, `platform`, `net als X maar` | [LOV][SHAPEUP] |
-| 8 | Limits (time, money, tools, language, sending) | "Say what we must stay within." | "Zeg binnen welke grenzen: tijd, geld, programma's, taal." | `€`, gratis/free, budget, dates, "voor vrijdag", tool names (n8n, WordPress, Shopify, Telegram, Sheets), Nederlands; RISK: send verbs (stuur, mail, post, betaal, publiceer) without a limit | [SHAPEUP][GOOG] |
-| 9 | (bugs) Symptom, steps, error | "Say what you did, what you saw, what you expected." | "Zeg wat je deed, zag en verwachtte." | error text, `als ik…dan…`, `sinds`, `verwacht`, a stack trace; RISK: only "werkt niet / kapot / doet raar" | [CC-BP][CODEX] |
-
-Global signals: fewer than 9 words is high risk [GOOG]. Dutch vague words: beter, mooier, strakker, moderner,
-professioneler, fixen, regelen, iets met, dingen, enzo, beetje, optimaliseren, verbeteren, opschonen.
-**Not every request needs every ingredient** [CARE][WPDS]: score the gaps that change the build, not
-completeness.
+Result · Why and for whom · What already exists · How we see it is done · One example · What must not change · Size of the first step · Limits (time, money, tools, language, sending) · (bugs) Symptom, steps, error. Fewer than 9 words is high risk; score only the gaps that change the build, not completeness. The full table (beginner lines NL/EN, text signals, sources) and the Dutch vague-word list: `references/ingredients.md`.
 
 ## 2. Failure modes F1–F13: detection, the ONE question, the safe assumption
 
@@ -164,52 +135,7 @@ Rules: only when `forge-config.cjs get explain-mode` is `true`; at most once per
 generic rule; describe what helps, never what the owner did wrong [NNG-OT][PAIR][NNG-ERR].
 
 ## 7. How it plugs into Forge
-
-### `forge-intake`, silent mode (the default)
-1. Run `node .claude/forge-bin/forge-promptcheck.cjs ask "<raw request>" --json` — the raw-request
-   prompt-doctor (exit 0 = CLEAR/OK, 3 = VAGUE, 2 = usage). Its JSON carries `gaps` (the F-ids found, ranked as
-   in §2), `gapDetails` (`[{id, midrun}]`; F12 is mid-run only), `nextQuestion` (`{id, nl, en, options,
-   recommended, assume}` or `null`) and `assumptions` (`[{id, nl, en}]`). `nextQuestion` only ever comes from
-   the askable gaps F13/F9/F8/F5/F7/F3/F4/F1 (plus F12 with `--midrun`); F11/F10/F6/F2 are always recorded as
-   assumptions, never asked. It is set whenever a question is due — the verdict is VAGUE, or the top gap is
-   F13 (outward/irreversible actions are always confirmed). Use what it actually prints; if the tool is
-   missing or fails, apply §1–§2 by hand and say so.
-2. Answer the intake list yourself (`forge-intake` §1). `node .claude/forge-bin/forge-intake.cjs --type <slug>
-   --json` passes each bank question's beginner fields through unchanged; `--trigger F<id>` keeps only the
-   questions that answer that gap (for example `--trigger F9` → the bugfix symptom set). Each bank question's
-   `beginner.assume` / `beginner.assume_nl` is the safe default when nothing in the request or the project
-   answers it.
-3. Ask **at most one** question: `nextQuestion` from step 1 when it is set, otherwise the highest-ranked gap of
-   §2 that passes protocol rule 2. Ask it in its beginner form (`question_nl` + `beginner.options_nl`,
-   recommended option first; `forge-intake.cjs --lang nl` prints exactly that form, `--beginner` does the same
-   in English). No gap passes rule 2 → ask nothing.
-4. Confirm (§4), record (§5), tip (§6).
-
-### `forge-intake`, interview mode (`/forge interview`, or config `intake` = `interview`)
-One question per turn, each from the next open gap; laddering is allowed here and only here
-[LADDERBOT][LADDERTEAM]; close with `forge-intake`'s meta-question ("what should I still clarify that I did not
-ask?").
-
-### The question bank
-`.claude/config/intake/question-bank.json` carries the beginner layer this skill uses:
-
-- per question: `question_nl`, `options_nl`, `why_nl`; a `beginner` block with at most 3 outcome-worded
-  options plus "Something else" / "Iets anders" (`options`, `options_nl`), a `recommended` index and
-  `assume` / `assume_nl`; `triggers` lists the F-ids the question answers;
-- universal dimensions added for this skill: `must-not-break`, `why`, `success-measure` (F2,
-  the outcome rather than the process), `budget` (separate from the deadline), `language`, and
-  `outward-action` (the consent question); `must-not-break` and `outward-action` are `required`;
-- `recommended` is `null` on pure fact questions ("what are you selling?") where no option is better — ask
-  those neutrally, without a recommendation;
-- the `bugfix` set (F9: symptom, steps, error text, since when, expected) and the `bots` set (platform, who
-  talks to it, what it may answer, handoff) are live intake packs under `byType` (`--type bugfix`,
-  `--type bots`); `bugfix` is a task kind that applies across every domain.
-
-`forge-intake.cjs --json` carries every field in both languages, the beginner layer (`question_nl`,
-`options_nl`, `why_nl`, `beginner`, `triggers`) included, passed through unchanged. `--lang nl` and
-`--beginner` only change the human print (at most 3 options + "Iets anders"/"Something else", the recommended
-one first with its reason); `--trigger F<id>` filters to the questions whose `triggers` contain that id (an
-empty result is an honest empty list).
+Silent mode (the default): run `node .claude/forge-bin/forge-promptcheck.cjs ask "<raw request>" --json`, answer the intake list yourself (`forge-intake.cjs --type <slug> --json`, `--trigger F<id>` for one gap), ask **at most one** question (`nextQuestion`, else the top gap of §2 that passes rule 2, in beginner form), then confirm (§4), record (§5), tip (§6). Interview mode (`/forge interview`): one question per turn, laddering allowed only there. The beginner layer lives in `.claude/config/intake/question-bank.json`. Exact JSON fields, exit codes and the bank layout: `references/forge-wiring.md`.
 
 ## 8. The beginner template
 - NL: "Ik wil {resultaat} voor {wie}, zodat {waarom}. Er is al {wat/link}. Het is klaar als {check}. Zoals
@@ -241,3 +167,6 @@ bad-to-good examples are in `references/before-after.md`.
 - `references/HOW-TO-ASK.md` — the beginner guide for the owner (NL, then EN)
 - `references/unsafe-advice.md` — tutorial tips that are actually unsafe, and Forge's safer equivalent (NL, then EN)
 - The research these ingredients were distilled from (evidence base and full source list) stays in the maintainers' development notes; it is not part of the install, and everything this skill needs is in the four files above.
+- `references/evidence-and-why.md` — the evidence base and why this skill exists (moved from this file)
+- `references/ingredients.md` — §1, the 9 ingredients table in full (moved from this file)
+- `references/forge-wiring.md` — §7, how it plugs into `forge-intake` and the question bank, in full (moved from this file)

@@ -57,7 +57,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1 (opt-in .forge layout): the vault folder, run folders and memory files come from forge-paths.cjs — .forge/*
+// only in a project with a .forge folder (or FORGE_STATE_DIR), otherwise exactly the legacy .claude paths. Notes are
+// written to the ACTIVE vault folder; a run is read from whichever run folder holds it; memory is read from its read
+// path (the legacy file while the .forge layout has no copy yet). Guarded: an older or missing forge-paths.cjs keeps
+// the legacy literals. A plugin copy outside any project has no default root (the CLI then refuses).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const PROJECT_ROOT_DEFAULT = viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
 const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
 const MANUAL_MARKER = '<!-- forge:manual -->';
 
@@ -148,11 +155,19 @@ function slugify(s) { return String(s == null ? '' : s).toLowerCase().replace(/[
 // ---- paths (defense in depth: every id this file itself GENERATES is already regex-safe via slugify/
 // RUN_ID_RE, but every resolved path is still checked to stay inside its intended base dir — same
 // belt-and-braces discipline as forge-store.cjs / forge-dashboard/log-event.cjs). ----
-function vaultDirOf(root) { return path.join(root, '.claude', 'forge-vault'); }
+function vaultDirOf(root) { return viaForgePaths((P) => P.stateDir(root, 'vault'), () => path.join(root, '.claude', 'forge-vault')); }
 function runsSubdirOf(root) { return path.join(vaultDirOf(root), 'runs'); }
 function decisionsSubdirOf(root) { return path.join(vaultDirOf(root), 'decisions'); }
 function topicsSubdirOf(root) { return path.join(vaultDirOf(root), 'topics'); }
-function runsDirOf(root) { return path.join(root, '.claude', 'forge-runs'); }
+/** runDirOf(root, runId) — the run's folder in whichever run folder holds it (active first), else the active one. */
+function runDirOf(root, runId) {
+  for (const d of viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => [])) if (fs.existsSync(path.join(d, runId))) return path.join(d, runId);
+  return path.join(viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(root, '.claude', 'forge-runs')), runId);
+}
+/** memReadOf(root, name) — the memory file to read (.claude/<name> in the legacy layout). */
+function memReadOf(root, name) { return viaForgePaths((P) => P.memoryFile(root, name, { read: true }), () => path.join(root, '.claude', name)); }
+/** memoryDirsOf(root) — the folders that may hold memory files/archives, active first (legacy: just .claude). */
+function memoryDirsOf(root) { return viaForgePaths((P) => { const d = P.existingStateDirs(root, 'memory'); return d.length ? d : [path.join(root, '.claude')]; }, () => [path.join(root, '.claude')]); }
 function withinBase(base, target) {
   const b = path.resolve(base), t = path.resolve(target);
   return t === b || t.startsWith(b + path.sep);
@@ -280,7 +295,7 @@ function readEventsFor(root, runId) {
   let entries = [];
   try {
     const logEvent = require(path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs'));
-    const file = path.join(runsDirOf(root), runId, 'events.jsonl');
+    const file = path.join(runDirOf(root, runId), 'events.jsonl');
     if (typeof logEvent.readEventsClassified === 'function' && fs.existsSync(file)) {
       const cls = logEvent.readEventsClassified(file, { verifyChain: true, runId });
       if (cls && Array.isArray(cls.entries)) entries = cls.entries;
@@ -289,7 +304,7 @@ function readEventsFor(root, runId) {
   return entries;
 }
 function buildRunData(root, runId) {
-  const runDir = path.join(runsDirOf(root), runId);
+  const runDir = runDirOf(root, runId);
   const runMeta = readJsonSafe(path.join(runDir, 'run.json'));
   const entries = readEventsFor(root, runId);
   const finalReport = readTextSafe(path.join(runDir, 'final-report.md'), MAX_REPORT_READ_CHARS);
@@ -325,32 +340,50 @@ function buildRunData(root, runId) {
 function collectDecisionItems(root, runId, data) {
   const items = [];
   for (const e of data.decisionEvents) items.push({ text: e.note.trim(), ts: safeTs(e.timestamp), src: 'run event' });
-  const decLog = readTextSafe(path.join(root, '.claude', 'FORGE_DECISIONS.md'), MAX_LOG_READ_CHARS);
+  const decLog = readTextSafe(memReadOf(root, 'FORGE_DECISIONS.md'), MAX_LOG_READ_CHARS);
   const sec1 = extractSectionMentioning(decLog, runId);
   if (sec1) items.push({ text: sec1, ts: null, src: 'FORGE_DECISIONS.md' });
-  const mem = readTextSafe(path.join(root, '.claude', 'FORGE_MEMORY.md'), MAX_LOG_READ_CHARS);
+  // WP 1.9: forge-memory-consolidate.cjs (WP 1.4) rotates FORGE_DECISIONS.md the same way, so an older
+  // run's decisions section now lives in FORGE_DECISIONS_ARCHIVE_<yyyy-mm>[-b].md: same fallback as the memory below.
+  else pushFirstArchiveSection(root, 'FORGE_DECISIONS', runId, items);
+  const mem = readTextSafe(memReadOf(root, 'FORGE_MEMORY.md'), MAX_LOG_READ_CHARS);
   const sec2 = extractSectionMentioning(mem, runId);
   if (sec2) items.push({ text: sec2, ts: null, src: 'FORGE_MEMORY.md' });
-  else {
-    // FORGE_MEMORY.md is rotated into a short current-state summary plus dated verbatim
-    // archives (FORGE_MEMORY_ARCHIVE_<yyyy-mm>.md). An older run's memory section now lives in an archive,
-    // so fall back to the archives, newest first, and take the first match only.
-    for (const name of memoryArchiveNames(root)) {
-      const arc = readTextSafe(path.join(root, '.claude', name), MAX_LOG_READ_CHARS);
-      const sec3 = extractSectionMentioning(arc, runId);
-      if (sec3) { items.push({ text: sec3, ts: null, src: name }); break; }
-    }
-  }
+  // FORGE_MEMORY.md is rotated into a short current-state summary plus dated verbatim
+  // archives (FORGE_MEMORY_ARCHIVE_<yyyy-mm>.md). An older run's memory section now lives in an archive,
+  // so fall back to the archives, newest first, and take the first match only.
+  else pushFirstArchiveSection(root, 'FORGE_MEMORY', runId, items);
   return items.slice(0, MAX_DECISIONS_PER_RUN);
 }
-/** memoryArchiveNames(root) -> ['FORGE_MEMORY_ARCHIVE_2026-10.md', ...] newest first; [] when none/unreadable. */
-function memoryArchiveNames(root) {
-  try {
-    return fs.readdirSync(path.join(root, '.claude'))
-      .filter((n) => /^FORGE_MEMORY_ARCHIVE_[0-9]{4}-[0-9]{2}\.md$/.test(n))
-      .sort().reverse();
-  } catch { return []; }
+/** pushFirstArchiveSection(root, base, runId, items) — the archives of <base>.md newest first; the FIRST section
+ *  that names runId is pushed (src = the archive's name) and the search stops. Nothing is pushed when none does. */
+function pushFirstArchiveSection(root, base, runId, items) {
+  for (const name of archiveNames(root, base)) {
+    const arc = readTextSafe(memReadOf(root, name), MAX_LOG_READ_CHARS);
+    const sec = extractSectionMentioning(arc, runId);
+    if (sec) { items.push({ text: sec, ts: null, src: name }); return; }
+  }
 }
+// The dated archive names the rotations write: <BASE>_ARCHIVE_<yyyy-mm>[-dd][-b..h].md (wrote month names,
+// WP 1.3 a day name, forge-memory-consolidate.cjs adds -b, -c, ... when a name is taken). Anything else is not ours.
+const ARCHIVE_BASES = new Set(['FORGE_MEMORY', 'FORGE_DECISIONS']);
+const archiveNameRe = (base) => new RegExp('^' + base + '_ARCHIVE_([0-9]{4}-[0-9]{2})(-[0-9]{2})?(-[a-h])?\\.md$');
+/** archiveNames(root, base) -> ['<base>_ARCHIVE_2026-10-24.md', '<base>_ARCHIVE_2026-10.md', ...] newest first by
+ *  (date, suffix) — a month-only name counts as day 00 of that month, so a later day archive of the same month sorts
+ *  before it — and [] when none/unreadable. `base` is one of ARCHIVE_BASES (FORGE_MEMORY / FORGE_DECISIONS). */
+function archiveNames(root, base) {
+  if (!ARCHIVE_BASES.has(base)) return [];
+  // WP 2.1: archives in every memory folder (legacy layout: just .claude, as before); a name counts once
+  let names = [];
+  for (const d of memoryDirsOf(root)) { try { for (const n of fs.readdirSync(d)) if (!names.includes(n)) names.push(n); } catch { /* unreadable folder: skipped */ } }
+  if (!names.length) return [];
+  const re = archiveNameRe(base);
+  const key = (n) => { const m = re.exec(n); return m[1] + (m[2] || '-00') + (m[3] || '-0'); };
+  return names.filter((n) => re.test(n)).sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
+}
+/** memoryArchiveNames(root) -> ['FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'FORGE_MEMORY_ARCHIVE_2026-10.md', ...] newest
+ *  first; [] when none/unreadable. */
+function memoryArchiveNames(root) { return archiveNames(root, 'FORGE_MEMORY'); }
 
 // ---- topic derivation from changed file paths (ordered, most-specific-first; the LAST two rules are
 // deliberate catch-alls so "tests"/"docs" never steal a match a specific tool's own rule should get). ----
@@ -623,6 +656,8 @@ module.exports = {
   PROJECT_ROOT_DEFAULT, vaultDirOf, runsSubdirOf, decisionsSubdirOf, topicsSubdirOf,
   // exported for direct unit testing.
   isPathSafeUnderRoot, MAX_TOPICS_PER_RUN, MAX_FILES_CONSIDERED,
+  // WP 1.9 — the archive-name lookup, exported for direct unit testing.
+  archiveNames, memoryArchiveNames,
 };
 
 // ---- CLI ----
@@ -632,6 +667,10 @@ if (require.main === module) {
   const opt = (name) => { const i = argv.indexOf(name); return i !== -1 && i + 1 < argv.length ? argv[i + 1] : null; };
   const json = argv.includes('--json');
   const root = opt('--root') ? path.resolve(opt('--root')) : PROJECT_ROOT_DEFAULT;
+  if (!root) {
+    console.error('vault: no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — pass --root <projectRoot>');
+    process.exit(2);
+  }
   if (cmd === 'update') {
     const runId = opt('--run');
     if (!runId) {

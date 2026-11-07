@@ -19,7 +19,13 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { cleanupConversation, conversationExists, openSandboxProject, startNewChat } from './live-gateway-helpers';
+import {
+  blockedOwnerGatewayUrls,
+  cleanupConversation,
+  conversationExists,
+  openSandboxProject,
+  startNewChat,
+} from './live-gateway-helpers';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -33,6 +39,8 @@ test.describe('deleting a conversation', () => {
 
   test.afterEach(async ({ page }) => {
     await cleanupConversation(page, createdId);
+    // Fail closed: nothing in this spec may reach the developer's own gateway on 127.0.0.1:4100.
+    expect(blockedOwnerGatewayUrls(page), 'the page tried to reach the live gateway on 127.0.0.1:4100').toEqual([]);
   });
 
   test('opening the confirm dialog and cancelling keeps the conversation for real', async ({ page }) => {
@@ -77,10 +85,12 @@ test.describe('deleting a conversation', () => {
 
     // A second delete of the same, already-gone id is refused rather than silently "succeeding"
     // again — real proof this was a genuine removal, not a client-side-only hide.
-    const secondDelete = await page.request.delete(`/api/conversations/${encodeURIComponent(idToDelete)}`, {
-      headers: { 'x-cc-exec-token': (await page.locator('meta[name="cc-exec-token"]').getAttribute('content')) ?? '' },
-    });
+    // FU-STEP2 P3: the context is paired with the forge_ui cookie (openSandboxProject), so this request is
+    // authenticated; a refusal must therefore be "not found", never a 403 for a missing session (which
+    // would make this assertion pass without proving anything about the delete).
+    const secondDelete = await page.request.delete(`/api/conversations/${encodeURIComponent(idToDelete)}`);
     expect(secondDelete.ok(), 'deleting an already-deleted conversation id unexpectedly succeeded again').toBe(false);
+    expect(secondDelete.status(), 'the second delete must be refused as not found, not as unauthenticated').toBe(404);
 
     createdId = null; // already gone — afterEach cleanup has nothing left to do
   });

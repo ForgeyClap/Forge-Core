@@ -1,0 +1,205 @@
+{
+  "type": "documents-and-spreadsheets",
+  "version": 1,
+  "title": "Documents and spreadsheets",
+  "covers": "README files, guides, reports, proposals, invoices, slide decks, Word, PDF and spreadsheet files someone opens and reads or edits.",
+  "domains": [],
+  "selected_by": {
+    "en": ["spreadsheet", "excel", "google sheets", "sheet", "pdf", "document", "documentation", "readme", "user guide", "contract", "proposal", "slide deck", "pitch deck", "investor deck", "sales deck", "presentation", "powerpoint", "keynote slides", "cover letter", "printable", "printout", "pdf report", "monthly report", "weekly report", "annual report"],
+    "nl": ["spreadsheet", "excel", "rekenblad", "tabel", "-factuur-", "offerte", "pdf", "-document", "documentatie", "readme", "handleiding", "rapport", "-rapport-", "-contract", "overeenkomst", "-overeenkomst", "een brief", "de brief", "brieven", "presentatie", "pitchdeck", "pitch deck", "investeerdersdeck", "printbaar", "afdrukbaar", "uitprinten"]
+  },
+  "selected_together": [
+    {
+      "all": [
+        { "en": ["invoice"], "nl": ["invoice"] },
+        { "en": ["make", "create", "write", "generate", "draft", "design", "print", "prepare", "template", "layout", "printable"], "nl": ["maak", "maken", "opstellen", "genereer", "genereren", "ontwerp", "ontwerpen", "print", "sjabloon", "opmaak"] }
+      ],
+      "unless": { "en": ["database", "table", "schema", "sql", "migrate", "migration", "column", "records", "mysql", "postgres", "api", "endpoint"], "nl": ["database", "databasetabel", "schema", "sql", "migreer", "migreren", "migratie", "kolom", "api", "endpoint"] }
+    }
+  ],
+  "stakeholders": [
+    {
+      "id": "reader",
+      "who": "The person who opens the file: a client, the owner, or a beginner following setup steps",
+      "cares_about": ["it opens and looks finished", "finding the one thing they need", "steps that work on their own machine"],
+      "would_notice": ["a repair prompt, a broken image or raw markdown symbols", "a command that fails on the first try", "a wall of text without headings"]
+    },
+    {
+      "id": "checker",
+      "who": "The person who checks the numbers or facts (for example a bookkeeper or a reviewer)",
+      "cares_about": ["numbers that add up", "units and dates that cannot be misread", "a source for every figure"],
+      "would_notice": ["a total that does not equal its rows", "a column without unit or currency", "a figure that differs between two pages", "a real password or key in the file"]
+    },
+    {
+      "id": "next-editor",
+      "who": "The person who updates the document or spreadsheet next",
+      "cares_about": ["formulas they can follow", "inputs kept apart from calculations", "knowing what changed and what is still open"],
+      "would_notice": ["typed-in numbers where a formula should be", "#REF! or #DIV/0! cells", "sheets called Sheet1 and Sheet2"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Open the file in the app the reader will use: does it open cleanly and look finished?",
+    "Can you find the summary or the first step without scrolling?",
+    "Pick one number or one command and check it: is it right?"
+  ],
+  "checks": [
+    {
+      "id": "opens-clean",
+      "stakeholder": "reader",
+      "claim": "The file opens in the app the reader will use (Word, Excel, a PDF reader, the GitHub or docs renderer) with no repair prompt, missing fonts, broken images or raw markup.",
+      "how_to_inspect": "Open the final file in the target app (render a Markdown file in its real viewer) and page through all of it.",
+      "evidence_required": "A screenshot of the opened file and the app or viewer used.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A file that does not open cleanly is unusable whatever its content, and it is the first thing the reader meets." }
+    },
+    {
+      "id": "commands-verified",
+      "stakeholder": "reader",
+      "claim": "Every command, path and flag in the document was run or checked against the real code, not written from memory of the plan.",
+      "how_to_inspect": "Run every command in the document, or open the code that defines it, and tick each one.",
+      "evidence_required": "The list of commands with their exit codes or the file and line that defines each.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Coverage & accuracy", "quote": "Every documented command/path was actually verified against the real code" }
+    },
+    {
+      "id": "exact-steps",
+      "stakeholder": "reader",
+      "claim": "Steps give the exact command, path and expected result, in order, with nothing the reader has to guess.",
+      "how_to_inspect": "Read each step and ask what a beginner would type; any step that needs a guess is rewritten.",
+      "evidence_required": "The steps rewritten.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Clarity & usability", "quote": "Setup instructions give exact commands and exact file paths" }
+    },
+    {
+      "id": "fresh-machine",
+      "stakeholder": "reader",
+      "claim": "Setup or how-to steps were followed from a clean start (new folder, another user or a VM), not only on the author's machine.",
+      "how_to_inspect": "Follow the document literally in a clean folder or sandbox and note every step that needed knowledge not in the text.",
+      "evidence_required": "The transcript of the clean run and the steps that had to be fixed (N/A for documents without steps).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "3. \"Would this person look at this?\" examples", "quote": "kijk niet vanuit mijn pc" }
+    },
+    {
+      "id": "scannable",
+      "stakeholder": "reader",
+      "claim": "The structure lets a reader find one thing fast: a short summary first, clear headings, one topic per section.",
+      "how_to_inspect": "Read only the headings and the first lines; check you can find each main task from them alone.",
+      "evidence_required": "The heading outline.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Clarity & usability", "quote": "Structure lets a reader scan for the one command/section they need." }
+    },
+    {
+      "id": "no-jargon",
+      "stakeholder": "reader",
+      "claim": "No shorthand, codenames or jargon the reader was never told about.",
+      "how_to_inspect": "Mark every term a newcomer would have to look up and explain or replace it.",
+      "evidence_required": "The terms explained or replaced.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Clarity & usability", "quote": "no invented shorthand or unexplained jargon" }
+    },
+    {
+      "id": "numbers-reconcile",
+      "stakeholder": "checker",
+      "claim": "Totals equal the sum of their parts, percentages add up, and the same figure has the same value everywhere in the document.",
+      "how_to_inspect": "Re-add every total and compare each repeated figure across pages, tables and charts.",
+      "evidence_required": "The recalculation per total (or the formula check) and any mismatches fixed.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A checker's first move is to re-add one column; a single mismatch voids trust in every other number." }
+    },
+    {
+      "id": "units-dates",
+      "stakeholder": "checker",
+      "claim": "Every number shows its unit or currency, decimals are consistent per column, and dates cannot be misread (24 Oct 2026 or 2026-10-24, never 10/11/12).",
+      "how_to_inspect": "Scan every table, column header and chart axis for a unit and every date for an unambiguous format.",
+      "evidence_required": "The columns, axes and dates fixed.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "naming, units" }
+    },
+    {
+      "id": "no-secrets-or-pii",
+      "stakeholder": "checker",
+      "claim": "No real secret, token, password or personal data that should not travel with the file; only placeholders.",
+      "how_to_inspect": "Search the file, including hidden sheets, comments, speaker notes and metadata, for key, token, password, e-mail addresses and account numbers.",
+      "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "No real secret value, token, or credential appears anywhere in the doc" }
+    },
+    {
+      "id": "formulas-not-values",
+      "stakeholder": "next-editor",
+      "claim": "Computed cells are formulas, inputs are kept apart from calculations, and no cell shows an error such as #REF!, #DIV/0! or #N/A.",
+      "how_to_inspect": "Show formulas and scan each computed column; search all sheets for cells starting with '#' (N/A for documents without a spreadsheet).",
+      "evidence_required": "A screenshot of the formula view and the error search.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A pasted value looks right today and goes silently wrong the first time an input changes." }
+    },
+    {
+      "id": "sheet-usable",
+      "stakeholder": "reader",
+      "claim": "Spreadsheets have a frozen header row, readable column widths, number formats, and sheet names that say what they hold.",
+      "how_to_inspect": "Open each sheet, scroll down and right, and look at headers, widths, formats and tab names.",
+      "evidence_required": "A screenshot of each sheet scrolled (N/A for documents without a spreadsheet).",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "These are the settings a professional makes in the first minute; their absence is how a sheet reads as unfinished." }
+    },
+    {
+      "id": "sources-and-status",
+      "stakeholder": "checker",
+      "claim": "The document states its date or version, the source of each outside figure, and what was verified versus assumed.",
+      "how_to_inspect": "Find the date or version line, a source for every external figure, and a verified-versus-assumed note.",
+      "evidence_required": "Where each of those three appears.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "What was verified vs. assumed is stated explicitly." }
+    },
+    {
+      "id": "print-layout",
+      "stakeholder": "reader",
+      "claim": "Printed or PDF output has page numbers, no table rows split across pages, and nothing cut off at the margins.",
+      "how_to_inspect": "Print to PDF and page through it at full size.",
+      "evidence_required": "The PDF path and any page fixed (N/A when the file is never printed).",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Contracts, invoices and reports still get printed, and a cut-off column is visible on paper at once." }
+    },
+    {
+      "id": "owner-actions-visible",
+      "stakeholder": "reader",
+      "claim": "Any action still needed from the owner (a missing key, an open decision) is called out near the top, not buried.",
+      "how_to_inspect": "Search the document for open items and check each appears in one clearly headed place.",
+      "evidence_required": "The location of the open-items list.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "Any owner action still required (missing key, unresolved TODO) is called out, not buried." }
+    },
+    {
+      "id": "reflects-shipped",
+      "stakeholder": "next-editor",
+      "claim": "The document describes what actually shipped, including where it differs from the plan.",
+      "how_to_inspect": "Compare the document with the final diff or delivered files and list any difference.",
+      "evidence_required": "The differences found and how the text now covers them.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/docs-boss.md", "section": "Coverage & accuracy", "quote": "Deviations from the original plan are reflected, not silently ignored." }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Author-machine instructions", "symptom": "steps that only work with the author's paths, cache or logged-in accounts" },
+    { "defect": "Totals that do not add up", "symptom": "the total row differs from the sum of the rows above it" },
+    { "defect": "Pasted values in a model", "symptom": "a total typed in by hand, so it no longer changes when an input changes" },
+    { "defect": "Unitless numbers", "symptom": "a column of numbers with no currency, unit or period" },
+    { "defect": "Ambiguous dates", "symptom": "03/04/2026, which is March to one reader and April to another" },
+    { "defect": "Unfinished file look", "symptom": "Sheet1, no frozen header, ##### in narrow columns, raw ** and # in a rendered document" }
+  ]
+}

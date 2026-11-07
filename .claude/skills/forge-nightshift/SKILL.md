@@ -1,6 +1,8 @@
 ---
 name: forge-nightshift
-description: "Overnight session-limit-resilient builder — work-package queue, auto-resume, morning briefing: run this overnight, keep going while I'm away, resume tomorrow, opt-in only."
+description: "Use when asked to keep going overnight (vannacht doorwerken)."
+# A10 original description (listing budget): "Use when asked to keep going overnight (vannacht doorwerken): opt-in queue, auto-resume, morning briefing."
+# W2-BUDGET original description (listing budget): "Use when asked to keep going overnight (vannacht doorwerken): opt-in queue, morning briefing."
 ---
 
 # Forge playbook — Nightshift (overnight self-resuming builder)

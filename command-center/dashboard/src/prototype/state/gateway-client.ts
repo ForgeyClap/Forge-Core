@@ -21,8 +21,60 @@
  * loopback host).
  */
 
-/** The gateway's own origin. Literal and loopback-only, on purpose — see header. */
+import { UI_SESSION_PATH, getPairingState, isPairingRequired, setPairingState } from '@/lib/ui-session';
+import type { PairingState } from '@/lib/ui-session';
+
+/**
+ * The browser build's gateway origin. Literal and loopback-only, on purpose — see header. Kept as
+ * the FALLBACK constant: the desktop app runs its gateway on whatever free loopback port it found,
+ * so production code resolves the origin through `gatewayOrigin()` below, never this literal.
+ */
 export const GATEWAY_ORIGIN = 'http://127.0.0.1:4100';
+
+/** A loopback http origin with an explicit port, nothing else (no path, no credentials, no https). */
+const LOOPBACK_ORIGIN_RE = /^http:\/\/(127\.0\.0\.1|localhost):(\d{1,5})$/;
+
+/** True when `value` is `http://127.0.0.1:<port>` or `http://localhost:<port>` with 1 <= port <= 65535. */
+export function isLoopbackOrigin(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = LOOPBACK_ORIGIN_RE.exec(value);
+  if (match === null) return false;
+  const port = Number(match[2]);
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
+interface ForgeDesktopBridge {
+  readonly gatewayOrigin?: unknown;
+}
+
+/** The desktop preload's `window.forge`, or null in a plain browser (and in any non-function shape). */
+function desktopBridge(): ForgeDesktopBridge | null {
+  const candidate = (globalThis as { forge?: unknown }).forge;
+  return typeof candidate === 'object' && candidate !== null ? (candidate as ForgeDesktopBridge) : null;
+}
+
+/** True when the page runs inside the Forge Systeem desktop app (its preload exposes `window.forge`). */
+export function isDesktopApp(): boolean {
+  const bridge = desktopBridge();
+  return bridge !== null && typeof bridge.gatewayOrigin === 'function';
+}
+
+/**
+ * The origin every gateway call goes to. In the desktop app this is the port the app's own gateway
+ * listens on (`window.forge.gatewayOrigin()`, validated as a loopback origin again here); anything
+ * else (a plain browser, an empty or non-loopback value, a throwing bridge) falls back to the
+ * browser build's `GATEWAY_ORIGIN`. Read per call, never cached, so a test can swap `window.forge`.
+ */
+export function gatewayOrigin(): string {
+  const bridge = desktopBridge();
+  if (bridge === null || typeof bridge.gatewayOrigin !== 'function') return GATEWAY_ORIGIN;
+  try {
+    const value: unknown = (bridge.gatewayOrigin as () => unknown)();
+    return isLoopbackOrigin(value) ? value : GATEWAY_ORIGIN;
+  } catch {
+    return GATEWAY_ORIGIN;
+  }
+}
 
 /**
  * fix-sec-round #1 (HIGH): the header name for the gateway's per-boot exec token — MUST stay in
@@ -32,14 +84,15 @@ export const GATEWAY_ORIGIN = 'http://127.0.0.1:4100';
  */
 export const EXEC_TOKEN_HEADER = 'x-cc-exec-token';
 
-const EXEC_TOKEN_META_NAME = 'cc-exec-token';
+export const EXEC_TOKEN_META_NAME = 'cc-exec-token';
 
 /**
- * Reads the real per-boot exec token the gateway injects into its own served HTML (see
- * `gateway/src/static.mjs`'s `injectExecToken`) as a `<meta name="cc-exec-token">` tag. Returns
- * `null` when the tag is absent — a test/jsdom render that never loaded the real served HTML, or a
- * gateway build that predates this fix — so a caller degrades honestly (the gateway then answers
- * with a real 403 for a non-'plan' send) rather than guessing or fabricating a token.
+ * Reads a `<meta name="cc-exec-token">` tag from the page. LEGACY since FU-STEP2 (Security Boss
+ * Step 2): the gateway no longer puts any token into its served HTML, so against a current gateway
+ * this returns `null` and callers simply send no header. The window authenticates with an HttpOnly
+ * session cookie instead (delivered by the desktop app, or by the launcher's one-time pairing link;
+ * see `@/lib/ui-session`), which page script can never read and the write helpers below send with
+ * `credentials: 'include'`. Kept so the many existing call sites stay unchanged.
  */
 export function readExecToken(): string | null {
   if (typeof document === 'undefined') return null;
@@ -51,8 +104,9 @@ export function readExecToken(): string | null {
 /** The real command that starts the gateway, shown in the honest DISCONNECTED state. */
 export const GATEWAY_START_COMMAND = 'node command-center/gateway/bin.mjs';
 
-function gatewayUrl(path: string): string {
-  return `${GATEWAY_ORIGIN}${path}`;
+/** An absolute gateway URL for `path` (which starts with `/`), on the resolved origin. */
+export function gatewayUrl(path: string): string {
+  return `${gatewayOrigin()}${path}`;
 }
 
 export interface GatewayOk {
@@ -69,6 +123,56 @@ export type GatewayResult = GatewayOk | GatewayFail;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * FU-STEP2: every write must carry the session cookie. A page on the gateway's own origin (the
+ * desktop app, a browser on the gateway page) sends it with the default `same-origin`. The Vite dev
+ * server is ANOTHER origin, so there the cookie only travels with `include`. The gateway answers
+ * exactly these origins with Access-Control-Allow-Credentials, but ONLY when it was started with its
+ * dev switch `FORGE_DEV_ORIGINS=1` (gateway/src/security.mjs DEV_ORIGINS / devOriginsEnabled, a
+ * hardcoded mirror like GATEWAY_ORIGIN above); without the switch the gateway refuses the dev page,
+ * which is the safe default for every desktop and launcher gateway. Every other cross-origin page
+ * keeps the default, so it never sends the cookie anywhere and a mock that answers
+ * `Access-Control-Allow-Origin: *` keeps working. Reads stay without it: no GET route needs the cookie
+ * (except `checkUiSession`).
+ */
+export const COOKIE_DEV_PAGE_ORIGINS: readonly string[] = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
+/** `include` on the Vite dev page, `same-origin` (the fetch default) everywhere else. */
+export function writeCredentials(pageOrigin: string | undefined = globalThis.location?.origin): RequestCredentials {
+  return pageOrigin !== undefined && COOKIE_DEV_PAGE_ORIGINS.includes(pageOrigin) ? 'include' : 'same-origin';
+}
+
+/** A refused write that says "this window is not paired" switches the pairing card on. */
+function notePairingRefusal(status: number, body: unknown): void {
+  if (isPairingRequired(status, body)) setPairingState('required');
+}
+
+/**
+ * Asks the gateway whether THIS window holds the session cookie (`GET /api/ui-session`, with the
+ * cookie) and records the answer in `@/lib/ui-session`. Never throws. When the gateway cannot answer
+ * (offline, an older gateway without the route, a body without `paired`) the state is left as it
+ * was, so no pairing card appears for a problem the connection UI already shows.
+ */
+export async function checkUiSession(): Promise<PairingState> {
+  let res: Response;
+  try {
+    res = await globalThis.fetch(gatewayUrl(UI_SESSION_PATH), { method: 'GET', credentials: writeCredentials() });
+  } catch {
+    return getPairingState();
+  }
+  if (!res.ok) return getPairingState();
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    return getPairingState();
+  }
+  const paired = asRecord(body)?.paired;
+  if (paired === true) setPairingState('paired');
+  else if (paired === false) setPairingState('required');
+  return getPairingState();
 }
 
 /**
@@ -121,6 +225,7 @@ export async function gwPost(
       method: 'POST',
       headers: { 'content-type': 'application/json', ...extraHeaders },
       body: JSON.stringify(body),
+      credentials: writeCredentials(),
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -133,6 +238,7 @@ export async function gwPost(
   }
   const record = asRecord(parsed) ?? {};
   if (!res.ok) {
+    notePairingRefusal(res.status, parsed);
     const errField = typeof record.error === 'string' ? record.error : `HTTP ${res.status}`;
     return { ok: false, error: errField };
   }
@@ -155,6 +261,7 @@ export async function gwPatch(
       method: 'PATCH',
       headers: { 'content-type': 'application/json', ...extraHeaders },
       body: JSON.stringify(body),
+      credentials: writeCredentials(),
     });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -167,6 +274,7 @@ export async function gwPatch(
   }
   const record = asRecord(parsed) ?? {};
   if (!res.ok) {
+    notePairingRefusal(res.status, parsed);
     const errField = typeof record.error === 'string' ? record.error : `HTTP ${res.status}`;
     return { ok: false, error: errField };
   }
@@ -186,7 +294,7 @@ export async function gwDelete(
 ): Promise<GatewayResult> {
   let res: Response;
   try {
-    res = await globalThis.fetch(gatewayUrl(path), { method: 'DELETE', headers: { ...extraHeaders } });
+    res = await globalThis.fetch(gatewayUrl(path), { method: 'DELETE', headers: { ...extraHeaders }, credentials: writeCredentials() });
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -198,6 +306,7 @@ export async function gwDelete(
   }
   const record = asRecord(parsed) ?? {};
   if (!res.ok) {
+    notePairingRefusal(res.status, parsed);
     const errField = typeof record.error === 'string' ? record.error : `HTTP ${res.status}`;
     return { ok: false, error: errField };
   }

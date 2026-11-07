@@ -1,0 +1,161 @@
+{
+  "type": "automation-workflow",
+  "version": 1,
+  "title": "Automation workflow",
+  "covers": "n8n and similar workflows, scheduled jobs and scripts that read, change or send things in business systems (mail, CRM, shop, calendar).",
+  "domains": ["n8n", "integration"],
+  "stakeholders": [
+    {
+      "id": "business-owner",
+      "who": "The person whose mailbox, CRM or shop the automation acts on",
+      "cares_about": ["nothing goes out or changes without their say-so", "seeing what it did", "it keeps working when nobody is watching"],
+      "would_notice": ["an e-mail that reached a real customer during testing", "a record changed that should not have been", "no way to see what ran yesterday"]
+    },
+    {
+      "id": "recipient",
+      "who": "The customer or colleague who receives what the automation sends",
+      "cares_about": ["one correct message, addressed to them", "a message that reads like a person wrote it"],
+      "would_notice": ["'Hi undefined' or a raw {{ }} placeholder", "the same e-mail twice", "a message in the wrong language or from an unknown sender"]
+    },
+    {
+      "id": "operator",
+      "who": "Whoever monitors the automation and fixes it when it fails",
+      "cares_about": ["failures that are visible", "knowing which step failed and why", "credentials kept out of the workflow"],
+      "would_notice": ["a run that failed silently", "steps named 'HTTP Request3'", "an API key pasted into a node"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Is the workflow inactive or in dry-run until the owner approves it?",
+    "Read one message it produced, exactly as the recipient would see it: does it read right?",
+    "Open the canvas or the script: can you tell from the step names alone what happens?"
+  ],
+  "checks": [
+    {
+      "id": "inactive-until-approved",
+      "stakeholder": "business-owner",
+      "claim": "The automation stays inactive (or in dry-run) until the owner approves going live.",
+      "how_to_inspect": "Read back the active flag or schedule of every workflow and trigger after import or deploy.",
+      "evidence_required": "The active state read back from the platform.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-n8n/SKILL.md", "section": "Hard rules", "quote": "Imported/new workflows stay inactive until the owner approves activation." }
+    },
+    {
+      "id": "test-prod-separated",
+      "stakeholder": "business-owner",
+      "claim": "Test and live are separated: test webhooks, test recipients and sandbox accounts are used until approval, and no real customer is reached during testing.",
+      "how_to_inspect": "List every outbound target (e-mail address, webhook URL, account) used in the test runs.",
+      "evidence_required": "That list, showing only test targets.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-n8n/SKILL.md", "section": "Hard rules", "quote": "test/prod separation" }
+    },
+    {
+      "id": "drafts-only",
+      "stakeholder": "recipient",
+      "claim": "Outreach and bulk sends are created as drafts until the owner explicitly approves sending.",
+      "how_to_inspect": "Run the flow once with test input and check that the result lands as a draft, not in the sent folder or outbox.",
+      "evidence_required": "The draft id or a screenshot, and the empty sent log.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-integration/SKILL.md", "section": "Hard rules", "quote": "Outreach drafted only / no auto-send / no bulk" }
+    },
+    {
+      "id": "no-duplicates",
+      "stakeholder": "recipient",
+      "claim": "A retry, a double trigger or a re-run creates no second e-mail, record or charge.",
+      "how_to_inspect": "Trigger the same input twice, retry one failed step, and count the side effects.",
+      "evidence_required": "The two runs and the count of messages or records (one).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-integration/SKILL.md", "section": "Hard rules", "quote": "Idempotent writes (no duplicate side effects on retry)" }
+    },
+    {
+      "id": "message-rendered",
+      "stakeholder": "recipient",
+      "claim": "Every message a person receives was rendered with realistic test data and read: no 'undefined', 'null', raw {{ }} placeholders, wrong names, broken characters or wrong language.",
+      "how_to_inspect": "Run the flow with a complete and an incomplete test record (for example without a first name) and read both results in the real mail client or channel.",
+      "evidence_required": "Both rendered messages, as a screenshot or text.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-n8n/SKILL.md", "section": "Hard rules", "quote": "Expressions are null-safe" }
+    },
+    {
+      "id": "failures-visible",
+      "stakeholder": "operator",
+      "claim": "A failed step retries with backoff and then lands where a person will see it (error workflow, dead-letter, alert); nothing fails silently.",
+      "how_to_inspect": "Make one external call fail (a wrong URL or a mocked 500) and follow where the failure ends up.",
+      "evidence_required": "The failed execution and the alert or dead-letter entry it produced.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-integration/SKILL.md", "section": "Domain gates", "quote": "retries + dead-letter for failed calls" }
+    },
+    {
+      "id": "test-execution-shown",
+      "stakeholder": "operator",
+      "claim": "A real test execution with realistic input ran from start to end; passing validation alone does not count.",
+      "how_to_inspect": "Execute the workflow manually with test data and keep the execution log.",
+      "evidence_required": "The execution id or log.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-n8n/SKILL.md", "section": "Ship-readiness", "quote": "a manual test execution shown" }
+    },
+    {
+      "id": "credentials-stored",
+      "stakeholder": "operator",
+      "claim": "Credentials sit in the platform's credential store or env, never in node parameters, code steps or exported JSON.",
+      "how_to_inspect": "Search the exported workflow or script for key, token, password and secret.",
+      "evidence_required": "The search output on the export.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-n8n/SKILL.md", "section": "Hard rules", "quote": "Credentials live in n8n credential store / env — never hardcoded in nodes." }
+    },
+    {
+      "id": "audit-trail",
+      "stakeholder": "business-owner",
+      "claim": "The owner can see what ran, when, for whom, and what it sent or changed.",
+      "how_to_inspect": "Open the execution history or log after a test run and check that it answers those four questions.",
+      "evidence_required": "A screenshot or excerpt of the log entry.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Business automation", "quote": "audit log" }
+    },
+    {
+      "id": "answers-early",
+      "stakeholder": "operator",
+      "claim": "A webhook-triggered flow answers the caller first and does the slow work afterwards, so the caller never times out.",
+      "how_to_inspect": "Call the test webhook and time the response while a slow step runs.",
+      "evidence_required": "The measured response time.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-n8n/SKILL.md", "section": "Hard rules", "quote": "Webhook-triggered workflows answer early" }
+    },
+    {
+      "id": "readable-steps",
+      "stakeholder": "operator",
+      "claim": "Every step has a name that says what it does ('Send booking confirmation'), and the flow reads in one direction.",
+      "how_to_inspect": "Read the step names only and try to tell the story of the flow without opening any step.",
+      "evidence_required": "The steps renamed, with old and new names.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "The operator debugging a failed run reads step names, not the canvas; 'HTTP Request3' costs them the time the author saved." }
+    },
+    {
+      "id": "rate-limits",
+      "stakeholder": "operator",
+      "claim": "Calls to other services respect their rate limits and quotas, with waits or batching where needed.",
+      "how_to_inspect": "Check the documented limit of each called service against the number of calls one run makes.",
+      "evidence_required": "The limit per service and the calls per run.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-integration/SKILL.md", "section": "Domain gates", "quote": "rate limits respected" }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Unrendered placeholders", "symptom": "'Hi undefined,' or a literal {{ $json.firstName }} in a customer's inbox" },
+    { "defect": "Duplicate sends", "symptom": "the same confirmation arrives twice after a retry" },
+    { "defect": "Live during testing", "symptom": "a real customer received a test e-mail" },
+    { "defect": "Silent failure", "symptom": "the run failed at step 4 and nobody was told" },
+    { "defect": "Default step names", "symptom": "a canvas full of 'HTTP Request', 'Set1', 'Code2'" }
+  ]
+}

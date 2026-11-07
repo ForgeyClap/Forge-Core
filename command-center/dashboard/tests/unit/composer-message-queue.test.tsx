@@ -118,6 +118,8 @@ function renderComposer(
       }),
     ),
   );
+  // Redesign 2A: attach, mode, model and effort live in the composer's "+" tray now; open it.
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   return { ...utils, value };
 }
 
@@ -192,7 +194,8 @@ describe('Composer message queue (feat-composer-power)', () => {
     const state = buildState({ activeProjectId: 'p1', activeConversationId: 'conv-1' });
     const { rerender } = renderComposer(state, onSend, true);
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Bypass' }));
+    // WP B3: Bypass is not offered in Eenvoudig any more; Plan proves the same freeze.
+    fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
     const field = screen.getByRole('textbox', { name: /Message Forge/ });
     fireEvent.change(field, { target: { value: 'Frozen mode' } });
     fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
@@ -202,7 +205,7 @@ describe('Composer message queue (feat-composer-power)', () => {
 
     rerenderStreaming(rerender, state, onSend, false);
 
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Frozen mode', 'bypass'));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Frozen mode', 'plan'));
   });
 
   it('a queued message can be removed before it ever sends', async () => {

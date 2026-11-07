@@ -1,0 +1,157 @@
+{
+  "domain": "rag",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-rag/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-rag/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-rag/SKILL.md",
+      "section": "Ship-readiness"
+    }
+  ],
+  "checks": [
+    {
+      "id": "rag-eval",
+      "claim": "An eval set on known Q/A exists and runs.",
+      "evidence_required": "The eval run output with the number of questions and the pass rate.",
+      "how_to_run": "Run the eval set and quote the summary and exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "an eval set on known Q/A"
+      }
+    },
+    {
+      "id": "rag-citations",
+      "claim": "Answers cite their sources, and every eval answer cites a retrievable source.",
+      "evidence_required": "Eval output showing a citation per answer that resolves to an ingested document.",
+      "how_to_run": "Run the eval and check each citation against the index.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "citations present"
+      }
+    },
+    {
+      "id": "rag-fallback",
+      "claim": "The fallback is verified on empty or low-confidence retrieval.",
+      "evidence_required": "Real output of the fallback for an empty and a low-confidence query.",
+      "how_to_run": "Ask an out-of-corpus question and quote the reply.",
+      "severity": "block",
+      "honesty_note": "Empty or low-confidence retrieval gets the fallback, not a guess.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "fallback verified"
+      }
+    },
+    {
+      "id": "rag-no-invented-facts",
+      "claim": "No invented business facts (names, prices, contacts, claims).",
+      "evidence_required": "Eval cases on business facts answered only from sources.",
+      "how_to_run": "Run the business-fact eval cases and compare with the source documents.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no invented facts"
+      }
+    },
+    {
+      "id": "rag-ingestion-idempotent",
+      "claim": "Ingestion is idempotent.",
+      "evidence_required": "Two ingestion runs of the same corpus with the same chunk/vector count.",
+      "how_to_run": "Run ingestion twice and quote both counts.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "ingestion idempotent"
+      }
+    },
+    {
+      "id": "rag-logging-handoff",
+      "claim": "Conversation logging and a human-handoff path are defined.",
+      "evidence_required": "The logging config and a run that reaches the handoff.",
+      "how_to_run": "Trigger the handoff and read a conversation log entry.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "logging + handoff defined"
+      }
+    },
+    {
+      "id": "rag-consent-secrets",
+      "claim": "Lead capture is consent-aware and secrets/API keys are in env only.",
+      "evidence_required": "The consent step in the lead flow and a secret search with no hits.",
+      "how_to_run": "Read the lead-capture flow; git diff plus a secret-pattern search.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Lead capture is consent-aware; secrets/API keys in env only."
+      }
+    },
+    {
+      "id": "rag-retrieval-correct",
+      "claim": "Retrieval and embeddings are correct.",
+      "evidence_required": "Retrieval hit-rate on the eval set.",
+      "how_to_run": "Run the eval with retrieval scoring.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "retrieval + embeddings correct"
+      }
+    },
+    {
+      "id": "rag-system-prompt",
+      "claim": "The system prompt is reviewed.",
+      "evidence_required": "A review note naming what was checked.",
+      "how_to_run": "Manual review of the system prompt.",
+      "severity": "warn",
+      "honesty_note": "A review is judgement, not a test; report who reviewed and what.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Domain gates",
+        "quote": "System prompt reviewed"
+      }
+    },
+    {
+      "id": "rag-out-of-scope",
+      "claim": "Out-of-scope questions are refused.",
+      "evidence_required": "Output for an out-of-scope question.",
+      "how_to_run": "Ask an out-of-scope question and quote the reply.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-rag/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "out-of-scope questions are refused"
+      }
+    }
+  ],
+  "hard_gates": [],
+  "not_applicable_when": [
+    "The work is an agent with tools rather than a grounded answerer: use the agent card (and this card for its retrieval leg)."
+  ],
+  "gaps": [
+    "\"System prompt reviewed\" and \"retrieval + embeddings correct\" (Domain gates) name no evidence form; the card carries them as warn."
+  ]
+}

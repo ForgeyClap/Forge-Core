@@ -27,10 +27,9 @@ import type { PrototypeAction, PrototypeDataset, PrototypeState } from '@/protot
 
 /* ------------------------------------------------------------------ media */
 
-const LIGHT_QUERY = '(prefers-color-scheme: light)';
+// Same query as systemTheme() and index.html: dark only when the system says dark, otherwise light.
+const DARK_QUERY = '(prefers-color-scheme: dark)';
 const MOTION_QUERY = '(prefers-reduced-motion: reduce)';
-/** Above this width the inspector is a real column rather than an overlay. */
-const WIDE_QUERY = '(min-width: 1181px)';
 
 /**
  * matchMedia is not universally available (jsdom, very old engines). Every use
@@ -74,11 +73,11 @@ export function createInitialState(data: PrototypeDataset): PrototypeState {
     density: readStoredDensity(),
     reducedMotion: matches(MOTION_QUERY, false),
 
-    // The inspector only starts open where it has a column of its own; on a
-    // narrow screen it would otherwise open as an overlay over the first view.
+    // The Details pane (inspectorOpen) always starts closed: DESIGN.md puts it behind `...` > Details
+    // tonen, so even a roomy window opens on the page alone.
     sidebarCollapsed: false,
     mobileDrawerOpen: false,
-    inspectorOpen: matches(WIDE_QUERY, true),
+    inspectorOpen: false,
     dockOpen: false,
     dockTab: 'activity',
     paletteOpen: false,
@@ -123,15 +122,15 @@ export function useShellEffects(state: PrototypeState, dispatch: Dispatch<Protot
   /* 3. System colour scheme. The reducer ignores this while an explicit theme is
         pinned, so the listener can stay subscribed unconditionally. */
   useEffect(() => {
-    const query = safeMatchMedia(LIGHT_QUERY);
+    const query = safeMatchMedia(DARK_QUERY);
     if (!query) return;
 
     const handle = (event: MediaQueryListEvent) => {
-      dispatch({ type: 'appearance/system-changed', resolved: event.matches ? 'light' : 'dark' });
+      dispatch({ type: 'appearance/system-changed', resolved: event.matches ? 'dark' : 'light' });
     };
 
     // Re-sync once on mount: the OS may have changed since the module loaded.
-    dispatch({ type: 'appearance/system-changed', resolved: query.matches ? 'light' : 'dark' });
+    dispatch({ type: 'appearance/system-changed', resolved: query.matches ? 'dark' : 'light' });
     query.addEventListener('change', handle);
     return () => query.removeEventListener('change', handle);
   }, [dispatch]);

@@ -153,6 +153,7 @@ async function preflight(P, targetName, o) {
   if (target.name === m.slot.name || target.oauthAccount.accountUuid === live.profile.oauthAccount.accountUuid) return fail('target is already the active account');
   const flag = opts.slotFlags && opts.slotFlags[target.name];
   if (flag && flag.needsRelogin && !opts.allowNeedsRelogin) return fail('target "' + target.name + '" needs a new login (claude /login, then enroll ' + target.name + ' --force)');
+  if (flag && flag.orgBlocked && !opts.allowOrgBlocked) return fail('target "' + target.name + '" is blocked by its organization (unblock ' + target.name + ' once resolved, or --force)');
   if (!m.inSync || !vault.sameJson(m.slot.oauthAccount, live.profile.oauthAccount)) {
     const c = await corroboratedCapture(P, m.slot, opts);
     if (!c.captured && !c.unchanged) return fail('the active login changed since it was saved and could not be corroborated (' + c.reason + ') — no switch');

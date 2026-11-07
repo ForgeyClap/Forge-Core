@@ -1,17 +1,163 @@
 {
   "skill": "forge-code-review",
   "assertions": [
-    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-code-review/SKILL.md",
-      "why": "the skill file itself must exist for forge-code-review to be usable at all" },
-    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
-      "why": "2026-07-31 skill-load-budget fix (FORGE_MEMORY.md): this description was rewritten from a long keyword-stuffed version to <=200 chars" },
-    { "id": "review-order-section", "type": "contains", "path": ".claude/skills/forge-code-review/SKILL.md", "needle": "## Review order",
-      "why": "the fixed review order (correctness before style) is the core of this skill and must stay documented" },
-    { "id": "severity-table", "type": "contains", "path": ".claude/skills/forge-code-review/SKILL.md", "needle": "| CRITICAL |",
-      "why": "the CRITICAL/HIGH/MEDIUM/LOW severity table drives the BLOCK/WARN/INFO/NOTE action and must stay present" },
-    { "id": "codex-handoff-section", "type": "contains", "path": ".claude/skills/forge-code-review/SKILL.md", "needle": "## Codex handoff",
-      "why": "the optional, never-blocking Codex handoff must stay documented so it is never mistaken for a mandatory gate" },
-    { "id": "learnings-wiring", "type": "contains", "path": ".claude/skills/forge-code-review/SKILL.md", "needle": "learnings.md",
-      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use and appending corrections after" }
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "why": "the skill file itself must exist for forge-code-review to be usable at all"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "2026-07-31 skill-load-budget fix (FORGE_MEMORY.md): this description was rewritten from a long keyword-stuffed version to <=200 chars"
+    },
+    {
+      "id": "review-order-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Review order",
+      "why": "the fixed review order (correctness before style) is the core of this skill and must stay documented"
+    },
+    {
+      "id": "severity-table",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "| CRITICAL |",
+      "why": "the CRITICAL/HIGH/MEDIUM/LOW severity table drives the BLOCK/WARN/INFO/NOTE action and must stay present"
+    },
+    {
+      "id": "codex-handoff-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Codex handoff",
+      "why": "the optional, never-blocking Codex handoff must stay documented so it is never mistaken for a mandatory gate"
+    },
+    {
+      "id": "lenses-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Review lenses",
+      "why": "the swallowed-errors and behaviour-coverage lenses must stay documented with their read-only helper"
+    },
+    {
+      "id": "confidence-filter-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Confidence filter",
+      "why": "findings are scored by an independent second pass and the dropped ones stay visible"
+    },
+    {
+      "id": "deep-security-on-request",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Deep security pass (on request only",
+      "why": "the deep security pass costs model calls and must stay on-request"
+    },
+    {
+      "id": "learnings-wiring",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "learnings.md",
+      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use and appending corrections after"
+    },
+    {
+      "id": "two-axes-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Two review axes (Standards and Spec)",
+      "why": "SA-W1-A2: Standards and Spec are reviewed as separate axes (mattpocock code-review graft) and must not be merged back into one list"
+    },
+    {
+      "id": "axes-not-reranked",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/references/two-axes-and-personas.md",
+      "needle": "Do not merge or re-rank across axes",
+      "why": "SA-W1-A2: the point of two axes is that one cannot mask the other"
+    },
+    {
+      "id": "persona-pass-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Adversarial persona pass",
+      "why": "SA-W1-A2: Saboteur / New Hire / Security Auditor pass with promotion when two agree"
+    },
+    {
+      "id": "no-forced-findings",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-code-review/references/two-axes-and-personas.md",
+      "needle": "MUST find at least one",
+      "why": "SA-W1-A2: the upstream must-find-an-issue rule was deliberately excluded; a clean result is valid under the Forge honesty rule"
+    },
+    {
+      "id": "clean-result-valid",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "A clean result is valid.",
+      "why": "SA-W1-A2: ce-code-review principle plus Forge honesty: never invent a finding"
+    },
+    {
+      "id": "never-switch-tree",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "Never switch the tree.",
+      "why": "SA-W1-A2: a review never checks out or switches branches in the working tree"
+    },
+    {
+      "id": "receiving-feedback-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "## Receiving review feedback",
+      "why": "SA-W1-A2: the step after a review (verify before implementing) is part of the method"
+    },
+    {
+      "id": "receiving-feedback-ref",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-code-review/references/receiving-feedback.md",
+      "why": "SA-W1-A2: the feedback-handling detail the SKILL.md points at must exist"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+      "why": "SA-W1-A2: every graft records its pinned source SHA and licence"
+    },
+    {
+      "id": "skillmd-size",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "n": 500,
+      "why": "skill authoring rule: SKILL.md stays under 500 lines, detail lives in references/"
+    },
+    {
+      "id": "deep-route-review-not-downgraded",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "keeps Review Boss on its default deep route, opus / xhigh",
+      "why": "SA-W1-A2 review finding: a deep-route package (auth, payments, data, production, security) must keep Review Boss on opus/xhigh; the first wording put both axes on sonnet/medium"
+    },
+    {
+      "id": "deep-route-review-not-downgraded-ref",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/references/two-axes-and-personas.md",
+      "needle": "never\ndowngrade a deep package",
+      "why": "same rule in the agent-brief reference"
+    },
+    {
+      "id": "ref-codebase-design",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-code-review/references/codebase-design.md",
+      "why": "the new reference must exist (W2-H1A)"
+    },
+    {
+      "id": "ptr-codebase-design",
+      "type": "contains",
+      "path": ".claude/skills/forge-code-review/SKILL.md",
+      "needle": "`references/codebase-design.md`",
+      "why": "SKILL.md must point at the new reference (W2-H1A)"
+    }
   ]
 }

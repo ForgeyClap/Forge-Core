@@ -11,6 +11,7 @@ import crypto from 'node:crypto';
 import { CONVERSATIONS_DIR } from './paths.mjs';
 import { containmentOk, safeConvIdOk } from './security.mjs';
 import { redactRecordForRead } from './conversation-redact.mjs';
+import { redact } from './redact.mjs';
 
 // Test-only override seam: the real CONVERSATIONS_DIR is a fixed path (this store is global to
 // the gateway install, not parameterized per-project like agents.mjs/skills.mjs/etc.), so without
@@ -79,4 +80,28 @@ export function readAllRecords(p) {
     try { records.push(redactRecordForRead(JSON.parse(line))); } catch { /* a malformed line is skipped, never crashes a read */ }
   }
   return records;
+}
+
+// WP B3-conv: an owner-chosen conversation title (rename / fork). Trimmed, 1..120 characters
+// (counted as code points), no control characters anywhere in the raw value, then redacted so a
+// pasted credential never lands in the store. Returns { ok: true, title } or { ok: false, error }.
+export const CONVERSATION_TITLE_MAX = 120;
+// eslint-disable-next-line no-control-regex
+const TITLE_CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+export function cleanConversationTitle(value) {
+  if (typeof value !== 'string') return { ok: false, error: 'title must be a string' };
+  if (TITLE_CONTROL_CHARS_RE.test(value)) return { ok: false, error: 'title must not contain control characters' };
+  const trimmed = value.trim();
+  const length = [...trimmed].length;
+  if (length === 0) return { ok: false, error: 'title must not be empty' };
+  if (length > CONVERSATION_TITLE_MAX) return { ok: false, error: 'title must be at most ' + CONVERSATION_TITLE_MAX + ' characters' };
+  return { ok: true, title: redact(trimmed) };
+}
+
+// The store is append-only: a rename is a new `meta_patch` line (the same record type the title
+// backfill writes), so the transcript keeps its full history and every read merges the last title.
+// `title` must already have passed cleanConversationTitle().
+export function appendTitlePatch(convId, title) {
+  return appendRecord(convId, { type: 'meta_patch', title, renamed_at: new Date().toISOString() });
 }

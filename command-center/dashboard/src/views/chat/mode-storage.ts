@@ -34,15 +34,13 @@ export type ModelChoice = 'default' | ChatSendModel;
  * per project id; an unknown/empty project id (no real project to run anything in at all) never
  * reads (or writes) any stored value and always resolves to `'execute'`.
  *
- * feat-forge-preamble (owner directive "fully permission", 2026-07-30-cc-finish): a project that
- * has never had a choice persisted for it yet — its FIRST ever send — now resolves to `'bypass'`
- * instead of `'execute'`. This is the honest reason: a non-interactive dashboard session can never
- * answer an interactive approval prompt (there is no human sitting at a terminal to click
- * "allow"), so an `'execute'` default would silently refuse most real write work on a brand-new
- * project. Composer.tsx's own bypass hint paragraph states this plainly the moment Bypass becomes
- * the active mode. A choice the owner (or a prior session) has ALREADY persisted — including an
- * explicit `'execute'` — is never overridden; this only changes what a never-before-seen project
- * starts at.
+ * WP B3 (plan §4.4): a project that has never had a choice persisted for it yet — its
+ * FIRST ever send — resolves to `'accept-edits'` ("Mag aanpassen"): Forge may edit files in the
+ * project folder, and every other action goes through the permission prompt. It is NEVER `'bypass'`
+ * by default any more (the old feat-forge-preamble default). `migrateStoredBypass()` below turns a
+ * previously stored `'bypass'` back into "not chosen" once, and the chat tells the user so. A choice
+ * persisted after that migration (Volledige toegang, only reachable in Uitgebreid with a per-project
+ * confirmation) is respected.
  */
 const MODE_STORAGE_PREFIX = 'forge.prototype.chatSendMode';
 export const EFFORT_STORAGE_KEY = 'forge.prototype.chatEffort';
@@ -59,17 +57,62 @@ export function modeStorageKey(projectId: string): string {
   return `${MODE_STORAGE_PREFIX}.${projectId}`;
 }
 
+/** The mode a project starts in when nothing is stored for it: "Mag aanpassen" (never bypass). */
+export const DEFAULT_SEND_MODE: ChatSendMode = 'accept-edits';
+
 export function readStoredMode(projectId: string): ChatSendMode {
   if (projectId === '') return 'execute';
   try {
     const raw = localStorage.getItem(modeStorageKey(projectId));
-    // 'bypass', not 'execute': see this file's own doc comment above for why a project with no
-    // persisted choice yet defaults to full permission rather than a mode that can never actually
-    // answer its own approval prompts in a non-interactive session.
-    return raw !== null && isChatSendMode(raw) ? raw : 'bypass';
+    return raw !== null && isChatSendMode(raw) ? raw : DEFAULT_SEND_MODE;
   } catch {
-    return 'bypass';
+    return DEFAULT_SEND_MODE;
   }
+}
+
+/** Set once the one-time bypass migration below has run in this browser profile. */
+export const BYPASS_MIGRATION_KEY = 'forge.prototype.chatSendMode.bypassMigrated';
+
+/**
+ * One-time migration (plan §4.4): every stored per-project `'bypass'` choice from before WP B3 is
+ * removed, so that project falls back to "not chosen" (= `DEFAULT_SEND_MODE`). Runs at most once per
+ * browser profile (marker key), so a bypass the user deliberately turns on again later survives.
+ * Returns how many projects were reset; the caller shows the toast when it is above zero.
+ */
+export function migrateStoredBypass(): number {
+  try {
+    if (localStorage.getItem(BYPASS_MIGRATION_KEY) === '1') return 0;
+    const prefix = `${MODE_STORAGE_PREFIX}.`;
+    const reset: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key !== null && key.startsWith(prefix) && key !== BYPASS_MIGRATION_KEY && localStorage.getItem(key) === 'bypass') {
+        reset.push(key);
+      }
+    }
+    reset.forEach((key) => localStorage.removeItem(key));
+    localStorage.setItem(BYPASS_MIGRATION_KEY, '1');
+    return reset.length;
+  } catch {
+    return 0;
+  }
+}
+
+const BYPASS_CONFIRM_PREFIX = 'forge.prototype.bypassConfirmed';
+
+/** True once the user confirmed "Volledige toegang" for this project (Uitgebreid, per project). */
+export function isBypassConfirmed(projectId: string): boolean {
+  if (projectId === '') return false;
+  try {
+    return localStorage.getItem(`${BYPASS_CONFIRM_PREFIX}.${projectId}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function confirmBypass(projectId: string): void {
+  if (projectId === '') return;
+  persist(`${BYPASS_CONFIRM_PREFIX}.${projectId}`, '1');
 }
 
 export function modelStorageKey(projectId: string): string {

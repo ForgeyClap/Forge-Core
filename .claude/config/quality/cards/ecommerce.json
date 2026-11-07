@@ -1,0 +1,146 @@
+{
+  "domain": "ecommerce",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-ecommerce/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-ecommerce/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-ecommerce/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "ecom-real-catalog",
+      "claim": "Real catalog data or an honest empty state; no fabricated sales, inventory or metrics.",
+      "evidence_required": "Screenshots of the catalog with real data or the empty state, and a search for fabricated figures.",
+      "how_to_run": "Run the store locally and screenshot the catalog; search fixtures shipped to prod for fake data.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Real catalog data or an honest empty state"
+      }
+    },
+    {
+      "id": "ecom-oversell",
+      "claim": "Inventory decrement is atomic or reservation-based and proven oversell-safe under concurrent buyers.",
+      "evidence_required": "A concurrent-buyer test where stock never goes below zero.",
+      "how_to_run": "Run the concurrency test and quote the final stock and order count.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "proven oversell-safe under a concurrent-buyer test"
+      }
+    },
+    {
+      "id": "ecom-idempotent-order",
+      "claim": "Order creation is idempotent; a double-submit returns one order.",
+      "evidence_required": "A test submitting the same order twice with one resulting order.",
+      "how_to_run": "Run the double-submit test and quote the order count.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "a double-submit returns one order"
+      }
+    },
+    {
+      "id": "ecom-minor-units",
+      "claim": "Prices, tax and shipping are integer minor units with no float money math, and totals reconcile.",
+      "evidence_required": "A search for float money math with no hits, and a reconciliation test.",
+      "how_to_run": "Search the diff for float/parseFloat on money fields; run the totals test.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Prices/tax/shipping in integer minor units; no float money math; totals reconcile."
+      }
+    },
+    {
+      "id": "ecom-e2e-flow",
+      "claim": "Cart to checkout to order to payment works end-to-end in test mode.",
+      "evidence_required": "An integration or e2e test run of the whole flow in test mode, not only unit tests.",
+      "how_to_run": "Run the e2e/integration test and quote the exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Cart → checkout → order → payment flow works end-to-end in test mode"
+      }
+    },
+    {
+      "id": "ecom-connectors-gated",
+      "claim": "Connectors stay inactive until keys and owner approval; no live publish, push or spend was performed.",
+      "evidence_required": "The connector config showing disabled state, and the run log showing no live action.",
+      "how_to_run": "Read the connector config and the run events for any live call.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Connectors inactive until keys + owner approval; no live publish/push/spend performed."
+      }
+    },
+    {
+      "id": "ecom-notifications",
+      "claim": "Customer messages are drafted, not auto-sent, and order notifications are idempotent on webhook retry.",
+      "evidence_required": "A test where a retried webhook sends no second confirmation, and the draft gate in the send path.",
+      "how_to_run": "Run the webhook-retry test and quote the mail count.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Domain gates",
+        "quote": "idempotency before any order notification"
+      }
+    },
+    {
+      "id": "ecom-secrets",
+      "claim": "Store API keys and webhook secrets are in env with .env.example placeholders only.",
+      "evidence_required": "A search of the diff for keys with no hits, and the .env.example.",
+      "how_to_run": "git diff plus a secret-pattern search; read .env.example.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Secrets (store API keys, webhook secrets) in env + .env.example placeholders only."
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "No live publish, store-push, listing update, price change or spend without explicit owner approval.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no live publish, store-push, listing update, price change or spend without explicit owner approval."
+      }
+    },
+    {
+      "gate": "Customer emails drafted, not auto-sent.",
+      "source": {
+        "path": ".claude/skills/forge-ecommerce/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "customer emails drafted, not auto-sent"
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "Anything that charges a card: use the payments card (forge-ecommerce never re-implements card handling)."
+  ],
+  "gaps": []
+}

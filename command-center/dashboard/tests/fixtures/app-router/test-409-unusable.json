@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "error": "entry_unusable",
+  "reason": "provider_unavailable",
+  "nl": "Deze eigen API is weg, staat uit of kan niet gebruikt worden. Forge slaat dit onderdeel over tot je hem weer aanzet of het onderdeel weghaalt.",
+  "en": "This own API was removed, is turned off or cannot be used. Forge skips this entry until you turn it back on or remove the entry."
+}

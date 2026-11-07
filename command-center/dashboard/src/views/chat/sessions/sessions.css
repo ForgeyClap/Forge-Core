@@ -1,0 +1,338 @@
+/*
+ * Chat session rail, usage meter and the chat frame (WP B3).
+ *
+ * The frame puts the rail beside the chat column. On a wide chat area the rail is a docked column
+ * (a sunken surface one step below the conversation, so the thread stays the brightest plane); on a
+ * narrow one it is an off-canvas drawer over the chat, opened from the header.
+ */
+
+.fw-chat-frame {
+  position: relative;
+  display: flex;
+  block-size: 100%;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.fw-chat-frame > .fw-chat {
+  flex: 1 1 auto;
+}
+
+.fw-chat-frame__rail {
+  flex: none;
+  inline-size: 17rem;
+  min-block-size: 0;
+  border-inline-end: 1px solid var(--fs-line);
+  background: var(--fs-sunken);
+}
+
+.fw-chat-frame__rail[hidden] {
+  display: none;
+}
+
+.fw-chat-frame__scrim {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .fw-chat-frame__rail {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 3;
+    inline-size: min(20rem, 88%);
+    box-shadow: var(--fs-shadow-3);
+    animation: fw-sessions-in var(--fs-dur-2) var(--fs-ease) both;
+  }
+
+  .fw-chat-frame__scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: block;
+    border: 0;
+    padding: 0;
+    background: color-mix(in srgb, var(--fs-bg) 55%, transparent);
+    cursor: default;
+  }
+
+  .fw-chat-frame__scrim[hidden] {
+    display: none;
+  }
+}
+
+@keyframes fw-sessions-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-chat-frame__rail {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ rail */
+
+.fw-sessions {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+  padding-block: var(--fs-space-3) var(--fs-space-2);
+}
+
+.fw-sessions__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-2);
+  min-block-size: 32px;
+  padding-inline: var(--fs-space-4) var(--fs-space-2);
+}
+
+.fw-sessions__title {
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fs-ink);
+}
+
+.fw-sessions__search {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  margin: var(--fs-space-2) var(--fs-space-3) 0;
+  padding-inline: var(--fs-space-2);
+  block-size: 34px;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-bg);
+  color: var(--fs-ink-3);
+}
+
+.fw-sessions__search:focus-within {
+  border-color: var(--fs-ink-3);
+  box-shadow: var(--fs-focus);
+}
+
+.fw-sessions__search-icon {
+  flex: none;
+}
+
+.fw-sessions__search-field {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+}
+
+.fw-sessions__search-field:focus {
+  outline: none;
+}
+
+.fw-sessions__search-field::placeholder {
+  color: var(--fs-ink-3);
+}
+
+.fw-sessions__status {
+  min-block-size: 1.25rem;
+  margin: var(--fs-space-1) var(--fs-space-4) 0;
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
+}
+
+.fw-sessions__empty {
+  margin: var(--fs-space-3) var(--fs-space-4);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
+}
+
+.fw-sessions__list {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--fs-space-1) var(--fs-space-2);
+  list-style: none;
+}
+
+.fw-sessions__item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--fs-radius-sm);
+}
+
+.fw-sessions__item + .fw-sessions__item {
+  margin-block-start: 2px;
+}
+
+.fw-sessions__item[data-current='true'] {
+  background: var(--fs-surface);
+  box-shadow: inset 2px 0 0 var(--fs-ink);
+}
+
+.fw-sessions__open {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+  padding: var(--fs-space-2) var(--fs-space-2) var(--fs-space-2) var(--fs-space-3);
+  border: 0;
+  border-radius: var(--fs-radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fw-sessions__open:hover {
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+}
+
+.fw-sessions__open:active {
+  transform: translateY(1px);
+}
+
+.fw-sessions__open:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fw-sessions__name {
+  overflow: hidden;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-sessions__meta {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fw-sessions__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-end: var(--fs-space-1);
+  opacity: 0;
+  transition: opacity var(--fs-dur-1) var(--fs-ease);
+}
+
+.fw-sessions__item:hover .fw-sessions__actions,
+.fw-sessions__item:focus-within .fw-sessions__actions,
+.fw-sessions__item[data-current='true'] .fw-sessions__actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .fw-sessions__actions {
+    opacity: 1;
+  }
+}
+
+.fw-sessions__rename {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2);
+}
+
+.fw-sessions__rename-field {
+  block-size: 32px;
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-ink-3);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-bg);
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+}
+
+.fw-sessions__rename-field:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fw-sessions__rename-actions {
+  display: flex;
+  gap: var(--fs-space-2);
+}
+
+/* ----------------------------------------------------------- usage meter */
+
+.fw-usage-meter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fs-space-2) var(--fs-space-4);
+  padding: var(--fs-space-2) var(--fs-space-5);
+  border-block-end: 1px solid var(--fs-line);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fw-usage-meter__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+  color: var(--fs-ink-2);
+  font-weight: 500;
+}
+
+.fw-usage-meter__bar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+}
+
+.fw-usage-meter__track {
+  position: relative;
+  inline-size: 5.5rem;
+  block-size: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--fs-line);
+}
+
+.fw-usage-meter__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--fs-ink-2);
+  transform-origin: left center;
+}
+
+.fw-usage-meter__bar[data-level='high'] .fw-usage-meter__fill {
+  background: var(--fs-danger);
+}
+
+.fw-usage-meter__value {
+  font-variant-numeric: tabular-nums;
+  color: var(--fs-ink);
+}
+
+.fw-usage-meter__note {
+  color: var(--fs-ink-3);
+}
+
+@media (max-width: 640px) {
+  .fw-usage-meter {
+    padding-inline: var(--fs-space-4);
+  }
+}

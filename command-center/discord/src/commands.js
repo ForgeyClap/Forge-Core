@@ -1,6 +1,6 @@
 import { QueueState } from './queue.js';
 import { MODELS, EFFORTS } from './runner-claude.js';
-import { SubscriptionUsage } from './subscription-usage.js';
+import { LocalUsage as SubscriptionUsage } from './local-usage.js';
 import { scanRecent, formatDiff } from './project-diff.js';
 import { describeSchedule } from './schedules.js';
 
@@ -179,10 +179,10 @@ export async function handleCommand({ msg, gateway, replyFn = null }) {
     case 'usage': {
       const hours = Number.parseInt(arg, 10) || 24;
       const blocks = [];
-      // 1) Abonnement (dezelfde bron als /usage in Claude Code).
+      // 1) Verbruik: schatting uit de lokale Claude Code-logs (geen token, geen netwerk).
       if (gateway.subscriptionUsage) {
         const sub = await gateway.subscriptionUsage.get();
-        blocks.push(`📊 **Abonnement**\n${SubscriptionUsage.format(sub)}`);
+        blocks.push(`📊 **Verbruik (schatting)**\n${SubscriptionUsage.format(sub)}`);
       }
       // 2) Wat deze bot zelf heeft verbruikt.
       if (gateway.usage) {

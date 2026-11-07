@@ -1,0 +1,179 @@
+{
+  "domain": "mlops",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-mlops/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-mlops/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-mlops/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "ml-decision-note",
+      "claim": "A decision note exists before training.",
+      "evidence_required": "The decision note document.",
+      "how_to_run": "Read the note and its date against the first training run.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Decision note before training."
+      }
+    },
+    {
+      "id": "ml-reproducible",
+      "claim": "Training is reproducible: seed, pinned deps and versioned data/config regenerate the metric.",
+      "evidence_required": "Two runs with the same seed and data giving the same metric, with the command output.",
+      "how_to_run": "Run training twice with the same seed and quote both metrics.",
+      "severity": "block",
+      "honesty_note": "No Python/ML env: training and metrics are NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Training reproducible (seed + pinned deps + versioned data/config regenerate the metric)"
+      }
+    },
+    {
+      "id": "ml-registry-rollback",
+      "claim": "The model is versioned in a registry with a tested rollback and fallback.",
+      "evidence_required": "The registry entry and a rollback that was actually exercised.",
+      "how_to_run": "Roll back to the previous version in staging and quote the result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "model versioned in a registry with a tested rollback + fallback"
+      }
+    },
+    {
+      "id": "ml-no-skew",
+      "claim": "No train/serve skew: feature parity is proven.",
+      "evidence_required": "A parity test comparing training and serving features for the same input.",
+      "how_to_run": "Run the feature-parity test and quote it.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no train/serve skew (feature parity proven)"
+      }
+    },
+    {
+      "id": "ml-data-validation",
+      "claim": "A data-validation gate sits at the entry.",
+      "evidence_required": "The validation step and a run where bad data is refused.",
+      "how_to_run": "Feed a bad batch and quote the refusal.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "data-validation gate at entry"
+      }
+    },
+    {
+      "id": "ml-offline-eval",
+      "claim": "Offline eval compares against the incumbent with the right metric and validation scheme.",
+      "evidence_required": "The eval report with incumbent and candidate metrics and the scheme.",
+      "how_to_run": "Run the offline eval and quote both numbers.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "offline eval compares against the incumbent with the right metric + validation scheme"
+      }
+    },
+    {
+      "id": "ml-online-eval",
+      "claim": "Online eval runs through shadow or canary before any promotion.",
+      "evidence_required": "The shadow/canary plan or its executed result.",
+      "how_to_run": "Read the canary plan or result.",
+      "severity": "block",
+      "honesty_note": "No serving infra: canary is NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "online eval via shadow/canary before any promotion"
+      }
+    },
+    {
+      "id": "ml-drift",
+      "claim": "Feature/prediction drift and performance decay are monitored with alerts and retrain triggers.",
+      "evidence_required": "The monitor definitions with thresholds and the retrain trigger.",
+      "how_to_run": "Read the monitoring config.",
+      "severity": "block",
+      "honesty_note": "No serving infra: monitors are NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "feature/prediction drift + performance decay monitored with alerts and defined retrain triggers"
+      }
+    },
+    {
+      "id": "ml-serving-health",
+      "claim": "Serving has health checks, timeouts and bounded retries.",
+      "evidence_required": "The serving config and a health-check call.",
+      "how_to_run": "Call the health endpoint and read the timeout/retry config.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "serving has health checks/timeouts/bounded retries"
+      }
+    },
+    {
+      "id": "ml-no-auto-action",
+      "claim": "No automatic real-money or irreversible action path exists.",
+      "evidence_required": "A read of the output consumers showing no autonomous real-money/irreversible call.",
+      "how_to_run": "Search the code for order/bet/payment/send calls driven by predictions.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no auto real-money/irreversible action path exists"
+      }
+    },
+    {
+      "id": "ml-no-secrets",
+      "claim": "No secrets in pipeline code or artifacts.",
+      "evidence_required": "A search of the code and saved artifacts for secrets with no hits.",
+      "how_to_run": "git diff plus a secret-pattern search of artifacts.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no secrets in pipeline code or artifacts"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Promotion to production is owner-gated; no automatic real-money / irreversible / outward-facing action.",
+      "source": {
+        "path": ".claude/skills/forge-mlops/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "promotion to production is owner-gated; no automatic real-money / irreversible / outward-facing action."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "The work is the upstream ETL/feature pipeline only: use the data card."
+  ],
+  "gaps": [
+    "forge-mlops has no separate \"Domain gates\" list items: its gate is one sentence; the card splits it into one check per clause."
+  ]
+}

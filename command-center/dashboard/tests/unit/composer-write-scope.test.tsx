@@ -17,7 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import type { ReactElement } from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import { FORBIDDEN_PATTERNS, collectRenderedText, scanForbidden } from './no-prototype-copy.test';
@@ -186,7 +186,10 @@ describe('Settings ▸ Claude Code connection write-scope fact', () => {
     vi.unstubAllGlobals();
   });
 
-  it('states the same no-permission-bypass write scope as the composer', async () => {
+  // WP B6: the old Settings copy claimed "no permission-bypass", which was never true (mode-storage.ts
+  // starts a never-chosen project at 'bypass'; WP B3 changes that default). The new Veiligheid group states what is
+  // true: the folder boundary and the mode the composer will actually use.
+  it('Safety states the real write boundary and the mode the composer will use', async () => {
     render(
       createElement(
         MemoryRouter,
@@ -196,13 +199,11 @@ describe('Settings ▸ Claude Code connection write-scope fact', () => {
     );
     await flush();
 
-    const settingsNav = screen.getByRole('navigation', { name: 'Settings sections' });
-    fireEvent.click(within(settingsNav).getByText('Claude Code connection'));
-    await flush();
-
     const text = collectRenderedText(document.body);
-    expect(text).toMatch(/no permission-bypass/i);
-    expect(text).toMatch(/refused/i);
+    expect(text).toMatch(/Forge only creates and changes files in the folder of the chosen project/);
+    // WP B3: an unchosen project now starts at 'accept-edits' (May edit), which the row shows as the selected
+    // segment with only the project line, so that line is a third valid outcome.
+    expect(text).toMatch(/Currently chosen in the composer: |Applies to the project |Pick a project first; this choice is per project\./);
     expect(scanForbidden(text)).toEqual([]);
   });
 });

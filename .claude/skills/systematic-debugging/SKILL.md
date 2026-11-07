@@ -1,16 +1,18 @@
 ---
 name: systematic-debugging
-description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
+description: "Use on any bug or test failure, before fixing."
+# W2-BUDGET original description (listing budget): Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
 license: MIT
 ---
 
 <!--
   Source: https://github.com/obra/superpowers
-  Pinned commit: 5bf4e78011075bcfc0dc295f0724994cd123ee71
+  Pinned commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b (tag v7.0.1, also main on 2026-11-02)
   Upstream path: skills/systematic-debugging/
   License: MIT (c) 2025 Jesse Vincent -- full text in LICENSE next to this file
-  Forge vendor note: frontmatter license: MIT key and this provenance block added; 2 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; everything else verbatim.
-  Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by build-boss, 2026-09-24 -- clean; every upstream file sha256-verified against the pinned-commit manifest before copying.
+  Forge vendor note: frontmatter license: MIT key and this provenance block added; 2 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; this pin includes the upstream v7.0.0 fix (#2375, #2380): the multi-layer diagnostic example only reports whether IDENTITY is set and never prints its value; everything else verbatim.
+  Previous pin: 5bf4e78011075bcfc0dc295f0724994cd123ee71; upgraded 2026-11-02 (WP Q3-SKILLS).
+  Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by skill-boss, 2026-11-02 -- clean; every upstream file git-blob-hash-verified against the pinned commit's tree before copying.
 -->
 
 # Systematic Debugging
@@ -98,11 +100,11 @@ You MUST complete each phase before proceeding to the next.
    ```bash
    # Layer 1: Workflow
    echo "=== Secrets available in workflow: ==="
-   echo "IDENTITY: ${IDENTITY:+SET}${IDENTITY:-UNSET}"
+   echo "IDENTITY: $([ -n "${IDENTITY:-}" ] && echo SET || echo UNSET)"
 
    # Layer 2: Build script
    echo "=== Env vars in build script: ==="
-   env | grep IDENTITY || echo "IDENTITY not in environment"
+   printenv IDENTITY >/dev/null 2>&1 && echo "IDENTITY in environment" || echo "IDENTITY not in environment"
 
    # Layer 3: Signing script
    echo "=== Keychain state: ==="

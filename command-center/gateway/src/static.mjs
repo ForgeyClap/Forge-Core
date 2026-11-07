@@ -5,7 +5,8 @@
 // enforced so a crafted URL can never walk outside dashboard/dist regardless.
 import fs from 'node:fs';
 import path from 'node:path';
-import { containmentOk, getExecToken } from './security.mjs';
+import crypto from 'node:crypto';
+import { containmentOk, consumePairingCode, uiSessionSetCookie } from './security.mjs';
 import { APP_DIST_DIR } from './paths.mjs';
 
 const CONTENT_TYPES = {
@@ -23,29 +24,69 @@ const CONTENT_TYPES = {
 // WP10 should-fix-now #10 (AP-13): every static response — including the 400 "bad path" replies —
 // carries these so the served SPA can never be framed (clickjacking a tricked click onto a
 // same-origin Send/Stop button, which crossSiteOk legitimately allows since it IS same-origin) and
-// is never MIME-sniffed into something it isn't. `frame-ancestors 'none'` is the one CSP directive
-// added here — a broader CSP is NOT shipped because the built SPA's own inline styles/scripts
-// (Vite's default output) were not proven safe under a stricter policy in this round; see this
-// WP's report for the honest "frame-ancestors + nosniff only" scope decision.
+// is never MIME-sniffed into something it isn't.
+//
+// WP A8 (owner-queue / plan F10): the CSP now also governs SCRIPTS, the part WP10 left open. A script
+// that runs in the page can drive every write route (since FU-STEP2 through the session cookie the page's
+// own requests carry; before that through a token meta tag). Only scripts from this origin may run (`script-src 'self'`), with no 'unsafe-eval' and no
+// 'unsafe-inline'. The built shell has ONE inline script of its own (Vite index.html: the pre-paint
+// theme switch); it is allowed by its exact sha256, computed from the HTML actually served
+// (inlineScriptHashes below), so a rebuilt shell keeps working while a script injected into the page at
+// run time (DOM injection, an XSS payload) matches no hash and is refused. The hashes come from the
+// built dist/index.html on disk, which is trusted exactly as much as the bundle files 'self' allows.
+// `object-src 'none'` (plugins run code too) and `base-uri 'self'` (a planted <base> would re-point the
+// shell's relative ./assets/ script URLs) close the two other script routes. Styles are deliberately
+// not restricted here: this WP is about scripts, and Vite's own inline styles were never checked
+// against a style policy.
+const BASE_CSP_DIRECTIVES = ["object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'"];
+
+/** The CSP header value: `script-src 'self'` plus one `'sha256-…'` source per given inline-script hash. */
+export function buildContentSecurityPolicy(inlineScriptSha256s = []) {
+  const scriptSrc = ["script-src 'self'", ...inlineScriptSha256s.map((h) => "'sha256-" + h + "'")].join(' ');
+  return [scriptSrc, ...BASE_CSP_DIRECTIVES].join('; ');
+}
+
 export const STATIC_SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "frame-ancestors 'none'",
+  'Content-Security-Policy': buildContentSecurityPolicy(),
   'X-Content-Type-Options': 'nosniff',
 };
 
-// fix-sec-round #1: the minimal-invasive injection point for the per-boot exec token (see
-// security.mjs's EXEC_TOKEN_HEADER/getExecToken) — a single `<meta>` tag spliced right after the
-// real `<head>` opening tag of whatever HTML this route serves (the one built `index.html`, both
-// for a direct hit and for the SPA-fallback case below). A shape this file does not recognize
-// (no literal `<head>` found) is left completely untouched rather than guessed at or crashed on —
-// this route already treats "not built yet"/"doesn't exist" as an honest null, and an unexpected
-// HTML shape gets the same honest, non-invasive treatment.
-function injectExecToken(html) {
-  const marker = '<head>';
-  const idx = html.indexOf(marker);
-  if (idx === -1) return html;
-  const metaTag = `<head>\n    <meta name="cc-exec-token" content="${getExecToken()}">`;
-  return html.slice(0, idx) + metaTag + html.slice(idx + marker.length);
+// Every classic/module inline <script> (no src attribute) in the served HTML, hashed exactly as a browser
+// hashes it for a CSP check: sha256 over the UTF-8 text between the tags, base64. A script with a src is
+// already covered by 'self' and is skipped.
+const SCRIPT_ELEMENT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+export function inlineScriptHashes(html) {
+  const hashes = [];
+  for (const m of html.matchAll(SCRIPT_ELEMENT_RE)) {
+    if (/\bsrc\s*=/i.test(m[1])) continue;
+    hashes.push(crypto.createHash('sha256').update(m[2], 'utf8').digest('base64'));
+  }
+  return hashes;
+}
+
+// FU-STEP2 (Security Boss Step 2, decision A-prime): the served HTML carries NO token any more. Until
+// 2026-11-02 a `<meta name="cc-exec-token">` tag was spliced in here, and any local process could read
+// it with one GET. The dashboard credential is now an out-of-band cookie (security.mjs UI_SESSION_COOKIE).
+//
+// The browser pairing swap: GET /?pair=<one-time code> sets that cookie once and redirects 302 to the
+// clean URL `/`, so the code leaves the address bar and the history. A used, expired, unknown or
+// malformed code gets the same redirect WITHOUT a cookie; the dashboard then shows its pairing card
+// ("Koppel dit venster opnieuw"). This is the ONLY gateway response that ever carries Set-Cookie.
+// requestListener calls it only for GET on exactly `/` with a `pair` parameter, after the Host and
+// cross-site guards (a cross-site navigation never reaches it, so it cannot burn a code).
+const PAIRING_HEADERS = Object.freeze({
+  Location: '/',
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Type': 'text/plain; charset=utf-8',
+});
+
+/** `{ status, headers, body }` for GET /?pair=<code>: 302 to `/`, with Set-Cookie only for a live code. */
+export function servePairing(code) {
+  const headers = { ...PAIRING_HEADERS, ...STATIC_SECURITY_HEADERS };
+  if (consumePairingCode(code)) headers['Set-Cookie'] = uiSessionSetCookie();
+  return { status: 302, headers, body: '' };
 }
 
 // Returns { status, headers, body } or null if the static bundle simply doesn't exist yet
@@ -80,12 +121,13 @@ export function serveStatic(pathname) {
 
   const ext = path.extname(target).toLowerCase();
   const rawBody = fs.readFileSync(target);
-  // fix-sec-round #1: only the served HTML shell gets the token meta tag — every other asset
-  // (JS/CSS/fonts/etc.) is served byte-identical to before, exactly as it was before this fix.
-  const body = ext === '.html' ? injectExecToken(rawBody.toString('utf8')) : rawBody;
+  // FU-STEP2: every file, the HTML shell included, is served exactly as built (no token is spliced in).
+  const body = ext === '.html' ? rawBody.toString('utf8') : rawBody;
+  // WP A8: the HTML shell's CSP names the hashes of its own inline scripts; every other file gets the base policy.
+  const csp = ext === '.html' ? buildContentSecurityPolicy(inlineScriptHashes(body)) : STATIC_SECURITY_HEADERS['Content-Security-Policy'];
   return {
     status: 200,
-    headers: { 'Content-Type': CONTENT_TYPES[ext] || 'application/octet-stream', 'Cache-Control': 'no-store', ...STATIC_SECURITY_HEADERS },
+    headers: { 'Content-Type': CONTENT_TYPES[ext] || 'application/octet-stream', 'Cache-Control': 'no-store', ...STATIC_SECURITY_HEADERS, 'Content-Security-Policy': csp },
     body,
   };
 }

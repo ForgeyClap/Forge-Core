@@ -19,14 +19,38 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const CLAUDE_DIR = path.join(PROJECT_ROOT, '.claude');
-const RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
+// WP 2.1 (opt-in .forge layout): runs are listed from EVERY run folder that exists and memory files from EVERY memory
+// folder (forge-paths.cjs existingStateDirs; a project without .forge reads exactly .claude/forge-runs and .claude, as
+// before). The readable set does not widen: run.json / events.jsonl / final-report.md of a run, and the fixed memory
+// names + their archives — never the scribe inbox or any other state folder. Guarded: an older or missing
+// forge-paths.cjs keeps the legacy literals. A plugin copy outside any project serves nothing (PROJECT_ROOT null).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.existingStateDirs === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT)
+  : viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+const CLAUDE_DIR = PROJECT_ROOT ? path.join(PROJECT_ROOT, '.claude') : null;
+/** runsDirs() — the run folders that exist, active first (legacy layout: [.claude/forge-runs]). */
+function runsDirs() {
+  if (!PROJECT_ROOT) return [];
+  return viaForgePaths((P) => P.existingStateDirs(PROJECT_ROOT, 'runs'), () => [path.join(CLAUDE_DIR, 'forge-runs')]);
+}
+/** memDirs() — the folders that hold the shared memory files, active first (legacy layout: [.claude]). */
+function memDirs() {
+  if (!PROJECT_ROOT) return [];
+  return viaForgePaths((P) => { const d = P.existingStateDirs(PROJECT_ROOT, 'memory'); return d.length ? d : [CLAUDE_DIR]; }, () => [CLAUDE_DIR]);
+}
+/** runDir(id) — the folder of run id in whichever run folder holds it (first match), else null. */
+function runDir(id) { for (const d of runsDirs()) if (fs.existsSync(path.join(d, id))) return path.join(d, id); return null; }
+/** memFile(name) — the first memory folder holding name, else null. */
+function memFile(name) { for (const d of memDirs()) if (fs.existsSync(path.join(d, name))) return path.join(d, name); return null; }
 const MEMORY_FILES = ['FORGE_MEMORY.md', 'FORGE_PROJECT_PROFILE.md', 'FORGE_DECISIONS.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md'];
 // the memory rotation moves old FORGE_MEMORY.md history into dated archive files next
 // to it. They are shared read-only in the same tier as FORGE_MEMORY.md: a regular file directly in .claude/ whose
 // name matches this pattern (no path separators, so no traversal), redacted exactly like the other memory files.
-const MEMORY_ARCHIVE_RE = /^FORGE_MEMORY_ARCHIVE_[A-Za-z0-9_.-]+\.md$/;
+// WP 1.9: forge-memory-consolidate.cjs (WP 1.4) archives FORGE_TASK_HISTORY / FORGE_AGENT_LEDGER /
+// FORGE_DECISIONS.md the same way. Only the archive of a file that is ALREADY shared is shared (the pattern is
+// derived from MEMORY_FILES, never wider), so no new kind of file becomes readable over MCP.
+const MEMORY_ARCHIVE_RE = new RegExp('^(?:' + MEMORY_FILES.map((f) => f.replace(/\.md$/, '')).join('|') + ')_ARCHIVE_[A-Za-z0-9_.-]+\\.md$');
 const SERVER = { name: 'forge', version: '1.0.0' };
 const DEFAULT_PROTOCOL = '2025-06-18';
 
@@ -37,10 +61,17 @@ try { const store = require('./forge-store.cjs'); if (typeof store.redactValue =
 function log(...a) { process.stderr.write('[forge-mcp] ' + a.join(' ') + '\n'); }
 function safeRead(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
 function runIdOk(id) { return typeof id === 'string' && /^[A-Za-z0-9_-]+$/.test(id); }
-function listRunIds() { try { return fs.readdirSync(RUNS_DIR, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return []; } }
-function readRunMeta(id) { const rj = safeRead(path.join(RUNS_DIR, id, 'run.json')); if (!rj) return {}; try { return JSON.parse(rj); } catch { return { parse_error: true }; } }
-function readEvents(id) { const raw = safeRead(path.join(RUNS_DIR, id, 'events.jsonl')); if (!raw) return []; const out = []; for (const l of raw.split(/\r?\n/)) { const t = l.trim(); if (!t) continue; try { const v = JSON.parse(t); if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v); } catch { /* skip */ } } return out; }
-function projectName() { try { const s = JSON.parse(safeRead(path.join(CLAUDE_DIR, 'forge-dashboard', 'DASHBOARD_STATE.json')) || '{}'); if (s.project_name) return s.project_name; } catch {} return path.basename(PROJECT_ROOT); }
+function listRunIds() {
+  const ids = [];
+  for (const d of runsDirs()) {
+    try { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory() && !ids.includes(e.name)) ids.push(e.name); } catch { /* unreadable folder: skipped */ }
+  }
+  return ids;
+}
+function runFile(id, file) { const d = runDir(id); return d ? path.join(d, file) : null; }
+function readRunMeta(id) { const f = runFile(id, 'run.json'); const rj = f ? safeRead(f) : null; if (!rj) return {}; try { return JSON.parse(rj); } catch { return { parse_error: true }; } }
+function readEvents(id) { const f = runFile(id, 'events.jsonl'); const raw = f ? safeRead(f) : null; if (!raw) return []; const out = []; for (const l of raw.split(/\r?\n/)) { const t = l.trim(); if (!t) continue; try { const v = JSON.parse(t); if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v); } catch { /* skip */ } } return out; }
+function projectName() { if (!PROJECT_ROOT) return '(no project)'; try { const s = JSON.parse(safeRead(path.join(CLAUDE_DIR, 'forge-dashboard', 'DASHBOARD_STATE.json')) || '{}'); if (s.project_name) return s.project_name; } catch {} return path.basename(PROJECT_ROOT); }
 function latestRunId() {
   const ids = listRunIds(); if (!ids.length) return null;
   let best = null, bestT = -Infinity;
@@ -48,16 +79,22 @@ function latestRunId() {
   return best || ids.sort().reverse()[0];
 }
 function isRegularFile(p) { try { return fs.lstatSync(p).isFile(); } catch { return false; } }
-/** memoryFileNames() -> the shared memory files that exist: the fixed MEMORY_FILES, then FORGE_MEMORY_ARCHIVE_*.md (sorted). */
+/** memoryFileNames() -> the shared memory files that exist: the fixed MEMORY_FILES, then their FORGE_*_ARCHIVE_*.md (sorted). */
 function memoryFileNames() {
-  const fixed = MEMORY_FILES.filter((f) => fs.existsSync(path.join(CLAUDE_DIR, f)));
-  let archives = [];
-  try { archives = fs.readdirSync(CLAUDE_DIR).filter((n) => MEMORY_ARCHIVE_RE.test(n) && isRegularFile(path.join(CLAUDE_DIR, n))).sort(); } catch { archives = []; }
-  return fixed.concat(archives);
+  const fixed = MEMORY_FILES.filter((f) => memFile(f) !== null);
+  const archives = [];
+  for (const d of memDirs()) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { names = []; }
+    for (const n of names) if (MEMORY_ARCHIVE_RE.test(n) && isRegularFile(path.join(d, n)) && !archives.includes(n)) archives.push(n);
+  }
+  return fixed.concat(archives.sort());
 }
 function isSharedMemoryFile(name) {
   if (MEMORY_FILES.includes(name)) return true;
-  return MEMORY_ARCHIVE_RE.test(name) && isRegularFile(path.join(CLAUDE_DIR, name));
+  if (!MEMORY_ARCHIVE_RE.test(name)) return false;
+  const f = memFile(name);
+  return f !== null && isRegularFile(f);
 }
 function runSummary(id) { const meta = readRunMeta(id); const evs = readEvents(id); return { id, status: meta.status || 'unknown', request: meta.request || '', started: meta.started || '', events: evs.length }; }
 
@@ -73,14 +110,15 @@ function callTool(name, args) {
   if (name === 'forge_status') { const id = latestRunId(); return { project: projectName(), project_root: PROJECT_ROOT, latest_run: id ? runSummary(id) : null, total_runs: listRunIds().length }; }
   if (name === 'forge_list_runs') { return { runs: listRunIds().map(runSummary).sort((a, b) => (a.started < b.started ? 1 : -1)) }; }
   if (name === 'forge_get_run') { const id = args.run_id; if (!runIdOk(id)) throw new Error('invalid run_id'); const evs = readEvents(id); const n = Number.isFinite(args.last) ? Math.max(0, args.last) : 20; return { id, run: readRunMeta(id), event_count: evs.length, last_events: evs.slice(-n) }; }
-  if (name === 'forge_read_report') { const id = args.run_id; if (!runIdOk(id)) throw new Error('invalid run_id'); const rep = safeRead(path.join(RUNS_DIR, id, 'final-report.md')); if (rep == null) throw new Error('no report for run ' + id); return { id, report: rep }; }
+  if (name === 'forge_read_report') { const id = args.run_id; if (!runIdOk(id)) throw new Error('invalid run_id'); const f = runFile(id, 'final-report.md'); const rep = f ? safeRead(f) : null; if (rep == null) throw new Error('no report for run ' + id); return { id, report: rep }; }
   throw new Error('unknown tool: ' + name);
 }
 
 function listResources() {
   const res = []; const have = (p) => { try { return fs.existsSync(p); } catch { return false; } };
   for (const id of listRunIds().slice(0, 50)) {
-    const d = path.join(RUNS_DIR, id);
+    const d = runDir(id);
+    if (!d) continue;
     if (have(path.join(d, 'run.json'))) res.push({ uri: 'forge://run/' + id + '/run.json', name: id + ' · run.json', mimeType: 'application/json' });
     if (have(path.join(d, 'events.jsonl'))) res.push({ uri: 'forge://run/' + id + '/events.jsonl', name: id + ' · events', mimeType: 'application/x-ndjson' });
     if (have(path.join(d, 'final-report.md'))) res.push({ uri: 'forge://run/' + id + '/report.md', name: id + ' · final report', mimeType: 'text/markdown' });
@@ -90,9 +128,9 @@ function listResources() {
 }
 function readResource(uri) {
   const mRun = /^forge:\/\/run\/([A-Za-z0-9_-]+)\/(run\.json|events\.jsonl|report\.md)$/.exec(uri);
-  if (mRun) { const file = mRun[2] === 'report.md' ? 'final-report.md' : mRun[2]; const body = safeRead(path.join(RUNS_DIR, mRun[1], file)); if (body == null) throw new Error('resource not found'); return { uri, mimeType: file === 'run.json' ? 'application/json' : (file === 'events.jsonl' ? 'application/x-ndjson' : 'text/markdown'), text: redact(body) }; }
+  if (mRun) { const file = mRun[2] === 'report.md' ? 'final-report.md' : mRun[2]; const f = runFile(mRun[1], file); const body = f ? safeRead(f) : null; if (body == null) throw new Error('resource not found'); return { uri, mimeType: file === 'run.json' ? 'application/json' : (file === 'events.jsonl' ? 'application/x-ndjson' : 'text/markdown'), text: redact(body) }; }
   const mMem = /^forge:\/\/memory\/([A-Za-z0-9_.-]+)$/.exec(uri);
-  if (mMem && isSharedMemoryFile(mMem[1])) { const body = safeRead(path.join(CLAUDE_DIR, mMem[1])); if (body == null) throw new Error('resource not found'); return { uri, mimeType: 'text/markdown', text: redact(body) }; }
+  if (mMem && isSharedMemoryFile(mMem[1])) { const f = memFile(mMem[1]); const body = f ? safeRead(f) : null; if (body == null) throw new Error('resource not found'); return { uri, mimeType: 'text/markdown', text: redact(body) }; }
   throw new Error('unknown or forbidden resource uri');
 }
 

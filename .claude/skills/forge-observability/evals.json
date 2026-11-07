@@ -1,0 +1,94 @@
+{
+  "skill": "forge-observability",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-observability/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-observability/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/SKILL.md",
+      "needle": "Use for traces, metrics, logs, Sentry",
+      "why": "description carries a when-trigger"
+    },
+    {
+      "id": "runbooks-file",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "why": "SA-W1-C1 graft (wshobson incident-runbook-templates)"
+    },
+    {
+      "id": "sev-table",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "needle": "| SEV1 | full outage",
+      "why": "SEV1-4 table"
+    },
+    {
+      "id": "communicator",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "needle": "- **Communicator:**",
+      "why": "separate communicator role"
+    },
+    {
+      "id": "dry-run-first",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "needle": "## Dangerous commands: dry run first",
+      "why": "count before destructive SQL"
+    },
+    {
+      "id": "if-fails-line",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "needle": "- **If this fails:**",
+      "why": "every runbook command has an if-fails note"
+    },
+    {
+      "id": "nine-sections",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "needle": "9. **Escalation matrix:**",
+      "why": "nine-part runbook shape"
+    },
+    {
+      "id": "no-k8s-copied",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-observability/references/runbooks.md",
+      "needle": "kubectl",
+      "why": "command blocks of the source are excluded"
+    },
+    {
+      "id": "skill-links-runbooks",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/SKILL.md",
+      "needle": "`references/runbooks.md`",
+      "why": "the SKILL.md routes to the runbook reference"
+    },
+    {
+      "id": "provenance",
+      "type": "contains",
+      "path": ".claude/skills/forge-observability/SKILL.md",
+      "needle": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "why": "pinned SHA of the runbook source"
+    }
+  ]
+}

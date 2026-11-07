@@ -176,6 +176,48 @@ t('CLI end-to-end: the secret-shaped purpose value never appears on stderr, only
   fs.rmSync(SB2, { recursive: true, force: true });
 });
 
+console.log('\n7) W2 repeat (2026-11-06): a VERIFIER-class agent start that counts as work is warned');
+// REAL INCIDENT, twice: verify-boss starts were logged first with wp_id (the
+// contract made verify-boss a worker on that package -> "self-verification"), then with verifies_wp and no
+// role/task (an unkeyed work dispatch -> "unresolved attribution"). Both rejected every later PASS, and the
+// old warning stayed silent because neither event carried a reviewer-shaped role.
+function verifierEvent(extra) {
+  return Object.assign({ run_id: 'w2-verifier-unit-test-not-a-real-run', event_type: 'agent_started', agent: 'verify-boss', dispatch_id: 'toolu_w2verif' }, extra);
+}
+t('verify-boss start with wp_id -> warned (keyed start makes the verifier a worker), still written', () => {
+  const ev = verifierEvent({ wp_id: 'W2-X', role: 'verify', task: 'independent verification of the work package' });
+  const val = LE.validateForWrite(ev);
+  assert.strictEqual(val.ok, true, JSON.stringify(val));
+  assert.strictEqual(val.verify && val.verify.verifier_dispatch_counts_as_work, true, JSON.stringify(val.verify));
+  assert.ok(/wp_id/.test(val.verify.verifier_dispatch_warning), val.verify.verifier_dispatch_warning);
+});
+t('verify-boss start with verifies_wp and no role/task -> warned (unkeyed work dispatch)', () => {
+  const ev = verifierEvent({ verifies_wp: 'W2-X', route: 'verifier' });
+  const val = LE.validateForWrite(ev);
+  assert.strictEqual(val.ok, true, JSON.stringify(val));
+  assert.strictEqual(val.verify && val.verify.verifier_dispatch_counts_as_work, true, JSON.stringify(val.verify));
+  assert.strictEqual(RC.isReviewDispatch(ev), false, 'sanity: the contract really counts this as work');
+});
+t('"Verify Boss" spelling is recognised the same way', () => {
+  const val = LE.validateForWrite(verifierEvent({ agent: 'Verify Boss', verifies_wp: 'W2-X' }));
+  assert.strictEqual(val.verify && val.verify.verifier_dispatch_counts_as_work, true, JSON.stringify(val.verify));
+});
+t('the correct shape (no wp_id, role verify, review-only task) stays silent', () => {
+  const ev = verifierEvent({ verifies_wp: 'W2-X', role: 'verify', task: 'independent verification of the work package' });
+  const val = LE.validateForWrite(ev);
+  assert.strictEqual(val.ok, true);
+  assert.ok(!val.verify || !val.verify.verifier_dispatch_counts_as_work, JSON.stringify(val.verify));
+  assert.strictEqual(RC.isReviewDispatch(ev), true, 'sanity: the contract accepts this one as review');
+});
+t('a Build Boss work start is never judged by this rule', () => {
+  const val = LE.validateForWrite(verifierEvent({ agent: 'build-boss', wp_id: 'W2-X', task: 'implement it' }));
+  assert.ok(!val.verify || !val.verify.verifier_dispatch_counts_as_work, JSON.stringify(val.verify));
+});
+t('a non-dispatch event of a verifier (wp_verified) is never judged by this rule', () => {
+  const val = LE.validateForWrite(verifierEvent({ event_type: 'wp_verified', wp_id: 'W2-X', verdict: 'PASS' }));
+  assert.ok(!val.verify || !val.verify.verifier_dispatch_counts_as_work, JSON.stringify(val.verify));
+});
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

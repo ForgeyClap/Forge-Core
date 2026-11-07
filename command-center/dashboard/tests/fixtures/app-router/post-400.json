@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "errors": [
+    { "path": "entries[1].threshold_pct", "code": "out_of_range", "nl": "Kies een getal van 50 tot en met 99.", "en": "Choose a number from 50 to 99." },
+    { "path": "mode", "code": "multi_account_required", "nl": "Zet eerst het wisselen tussen accounts aan.", "en": "Turn on switching between accounts first." }
+  ]
+}

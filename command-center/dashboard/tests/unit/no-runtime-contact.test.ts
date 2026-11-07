@@ -9,11 +9,11 @@
  * Instead the source is split into two zones with DIFFERENT rules, and each zone
  * is held to the rule that actually protects the user there:
  *
- *   BROWSER ZONE (everything in src/ except src/bridge)
+ *   BROWSER ZONE (everything in src/ except archive/bridge)
  *     Runs inside the page. Must never reach the filesystem, never spawn a
  *     process, and never open a socket to anything but the local bridge.
  *
- *   BRIDGE ZONE (src/bridge)
+ *   BRIDGE ZONE (archive/bridge)
  *     Runs in Node with the user's privileges. Filesystem and process spawning
  *     are expected. What is forbidden is the way those powers get abused:
  *     shell interpolation, binding beyond loopback, and reaching the internet.
@@ -27,7 +27,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 const SRC = join(process.cwd(), 'src');
-const BRIDGE = join(SRC, 'bridge');
+// The legacy bridge was archived out of src/ (WP A9); its zone is still scanned.
+const BRIDGE = join(process.cwd(), 'archive', 'bridge');
 
 interface SourceFile {
   readonly abs: string;
@@ -53,7 +54,7 @@ function collect(dir: string, acc: SourceFile[] = []): SourceFile[] {
   return acc;
 }
 
-const FILES = collect(SRC);
+const FILES = collect(BRIDGE, collect(SRC));
 const BROWSER = FILES.filter((f) => f.zone === 'browser');
 const BRIDGE_FILES = FILES.filter((f) => f.zone === 'bridge');
 
@@ -127,10 +128,38 @@ describe('no code path reads an API key', () => {
   // OTHER file in src/ is still held to the original, unweakened rule.
   const PASSWORD_INPUT_PATTERN = /type\s*=\s*["']password["']/;
   const APPROVED_NON_VENDOR_SECRET_FIELD = 'src\\views\\discord\\ConnectWizard.tsx';
+  // WP B2 part 2 (Lead-approved 2026-11-02): the ONE vendor-key field. It hands the key only to the
+  // desktop vault through the preload bridge (window.forge.keys.set; encrypted with safeStorage in
+  // the main process) and is held to the rules in the next test. REQUIRES_ANTHROPIC_API_KEY stays
+  // false: nothing requires a key; a key is an optional path the user chooses.
+  const APPROVED_VAULT_KEY_FIELD = 'src\\views\\onboarding\\KeyField.tsx';
 
-  it('contains no password input control, except the one owner-approved non-vendor secret field', () => {
-    const hits = scan(FILES, PASSWORD_INPUT_PATTERN).filter((hit) => !hit.startsWith(APPROVED_NON_VENDOR_SECRET_FIELD));
+  it('contains no password input control, except the two approved secret fields', () => {
+    const hits = scan(FILES, PASSWORD_INPUT_PATTERN).filter(
+      (hit) => !hit.startsWith(APPROVED_NON_VENDOR_SECRET_FIELD) && !hit.startsWith(APPROVED_VAULT_KEY_FIELD),
+    );
     expect(hits, `API-key-shaped password input found outside the approved exemption:\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  it('the vault key field only talks to the desktop vault: no network, no storage, no console, no URL', () => {
+    const file = FILES.find((f) => f.rel === APPROVED_VAULT_KEY_FIELD);
+    expect(file, 'the approved key field must actually exist').toBeTruthy();
+    if (!file) return;
+    expect(file.text.match(/type\s*=\s*["']password["']/g)?.length, 'exactly one password input').toBe(1);
+    expect(file.text).toMatch(/forge\.keys\.set/);
+    expect(offendingLines(file, /\bkeys\.set\(/), 'a real (non-comment) call to the vault bridge').not.toEqual([]);
+    expect(file.text).toMatch(/import \{[^}]*\breadKeysBridge\b[^}]*\} from '@\/prototype\/state\/adapter\/providers'/);
+    const forbidden: [string, RegExp][] = [
+      ['fetch', /\bfetch\s*\(/],
+      ['localStorage', /\blocalStorage\b/],
+      ['sessionStorage', /\bsessionStorage\b/],
+      ['console', /\bconsole\s*\./],
+      ['URL literal', /['"`][a-z][a-z0-9+.-]*:\/\//i],
+      ['gateway client', /gateway-client|\bgwPost\b|\bgwGet\b/],
+      ['a controlled value on the input', /\bvalue=\{/],
+    ];
+    const hits = forbidden.flatMap(([label, pattern]) => offendingLines(file, pattern).map((hit) => `${label}: ${hit}`));
+    expect(hits, `the key field reaches beyond the vault:\n${hits.join('\n')}`).toEqual([]);
   });
 
   it('the approved exemption really is a Discord bot-token field, never a vendor API key one (guards against exemption drift)', () => {
@@ -295,7 +324,7 @@ describe('the bridge holds real power safely', () => {
    * and the flag may appear nowhere else in the tree. That proves both halves —
    * the guard is present, and nothing bypasses it.
    */
-  const DENYLIST_FILE = 'src\\bridge\\claude\\locate.ts';
+  const DENYLIST_FILE = 'archive\\bridge\\claude\\locate.ts';
 
   function assertOnlyInDenylist(flag: string): void {
     const hits = scan(FILES, new RegExp(flag.replace(/-/g, '\\-')));

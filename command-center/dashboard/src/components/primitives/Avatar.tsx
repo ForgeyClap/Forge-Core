@@ -1,9 +1,9 @@
 /**
- * Avatar — initials in a bordered square. No photographs, no generated faces.
+ * Avatar — a neutral letter tile (Inleg fill, struck-style corner). No photographs, no
+ * generated faces, no third-party logos or colours.
  *
- * Initials are machine-derived from the name, so they use the monospace face.
- * The optional `group` prop tempers the border with the agent-group luminance
- * step, which is a value difference, never a hue.
+ * `group` is still accepted and written to data-group for old callers, but the seven
+ * agent-group metal colours are gone (DESIGN.md §3.7): every tile looks the same.
  */
 
 import type { AgentGroup } from '@/prototype/types/prototype-types';
@@ -11,7 +11,7 @@ import type { AgentGroup } from '@/prototype/types/prototype-types';
 export interface AvatarProps {
   name: string;
   size?: 'sm' | 'md';
-  /** Tempers the border with the agent-group luminance step. */
+  /** Kept for old callers; no longer changes the look. */
   group?: AgentGroup;
   /** Set when the name is already rendered next to the avatar. */
   decorative?: boolean;
@@ -26,7 +26,7 @@ function initialsFor(name: string): string {
 }
 
 export function Avatar({ name, size = 'md', group, decorative = false, className }: AvatarProps) {
-  const classes = ['fw-avatar', `fw-avatar--${size}`, 'fg-machine'];
+  const classes = ['fw-avatar', `fw-avatar--${size}`];
   if (className) classes.push(className);
 
   return (

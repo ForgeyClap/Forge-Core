@@ -1,6 +1,9 @@
 ---
 name: forge-agent-report
-description: Structured completion-report contract for every dispatched Boss, validated by forge-report.cjs. Use when dispatching a subagent or ingesting its final report — completion contract, validation.
+description: "Use when dispatching a Boss or reading its report."
+# A10 original description (listing budget): "Use when dispatching a Boss or reading its report: the completion-report contract (forge-report.cjs)."
+# W2-BUDGET original description (listing budget): "Use when dispatching a Boss or reading its report: the completion-report contract."
+user-invocable: false
 ---
 
 # forge-agent-report — the completion-report contract
@@ -17,12 +20,13 @@ and ingests it.
 
 ## The contract (copy-paste into every dispatch prompt)
 
-Include this requirement verbatim (or close to it) in every `Agent(...)` dispatch prompt:
+Include this requirement verbatim (or close to it) in every `Agent(...)` dispatch prompt (the outer fence
+has four backticks so the inner three-backtick block stays part of the text you copy):
 
-```
+````
 End your final message with EXACTLY ONE fenced block:
 
-​```forge-report
+```forge-report
 {
   "status": "completed|partial|blocked|failed",
   "work_package": "WP-…",
@@ -30,13 +34,14 @@ End your final message with EXACTLY ONE fenced block:
   "tests_run": "the exact command(s) + result — or \"none\" if honestly nothing ran",
   "evidence": ["what actually proves this — command output, file diff, line count, etc."],
   "blockers": ["only if status is blocked — what's blocking you"],
-  "next_action": "the single most useful next step"
+  "next_action": "the single most useful next step",
+  "verdict": "OPTIONAL, verifier reports only: PROVEN|PARTLY-PROVEN|NOT-PROVEN|NO-CONFIDENT-RESULT (a builder leaves this key out)"
 }
-​```
+```
 
 If you emit more than one such block while thinking out loud, only the LAST one counts — make sure it
 reflects your true final status.
-```
+````
 
 ## When to use
 
@@ -74,6 +79,11 @@ node .claude/forge-bin/forge-report.cjs ingest <run_id> <file|-> --agent "<Boss 
 - `tests_run` must be a string or array — `"none"` is an honest, accepted answer; don't invent a test
   run that didn't happen.
 - `next_action` must be a non-empty string.
+- `verdict` is OPTIONAL and only for verifier reports (Verify Boss, `forge-verify.cjs --claim`): when
+  present it must be exactly one of the four grades `PROVEN | PARTLY-PROVEN | NOT-PROVEN |
+  NO-CONFIDENT-RESULT` (`VERDICT_GRADES` in `forge-report.cjs`), anything else is rejected. Only `PROVEN`
+  counts as a pass; `PARTLY-PROVEN` and `NO-CONFIDENT-RESULT` are honest abstentions, never a pass. A
+  builder report leaves the key out (details: `.claude/skills/forge-verify/references/claim-verdict.md`).
 - Only the **last** ` ```forge-report ` block in the text is used (earlier ones may be drafts/examples
   from the agent's own reasoning).
 

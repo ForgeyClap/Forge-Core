@@ -24,6 +24,11 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-runcontract-test-'));
 fs.mkdirSync(path.join(TMP, '.claude', 'config', 'orchestration'), { recursive: true });
 fs.copyFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_HARD_RULES.json'),
   path.join(TMP, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
+// skill-delivered: the fixtures' skill maps name a skill that really exists in this root, so the map
+// normalises to a real agent -> skill assignment (a map that names no real skill is NOT DONE on that rule).
+fs.mkdirSync(path.join(TMP, '.claude', 'skills', 'forge-debug'), { recursive: true });
+fs.writeFileSync(path.join(TMP, '.claude', 'skills', 'forge-debug', 'SKILL.md'), '# forge-debug\n');
+const SKILL_MAP = { 'build-boss': ['forge-debug'] };
 // A minimal REAL writer at TMP's canonical <root>/.claude/forge-dashboard/log-event.cjs path, so any
 // --log-event/logEvent:true call against TMP that does NOT pass an explicit opts.logEventPath override has
 // a genuinely working writer to succeed against (RC-PROOF-WRITE-SILENT, 2026-09-24: a failed write now
@@ -65,6 +70,7 @@ const completeEvents = [
   ev({ event_type: 'memory_loaded', agent: 'orchestrator' }),
   ev({ event_type: 'owner_prefs_loaded', agent: 'orchestrator' }),
   ev({ event_type: 'research_done', agent: 'orchestrator', note: 'searched existing implementations first' }),
+  ev({ event_type: 'skill_map_created', agent: 'orchestrator', map: SKILL_MAP }), // skill-map-recorded + skill-delivered (category tests 2026-11-07)
   ev({ event_type: 'prd_generated', agent: 'orchestrator' }),
   ev({ event_type: 'agent_started', agent: 'Build Boss' }),
   ev({ event_type: 'zero_console_errors_noted', agent: 'UI Boss' }),
@@ -75,7 +81,7 @@ writeRun('run-complete', completeEvents, { 'final-report.md': '# Report\n', 'run
 const complete = RC.check({ run_id: 'run-complete' }, { root: TMP });
 t('complete run: ok:true', complete.ok === true);
 t('complete run: no missing rules', complete.missing.length === 0);
-t('complete run: all 8 always-rules satisfied', complete.satisfied.length === 8);
+t('complete run: all 9 always-rules satisfied (skill-map-recorded added 2026-11-07)', complete.satisfied.length === 9);
 t('complete run: satisfied includes report-present (real final-report.md file)', complete.satisfied.includes('report-present'));
 
 // ---- missing owner_prefs_loaded specifically (isolate the axis — everything else present) ----
@@ -84,7 +90,7 @@ writeRun('run-missing-prefs', missingPrefsEvents, { 'final-report.md': '# Report
 const missingPrefs = RC.check({ run_id: 'run-missing-prefs' }, { root: TMP });
 t('run missing owner_prefs_loaded: ok:false', missingPrefs.ok === false);
 t('run missing owner_prefs_loaded: names the rule "owner-prefs-loaded" in missing[]', missingPrefs.missing.length === 1 && missingPrefs.missing[0] === 'owner-prefs-loaded');
-t('run missing owner_prefs_loaded: the other 7 always-rules still satisfied', missingPrefs.satisfied.length === 7);
+t('run missing owner_prefs_loaded: the other 8 always-rules still satisfied', missingPrefs.satisfied.length === 8);
 
 // ---- the same missing-prefs run, but with a real structured owner_override event for exactly that rule ----
 const overriddenEvents = missingPrefsEvents.concat([ownerOverride('owner-prefs-loaded', 'owner explicitly reviewed and waived the prefs echo for this smoke test run')]);
@@ -136,6 +142,7 @@ const toolingSatisfiedEvents = [
   ev({ event_type: 'memory_loaded', agent: 'orchestrator' }),
   ev({ event_type: 'owner_prefs_loaded', agent: 'orchestrator' }),
   ev({ event_type: 'research_done', agent: 'orchestrator' }),
+  ev({ event_type: 'skill_map_created', agent: 'orchestrator', map: SKILL_MAP }), // skill-map-recorded + skill-delivered (category tests 2026-11-07)
   ev({ event_type: 'prd_generated', agent: 'orchestrator' }),
   ev({ event_type: 'agent_started', agent: 'Build Boss' }),
   ev({ event_type: 'check_passed', agent: 'Build Boss', command: 'node forge-doctor.cjs', exit_code: 0, evidence: 'forge-doctor ALL GREEN' }),
@@ -153,6 +160,7 @@ const toolingLazyEvents = [
   ev({ event_type: 'memory_loaded', agent: 'orchestrator' }),
   ev({ event_type: 'owner_prefs_loaded', agent: 'orchestrator' }),
   ev({ event_type: 'research_done', agent: 'orchestrator' }),
+  ev({ event_type: 'skill_map_created', agent: 'orchestrator', map: SKILL_MAP }), // skill-map-recorded + skill-delivered (category tests 2026-11-07)
   ev({ event_type: 'prd_generated', agent: 'orchestrator' }),
   ev({ event_type: 'agent_started', agent: 'Build Boss' }),
   ev({ event_type: 'agent_completed', agent: 'Build Boss' }),
@@ -403,7 +411,13 @@ t('hasArtifact: case-insensitive substring match (legacy string[] input, treated
 // sequence, reaction, file-touched). De 12 bestaande regels zijn ongewijzigd op een `phase`-label na —
 // forge-runcontract-v2.test.cjs bewijst dat veld voor veld.
 // 21 sinds 2026-10-10 (deel ii): owner-requests-reconciled (event-present, warn).
-t('listRules: production FORGE_HARD_RULES.json has exactly 21 seeded rules (12 v1 + 8 v2 warn rules + owner-requests-reconciled)', RC.listRules({}).length === 21, String(RC.listRules({}).length));
+// 25 sinds 2026-10-24 (I.6): plan-card-recorded, anticipation-recorded, parallelism-considered, craft-review-recorded
+// (run-evidence, block, opt-in by run shape — forge-runcontract-intelligence.test.cjs proves them).
+// 26 sinds 2026-10-24 (E.1): end-self-review (run-evidence self-review, warn, complexity >= L2, since 2026-10-24 —
+// forge-endreview.test.cjs proves it).
+// 28 sinds 2026-11-01 (A2): dispatch-harness-match (run-evidence dispatch-harness, warn, complexity >= L2, since 2026-11-01 —
+// forge-harness-match.test.cjs proves it).
+t('listRules: production FORGE_HARD_RULES.json has exactly 31 seeded rules (12 v1 + 8 v2 warn rules + owner-requests-reconciled + 4 I.6 run-shape rules + E.1 end-self-review + S3b craft-evidence-recorded + A2 dispatch-harness-match + skill-map-recorded and skill-delivered 2026-11-07 + F14 run-shape-declared 2026-11-07)', RC.listRules({}).length === 31, String(RC.listRules({}).length));
 t('listRules: de honesty-core bevat de independent-verification-regel', RC.listRules({}).some((r) => r.id === 'independent-verification' && r.check.type === 'independent-verification'));
 
 // ---- unit-level helpers: V9-fix DEFECT 1/2/3 pure-function proof ----
@@ -624,7 +638,9 @@ t('5i: the cheap alternative still satisfies the FLOOR rule plan-or-prd-present 
 // satisfied[] half was genuinely red (a rule that does not exist can never land in satisfied[]). It is kept
 // as a pair because ok:true alone is what proves the sharpened rule does not simply block every heavy run. ----
 const heavyWithPrd = completeEvents.concat(dispatches(9));
-writeRun('run-heavy-with-prd', heavyWithPrd, { 'final-report.md': '# Report\n' });
+// an L2+ run must declare its shape (rule run-shape-declared); "code" is not a visible type, so no
+// craft rule is pulled in — the fixture stays about the PRD rule.
+writeRun('run-heavy-with-prd', heavyWithPrd, { 'final-report.md': '# Report\n', 'run.json': '{"deliverable_types":["code"]}' });
 const heavyWithPrdRes = RC.check({ run_id: 'run-heavy-with-prd' }, { root: TMP });
 // sinds independent-verification (un-overridable, >=L2) is een ZWARE run per definitie ook aan
 // die regel gebonden, en deze fixture schrijft een SYNTHETISCHE, ongeketende log — daarop is subjectbinding
@@ -1009,6 +1025,7 @@ t('5r S6: CLI on a rules file with an unknown BLOCKING check type exits 3 (NOT D
     ev({ event_type: 'memory_loaded', agent: 'orchestrator' }),
     ev({ event_type: 'owner_prefs_loaded', agent: 'orchestrator' }),
     ev({ event_type: 'research_done', agent: 'orchestrator', note: 'searched existing implementations first' }),
+    ev({ event_type: 'skill_map_created', agent: 'orchestrator', map: SKILL_MAP }), // skill-map-recorded + skill-delivered (category tests 2026-11-07)
     // forge.md:89 — the Lead announces the work package; `agent` is the ASSIGNEE (Build Boss), not the
     // logging Lead — this is also the D3 fixture shape, satisfies plan-or-prd-present too.
     ev({ event_type: 'agent_work_package_created', agent: 'Build Boss', role: 'builder', mission: 'implement the thing', status: 'previewing' }),

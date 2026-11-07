@@ -3,7 +3,7 @@
  * Forge Workspace — the INTEGRATION suite's own vitest project.
  *
  * These tests do not import a single bridge module. They start the REAL bridge
- * (`node src/bridge/main.ts`) as a child process, pointed at throwaway temp
+ * (`node archive/bridge/main.ts`) as a child process, pointed at throwaway temp
  * directories, and drive it over the real HTTP + WebSocket protocol — the same
  * two surfaces the browser uses. That makes them slow and stateful in a way the
  * unit, chaos, property and security suites deliberately are not, so they get
@@ -45,6 +45,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(here, 'src'),
+      '@archive': path.resolve(here, 'archive'),
       '@brand': path.resolve(here, 'brand'),
     },
   },

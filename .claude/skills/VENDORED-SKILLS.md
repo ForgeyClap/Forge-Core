@@ -20,8 +20,15 @@ Forge-installatie te werken; elke wijziging staat in de `Forge vendor note` van 
 
 ## Meegeleverd — ronde 1 (14 skills)
 
-Bron superpowers: https://github.com/obra/superpowers @ `5bf4e78011075bcfc0dc295f0724994cd123ee71`
-MIT, (c) 2025 Jesse Vincent. Bron frontend-design: https://github.com/anthropics/skills @
+Bron superpowers: https://github.com/obra/superpowers @ `2ce8aa15d05bd57213e6f746f953aafb7ded7a8b`
+(tag v7.0.1), MIT, (c) 2025 Jesse Vincent. **Upgrade 2026-11-02** (WP Q3-SKILLS): van `5bf4e78` naar v7.0.1; volgens de vendor notes elk upstream-bestand op
+git-blob-hash tegen de boom van de pin gecontroleerd en opnieuw gescand (schoon). Wat v7 veranderde: `brainstorming`
+kreeg `builder-check-prompt.md` in plaats van `spec-document-reviewer-prompt.md`; `writing-plans` verloor
+`plan-document-reviewer-prompt.md`; `writing-skills` verplaatste zijn hulpbestanden (o.a.
+`anthropic-best-practices.md`, `graphviz-conventions.dot`, `persuasion-principles.md`,
+`testing-skills-with-subagents.md`, `CLAUDE_MD_TESTING.md`) naar `references/`; `subagent-driven-development` kreeg
+een map `references/`; `systematic-debugging` bevat de upstream-fix die de waarde van `IDENTITY` niet meer print.
+De beschrijvingen van een aantal skills zijn lokaal ingekort voor het listing-budget (vermeld in hun vendor note). Bron frontend-design: https://github.com/anthropics/skills @
 `34040c9c568585f6929bedeaad110ad08f079624`, Apache-2.0.
 
 Wijziging **H** (alle 14): herkomstblok toegevoegd; bij de 13 superpowers-skills ook de frontmatter-sleutel
@@ -31,19 +38,19 @@ verwijzingen in die skill-map.
 
 | skill | bron | pinned commit | licentie | wijzigingen | scripts meegeleverd / uitgesloten |
 |---|---|---|---|---|---|
-| `brainstorming` | obra/superpowers | `5bf4e78` | MIT | H · stap 2 (Architectural) en de sectie "Visual Companion" herschreven: de browser-companion wordt niet meegeleverd | **uitgesloten:** `scripts/server.cjs`, `scripts/start-server.sh`, `scripts/stop-server.sh`, `scripts/helper.js`, `scripts/frame-template.html` en de gids `visual-companion.md` — zie "Scriptbesluiten" |
-| `dispatching-parallel-agents` | obra/superpowers | `5bf4e78` | MIT | H | geen scripts upstream |
-| `executing-plans` | obra/superpowers | `5bf4e78` | MIT | H · N=14 · verwijzing naar de niet-meegeleverde `using-superpowers`-referenties vervangen door een verwijzing naar `forge-router` | **meegeleverd:** `scripts/task-start`, `scripts/task-done` |
-| `finishing-a-development-branch` | obra/superpowers | `5bf4e78` | MIT | H | geen scripts upstream |
-| `receiving-code-review` | obra/superpowers | `5bf4e78` | MIT | H | geen scripts upstream |
-| `requesting-code-review` | obra/superpowers | `5bf4e78` | MIT | H | geen scripts upstream |
-| `subagent-driven-development` | obra/superpowers | `5bf4e78` | MIT | H · N=6 | **meegeleverd:** `scripts/review-package`, `scripts/sdd-workspace`, `scripts/task-brief` |
-| `systematic-debugging` | obra/superpowers | `5bf4e78` | MIT | H · N=2 | **meegeleverd:** `find-polluter.sh`, `condition-based-waiting-example.ts` (voorbeeldcode, niet uitvoerbaar op zichzelf) |
-| `test-driven-development` | obra/superpowers | `5bf4e78` | MIT | H · N=1 (in `writing-good-tests.md`) | geen scripts upstream |
-| `using-git-worktrees` | obra/superpowers | `5bf4e78` | MIT | H | geen scripts upstream |
-| `verification-before-completion` | obra/superpowers | `5bf4e78` | MIT | H | geen scripts upstream |
-| `writing-plans` | obra/superpowers | `5bf4e78` | MIT | H · N=5 | geen scripts upstream |
-| `writing-skills` | obra/superpowers | `5bf4e78` | MIT | H · N=5 · twee links naar de niet-meegeleverde `using-superpowers`-referenties geschrapt · één voorbeeldpad geschreven als `./scripts/tool.sh` (was zonder `./`) zodat de skill-hygiëne-check het voorbeeld niet als ontbrekend bestand leest | **meegeleverd:** `render-graphs.js`, `graphviz-conventions.dot` (data) |
+| `brainstorming` | obra/superpowers | `2ce8aa1` | MIT | H · stap 2 (Architectural) en de sectie "Visual Companion" herschreven: de browser-companion wordt niet meegeleverd | **uitgesloten:** `scripts/server.cjs`, `scripts/start-server.sh`, `scripts/stop-server.sh`, `scripts/helper.js`, `scripts/frame-template.html` en de gids `visual-companion.md` — zie "Scriptbesluiten" |
+| `dispatching-parallel-agents` | obra/superpowers | `2ce8aa1` | MIT | H | geen scripts upstream |
+| `executing-plans` | obra/superpowers | `2ce8aa1` | MIT | H · N=14 · verwijzing naar de niet-meegeleverde `using-superpowers`-referenties vervangen door een verwijzing naar `forge-router` | **meegeleverd:** `scripts/task-start`, `scripts/task-done` |
+| `finishing-a-development-branch` | obra/superpowers | `2ce8aa1` | MIT | H | geen scripts upstream |
+| `receiving-code-review` | obra/superpowers | `2ce8aa1` | MIT | H | geen scripts upstream |
+| `requesting-code-review` | obra/superpowers | `2ce8aa1` | MIT | H | geen scripts upstream |
+| `subagent-driven-development` | obra/superpowers | `2ce8aa1` | MIT | H · N=6 | **meegeleverd:** `scripts/review-package`, `scripts/sdd-workspace`, `scripts/task-brief` |
+| `systematic-debugging` | obra/superpowers | `2ce8aa1` | MIT | H · N=2 | **meegeleverd:** `find-polluter.sh`, `condition-based-waiting-example.ts` (voorbeeldcode, niet uitvoerbaar op zichzelf) |
+| `test-driven-development` | obra/superpowers | `2ce8aa1` | MIT | H · N=1 (in `writing-good-tests.md`) | geen scripts upstream |
+| `using-git-worktrees` | obra/superpowers | `2ce8aa1` | MIT | H | geen scripts upstream |
+| `verification-before-completion` | obra/superpowers | `2ce8aa1` | MIT | H | geen scripts upstream |
+| `writing-plans` | obra/superpowers | `2ce8aa1` | MIT | H · N=5 | geen scripts upstream |
+| `writing-skills` | obra/superpowers | `2ce8aa1` | MIT | H · N=5 · twee links naar de niet-meegeleverde `using-superpowers`-referenties geschrapt · één voorbeeldpad geschreven als `./scripts/tool.sh` (was zonder `./`) zodat de skill-hygiëne-check het voorbeeld niet als ontbrekend bestand leest | **meegeleverd:** `render-graphs.js`, `references/graphviz-conventions.dot` (data) |
 | `frontend-design` | anthropics/skills | `34040c9` | Apache-2.0 | H (dit is tevens de wijzigingsvermelding die Apache-2.0 §4(b) vraagt); frontmatter en tekst verder ongewijzigd; `LICENSE.txt` ongewijzigd meegeleverd; de gepinde upstream-map bevat geen apart NOTICE-bestand | geen scripts upstream |
 
 Alle overige upstream-bestanden in deze mappen (prompts, referentie-`.md`'s, voorbeelden) zijn ongewijzigd
@@ -66,7 +73,7 @@ doorzocht op script-, link- en netwerkverwijzingen (alleen CSS en twee placehold
 | `brainstorming/visual-companion.md` | uitgesloten | handleiding voor die server; zonder server een dode verwijzing |
 | `executing-plans/scripts/task-start` | meegeleverd (gewijzigd) | 28 regels bash; roept `task-brief` aan en print `git rev-parse HEAD`. **Forge-wijziging 2026-09-24 (Codex COR-VENDOR-EXEC):** de helper wordt via `"${BASH:-bash}"` aangeroepen en de scripts staan met de executable-bit (100755) in git, zodat een verse Unix-checkout niet op "permission denied" strandt. Het script zelf doet geen netwerk of verwijderingen; wat het aanroept is beoordeeld op de eigen bewerkingen, niet gegarandeerd voor alles wat een plan opgeeft. |
 | `executing-plans/scripts/task-done` | meegeleverd (gewijzigd) | 52 regels; **draait het testcommando dat de agent zelf opgeeft** (`"$@"`) en schrijft log + ledger in de eigen werkmap. Alleen de eigen bewerkingen van de wrapper zijn beoordeeld (geen netwerk, geen verwijderingen door het script zelf); het opgegeven commando kan wél netwerk of destructieve stappen bevatten — dat valt onder de gate-hook en de projectregels, niet onder deze vetting. Forge-wijziging 2026-09-24: helper via `"${BASH:-bash}"`, executable-bit in git. |
-| `subagent-driven-development/scripts/sdd-workspace` | meegeleverd | 82 regels; maakt alleen de eigen werkmap `.superpowers/sdd/<plan>/` + een zelf-negerende `.gitignore`; geen verwijderingen |
+| `subagent-driven-development/scripts/sdd-workspace` | meegeleverd | 87 regels (v7.0.1; opnieuw gelezen 2026-11-02); maakt alleen de eigen werkmap `.superpowers/sdd/<plan>/` + een zelf-negerende `.gitignore`; geen verwijderingen |
 | `subagent-driven-development/scripts/task-brief` | meegeleverd | 43 regels; `awk`-extractie van één taak uit het plan naar de werkmap |
 | `subagent-driven-development/scripts/review-package` | meegeleverd | 53 regels; `git log`/`git diff` naar een bestand in de werkmap |
 | `systematic-debugging/find-polluter.sh` | meegeleverd | 72 regels; **draait per testbestand lokaal `npm test`** (projectgestuurde code, kan netwerk gebruiken) en controleert of een pad verschijnt; het script zelf verwijdert niets. Alleen de wrapper is beoordeeld; wat `npm test` in een project doet, valt onder de projectregels en de gate-hook. |
@@ -137,7 +144,7 @@ houd je hun licentie en herkomst intact.
 | `gsap/gsap-scrolltrigger` | https://github.com/greensock/gsap-skills | `aed9cfd3277740755f6bfc1155c7aa645403b760` | idem |
 | `gsap/gsap-timeline` | https://github.com/greensock/gsap-skills | `aed9cfd3277740755f6bfc1155c7aa645403b760` | idem |
 | `gsap/gsap-utils` | https://github.com/greensock/gsap-skills | `aed9cfd3277740755f6bfc1155c7aa645403b760` | idem |
-| `humanizer` | https://github.com/blader/humanizer | `1b48564898e999219882660237fde01bf4843a0f` | intern gebruikt op deze pin; niet in de publieke distributie opgenomen (staat daar in `.gitignore`) |
+| `humanizer` | https://github.com/blader/humanizer | `225a6f39ac85f76ee48dbad772ea4abe4ed6c9d8` (tag v3.1.0) | MIT; intern gebruikt op deze pin; niet in de publieke distributie opgenomen (staat daar in `.gitignore`). **Op 2026-11-02 bijgewerkt van v2.8.2 naar v3.1.0:** body byte-identiek aan upstream `SKILL.md` (git blob `19fc634`, sha256 heel bestand `0612f1df…9cad`), `LICENSE` ongewijzigd meegeleverd (sha256 `4ac48102…cbf96`); enige lokale wijziging: H (herkomstblok) en de kortere frontmatter-beschrijving voor het listing-budget. Upstream v3.1.0 heeft geen `allowed-tools`, dus de oude AskUserQuestion-aanpassing vervalt. Gescand: geen injectie, geen `!`-regels, geen geheimen of uitgaande calls, geen verborgen tekens; 410 regels. Bewaakt door H1-H7 in `forge-skilllint.test.cjs` |
 | `docx`, `pdf`, `pptx`, `xlsx` (anthropics document-skills) | https://github.com/anthropics/skills | — | source-available, geen herdistributierecht — niet gevendord |
 | `using-superpowers`, `diagnosing-superpowers` | https://github.com/obra/superpowers | — | plugin-bootstrap/-diagnose van superpowers zelf; in Forge doen `forge-router` en `forge-debug` dat werk. De enige verwijzingen ernaar (in `executing-plans` en `writing-skills`) zijn herschreven of geschrapt |
 | `commit-push-pr` (command uit `commit-commands`) | https://github.com/anthropics/claude-plugins-official | `6bfd4e0` (niet gedownload) | maakt een branch, pusht en opent een PR — push en publicatie zijn in Forge owner-gated; Scout hard-pass |

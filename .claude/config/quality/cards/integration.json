@@ -1,0 +1,151 @@
+{
+  "domain": "integration",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "int-credentials-env",
+      "claim": "All credentials are in env.",
+      "evidence_required": "A search of the diff and logs for credentials with no hits, and the .env.example.",
+      "how_to_run": "git diff plus a secret-pattern search; read .env.example.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "All credentials in env"
+      }
+    },
+    {
+      "id": "int-webhook-auth",
+      "claim": "Webhook signature/auth is verified on every inbound webhook.",
+      "evidence_required": "A test where an unsigned or wrongly signed webhook is rejected and a correct one accepted.",
+      "how_to_run": "Run the webhook verification tests and quote both outcomes.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "webhook signature/auth verified"
+      }
+    },
+    {
+      "id": "int-retries-dlq",
+      "claim": "Failed calls are retried and then dead-lettered.",
+      "evidence_required": "A test with a failing downstream showing retries and the dead-letter entry.",
+      "how_to_run": "Run the failure-path test and quote the retry count and dead-letter record.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "retries + dead-letter for failed calls"
+      }
+    },
+    {
+      "id": "int-safe-logging",
+      "claim": "No secrets or PII in logs.",
+      "evidence_required": "A search of logging statements and sample logs with no secret/PII hits.",
+      "how_to_run": "Search logging calls in the diff; read a sample log.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no secrets/PII in logs"
+      }
+    },
+    {
+      "id": "int-rate-limits",
+      "claim": "Rate limits of the external services are respected.",
+      "evidence_required": "The backoff/throttle code and a test with a 429 response.",
+      "how_to_run": "Run the rate-limit test.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "rate limits respected"
+      }
+    },
+    {
+      "id": "int-send-gated",
+      "claim": "Any user-facing send is gated behind explicit confirmation.",
+      "evidence_required": "The send path showing the draft/confirmation step.",
+      "how_to_run": "Read every send path and quote the gate.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "any user-facing send gated behind explicit confirmation"
+      }
+    },
+    {
+      "id": "int-idempotent-writes",
+      "claim": "Writes are idempotent and retries use exponential backoff with jitter.",
+      "evidence_required": "A replay test with one side effect, and the backoff code.",
+      "how_to_run": "Run the replay test and quote the side-effect count.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Idempotent writes (no duplicate side effects on retry)"
+      }
+    },
+    {
+      "id": "int-input-validation",
+      "claim": "All external data is validated and OAuth scopes are minimal.",
+      "evidence_required": "Validation code at each inbound boundary and the requested scopes.",
+      "how_to_run": "Read the inbound handlers and the OAuth scope list.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Input validation on all external data; minimal OAuth scopes."
+      }
+    },
+    {
+      "id": "int-dedicated-identity",
+      "claim": "Integrations that read e-mail/CRM data or send on the owner's behalf run under a dedicated agent identity.",
+      "evidence_required": "The identity choice recorded in the integration notes.",
+      "how_to_run": "Read the integration notes.",
+      "severity": "warn",
+      "honesty_note": "Required by default for e-mail-read + external-send; the extra account is an owner decision, so a missing choice is reported, not invented.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Hard rules",
+        "quote": "integrations that READ e-mail/CRM-data or SEND on the owner's behalf SHOULD run under a dedicated agent identity"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Outreach drafted only; no auto-send or bulk without explicit confirmation.",
+      "source": {
+        "path": ".claude/skills/forge-integration/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "outreach drafted only; no auto-send or bulk without explicit confirmation."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "The runtime is n8n: use the n8n card."
+  ],
+  "gaps": []
+}

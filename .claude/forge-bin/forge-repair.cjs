@@ -56,7 +56,11 @@ const { spawnSync } = require('child_process');
 const MAX_CHILD_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 const NODE = process.execPath;
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1: this copy's project via forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers it from the cwd, null when there is none -> pass --root).
+// Guarded: a missing or older forge-paths.cjs keeps the old two-folders-up answer.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 const HEALTH_TIMEOUT_MS = 1500;
 // a health response larger than this is treated as "not reachable" instead of buffered without bound.
 const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
@@ -229,6 +233,7 @@ const TEXT = {
  *  suite always overrides them. */
 async function runRepair(rawOpts) {
   const opts = rawOpts || {};
+  if (!opts.root && !DEFAULT_ROOT) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
   const root = path.resolve(opts.root || DEFAULT_ROOT);
   const lang = resolveLanguage(opts);
   const T = TEXT[lang];

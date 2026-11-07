@@ -26,6 +26,7 @@ const core = require('./account-rotator-core.cjs');
 const vault = require('./account-rotator-vault.cjs');
 const M = require('./account-rotator-measure.cjs');
 const guardRedact = require('./usage-guard-redact.cjs');
+const flagsLib = require('./account-rotator-flags.cjs');
 
 const SCRIPT = path.join(__dirname, 'account-rotator.cjs');
 const AGENT_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED'];
@@ -129,12 +130,16 @@ async function chooseLaunch(P, S, deps) {
   const st = vault.readState(P);
   const { tr, ar } = await measureTokens(slots, st, deps, now);
   await vault.updateState(P, (s) => { for (const x of slots) { if (tr[x.name]) s.tokenReadings[x.name] = tr[x.name]; if (ar[x.name]) s.readings[x.name] = ar[x.name]; } });
-  const v = slots.map((s) => ({ name: s.name, eligible: true, reading: core.effectiveReading(tokenReading(s, tr, ar), now), lastUsedAt: (tr[s.name] || {}).lastUsedAt || null }));
-  const sel = core.selectTarget({ accounts: v, activeName: null, threshold: S.threshold.value, now, lastLeft: null });
+  const v = slots.map((s) => ({ name: s.name, eligible: !flagsLib.isOrgBlocked(st.slotFlags, s.name), reading: core.effectiveReading(tokenReading(s, tr, ar), now), lastUsedAt: (tr[s.name] || {}).lastUsedAt || null }));
+  const sel = core.selectTarget({ accounts: v, activeName: null, threshold: S.threshold.value, now, lastLeft: null, skipUntested: true });
   if (sel.target && sel.tier !== 'unknown') return { name: sel.target, why: sel.tier + ' ' + core.fmtPct((sel.ranked[0] || {}).maxPct) };
   const unknown = sel.ranked.filter((r) => r.tier === 'unknown').map((r) => v.find((x) => x.name === r.name));
   if (unknown.length) { const rr = core.roundRobin(unknown, now); return { name: rr.name, why: rr.why }; }
-  return { name: null, why: 'alle token-accounts zitten boven de drempel / every token account is over the threshold', soonestResetAt: sel.soonestResetAt };
+  const untested = sel.skipped.filter((x) => x.why === 'untested').map((x) => x.name).join(', ');
+  const why = untested ? 'geen account met een live meting; niet getest: ' + untested + ' (kies er zelf een met --account) / no account with a live reading; untested: ' + untested + ' (pick one yourself with --account)'
+    : sel.skipped.some((x) => x.why === 'not-eligible') && !sel.skipped.some((x) => x.why === 'full') ? 'elk overig account is ' + flagsLib.ORG_BLOCK_LABEL + ' / every other account is blocked by its organization'
+      : 'alle token-accounts zitten boven de drempel / every token account is over the threshold';
+  return { name: null, why, soonestResetAt: sel.soonestResetAt };
 }
 function resolveClaudeBin(deps) {
   const env = deps.env || process.env;
@@ -203,6 +208,8 @@ async function cmdLaunch(P, S, argv, deps, h) {
     if (want) {
       const s = vault.readSlot(P, want);
       if (!s || !s.token) return { refused: '"' + want + '" heeft geen setup-token (enroll-token ' + want + ') / has no setup token' };
+      const ob = flagsLib.orgBlockOf(vault.readState(P).slotFlags, want);
+      if (ob && !flags.includes('--force')) return { refused: flagsLib.launchRefusal(want, ob) };
       pick = { name: want, why: 'handmatig gekozen / chosen manually' };
     } else pick = await chooseLaunch(P, S, deps);
     if (pick.name) await vault.updateState(P, (s) => { s.tokenReadings[pick.name] = Object.assign({}, s.tokenReadings[pick.name] || {}, { lastUsedAt: new Date(deps.now()).toISOString() }); });
@@ -217,11 +224,17 @@ async function cmdLaunch(P, S, argv, deps, h) {
   for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) if (env[k]) deps.err('let op / note: ' + k + ' staat in je omgeving en kan voorrang krijgen / is set and may take precedence');
   const bin = resolveClaudeBin(deps);
   if (!bin) { deps.err('claude niet gevonden op PATH / claude not found on PATH — zet / set FORGE_ROTATOR_CLAUDE_BIN'); return 1; }
-  const childEnv = Object.assign({}, env, { CLAUDE_CODE_OAUTH_TOKEN: slot.token }); // child only — never process.env
+  if (!vault.validName(pick.name)) { deps.err('geweigerd / refused — ongeldige accountnaam / invalid account name'); return 3; }
+  // child only — never process.env. FORGE_ROTATOR_ACCOUNT = the slot NAME (non-secret), so the session's hooks
+  // (forge-usage-source.cjs via the lane-budget line) credit usage to this account; it overrides a stale inherited one.
+  const childEnv = Object.assign({}, env, { CLAUDE_CODE_OAUTH_TOKEN: slot.token, FORGE_ROTATOR_ACCOUNT: pick.name });
   vault.log(P, 'launch ' + pick.name + ' (' + pick.why + ')', { quiet: true });
   deps.out('start Claude Code met / starts Claude Code with ' + pick.name + ' (' + pick.why + ') — alleen deze nieuwe sessie en haar subprocessen / only this new session and its child processes');
-  const r = await (deps.spawnClaude || spawnClaude)(bin, claudeArgs, childEnv);
+  const t0 = Date.now();
+  const r = await (deps.spawnClaude || spawnClaude)(bin, claudeArgs, childEnv); // stdio inherited: the child's output is NOT readable here
   if (r.refused) { deps.err('geweigerd / refused — ' + r.refused); return 3; }
+  const hint = flagsLib.earlyExitHint(pick.name, r.code, Date.now() - t0);
+  if (hint) deps.err(hint);
   return r.code;
 }
 

@@ -23,6 +23,8 @@ export interface RunProofSummary {
   readonly detail: string;
   /** A receipt file exists for this run (whether or not it still counts). */
   readonly hasReceipt: boolean;
+  /** Why a receipt no longer counts (key 'invalid' only), so other locales can name it too. */
+  readonly reason?: string;
 }
 
 const SHORT: Readonly<Record<string, string>> = {
@@ -48,6 +50,7 @@ export function runProofSummary(run: Pick<Run, 'proof' | 'finalized' | 'finalize
       icon: 'TriangleAlert',
       detail: `A finalize receipt exists but no longer counts: ${run.finalizeInvalidReason}.`,
       hasReceipt: true,
+      reason: run.finalizeInvalidReason,
     };
   }
   if (run.finalized === true) {

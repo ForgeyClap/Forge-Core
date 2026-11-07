@@ -17,7 +17,7 @@ export interface Prototyped {
 /* ------------------------------------------------------------------ status */
 
 /**
- * The seven workspace states. Each maps to a `--forge-status-*` token trio
+ * The seven workspace states. Each maps to a status colour token (`--fs-*`) plus a border style
  * (value / style / width) so a state is legible in pure greyscale: the colour
  * only ever carries weight, never meaning.
  */
@@ -57,7 +57,7 @@ export interface StatusPresentation {
 
 /* ------------------------------------------------------------------ agents */
 
-/** The seven agent groups, mapped to `--forge-group-*` luminance steps. */
+/** The seven agent groups (one neutral colour since the redesign; the icon and label carry the group). */
 export type AgentGroup =
   | 'control'
   | 'context'

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { JsonStore } from './store.js';
-import { SubscriptionUsage } from './subscription-usage.js';
+import { LocalUsage as SubscriptionUsage } from './local-usage.js';
 
 // Idee K + I: automatisch pauzeren bij hoge usage of een bereikt dagplafond.
 // Doel: nooit halverwege een run tegen de limiet aanlopen. Wachtende opdrachten
@@ -81,9 +81,16 @@ export class UsageGuard {
     if (this.state.manual) return this.state;
     let peak = null;
     let usageText = '';
+    // Lokale schatting zonder eigen tokenbudget: er bestaat geen percentage
+    // waarop een oude verbruik-pauze ooit kan zakken — die mag dan wel opgeheven worden.
+    // Met een budget (TOKEN_BUDGET_5H / _WEEK) is het percentage dat van het eigen budget.
+    let noPercentSource = false;
+    let estimate = false;
     if (this.subscriptionUsage) {
       const sub = await this.subscriptionUsage.get();
       if (!sub.unavailable) {
+        estimate = sub.estimate === true;
+        noPercentSource = estimate && (sub.limits ?? []).length === 0;
         peak = SubscriptionUsage.peak(sub);
         usageText = SubscriptionUsage.format(sub);
       }
@@ -97,7 +104,9 @@ export class UsageGuard {
         paused: true,
         reason: overCost
           ? `dagplafond bereikt ($${cost.toFixed(2)} van $${this.dailyCostLimitUsd})`
-          : `verbruik op ${peak}% (pauzeren vanaf ${this.pauseAtPercent}%)`,
+          : estimate
+            ? `verbruik op ${peak}% van je eigen tokenbudget (schatting uit lokale logs; pauzeren vanaf ${this.pauseAtPercent}%)`
+            : `verbruik op ${peak}% (pauzeren vanaf ${this.pauseAtPercent}%)`,
         since: this.now(),
         notified: false,
         manual: false,
@@ -117,7 +126,8 @@ export class UsageGuard {
     if (this.paused) {
       // Onbekend verbruik (netwerkfout) mag een verbruik-pauze NIET stil opheffen:
       // dan zou een API-storing de rem eraf halen.
-      const usageOk = peak === null ? !/verbruik/.test(this.state.reason ?? '') : peak <= this.resumeAtPercent;
+      const usageOk =
+        peak === null ? noPercentSource || !/verbruik/.test(this.state.reason ?? '') : peak <= this.resumeAtPercent;
       const costOk = this.dailyCostLimitUsd === 0 || cost < this.dailyCostLimitUsd;
       if (usageOk && costOk) {
         this.state = { paused: false, reason: null, since: null, notified: false, manual: false };

@@ -7,6 +7,7 @@
 // architecture/history/honesty rules this slice still follows; no other file in the codebase needed
 // to change a single import.
 import { redactAndCap } from './redact.mjs';
+import { classifyStreamLine, toForgeErrorEvent } from './error-catalogue.mjs';
 
 // fix-usage-capture (checkup MEDIUM-upgrade):
 // the child's real stream-json `result` line already carries a full `usage` block
@@ -79,6 +80,18 @@ export function extractSessionIdFromParsedLine(parsed) {
 }
 
 export function _extractSessionIdForTests(parsed) {
+  return extractSessionIdFromParsedLine(parsed);
+}
+
+// WP A4 (shared session module): the session id that is STORED for a conversation (and resumed on
+// its next turn with --resume) comes only from the main conversation's `system`/`init` line — the
+// line the CLI emits when a session starts or resumes, so it names the session this run really
+// used (with --fork-session that is the NEW id). A line carrying a non-null `parent_tool_use_id`
+// belongs to a dispatched subagent and is never used. Returns null for every other line.
+export function extractInitSessionId(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (parsed.type !== 'system' || parsed.subtype !== 'init') return null;
+  if (parsed.parent_tool_use_id !== undefined && parsed.parent_tool_use_id !== null) return null;
   return extractSessionIdFromParsedLine(parsed);
 }
 
@@ -412,3 +425,11 @@ export function _turnArtifactCapsForTests() {
 // Exported so exec-lifecycle.mjs can size its own bounded accumulation arrays without duplicating
 // the numeric literal — mirrors this file's own "one real ceiling, never a guess" convention.
 export { MAX_FILE_EDITS_PER_TURN, MAX_SHELL_COMMANDS_PER_TURN };
+
+// WP B3 (error catalogue): one classified CLI/provider error per stream-json line, as the
+// `{type:"forge_error", code, ...}` record the dashboard renders as a Dutch error card. Returns null
+// for the common case (the line is not an error). It never alters or replaces the line itself: the
+// caller still stores the raw line exactly as before and adds this record as an EXTRA event.
+export function extractForgeErrorFromParsedLine(parsed) {
+  return toForgeErrorEvent(classifyStreamLine(parsed), 'stream');
+}

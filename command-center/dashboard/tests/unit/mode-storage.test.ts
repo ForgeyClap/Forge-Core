@@ -1,49 +1,88 @@
 /**
- * mode-storage (feat-forge-preamble): `readStoredMode`'s new
- * bypass-by-default behavior for a project that has never persisted a send-mode choice — see
- * `mode-storage.ts`'s own doc comment for the honest reason (a non-interactive dashboard session
- * can never answer an interactive approval prompt, mirrors `exec-argv.mjs`'s own SECURITY FRAME
- * comment for 'bypass' mode itself). A previously PERSISTED choice — including an explicit
- * 'execute' — must never be silently upgraded.
+ * mode-storage — WP B3 (plan §4.4): a project with no stored send-mode choice starts in
+ * "Mag aanpassen" (`accept-edits`), never in bypass. A stored pre-B3 `bypass` is reset once to "not
+ * chosen" (`migrateStoredBypass`), and a choice persisted after that migration is respected.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { modeStorageKey, persist, readStoredMode } from '@/views/chat/mode-storage';
+import {
+  BYPASS_MIGRATION_KEY,
+  DEFAULT_SEND_MODE,
+  confirmBypass,
+  isBypassConfirmed,
+  migrateStoredBypass,
+  modeStorageKey,
+  persist,
+  readStoredMode,
+} from '@/views/chat/mode-storage';
 
-describe('readStoredMode (feat-forge-preamble bypass-by-default)', () => {
+describe('readStoredMode (WP B3: accept-edits by default, never bypass)', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => localStorage.clear());
 
-  it('defaults a brand-new project (never persisted a choice) to "bypass"', () => {
-    expect(readStoredMode('p-new')).toBe('bypass');
+  it('defaults a brand-new project (never persisted a choice) to "accept-edits"', () => {
+    expect(DEFAULT_SEND_MODE).toBe('accept-edits');
+    expect(readStoredMode('p-new')).toBe('accept-edits');
+    expect(readStoredMode('p-new')).not.toBe('bypass');
   });
 
-  it('an empty/unknown project id still defaults to "execute" — there is no real project to run anything in at all', () => {
+  it('an empty/unknown project id still resolves to "execute" (there is no project to run in)', () => {
     expect(readStoredMode('')).toBe('execute');
   });
 
-  it('a previously persisted "execute" choice is NOT silently upgraded to "bypass"', () => {
+  it('a previously persisted "execute" or "plan" choice round-trips unchanged', () => {
     persist(modeStorageKey('p1'), 'execute');
+    persist(modeStorageKey('p2'), 'plan');
     expect(readStoredMode('p1')).toBe('execute');
+    expect(readStoredMode('p2')).toBe('plan');
   });
 
-  it('a previously persisted "accept-edits" choice round-trips unchanged', () => {
-    persist(modeStorageKey('p1'), 'accept-edits');
+  it('an invalid stored value falls back to the default, never a crash', () => {
+    localStorage.setItem(modeStorageKey('p1'), 'not-a-real-mode');
     expect(readStoredMode('p1')).toBe('accept-edits');
   });
+});
 
-  it('a previously persisted "bypass" choice round-trips unchanged (indistinguishable from the default, but still a real persisted read)', () => {
-    persist(modeStorageKey('p1'), 'bypass');
-    expect(readStoredMode('p1')).toBe('bypass');
+describe('migrateStoredBypass (one-time)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  it('resets every stored bypass to "not chosen" and reports how many', () => {
+    persist(modeStorageKey('a'), 'bypass');
+    persist(modeStorageKey('b'), 'bypass');
+    persist(modeStorageKey('c'), 'plan');
+    expect(migrateStoredBypass()).toBe(2);
+    expect(localStorage.getItem(modeStorageKey('a'))).toBeNull();
+    expect(readStoredMode('a')).toBe('accept-edits');
+    expect(readStoredMode('b')).toBe('accept-edits');
+    expect(readStoredMode('c')).toBe('plan');
+    expect(localStorage.getItem(BYPASS_MIGRATION_KEY)).toBe('1');
   });
 
-  it('an invalid stored value falls back to the new default ("bypass"), never a crash', () => {
-    localStorage.setItem(modeStorageKey('p1'), 'not-a-real-mode');
-    expect(readStoredMode('p1')).toBe('bypass');
+  it('runs only once: a bypass chosen again afterwards survives, and no second toast is due', () => {
+    expect(migrateStoredBypass()).toBe(0);
+    persist(modeStorageKey('a'), 'bypass');
+    expect(migrateStoredBypass()).toBe(0);
+    expect(readStoredMode('a')).toBe('bypass');
   });
 
-  it('two different projects each get their own independent bypass default — never shared state', () => {
-    persist(modeStorageKey('p1'), 'execute');
-    expect(readStoredMode('p1')).toBe('execute');
-    expect(readStoredMode('p2')).toBe('bypass');
+  it('touches no other storage keys', () => {
+    localStorage.setItem('forge.locale', 'nl');
+    localStorage.setItem('forge.prototype.chatEffort', 'bypass');
+    migrateStoredBypass();
+    expect(localStorage.getItem('forge.locale')).toBe('nl');
+    expect(localStorage.getItem('forge.prototype.chatEffort')).toBe('bypass');
+  });
+});
+
+describe('bypass confirmation per project', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('is per project and never for an empty project id', () => {
+    expect(isBypassConfirmed('a')).toBe(false);
+    confirmBypass('a');
+    expect(isBypassConfirmed('a')).toBe(true);
+    expect(isBypassConfirmed('b')).toBe(false);
+    confirmBypass('');
+    expect(isBypassConfirmed('')).toBe(false);
   });
 });

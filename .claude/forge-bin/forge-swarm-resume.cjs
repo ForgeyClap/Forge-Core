@@ -72,9 +72,26 @@ function rootOf(opts) {
   // zelfde root-resolutie als forge-manifest: FORGE_PROJECT_ROOT wint — anders lekte een CLI-claim in een
   // testsandbox zijn leasebestanden naar de ECHTE projectroot (gevonden bij de r4-#5-testronde).
   if (process.env.FORGE_PROJECT_ROOT) return path.resolve(process.env.FORGE_PROJECT_ROOT);
-  return path.resolve(__dirname, '..', '..');
+  // WP 2.1: forge-paths scriptRoot (an installed copy keeps its own project; a plugin copy discovers it from the cwd)
+  const root = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
+  if (!root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)');
+  return root;
 }
-function leaseDirOf(root, runId) { return path.join(root, '.claude', 'forge-runs', runId, 'wp-leases'); }
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+function leaseDirOf(root, runId) { return path.join(runDirOf(root, runId), 'wp-leases'); }
 // INJECTIEVE key (r4 #6): de leesbare prefix bleef, maar de sha1 van de EXACTE wp_id maakt de mapping
 // injectief — 'foo/bar' en 'foo?bar' delen niet langer een leasebestand (release van de een gaf de ander vrij).
 function leaseFileOf(root, runId, wpId) {

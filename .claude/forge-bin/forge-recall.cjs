@@ -46,7 +46,13 @@
 const path = require('path');
 const memory = require('./forge-memory.cjs');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1: FORGE_PROJECT_ROOT keeps first place; the fallback comes from forge-paths.cjs scriptRoot — an installed copy
+// acts on its own project exactly as before, a plugin copy discovers the project from CLAUDE_PROJECT_DIR / the cwd and
+// answers null outside one (the CLI then refuses). Guarded: an older or missing forge-paths.cjs keeps the literal.
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (() => {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRoot === 'function') return P.scriptRoot(__dirname); } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+})();
 const GLOBAL_NAMESPACE = 'global';
 const UTILITY_WEIGHT = 1;
 const TYPE_LABEL = { episodic: 'guard-rail', semantic: 'strategy', procedural: 'procedure' };
@@ -144,6 +150,7 @@ function printUsage() {
 if (require.main === module) {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) { printUsage(); process.exitCode = 0; }
+  else if (!PROJECT_ROOT) { console.error('forge-recall: no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) - set FORGE_PROJECT_ROOT'); process.exitCode = 2; } // WP 2.1
   else {
     try {
       const result = recall({ query: opts.query, namespace: opts.namespace }, { root: PROJECT_ROOT, k: Number.isFinite(opts.k) && opts.k > 0 ? opts.k : undefined });

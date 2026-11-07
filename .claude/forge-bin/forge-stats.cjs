@@ -32,11 +32,28 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const CLAUDE_DIR = path.join(PROJECT_ROOT, '.claude');
-const RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
-const REGISTRY_FILE = path.join(CLAUDE_DIR, 'config', 'agents', 'agent-registry.json');
-const STATS_FILE = path.join(RUNS_DIR, 'STATS.json');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** stateDirsOf(root, key) -> [active folder, legacy folder] in the forge layout (a lister reads both during a partial
+ *  migration, active first), [legacy folder] in the legacy layout. Missing folders are fine for a lister. */
+function stateDirsOf(root, key) {
+  const active = statePath(root, key), legacy = path.join(root, '.claude', 'forge-' + key);
+  return active === legacy ? [legacy] : [active, legacy];
+}
+
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
+// PROJECT_ROOT null = a plugin copy outside any project: the CLI then exits with a clear message (never writes there)
+const CLAUDE_DIR = PROJECT_ROOT ? path.join(PROJECT_ROOT, '.claude') : null;
+const RUNS_DIR = PROJECT_ROOT ? statePath(PROJECT_ROOT, 'runs') : null;
+const REGISTRY_FILE = CLAUDE_DIR ? path.join(CLAUDE_DIR, 'config', 'agents', 'agent-registry.json') : null;
+const STATS_FILE = RUNS_DIR ? path.join(RUNS_DIR, 'STATS.json') : null;
 
 // Resiliency fallback ONLY — used when the real registry can't be read, so forge-stats still degrades
 // gracefully instead of silently reporting zero Bosses. Keep in sync with agent-registry.json if a new
@@ -75,6 +92,15 @@ function listRunDirs(runsDir) {
   let ents = [];
   try { ents = fs.readdirSync(runsDir, { withFileTypes: true }); } catch { return []; }
   return ents.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+}
+/** runFolders(runsDirs) -> [[runId, absolute run folder]] for one runs folder or an array of them (WP 2.1: active
+ *  first; a run id already seen in an earlier folder wins, so a run is never counted twice). */
+function runFolders(runsDirs) {
+  const out = [], seen = new Set();
+  for (const base of (Array.isArray(runsDirs) ? runsDirs : [runsDirs])) {
+    for (const id of listRunDirs(base)) if (!seen.has(id)) { seen.add(id); out.push([id, path.join(base, id)]); }
+  }
+  return out;
 }
 
 /** readEventsFile(p) -> { events:[obj...], malformed:N } or null when the file is missing. Never throws. */
@@ -115,8 +141,7 @@ function computeStats(runsDir, registryFile, opts) {
   let runsScanned = 0;
   let malformedSkipped = 0;
 
-  for (const dir of listRunDirs(runsDir)) {
-    const runDir = path.join(runsDir, dir);
+  for (const [, runDir] of runFolders(runsDir)) {
     const read = readEventsFile(path.join(runDir, 'events.jsonl'));
     if (read == null) continue; // no events.jsonl -> not a run we scan
     runsScanned++;
@@ -233,9 +258,12 @@ if (require.main === module) {
     console.error('forge-stats: ' + opts.usageError);
     console.error('Usage: node forge-stats.cjs [--json] [--no-write] [--threshold <pct>] [--min-samples <n>]');
     process.exitCode = 2;
+  } else if (!PROJECT_ROOT) {
+    console.error('forge-stats: no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)');
+    process.exitCode = 1;
   } else {
     try {
-      const stats = computeStats(RUNS_DIR, REGISTRY_FILE, { threshold: opts.threshold, minSamples: opts.minSamples });
+      const stats = computeStats(stateDirsOf(PROJECT_ROOT, 'runs'), REGISTRY_FILE, { threshold: opts.threshold, minSamples: opts.minSamples });
       if (opts.write) {
         fs.mkdirSync(RUNS_DIR, { recursive: true });
         fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2) + '\n', 'utf8');

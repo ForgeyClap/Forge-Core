@@ -1,0 +1,17 @@
+{
+  "_doc": "Resume-brief hook registration (.7, owner request R-0069). NOT active by itself: writes to .claude/settings.json are owner-gated, so the owner (or an approved integration package) merges ONLY the `hooks` block below into the SessionStart array of .claude/settings.json, BESIDE the existing \"compact\" entry (forge-snapshot-reinject.cjs keeps compact; this one covers startup, resume and clear). This `_doc` key is never copied. The hook prints a short brief (unfinished run + open work packages + open scribe items + a 4-line continue instruction), always exits 0 and is capped at 2000 chars; env FORGE_RESUME_BRIEF=off disables it. After merging, regenerate forge-init.fragment.json with `node .claude/forge-bin/forge-init.cjs fragment --dev-root . --write`. Removing this block from settings.json is the rollback.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-resume-brief.cjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

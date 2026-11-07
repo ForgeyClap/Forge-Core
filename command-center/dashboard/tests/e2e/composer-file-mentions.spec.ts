@@ -10,9 +10,14 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { openSandboxProject } from './live-gateway-helpers';
+import { blockedOwnerGatewayUrls, openSandboxProject } from './live-gateway-helpers';
 
 test.describe('composer @-file mentions', () => {
+  test.afterEach(async ({ page }) => {
+    // Fail closed: nothing in this spec may reach the developer's own gateway on 127.0.0.1:4100.
+    expect(blockedOwnerGatewayUrls(page), 'the page tried to reach the live gateway on 127.0.0.1:4100').toEqual([]);
+  });
+
   test.beforeEach(async ({ page }) => {
     await openSandboxProject(page);
     await page.goto('/#/chat');

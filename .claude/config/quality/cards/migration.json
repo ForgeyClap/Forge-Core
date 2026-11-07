@@ -1,0 +1,174 @@
+{
+  "domain": "migration",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-migration/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-migration/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-migration/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "mig-characterization",
+      "claim": "Legacy behavior is characterized: golden/approval tests exist and pass on the legacy code before any change.",
+      "evidence_required": "The characterization suite output run against the legacy code.",
+      "how_to_run": "Check out the pre-change commit, run the characterization suite, quote the result.",
+      "severity": "block",
+      "honesty_note": "Legacy system not runnable here: report characterization as designed, not executed (NOT_RUN).",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "golden/approval tests exist and pass on the legacy code before any change"
+      }
+    },
+    {
+      "id": "mig-seam",
+      "claim": "A seam or facade routes per slice.",
+      "evidence_required": "The facade/router code with the per-slice switch.",
+      "how_to_run": "Read the seam code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "a seam/facade routes per-slice"
+      }
+    },
+    {
+      "id": "mig-flag-routeback",
+      "claim": "Each migrated slice is behind a flag with a proven route-back.",
+      "evidence_required": "A run where the flag is turned off and traffic goes back to the old path.",
+      "how_to_run": "Flip the flag off in a test and quote the old path serving.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "each migrated slice is behind a flag with a proven route-back"
+      }
+    },
+    {
+      "id": "mig-parity",
+      "claim": "Parity is verified old-vs-new for the slice, with discrepancies reconciled.",
+      "evidence_required": "A shadow or diff run comparing old and new output.",
+      "how_to_run": "Run the parity/diff harness and quote the discrepancy count.",
+      "severity": "block",
+      "honesty_note": "Legacy system not runnable here: parity is designed, not executed (NOT_RUN).",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "parity verified old-vs-new for the slice (shadow/diff evidence, discrepancies reconciled)"
+      }
+    },
+    {
+      "id": "mig-no-big-bang",
+      "claim": "No big-bang cutover.",
+      "evidence_required": "The cutover plan and the run log showing slice-by-slice switching.",
+      "how_to_run": "Read the cutover plan and the flag history.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no big-bang cutover"
+      }
+    },
+    {
+      "id": "mig-data-reconciled",
+      "claim": "The data migration is reconciled (row counts and checksums match) and reversible with a backup.",
+      "evidence_required": "Row counts and checksums for source and target, and the backup reference.",
+      "how_to_run": "Run the reconciliation queries and quote both sides.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "data migration reconciled (row counts + checksums match) and reversible with a backup"
+      }
+    },
+    {
+      "id": "mig-auth-secrets",
+      "claim": "Auth/authz and secrets are preserved across the cutover.",
+      "evidence_required": "Auth tests passing on the new path and secrets still in env.",
+      "how_to_run": "Run the auth tests against the new path.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "auth/authz + secrets preserved across the cutover"
+      }
+    },
+    {
+      "id": "mig-old-path",
+      "claim": "The old path stays and is authoritative until parity is proven.",
+      "evidence_required": "The old path still present and the default in config.",
+      "how_to_run": "Read the routing config and the diff for removed legacy code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Domain gates",
+        "quote": "the old path retained and authoritative until parity is proven"
+      }
+    },
+    {
+      "id": "mig-expand-contract",
+      "claim": "Live-database schema changes use expand-and-contract.",
+      "evidence_required": "The migration sequence showing expand, migrate, contract as separate steps.",
+      "how_to_run": "Read the migration files in order.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Live-database schema changes use expand-and-contract."
+      }
+    },
+    {
+      "id": "mig-realistic-copy",
+      "claim": "Migrations are tested on a realistic copy first.",
+      "evidence_required": "The run output of the migration on a copy of real-shaped data.",
+      "how_to_run": "Run the migration against the copy and quote the output.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Test migrations on a realistic copy first."
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "No destructive drop of the source store until the new store is verified and a backup exists.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no destructive drop of the source store until the new store is verified and a backup exists."
+      }
+    },
+    {
+      "gate": "Every slice cuts over behind a flag with a proven route-back.",
+      "source": {
+        "path": ".claude/skills/forge-migration/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "every slice cuts over behind a flag with a proven route-back."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "mig-expand-contract does not apply when no live-database schema changes."
+  ],
+  "gaps": [
+    "forge-migration has no separate \"Domain gates\" list items: its gate is one sentence; the card splits it into one check per clause."
+  ]
+}

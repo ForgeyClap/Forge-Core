@@ -12,23 +12,27 @@ import { useState } from 'react';
 import { renderMarkdown } from '@/views/chat/markdown';
 import type { ReactNode } from 'react';
 import { Icon, Machine } from '@/components/primitives';
+import { getLocale, t } from '@/i18n';
 import type { Selection } from '@/prototype/state/prototype-store';
 import type { FileNode, StatusKey } from '@/prototype/types/prototype-types';
+import { localRelative } from './inspector-format';
 
 /* ------------------------------------------------------------------ labels */
 
+/** WP B3-copy: getters, so every panel's eyebrow follows the current locale (nl.json/en.json
+ *  `inspector.kind.*`) without each builder changing how it reads `KIND_LABEL.<kind>`. */
 export const KIND_LABEL: Readonly<Record<Selection['kind'], string>> = {
-  none: 'INSPECTOR',
-  project: 'PROJECT',
-  conversation: 'CONVERSATION',
-  agent: 'AGENT',
-  task: 'TASK',
-  'graph-node': 'GRAPH NODE',
-  artifact: 'ARTIFACT',
-  gate: 'QUALITY GATE',
-  proof: 'PROOF LINE',
-  file: 'FILE',
-  event: 'EVENT',
+  get none() { return t('inspector.kind.none'); },
+  get project() { return t('inspector.kind.project'); },
+  get conversation() { return t('inspector.kind.conversation'); },
+  get agent() { return t('inspector.kind.agent'); },
+  get task() { return t('inspector.kind.task'); },
+  get 'graph-node'() { return t('inspector.kind.graphNode'); },
+  get artifact() { return t('inspector.kind.artifact'); },
+  get gate() { return t('inspector.kind.gate'); },
+  get proof() { return t('inspector.kind.proof'); },
+  get file() { return t('inspector.kind.file'); },
+  get event() { return t('inspector.kind.event'); },
 };
 
 /** Proof verdicts are not workspace statuses; this is presentation only. */
@@ -38,10 +42,12 @@ export const VERDICT_STATUS: Readonly<Record<'accepted' | 'rejected' | 'pending'
   pending: 'verify',
 };
 
+/** XR-COPY2: getters, so the change word follows the locale (Dutch "Nieuw / Gewijzigd / Verwijderd",
+ *  the same words Bestanden uses); English keeps the old labels. */
 export const CHANGE_LABEL: Readonly<Record<'added' | 'modified' | 'deleted', string>> = {
-  added: 'ADDED',
-  modified: 'MODIFIED',
-  deleted: 'DELETED',
+  get added() { return getLocale() === 'en' ? 'ADDED' : t('rd.files.change.added'); },
+  get modified() { return getLocale() === 'en' ? 'MODIFIED' : t('rd.files.change.modified'); },
+  get deleted() { return getLocale() === 'en' ? 'DELETED' : t('rd.files.change.deleted'); },
 };
 
 /* ------------------------------------------------------------ small pieces */
@@ -85,7 +91,7 @@ export function Section({
       <summary className="fw-inspector__summary">
         <Icon name="ChevronRight" size="sm" className="fw-inspector__chevron" />
         <span className="fw-inspector__summary-title">{title}</span>
-        {count != null ? <span className="fw-inspector__summary-count fg-machine">{count}</span> : null}
+        {count != null ? <span className="fw-inspector__summary-count">{count}</span> : null}
       </summary>
       <div className="fw-inspector__section-body">{children}</div>
     </details>
@@ -93,7 +99,7 @@ export function Section({
 }
 
 export function Chips({ items, label }: { items: readonly string[]; label: string }) {
-  if (items.length === 0) return <p className="fw-inspector__none">None recorded.</p>;
+  if (items.length === 0) return <p className="fw-inspector__none">{t('inspector.noneRecorded')}</p>;
   return (
     <ul className="fw-inspector__chips" aria-label={label}>
       {items.map((item) => (
@@ -103,6 +109,12 @@ export function Chips({ items, label }: { items: readonly string[]; label: strin
       ))}
     </ul>
   );
+}
+
+/** A quiet value (timestamps, sizes, durations, "not measured"): caption ink, body face, never mono.
+ *  XR-COPY2: a relative time the example data wrote in English ("4 min ago") is shown in the app language. */
+export function Quiet({ children }: { children: ReactNode }) {
+  return <span className="fw-inspector__muted">{typeof children === 'string' ? localRelative(children) : children}</span>;
 }
 
 export function Prose({ children }: { children: ReactNode }) {
@@ -146,7 +158,7 @@ export function LinkRow({ icon, id, onSelect }: { icon: string; id: string; onSe
  * now also renders REAL, gateway-recorded file changes, and announcing those to a screen reader as
  * an "Example" would be the one thing this product never does: describe real evidence as a sample.
  */
-export function Diff({ text, label = 'Example unified diff' }: { text: string; label?: string }) {
+export function Diff({ text, label = t('rd.details.exampleDiff') }: { text: string; label?: string }) {
   const lines = text.split('\n');
   return (
     <div className="fw-inspector__diff fw-scroll" tabIndex={0} role="group" aria-label={label}>

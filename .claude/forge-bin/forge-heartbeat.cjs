@@ -35,7 +35,22 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> the CLI needs --root
+const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
 const STARTED_TYPES = new Set(['agent_started', 'subagent_started']);
@@ -146,8 +161,9 @@ if (require.main === module) {
   }
 
   function cliMain(opts) {
+    if (!opts.root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
     const root = path.resolve(opts.root);
-    const runDir = path.join(root, '.claude', 'forge-runs', opts.run_id);
+    const runDir = runDirOf(root, opts.run_id);
     const windowMs = opts.windowMinutes != null && !Number.isNaN(opts.windowMinutes) ? opts.windowMinutes * 60 * 1000 : DEFAULT_WINDOW_MS;
     const result = checkRun(runDir, { windowMs });
 

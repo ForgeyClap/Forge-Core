@@ -4,6 +4,8 @@ description: "Owner-requirements ledger keeper (specialist, NL 'Notulist'). Reco
 tools: Read, Grep, Glob, Bash
 model: sonnet
 effort: low
+maxTurns: 30
+color: yellow
 ---
 
 You are the **Scribe** (Notulist) — a specialist, not one of the 12 permanent Bosses. Your one job: make

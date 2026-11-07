@@ -14,6 +14,11 @@ const G = require('./forge-mcp-gate.cjs');
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } else { fail++; console.error('  FAIL ' + name); } };
+// validateGrant() now refuses any server whose launch is not provably pinned, so every
+// fixture server that a test expects to be ALLOWED carries an exact pin + a launch that carries it. The
+// unchanged suite was run first: 20 allow-path assertions failed on the unpinned fixtures (the gate is real);
+// the section below re-proves the refusal on purpose for unpinned, floating and UNVERIFIED fixtures.
+const PIN = (pkg, ver) => ({ pin: ver, launch: { command: 'npx', args: ['-y', pkg + '@' + ver] } });
 
 console.log('forge-mcp-gate offline tests');
 
@@ -100,8 +105,8 @@ t('status() with real config: nothing is opted-in by default (no opt-in file shi
   const nOptInPath = path.join(nRoot, 'mcp-opt-in.json');
   fs.writeFileSync(nRegistryPath, JSON.stringify({
     servers: [
-      { id: 'n8n-mcp', purpose: 'n8n node docs + workflow validation', tier: 1, network: 'read', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: 'x' },
-      { id: 'playwright', purpose: 'browser QA drive', tier: 2, network: 'read-write', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: 'x' },
+      { id: 'n8n-mcp', purpose: 'n8n node docs + workflow validation', tier: 1, network: 'read', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: 'x', ...PIN('fixture-n8n-mcp', '1.0.0') },
+      { id: 'playwright', purpose: 'browser QA drive', tier: 2, network: 'read-write', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: 'x', ...PIN('fixture-playwright', '1.0.0') },
     ],
   }));
   fs.writeFileSync(nGrantsPath, JSON.stringify({
@@ -146,10 +151,10 @@ const gatesNeverPath = path.join(TMP, 'hard-gates-never.json');
 
 fs.writeFileSync(registryPath, JSON.stringify({
   servers: [
-    { id: 'serena-lsp', purpose: 'local semantic code read', tier: 0, network: 'none', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '' },
-    { id: 'context7', purpose: 'remote docs lookup', tier: 1, network: 'read', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '' },
-    { id: 'playwright', purpose: 'browser QA drive', tier: 2, network: 'read-write', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '' },
-    { id: 'github-write', purpose: 'github write access', tier: 3, network: 'read-write', credentials_needed: true, install_hint: 'x', status: 'not-installed', notes: '' },
+    { id: 'serena-lsp', purpose: 'local semantic code read', tier: 0, network: 'none', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '', ...PIN('fixture-serena', '1.0.0') },
+    { id: 'context7', purpose: 'remote docs lookup', tier: 1, network: 'read', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '', ...PIN('fixture-context7', '1.0.0') },
+    { id: 'playwright', purpose: 'browser QA drive', tier: 2, network: 'read-write', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '', ...PIN('fixture-playwright', '1.0.0') },
+    { id: 'github-write', purpose: 'github write access', tier: 3, network: 'read-write', credentials_needed: true, install_hint: 'x', status: 'not-installed', notes: '', ...PIN('fixture-github-write', '1.0.0') },
   ],
 }));
 fs.writeFileSync(grantsPath, JSON.stringify({
@@ -523,6 +528,88 @@ function run(args) { return spawnSync(process.execPath, [BIN, ...args], { encodi
   const r2 = G.validateGrant({ boss: 'search-boss', server: 'github-write' },
     { ...baseOpts(), gatesPath: gatesAlwaysPath, projectRoot: envOnly, env: { FORGE_MCP_OWNER_GRANT: 'self-chosen' }, ownerGrant: 'self-chosen', allowEnv: true });
   t('U3 the explicit test seam still exercises the env path', r2.allowed === true, r2.reason);
+}
+
+// ============================================================================================
+// SUPPLY-CHAIN PIN GATE. Every upstream MCP install line floats (bare name, moving
+// dist-tag, unversioned launcher), and whatever resolves at launch runs with the agent's privileges.
+// validateGrant()/planLoad() now refuse a server that forge-mcp-pin.cjs rates HIGH or UNVERIFIED, BEFORE the
+// tier-3 branch; loadRegistry() refuses enabled:true; a missing pin module refuses everything (fail closed).
+// ============================================================================================
+{
+  const mRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-gate-wpm1-'));
+  try {
+    const w = (name, data) => { const p = path.join(mRoot, name); fs.writeFileSync(p, JSON.stringify(data)); return p; };
+    const entry = (id, tier, extra) => Object.assign({ id, purpose: 'fixture', tier, network: 'read', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '' }, extra);
+    const ids = ['pinned', 'floating', 'no-pin', 'unverified', 'range-in-hint', 'latest-in-notes'];
+    const reg = w('registry.json', { servers: [
+      entry('pinned', 1, PIN('fixture-pinned', '2.3.4')),
+      entry('floating', 1, { pin: '2.3.4', launch: { command: 'npx', args: ['-y', 'fixture-floating'] } }),
+      entry('no-pin', 1, { launch: { command: 'npx', args: ['-y', 'fixture-nopin@1.0.0'] } }),
+      entry('unverified', 1, { pin: 'UNVERIFIED', launch: null }),
+      entry('range-in-hint', 1, Object.assign(PIN('fixture-range', '1.2.3'), { install_hint: 'older line: npx -y fixture-range@^1.2.0' })),
+      entry('latest-in-notes', 1, Object.assign(PIN('fixture-tagged', '1.0.0'), { notes: 'upstream README says fixture-tagged@latest' })),
+      entry('tier3-floating', 3, { pin: '1.0.0', launch: { command: 'npx', args: ['-y', 'fixture-writer'] } }),
+    ] });
+    const grants = w('grants.json', { bosses: { 'search-boss': { max_tier: 1, allow_servers: ids, why: 'fixture' } } });
+    const optin = w('optin.json', { opted_in: ids.concat(['tier3-floating']) });
+    const o = { registryPath: reg, grantsPath: grants, optInPath: optin };
+    const v = (server, extra) => G.validateGrant({ boss: 'search-boss', server }, Object.assign({}, o, extra || {}));
+
+    { const r = v('pinned'); t('M1 an exactly pinned, opted-in, granted server IS allowed and reports pin SAFE', r.allowed === true && r.pin && r.pin.risk === 'SAFE' && r.pin.pin === '2.3.4', r.reason); }
+    { const r = v('floating'); t('M1 an unversioned launch ("npx -y <pkg>") is refused by the pin gate (HIGH)', r.allowed === false && /pin-check HIGH/.test(r.reason), r.reason); }
+    { const r = v('no-pin'); t('M1 an entry with no pin recorded is refused (HIGH: nothing proves the version)', r.allowed === false && /pin-check HIGH/.test(r.reason) && /no pin recorded/.test(r.reason), r.reason); }
+    { const r = v('unverified'); t('M1 pin "UNVERIFIED" is refused even after opt-in + grant', r.allowed === false && /pin-check UNVERIFIED/.test(r.reason), r.reason); }
+    { const r = v('latest-in-notes'); t('M1 a floating "latest" tag anywhere in the entry (even prose) is refused', r.allowed === false && /pin-check HIGH/.test(r.reason) && /latest/.test(r.reason), r.reason); }
+    { const r = v('range-in-hint'); t('M1 a version range elsewhere in the entry is allowed but named as a WARNING (MEDIUM, never silently SAFE)', r.allowed === true && r.pin.risk === 'MEDIUM' && /WARNING pin-check MEDIUM/.test(r.reason), r.reason); }
+    {
+      const r = v('tier3-floating', Object.assign({}, ownerGrantOpts(), { gatesPath: gatesAlwaysPath }));
+      t('M1 not even a VERIFIED owner grant + a matching hard gate authorises a floating tier-3 launch', r.allowed === false && r.tier === 3 && /pin-check HIGH/.test(r.reason), r.reason);
+    }
+    {
+      const plan = G.planLoad({ boss: 'search-boss', task: 'use pinned and floating and unverified' }, o);
+      t('M1 planLoad keeps the pinned server and sends floating/unverified to native fallback with the pin reason',
+        plan.tools.some((x) => x.id === 'pinned')
+        && plan.native_fallback.some((x) => x.id === 'floating' && x.reason === 'pin-check HIGH')
+        && plan.native_fallback.some((x) => x.id === 'unverified' && x.reason === 'pin-check UNVERIFIED'), JSON.stringify(plan));
+    }
+    {
+      const s = G.status(o);
+      t('M1 status() exposes pin + pin_risk per server', s.find((x) => x.id === 'pinned').pin_risk === 'SAFE' && s.find((x) => x.id === 'unverified').pin_risk === 'UNVERIFIED' && s.find((x) => x.id === 'pinned').pin === '2.3.4');
+    }
+    {
+      const bad = w('registry-enabled.json', { servers: [entry('switched-on', 1, Object.assign(PIN('fixture-on', '1.0.0'), { enabled: true }))] });
+      t('M1 loadRegistry throws when an entry ships enabled:true (the opt-in file is the only activation channel)', throws(() => G.loadRegistry({ registryPath: bad })));
+    }
+    {
+      const prev = G.__setPinToolForTest(null);
+      let r;
+      try { r = v('pinned'); } finally { G.__setPinToolForTest(prev); }
+      t('M1 a missing pin module refuses every grant (fail closed, never "assume pinned")', r.allowed === false && /did not load/.test(r.reason), r.reason);
+      t('M1 the test seam restored the real pin module afterwards', v('pinned').allowed === true);
+    }
+
+    // The REAL registry through the REAL gate: opt every server in and grant every tier<=2 one to a fixture
+    // boss — exactly the verified (SAFE-pinned) entries may pass, every UNVERIFIED one must be refused.
+    const realTierLe2 = realRegistry.servers.filter((s) => s.tier <= 2).map((s) => s.id);
+    const realOpts = {
+      registryPath: G.REGISTRY_PATH,
+      grantsPath: w('grants-real.json', { bosses: { 'test-boss': { max_tier: 2, allow_servers: realTierLe2, why: 'fixture' } } }),
+      optInPath: w('optin-real.json', { opted_in: realRegistry.servers.map((s) => s.id) }),
+    };
+    const allowedReal = realTierLe2.filter((id) => G.validateGrant({ boss: 'test-boss', server: id }, realOpts).allowed).sort();
+    const verifiedReal = realRegistry.servers.filter((s) => s.tier <= 2 && s.pin !== 'UNVERIFIED').map((s) => s.id).sort();
+    t('M1 real registry: exactly the verified (pinned) entries are grantable once opted in; every UNVERIFIED one is refused',
+      JSON.stringify(allowedReal) === JSON.stringify(verifiedReal), allowedReal.join(',') + ' vs ' + verifiedReal.join(','));
+    t('M1 real registry: the four WP-M1 servers (context7, playwright, chrome-devtools, firecrawl) are among the grantable ones',
+      ['chrome-devtools', 'context7', 'firecrawl', 'playwright'].every((id) => allowedReal.includes(id)), allowedReal.join(','));
+    {
+      const r = G.validateGrant({ boss: 'test-boss', server: 'claude-flow' }, Object.assign({}, realOpts, ownerGrantOpts(), { gatesPath: gatesAlwaysPath }));
+      t('M1 real registry: a connected tier-3 server with an UNVERIFIED pin stays refused even with a verified owner grant', r.allowed === false && /pin-check UNVERIFIED/.test(r.reason), r.reason);
+    }
+  } finally {
+    fs.rmSync(mRoot, { recursive: true, force: true }); // lanes clean the fixtures they create
+  }
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

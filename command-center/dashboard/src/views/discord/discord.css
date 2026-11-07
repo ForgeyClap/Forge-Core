@@ -2,7 +2,7 @@
  * DiscordView — the Discord↔Forge remote-control bot tab.
  *
  * House rules held here, same as every other per-view stylesheet:
- *   - no raw hex, rgb() or hsl(). Every colour is a var(--forge-*) token.
+ *   - no raw hex, rgb() or hsl(). Every colour is a var(--fs-*) token.
  *   - status is never carried by colour alone — the Present/Missing env-key chip
  *     is told apart by icon + text + a dashed border on Missing, mirroring
  *     agents.css's own `.fw-agents-chip[data-live='dispatched']` dashed treatment
@@ -36,22 +36,42 @@
 .fw-discord__heading {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-discord__title {
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: calc(var(--fs-text-13) * 2);
+  font-weight: 400;
+  font-stretch: 92%;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  color: var(--fs-ink);
 }
 
 .fw-discord__subtitle {
-  max-inline-size: var(--forge-layout-reading);
-  font-size: var(--forge-text-sm);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
+/* Sentence-case labels and plain numbers (v1.0: mono only for paths, ports, process ids and key names). */
+.fw-discord-label {
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
+}
+
+.fw-discord-quiet {
+  color: var(--fs-ink-3);
+}
+
+.fw-discord-num {
+  font-variant-numeric: tabular-nums;
+}
+
 
 /* ------------------------------------------------------------------ body */
 
@@ -85,23 +105,23 @@
 .fw-discord__alert {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex: none;
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-md);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-secondary);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px dashed var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
 }
 
 .fw-discord__pending {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  margin-block-end: var(--forge-space-2);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-2);
+  margin-block-end: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 /* ------------------------------------------------------------------ rows */
@@ -115,14 +135,14 @@
 .fw-discord__row {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-4);
-  min-block-size: var(--forge-control-xl);
-  padding-block: var(--forge-space-2);
+  gap: var(--fs-space-4);
+  min-block-size: 42px;
+  padding-block: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-discord__row + .fw-discord__row {
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-start: 1px solid var(--fs-line);
 }
 
 /*
@@ -136,23 +156,23 @@
 .fw-discord__row-text {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: 0 0 auto;
   max-inline-size: 11rem;
   min-inline-size: 0;
 }
 
 .fw-discord__row-label {
-  font-size: var(--forge-text-base);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-14);
+  font-weight: 500;
+  color: var(--fs-ink);
   white-space: nowrap;
 }
 
 .fw-discord__row-hint {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 .fw-discord__row-control {
@@ -175,7 +195,7 @@
 .fw-discord__env-list {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -184,11 +204,11 @@
 .fw-discord__env-item {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-1) var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
   min-inline-size: 0;
   max-inline-size: 100%;
 }
@@ -200,14 +220,14 @@
 .fw-discord__env-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
-  padding-inline: var(--forge-space-1);
-  block-size: var(--forge-control-xs);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-xs);
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-muted);
+  padding-inline: var(--fs-space-1);
+  block-size: 22px;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-discord__env-chip.is-missing {
@@ -217,18 +237,18 @@
 /* ---------------------------------------------------------------- health */
 
 .fw-discord__health-empty {
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) dashed var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  padding: var(--fs-space-3);
+  border: 1px dashed var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 .fw-discord__health-list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -238,13 +258,13 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--forge-space-3);
-  padding-block: var(--forge-space-1);
+  gap: var(--fs-space-3);
+  padding-block: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-discord__health-item + .fw-discord__health-item {
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-start: 1px solid var(--fs-line);
 }
 
 .fw-discord__health-key {
@@ -258,8 +278,8 @@
   max-inline-size: 60%;
   overflow-wrap: anywhere;
   text-align: end;
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
 }
 
 /* ---------------------------------------------------------------- narrow */
@@ -268,7 +288,7 @@
   .fw-discord__row {
     align-items: flex-start;
     flex-direction: column;
-    gap: var(--forge-space-2);
+    gap: var(--fs-space-2);
   }
 
   .fw-discord__row-text {
@@ -287,7 +307,7 @@
   .fw-discord__health-item {
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--forge-space-1);
+    gap: var(--fs-space-1);
   }
 
   .fw-discord__health-value {

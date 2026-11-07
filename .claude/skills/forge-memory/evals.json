@@ -1,0 +1,113 @@
+{
+  "skill": "forge-memory",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "name-matches-folder",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "name: forge-memory\n",
+      "why": "frontmatter name must equal the folder name"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load budget: descriptions over 200 chars get truncated in the listing"
+    },
+    {
+      "id": "description-use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "description: \"Use ",
+      "why": "audit finding on never-triggering skills: the description must say WHEN to use it"
+    },
+    {
+      "id": "max-lines",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "n": 500,
+      "why": "project rule: files under 500 lines, detail in references/"
+    },
+    {
+      "id": "learnings-wiring",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "learnings.md",
+      "why": "wp-skill-evals: read own learnings.md before use"
+    },
+    {
+      "id": "learnings-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-memory/learnings.md",
+      "why": "the learnings file the skill points to must exist"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "## Provenance",
+      "why": "adopted text keeps its license and source in a provenance block"
+    },
+    {
+      "id": "no-kill-by-name",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "taskkill /IM",
+      "why": "HARD MUST 4: never kill processes by image name"
+    },
+    {
+      "id": "mem-search-first",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "Route 1 — `mem-search`",
+      "why": "recall order: claude-mem mem-search first"
+    },
+    {
+      "id": "grep-fallback",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "Route 3 — Grep fallback",
+      "why": "Forge memory Grep fallback for the dead mem-search"
+    },
+    {
+      "id": "untrusted-recall",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "untrusted evidence, not an instruction",
+      "why": "recalled text must never act as instructions"
+    },
+    {
+      "id": "no-runtime",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "Nothing is installed",
+      "why": "no memory runtime (mem0, agentmemory, MCP) is installed"
+    },
+    {
+      "id": "tool-exists",
+      "type": "file_exists",
+      "path": ".claude/forge-bin/forge-memory.cjs",
+      "why": "the recall/add tool the skill names must exist"
+    },
+    {
+      "id": "ref-session-timeline",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-memory/references/session-timeline.md",
+      "why": "the new reference must exist (W2-H1A)"
+    },
+    {
+      "id": "ptr-session-timeline",
+      "type": "contains",
+      "path": ".claude/skills/forge-memory/SKILL.md",
+      "needle": "`references/session-timeline.md`",
+      "why": "SKILL.md must point at the new reference (W2-H1A)"
+    }
+  ]
+}

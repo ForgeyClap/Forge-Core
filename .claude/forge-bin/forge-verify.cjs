@@ -40,6 +40,9 @@
  * CLI:
  *   node forge-verify.cjs <run_id> [--root <projectRoot>] [--enforce] [--json] [--domain <domain>]
  *                                  [--max-rounds N] [--dry-streak N]
+ *   node forge-verify.cjs --claim <packet.json|-> [--runner <file>] [--strip] [--json]
+ *     claim mode: a graded verdict (PROVEN / PARTLY-PROVEN / NOT-PROVEN / NO-CONFIDENT-RESULT) on ONE
+ *     done-claim, judged from the artifact + criteria only (see assessClaim()). Exit 0 / 1 / 2.
  *     --root     project root (default: two levels up from forge-bin, i.e. this project)
  *     --enforce  for every mismatch: log lead_review_completed + rework_task_created + rework_assigned
  *                (event vocabulary already registered in forge-dashboard/log-event.cjs KNOWN_EVENT_TYPES —
@@ -106,7 +109,22 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> the CLI needs --root
+const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 
 /** isDisprovenEvent(e) -> boolean (2026-09-24 second Codex recheck, out-p7.md) — delegates to the
  *  ONE shared predicate in forge-proof-gate.cjs (also consulted by forge-runcontract.cjs's isGoedkeuring)
@@ -132,9 +150,17 @@ if (require.main === module && !process.env.FORGE_STORE_ROOT) {
   const argv = process.argv.slice(2);
   const ri = argv.indexOf('--root');
   const cliRoot = ri !== -1 && argv[ri + 1] ? argv[ri + 1] : DEFAULT_ROOT;
-  process.env.FORGE_STORE_ROOT = path.join(path.resolve(cliRoot), '.claude');
+  // no project root (a plugin copy outside any project): leave FORGE_STORE_ROOT unset; cliMain refuses clearly
+  if (cliRoot) process.env.FORGE_STORE_ROOT = path.join(path.resolve(cliRoot), '.claude');
 }
 const store = require('./forge-store.cjs');
+/** storeRunDir(runId) -> the run folder next to forge-store's CLAUDE_DIR (WP 2.1): a real project's .claude follows
+ *  that project's layout (runDirOf); a bare FORGE_STORE_ROOT test folder keeps <dir>/forge-runs/<id> exactly as before. */
+function storeRunDir(runId) {
+  const cd = store.CLAUDE_DIR;
+  if (!cd) throw new Error('forge-verify: no project root found (no .claude, .forge or .git above the current folder; pass --root or opts.runDir)');
+  return path.basename(cd).toLowerCase() === '.claude' ? runDirOf(path.dirname(cd), runId) : path.join(cd, 'forge-runs', runId);
+}
 // the cost cap on unattended runs. Only budgetStops() is used here: it reads the verdict
 // trail an unattended wrapper leaves in the run directory. No project coupling (it takes a plain runDir,
 // same convention as verifyRun), so it is hermetic in exactly the same way.
@@ -184,7 +210,7 @@ const TERMINAL_TYPES = new Set([
   // app.js L94-96 — informational/activity events that represent an action that already happened
   'file_read', 'file_changed', 'command_run', 'skill_loaded', 'project_scanned', 'profile_loaded', 'memory_loaded', 'memory_updated',
   'decision_logged', 'agent_note', 'agent_output', 'agent_decision_summary', 'agent_next_action', 'agent_evidence_added',
-  'agent_artifact_created', 'subagent_artifact_created', 'subagent_output_created', 'agent_handoff', 'ecc_inventory',
+  'agent_artifact_created', 'subagent_artifact_created', 'subagent_output_created', 'agent_handoff', 'agent_message', 'ecc_inventory',
   // OWNER GOVERNANCE (WAVE B / B4): the applied-prefs ECHO — one-shot informational event, mirrors
   // profile_loaded/memory_loaded. See log-event.cjs KNOWN_EVENT_TYPES and forge-dashboard/app.js taskStatus().
   'owner_prefs_loaded',
@@ -1213,7 +1239,7 @@ function ticketReferencedDone(events, ticketId) {
  */
 function checkAcceptanceCoverage(run_id, opts) {
   opts = opts || {};
-  const runDir = opts.runDir || path.join(store.CLAUDE_DIR, 'forge-runs', run_id);
+  const runDir = opts.runDir || storeRunDir(run_id);
   const { events } = readEventsJsonl(runDir);
   const prdIds = findLinkedPrdIds(events);
   if (prdIds.length === 0) {
@@ -1342,7 +1368,7 @@ function findItemDecision(events, prdId, key, id, ownerAllowlist) {
  */
 function checkFailureConditions(run_id, opts) {
   opts = opts || {};
-  const runDir = opts.runDir || path.join(store.CLAUDE_DIR, 'forge-runs', run_id);
+  const runDir = opts.runDir || storeRunDir(run_id);
   const { events } = readEventsJsonl(runDir);
   const prdIds = findLinkedPrdIds(events);
   if (prdIds.length === 0) {
@@ -1475,7 +1501,7 @@ function deliveredPaths(events) {
  */
 function checkNonGoals(run_id, opts) {
   opts = opts || {};
-  const runDir = opts.runDir || path.join(store.CLAUDE_DIR, 'forge-runs', run_id);
+  const runDir = opts.runDir || storeRunDir(run_id);
   const { events } = readEventsJsonl(runDir);
   const prdIds = findLinkedPrdIds(events);
   const delivered = deliveredPaths(events);
@@ -1685,7 +1711,7 @@ function filesChangedOf(e) {
  */
 function checkDeclaredScope(run_id, opts) {
   opts = opts || {};
-  const runDir = opts.runDir || path.join(store.CLAUDE_DIR, 'forge-runs', run_id);
+  const runDir = opts.runDir || storeRunDir(run_id);
   const root = opts.root; // needed to rewrite an absolute in-project changed path relative to it
   const { events } = readEventsJsonl(runDir);
 
@@ -1778,7 +1804,7 @@ function stopBound(meta) {
  */
 function checkGoalContract(run_id, opts) {
   opts = opts || {};
-  const runDir = opts.runDir || path.join(store.CLAUDE_DIR, 'forge-runs', run_id);
+  const runDir = opts.runDir || storeRunDir(run_id);
   const { events } = readEventsJsonl(runDir);
   const prdIds = findLinkedPrdIds(events);
   if (prdIds.length === 0) {
@@ -1835,7 +1861,7 @@ function checkRequiredInputs(brief, run_id, opts) {
       reason: wp + ': no required inputs declared — nothing is checked before dispatch',
     };
   }
-  const runDir = opts.runDir || path.join(store.CLAUDE_DIR, 'forge-runs', run_id);
+  const runDir = opts.runDir || storeRunDir(run_id);
   const { events } = readEventsJsonl(runDir);
   const prdIds = findLinkedPrdIds(events);
   const metas = prdIds.map(loadPrdMeta).filter(Boolean);
@@ -2007,6 +2033,255 @@ function exitCodeFor(ctx) {
   return EXIT_GATES.some((g) => gateCount(g, ctx) > 0) ? 1 : 0;
 }
 
+// ---- the claim verdict — judge a done-claim from the artifact, not from the story ----
+// Everything above checks a RUN (events, tickets, PRD coverage). This block checks ONE done-claim the way an
+// independent verifier should: it sees only the artifact, the acceptance criteria and the runner output it
+// re-ran itself; the builder's explanation is stripped before judging (a persuasive story is not evidence).
+// The verifier must also try to break the result (name one property the result implies, look for a
+// counterexample) before PROVEN is possible. Four graded words, owned by the report contract
+// (forge-report.cjs VERDICT_GRADES); only PROVEN counts as a pass. PARTLY-PROVEN and NO-CONFIDENT-RESULT are
+// honest abstentions, not failures: they map onto gate words that neither close wp-verified-per-wp (it needs
+// 'pass') nor demand an escalation (escalation-one-per-fail reacts to 'fail' only).
+const { VERDICT_GRADES, findLastForgeReportBlock } = require('./forge-report.cjs');
+const VERDICT_GATE = Object.freeze({
+  'PROVEN': 'PASS',
+  'NOT-PROVEN': 'FAIL',
+  'PARTLY-PROVEN': 'NEEDS_MORE_EVIDENCE',
+  'NO-CONFIDENT-RESULT': 'NEEDS_OWNER',
+});
+/** The only packet fields a verifier is allowed to see. Anything else (summary, notes, reasoning, the
+ *  builder's raw message, the report's evidence prose) is narrative and is dropped. */
+const PACKET_KEEP = ['work_package', 'artifact', 'acceptance_criteria', 'runner_output', 'claimed_tests'];
+/** Report fields that are claims about the result (kept as data to check, never as proof). */
+const REPORT_CLAIM_FIELDS = ['status', 'work_package', 'files_changed', 'tests_run'];
+// Hedge words in a done-claim. A claim that hedges is not a claim; it is a hope. English and Dutch.
+const HEDGE_PATTERNS = [
+  /\bshould\s+(?:now\s+)?(?:work|pass|be\s+(?:fine|ok|okay|good|working|fixed|done|green))\b/i,
+  /\b(?:probably|presumably|hopefully)\b/i,
+  // bare "likely" is NOT a hedge: real evidence quotes tool diagnoses like "(backfill likely missed)"
+  /\blikely\s+(?:works?|fixed|passes|fine|ok|correct|done)\b/i,
+  /\bI\s+(?:think|believe|assume|guess)\b/i,
+  /\b(?:seems|appears)\s+to\s+(?:work|pass|be)\b/i,
+  /\b(?:might|may)\s+(?:work|pass)\b/i,
+  /\bin\s+theory\b/i,
+  /\bzou\s+(?:nu\s+)?moeten\b/i,
+  /\b(?:waarschijnlijk|vermoedelijk|hopelijk|wellicht)\b/i,
+  /\blijkt\s+te\s+(?:werken|kloppen|slagen)\b/i,
+  /\b(?:ik\s+denk|denk\s+ik)\b/i,
+  /\bin\s+principe\b/i,
+  /\bals\s+het\s+goed\s+is\b/i,
+];
+const COMMAND_LIKE_RE = /^(?:node|npm|npx|pnpm|yarn|pytest|python|cargo|go|dotnet|bash|sh)\b|[\\/]|\.(?:c?js|mjs|ts|py)\b/i;
+const MIN_SUBSTRING_MATCH = 4;
+
+function asTextList(v) {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim());
+  return typeof v === 'string' && v.trim() ? [v.trim()] : [];
+}
+function normName(s) { return String(s).trim().replace(/\s+/g, ' ').toLowerCase(); }
+
+/** Read the builder's report from a packet: an object, or raw agent text with a ```forge-report block (the
+ *  text around the block is narrative by definition). Returns {report|null, prose: string}. */
+function readPacketReport(raw) {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return { report: raw, prose: '' };
+  if (typeof raw !== 'string' || !raw.trim()) return { report: null, prose: '' };
+  const block = findLastForgeReportBlock(raw);
+  const prose = raw.replace(/```forge-report[ \t]*\r?\n[\s\S]*?```/g, ' ').trim();
+  if (block === null) return { report: null, prose };
+  try { return { report: JSON.parse(block), prose }; } catch { return { report: null, prose }; }
+}
+
+/** Test names a report claims: the packet's explicit claimed_tests, the report's own claimed_tests, and any
+ *  double-quoted or back-quoted name inside tests_run that is not a command or a file path. */
+function claimedTestsOf(packet, report) {
+  const out = [...asTextList(packet && packet.claimed_tests)];
+  if (report) {
+    out.push(...asTextList(report.claimed_tests));
+    for (const line of asTextList(report.tests_run)) {
+      const re = /"([^"\n]{2,200})"|`([^`\n]{2,200})`/g;
+      let m;
+      while ((m = re.exec(line)) !== null) {
+        const name = (m[1] || m[2]).trim();
+        if (name && !COMMAND_LIKE_RE.test(name)) out.push(name);
+      }
+    }
+  }
+  const seen = new Set();
+  return out.filter((n) => { const k = normName(n); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+/** stripNarrative(packet) -> {packet, stripped:[field names], claims:{status, tests, done_text}}. PURE.
+ *  The returned packet holds ONLY PACKET_KEEP fields plus claimed_tests; `stripped` names every dropped field
+ *  so the caller can say what it refused to read. `claims.done_text` is kept for the hedge check only and is
+ *  never part of what the verifier judges. */
+function stripNarrative(input) {
+  const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const { report, prose } = readPacketReport(src.report);
+  const out = {};
+  const stripped = [];
+  for (const k of Object.keys(src)) {
+    if (k === 'report') continue;
+    if (PACKET_KEEP.includes(k)) out[k] = src[k]; else stripped.push(k);
+  }
+  if (report) {
+    for (const k of Object.keys(report)) if (!REPORT_CLAIM_FIELDS.includes(k) && k !== 'claimed_tests') stripped.push('report.' + k);
+    if (out.work_package === undefined && typeof report.work_package === 'string') out.work_package = report.work_package;
+  }
+  if (prose) stripped.push('report.prose');
+  out.claimed_tests = claimedTestsOf(src, report);
+  // done-claim text: what the builder asserts as finished. blockers / next_action / result_caveat are
+  // forward-looking or conditional by design and are not done-claims, so they are not hedge-checked.
+  const status = report && typeof report.status === 'string' ? report.status : null;
+  const doneText = [];
+  if (status === null || status === 'completed') {
+    if (report) doneText.push(...asTextList(report.evidence), ...asTextList(report.tests_run));
+    if (prose) doneText.push(prose);
+    doneText.push(...asTextList(src.summary), ...asTextList(src.narrative));
+  }
+  return { packet: out, stripped, claims: { status, tests: out.claimed_tests, done_text: doneText } };
+}
+
+/** findHedges(texts) -> [{phrase, text}] — hedge words found in done-claim text. */
+function findHedges(texts) {
+  const hits = [];
+  for (const text of asTextList(texts)) {
+    for (const re of HEDGE_PATTERNS) {
+      const m = re.exec(text);
+      if (m) hits.push({ phrase: m[0], text: text.slice(0, 160) });
+    }
+  }
+  return hits;
+}
+
+/** parseRunnerOutput(text) -> {format, passed, failed, passed_names, failed_names}. Understands node:test TAP
+ *  (`ok 1 - name` / `not ok 2 - name`, `# pass N` / `# fail N`), the node:test spec reporter (check/cross
+ *  marks, `ℹ pass N`), and this repo's own format (`  ok  name` / `  FAIL name`, `N passed, M failed`).
+ *  Unknown output gives format 'unknown' and null tallies: never read as green. */
+function parseRunnerOutput(text) {
+  const res = { format: 'unknown', passed: null, failed: null, passed_names: [], failed_names: [] };
+  if (typeof text !== 'string' || !text.trim()) return res;
+  const formats = new Set();
+  let tally = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    let m;
+    // TAP needs the number to end at a space/end and a " - " before the name: the repo line "  ok  7d-setup: x"
+    // must not be read as TAP test 7 named "d-setup: x" (found replaying this file's own real output).
+    if ((m = /^\s*(not ok|ok)\s+\d+(?=\s|$)(?:\s+-\s+(.*?))?(\s+#\s*(?:SKIP|TODO)\b.*)?\s*$/i.exec(line))) {
+      formats.add('node-tap');
+      if (!m[3] && m[2]) (m[1].toLowerCase() === 'ok' ? res.passed_names : res.failed_names).push(m[2].trim());
+      continue;
+    }
+    if ((m = /^\s*([✔✓✖✗×])\s+(.*?)(?:\s+\([\d.]+\s*m?s\))?$/.exec(line))) {
+      formats.add('node-spec');
+      // the spec reporter repeats every failure under a "failing tests:" header: skip the header, keep one copy
+      const name = m[2].trim();
+      const list = /[✔✓]/.test(m[1]) ? res.passed_names : res.failed_names;
+      if (!/:$/.test(name) && !list.includes(name)) list.push(name);
+      continue;
+    }
+    if ((m = /^\s+(ok|FAIL)\s+(\S.*)$/.exec(line))) {
+      formats.add('forge-tally');
+      (m[1] === 'ok' ? res.passed_names : res.failed_names).push(m[2].trim());
+      continue; // a test NAME may itself say "3 passed": a test line is never read as the tally
+    }
+    if ((m = /^\s*(?:#|ℹ)\s*(pass|fail)\s+(\d+)\s*$/i.exec(line))) {
+      tally = tally || { passed: 0, failed: 0 };
+      tally[m[1].toLowerCase() === 'pass' ? 'passed' : 'failed'] = Number(m[2]);
+    } else if ((m = /\b(\d+)\s+failed\b[^\n\d]*?(\d+)\s+passed\b/i.exec(line))) {
+      // checked BEFORE the passed-first form: "2 failed, 8 passed" would otherwise read as 8 passed, 0 failed
+      tally = { passed: Number(m[2]), failed: Number(m[1]) };
+    } else if ((m = /\b(\d+)\s+passed\b(?:[^\n\d]*?(\d+)\s+failed\b)?/i.exec(line))) {
+      tally = { passed: Number(m[1]), failed: m[2] !== undefined ? Number(m[2]) : 0 };
+    }
+  }
+  if (formats.size) res.format = [...formats].join('+');
+  else if (tally) res.format = 'tally-only';
+  res.passed = tally ? tally.passed : (formats.size ? res.passed_names.length : null);
+  res.failed = tally ? tally.failed : (formats.size ? res.failed_names.length : null);
+  return res;
+}
+
+function nameSeenIn(name, names) {
+  const n = normName(name);
+  return names.some((x) => { const v = normName(x); return v === n || (n.length >= MIN_SUBSTRING_MATCH && v.includes(n)); });
+}
+/** absentClaimedTests(claimed, runner, rawText) -> names the report claims that the runner never ran.
+ *  With no per-test names in the output (tally-only), the raw output text is searched instead. */
+function absentClaimedTests(claimed, runner, rawText) {
+  const names = [...runner.passed_names, ...runner.failed_names];
+  const text = normName(rawText || '');
+  return asTextList(claimed).filter((c) => (names.length ? !nameSeenIn(c, names) : !(normName(c).length >= MIN_SUBSTRING_MATCH && text.includes(normName(c)))));
+}
+
+function criteriaList(ac) {
+  return (Array.isArray(ac) ? ac : asTextList(ac)).map((c, i) => (c && typeof c === 'object')
+    ? { id: String(c.id || 'ac-' + (i + 1)), text: String(c.text || c.criterion || '') }
+    : { id: 'ac-' + (i + 1), text: String(c) });
+}
+function judgeCriteria(criteria, results) {
+  const byId = new Map((Array.isArray(results) ? results : []).filter((r) => r && r.id != null).map((r) => [String(r.id), r]));
+  const out = { met: [], unmet: [], unknown: [], missing: [] };
+  for (const c of criteria) {
+    const r = byId.get(c.id);
+    if (!r) { out.missing.push(c.id); continue; }
+    const s = String(r.status || '').toLowerCase();
+    if (s === 'met' && typeof r.evidence === 'string' && r.evidence.trim()) out.met.push(c.id);
+    else if (s === 'unmet') out.unmet.push(c.id);
+    else out.unknown.push(c.id);
+  }
+  return out;
+}
+
+/** assessClaim(input, judgement) -> graded verdict. PURE.
+ *  input     = the packet as handed over (may still carry the builder's report/narrative: it is stripped here).
+ *  judgement = the VERIFIER's own work: {criteria_results:[{id, status:'met'|'unmet'|'unknown', evidence}],
+ *              break_attempt:{property, tried, counterexample_found:boolean, detail}, abstain:'<reason>'}.
+ *  Order: proven-false findings first (NOT-PROVEN), then an honest abstention (NO-CONFIDENT-RESULT), then
+ *  proof gaps (PARTLY-PROVEN); PROVEN only when nothing is left. */
+function assessClaim(input, judgement) {
+  const j = judgement && typeof judgement === 'object' ? judgement : {};
+  const s = stripNarrative(input);
+  const p = s.packet;
+  const runner = parseRunnerOutput(p.runner_output);
+  const absent = absentClaimedTests(p.claimed_tests, runner, p.runner_output);
+  const failedClaimed = asTextList(p.claimed_tests).filter((c) => nameSeenIn(c, runner.failed_names) && !nameSeenIn(c, runner.passed_names));
+  const hedges = findHedges(s.claims.done_text);
+  const criteria = criteriaList(p.acceptance_criteria);
+  const crit = judgeCriteria(criteria, j.criteria_results);
+  const ba = j.break_attempt && typeof j.break_attempt === 'object' ? j.break_attempt : null;
+  const notProven = [];
+  const gaps = [];
+  if (runner.failed > 0) notProven.push('runner output reports ' + runner.failed + ' failed test(s)');
+  if (absent.length) notProven.push('claimed test(s) never ran (absent from runner output): ' + absent.join('; '));
+  if (failedClaimed.length) notProven.push('claimed test(s) FAILED in the runner output: ' + failedClaimed.join('; '));
+  if (hedges.length) notProven.push('done-claim hedges (' + hedges.map((h) => '"' + h.phrase + '"').join(', ') + '): a hedged claim is rejected; state what was observed');
+  if (crit.unmet.length) notProven.push('acceptance criteria not met: ' + crit.unmet.join(', '));
+  if (ba && ba.counterexample_found === true) notProven.push('break attempt found a counterexample: ' + String(ba.detail || ba.property || '').slice(0, 200));
+  const abstain = typeof j.abstain === 'string' && j.abstain.trim() ? j.abstain.trim() : null;
+  const hasArtifact = p.artifact !== undefined && p.artifact !== null && !(typeof p.artifact === 'string' && !p.artifact.trim()) && !(Array.isArray(p.artifact) && !p.artifact.length);
+  if (runner.format === 'unknown') gaps.push('runner output missing or not recognised: re-run the check and pass its literal output');
+  else if (!(runner.passed > 0)) gaps.push('runner output shows no passing test');
+  if (!ba || typeof ba.property !== 'string' || !ba.property.trim() || typeof ba.counterexample_found !== 'boolean') {
+    gaps.push('no break attempt: name one property the result implies and whether a counterexample was found');
+  }
+  if (crit.missing.length) gaps.push('acceptance criteria not judged: ' + crit.missing.join(', '));
+  if (crit.unknown.length) gaps.push('acceptance criteria judged without evidence or as unknown: ' + crit.unknown.join(', '));
+  let verdict;
+  let reasons;
+  if (notProven.length) { verdict = 'NOT-PROVEN'; reasons = notProven; }
+  else if (abstain) { verdict = 'NO-CONFIDENT-RESULT'; reasons = ['verifier abstained: ' + abstain]; }
+  else if (!hasArtifact || !criteria.length) { verdict = 'NO-CONFIDENT-RESULT'; reasons = [(!hasArtifact ? 'no artifact' : 'no acceptance criteria') + ' in the packet: nothing to judge the claim against']; }
+  else if (gaps.length) { verdict = 'PARTLY-PROVEN'; reasons = gaps; }
+  else { verdict = 'PROVEN'; reasons = ['every claimed test ran and passed, every criterion met with evidence, break attempt found no counterexample']; }
+  return {
+    verdict, gate: VERDICT_GATE[verdict], counts_as_pass: verdict === 'PROVEN', reasons,
+    findings: { runner, absent_tests: absent, failed_claimed_tests: failedClaimed, hedges, criteria: crit, break_attempt: ba },
+    packet: p, stripped: s.stripped,
+  };
+}
+
 module.exports = {
   verifyRun, verifyTickets, TERMINAL_TYPES, BACKBONE, TASK_PAIRS, buildEnforceEvents,
   isolationTripwire, isPathOutsideRoot, roundsFromEvents, loopConvergence, ROUND_BOUNDARY_TYPES, FINDING_EVENT_TYPES,
@@ -2053,6 +2328,9 @@ module.exports = {
   // re-exported so forge-verify-gates.test.cjs can build the SAME ctx the CLI builds without
   // a second require, exactly like the other gate inputs above.
   budgetStops,
+  // the claim verdict (narrative strip, runner-output parse, absent-test + hedge rules,
+  // graded verdict mapped onto the PASS/FAIL gate) - see the block comment above stripNarrative().
+  stripNarrative, findHedges, parseRunnerOutput, absentClaimedTests, assessClaim, VERDICT_GATE, VERDICT_GRADES, HEDGE_PATTERNS,
 };
 
 // ---- CLI ----
@@ -2072,6 +2350,9 @@ if (require.main === module) {
       else if (a === '--enforce') out.enforce = true;
       else if (a === '--json') out.json = true;
       else if (a === '--domain') out.domain = argv[++i];
+      else if (a === '--claim') out.claim = argv[++i] || null;
+      else if (a === '--runner') out.runner = argv[++i] || null;
+      else if (a === '--strip') out.strip = true;
       // an unparseable/non-positive value falls back to the documented default rather than silently
       // disabling the brake (Infinity/0 would be a cap that never trips)
       else if (a === '--max-rounds') { const n = parseInt(argv[++i], 10); out.maxRounds = (Number.isFinite(n) && n > 0) ? n : LOOP_MAX_ROUNDS; }
@@ -2204,8 +2485,9 @@ if (require.main === module) {
   }
 
   function cliMain(opts) {
+    if (!opts.root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
     const root = path.resolve(opts.root);
-    const runDir = path.join(root, '.claude', 'forge-runs', opts.run_id);
+    const runDir = runDirOf(root, opts.run_id);
     const result = verifyRun(runDir, opts);
     const ticketResult = verifyTickets({ run_id: opts.run_id });
     const isolation = isolationTripwire(runDir, root);
@@ -2384,12 +2666,42 @@ if (require.main === module) {
     process.exitCode = exitCodeFor(gateCtx);
   }
 
+  /** claim mode: `--claim <packet.json|->` judges ONE done-claim. The JSON holds the packet (artifact,
+   *  acceptance_criteria, runner_output, claimed_tests, report) plus the verifier's own `judgement`.
+   *  `--runner <file>` loads the literal runner output from a file; `--strip` prints only the narrative-free
+   *  packet (what the verifier may read). Exit 0 = PROVEN, 1 = NOT-PROVEN, 2 = PARTLY-PROVEN or
+   *  NO-CONFIDENT-RESULT (never 0: an abstention is not a pass), 1 also on unreadable input. */
+  function claimMain(o) {
+    const raw = o.claim === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(o.claim, 'utf8');
+    const doc = JSON.parse(raw);
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('--claim input must be a JSON object');
+    const { judgement, ...packet } = doc;
+    if (o.runner) packet.runner_output = fs.readFileSync(o.runner, 'utf8');
+    if (o.strip) {
+      const s = stripNarrative(packet);
+      console.log(JSON.stringify({ packet: s.packet, stripped: s.stripped }, null, 2));
+      process.exitCode = 0;
+      return;
+    }
+    const r = assessClaim(packet, judgement);
+    if (o.json) console.log(JSON.stringify(r, null, 2));
+    else {
+      console.log('VERDICT: ' + r.verdict + ' (gate ' + r.gate + (r.counts_as_pass ? '' : ', not a pass') + ')');
+      r.reasons.forEach((x) => console.log('  - ' + x));
+      if (r.stripped.length) console.log('  narrative not read: ' + r.stripped.join(', '));
+    }
+    process.exitCode = r.verdict === 'PROVEN' ? 0 : r.verdict === 'NOT-PROVEN' ? 1 : 2;
+  }
+
   const opts = parseArgs(process.argv.slice(2));
   // A run_id may not BEGIN with '-': the old class allowed a leading hyphen, so an unknown flag that fell
   // into the positionals could be accepted as a run_id and chased as a directory. Rejecting the shape at
   // the door gives "invalid run_id" instead of a confusing missing-dir chase (2026-08-02 command audit).
-  if (!opts.run_id || !/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(opts.run_id)) {
-    console.error('Usage: node forge-verify.cjs <run_id> [--run <run_id>] [--root <projectRoot>] [--enforce] [--json] [--domain <domain>]');
+  // --claim mode needs no run_id (it judges one packet, not a run).
+  if (opts.claim) {
+    try { claimMain(opts); } catch (e) { console.error('forge-verify --claim: ' + e.message); process.exitCode = 1; }
+  } else if (!opts.run_id || !/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(opts.run_id)) {
+    console.error('Usage: node forge-verify.cjs <run_id> [--run <run_id>] [--root <projectRoot>] [--enforce] [--json] [--domain <domain>]  |  node forge-verify.cjs --claim <packet.json|-> [--runner <file>] [--strip] [--json]');
     console.error('invalid or missing run_id (must start with A-Z a-z 0-9 _ ; then also -)');
     process.exitCode = 1;
   } else {

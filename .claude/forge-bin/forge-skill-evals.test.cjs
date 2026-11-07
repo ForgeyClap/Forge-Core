@@ -231,6 +231,17 @@ t('contains / not_contains: correct true/false, and a missing file fails honestl
   assert.strictEqual(notContainsFail.ok, false);
   assert.strictEqual(missing.ok, false);
 });
+t('contains / not_contains: a needle across a line break matches a CRLF file (Windows checkout) the same as an LF file', () => {
+  const root = freshRoot('sev-crlf');
+  fs.writeFileSync(path.join(root, 'crlf.md'), 'A principle named without a changed\r\ndecision was not applied.\r\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'lf.md'), 'A principle named without a changed\ndecision was not applied.\n', 'utf8');
+  const needle = 'A principle named without a changed\ndecision was not applied';
+  assert.strictEqual(E.runAssertion(root, 'x', { id: 'a', type: 'contains', path: 'crlf.md', needle }).ok, true);
+  assert.strictEqual(E.runAssertion(root, 'x', { id: 'a', type: 'contains', path: 'lf.md', needle }).ok, true);
+  assert.strictEqual(E.runAssertion(root, 'x', { id: 'a', type: 'not_contains', path: 'crlf.md', needle }).ok, false);
+  // a needle ending in a lone CR is found in the raw CRLF text, so not_contains must fail on it too
+  assert.strictEqual(E.runAssertion(root, 'x', { id: 'a', type: 'not_contains', path: 'crlf.md', needle: 'a changed\r' }).ok, false);
+});
 t('frontmatter_field: present+under budget passes, over max_length fails, missing field fails, missing SKILL.md fails honestly', () => {
   const root = freshRoot('sev-fm');
   writeSkill(root, 'described', { description: 'short and sweet' });

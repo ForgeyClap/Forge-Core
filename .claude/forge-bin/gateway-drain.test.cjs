@@ -20,12 +20,20 @@ const PORT = 4360 + (process.pid % 400);
 // a test gateway must switch that off, or a doctor run starts the owner's real bot (seen live on
 // 2026-09-28, pid 3956, stopped again by this test's own drain). The gateway also refuses on its own
 // when CC_TEST_THROW_AFTER_MS is set; this is the explicit, primary switch.
+// WP B1a added a data-dir lock: one live gateway per data dir; a second one exits 3
+// ("another gateway owns this data dir") and the supervisor treats that as fatal (no restart). With
+// the owner's dev gateway on 4100 holding command-center/.data, every check that needs a listening
+// child failed (seen 2026-11-02: exit-code 3, starts=1). So the test gateway gets its own throw-away
+// data dir (FORGE_DATA_DIR): hermetic, never the owner's real data, removed at the end.
+const DATA_DIR = require('fs').mkdtempSync(path.join(require('os').tmpdir(), 'forge-gateway-drain-'));
 const TEST_ENV = {
   CC_PORT: String(PORT),
   CC_DISCORD_AUTOSTART: 'off',
-  // The supervisor's own log goes to a temp file, never into the real gateway-runtime.log.
-  FORGE_SUPERVISOR_LOG_FILE: path.join(require('os').tmpdir(), 'forge-gateway-drain-' + process.pid + '.log'),
+  FORGE_DATA_DIR: DATA_DIR,
+  // The supervisor's own log goes to the temp data dir, never into the real gateway-runtime.log.
+  FORGE_SUPERVISOR_LOG_FILE: path.join(DATA_DIR, 'supervisor.log'),
 };
+const LOCK_REFUSED_MARKER = 'another gateway owns this data dir';
 
 function get(pathName) {
   return new Promise((resolve) => {
@@ -47,6 +55,7 @@ function get(pathName) {
     // verse-install-canary hierop, 2026-08-06). De skip-VOORWAARDE is zelf een echt, getest feit:
     // deze installatie host geen command-center, dus de gateway-drain-keten is hier niet van toepassing.
     t('SKIP-voorwaarde geverifieerd: deze installatie host geen command-center/gateway (bin.mjs afwezig) — drain-keten n.v.t.', !fsx.existsSync(path.join(GW, 'bin.mjs')));
+    try { fsx.rmSync(DATA_DIR, { recursive: true, force: true }); } catch { }
     console.log('\n' + pass + ' passed, ' + fail + ' failed');
     process.exitCode = fail ? 1 : 0;
     return;
@@ -59,11 +68,15 @@ function get(pathName) {
       env: Object.assign({}, process.env, TEST_ENV, { CC_TEST_THROW_AFTER_MS: '2500' }),
     });
     let exited = null;
+    let childOut = '';
+    child.stdout.on('data', (d) => { childOut += d; });
+    child.stderr.on('data', (d) => { childOut += d; });
     child.on('exit', (code) => { exited = code; });
     // wacht tot hij luistert
     let up = false;
     for (let i = 0; i < 40 && !up; i++) { const h = await get('/api/health'); if (h.status === 200) up = true; else await sleep(250); }
-    t('1 gateway start en health antwoordt 200', up);
+    t('1 gateway start en health antwoordt 200', up, childOut.slice(-400));
+    t('1 test-gateway draait op zijn eigen data dir (geen lock-weigering)', !childOut.includes(LOCK_REFUSED_MARKER), childOut.slice(-400));
     const h1 = await get('/api/health');
     let ok1 = null; try { ok1 = JSON.parse(h1.body).ok; } catch { }
     t('1 health is groen (ok:true, runtime OK) voor de injectie', ok1 === true);
@@ -96,12 +109,19 @@ function get(pathName) {
     const deadline = Date.now() + 30000;
     const restarts = () => (out.match(/gateway child started pid=/g) || []).length;
     while (restarts() < 2 && Date.now() < deadline) await sleep(400);
-    t('4 de supervisor herstart het kind na de crash (>=2 keer luisterend gezien)', restarts() >= 2, 'starts=' + restarts());
+    t('4 de supervisor herstart het kind na de crash (>=2 keer luisterend gezien)', restarts() >= 2, 'starts=' + restarts() + ' :: ' + out.slice(-400));
     try { sup.kill(); } catch { }
-    await sleep(400);
-    // veeg eventuele wees-kinderen op de testpoort niet handmatig — supervisor.kill() beeindigt de boom;
-    // een eventueel laatste kind sterft aan zijn eigen injectie binnen ~1.5s + drain.
+    // On Windows sup.kill() does not end the tree. Stop only the exact child PIDs this supervisor
+    // reported starting (never by image name); a child that is already gone is fine.
+    for (const m of out.matchAll(/gateway child started pid=(\d+)/g)) {
+      try { process.kill(Number(m[1])); } catch { }
+    }
+    await sleep(800);
   }
+
+  // Remove the throw-away data dir (retries: Windows may hold the lock or log file briefly).
+  try { fsx.rmSync(DATA_DIR, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); }
+  catch (e) { console.error('  note: temp data dir not removed: ' + DATA_DIR + ' (' + e.message + ')'); }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exitCode = fail ? 1 : 0;

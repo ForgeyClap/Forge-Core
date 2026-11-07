@@ -8,7 +8,38 @@
       "status": "generated",
       "truth": ".claude",
       "note": "AGENTS.md/.agents/.codex zijn (deels automatisch gegenereerde) spiegels; elke .Codex/-padverwijzing is een kapotte vervangspiegel van .claude — bij twijfel is .claude de waarheid"
-    }
+    },
+    "state_root": ".forge",
+    "state": {
+      "runs": "runs",
+      "research": "research",
+      "scribe": "scribe",
+      "tickets": "tickets",
+      "index": "index",
+      "backups": "backups",
+      "vault": "vault",
+      "artifacts": "artifacts",
+      "mindmaps": "mindmaps",
+      "memory": "memory",
+      "audit": "audit",
+      "prd": "prd"
+    },
+    "state_legacy": {
+      "runs": ".claude/forge-runs",
+      "research": ".claude/forge-research",
+      "scribe": ".claude/forge-scribe",
+      "tickets": ".claude/forge-tickets",
+      "index": ".claude/forge-index",
+      "backups": ".claude/forge-backups",
+      "vault": ".claude/forge-vault",
+      "artifacts": ".claude/forge-artifacts",
+      "mindmaps": ".claude/forge-mindmaps",
+      "memory": ".claude",
+      "audit": ".claude/forge-audit",
+      "prd": ".claude/forge-prd"
+    },
+    "state_legacy_memory_prefix": "FORGE_",
+    "state_note": "Wave 1.2 (2026-10-24): runtime-state layout read by .claude/forge-bin/forge-paths.cjs. state_root is relative to the project root (env FORGE_STATE_DIR overrides it, absolute or project-relative); every state.* value is relative to state_root; state_legacy.* are the pre-modernization locations that resolveExisting() falls back to (memory = the .claude/FORGE_* files). Callers are NOT migrated yet: paths.runs above stays the live location until a later package moves them. WP 2.1.0 (2026-10-24): added audit + prd (runtime state that was missing a key); the layout is OPT-IN PER PROJECT: forge-paths layout() is 'forge' only when <root>/.forge is a directory or FORGE_STATE_DIR is set, otherwise stateDir()/memoryFile() return exactly the state_legacy locations. Tools find their project with forge-paths scriptRoot(__dirname) (an installed .claude/<folder> copy keeps today's answer; a plugin copy discovers CLAUDE_PROJECT_DIR / the cwd)."
   },
   "dashboard": {
     "authoritative": "command-center (Forge Command Center, 127.0.0.1:4100, supervisor.mjs als enige herstart-autoriteit)",
@@ -46,6 +77,7 @@
     "npm_forge_dashboard_script": "forbidden — geen package.json-script dat server.cjs start; de oude Phase-7-instructie is hierbij vervallen",
     "phase_9_dashboard_state_check": "vervallen — een verse install bevestigt juist de AFWEZIGHEID van DASHBOARD_STATE.json (Phase 8 wint)",
     "safe_installer": "forge-sync install (backup + doctor-validatie in het doelproject + rollback) is de enige vloot-route",
+    "project_init": "WP 3.1 (2026-10-24): step 2 of the two-step install (step 1 = the Forge plugin or the central installer) is `/forge init` = .claude/forge-bin/forge-init.cjs plan | apply --yes | check. It writes only inside the one project folder (the five memory files when absent, .claude/settings.json deny rules + hooks merged from config/orchestration/forge-init.fragment.json, the CLAUDE.md pointer block between the forge-init markers), is idempotent and refuses the development tree. forge-sync install stays the route for updating and adopting existing installs.",
     "central_template_location": "WP-P1/WP-P2 (v2.9.0): install.sh/install.ps1 (the public distribution installer) copy command-center/ next to a fresh ~/.claude/forge/template/.claude/ — i.e. ~/.claude/forge/template/command-center/, already built (dashboard/dist/) — and record every real project they set up in ~/.claude/forge/projects.json. The Command Center gateway itself (command-center/gateway/src/paths.mjs FORGE_TEMPLATE_DIR/FORGE_INSTALLED_PROJECTS_FILE) reads that list and never lists the template host as a project. See dashboard.wrapper_launch above for how a per-project wrapper finds/builds/starts that central copy."
   },
   "append_only_rules": {

@@ -65,6 +65,9 @@ function makeRoot(opts) {
     fs.copyFileSync(REAL.rc, path.join(cd, 'forge-bin', 'forge-runcontract.cjs'));
     fs.copyFileSync(REAL.fin, path.join(cd, 'forge-bin', 'forge-finalize.cjs'));
     fs.copyFileSync(REAL.pg, path.join(cd, 'forge-bin', 'forge-proof-gate.cjs'));
+    // queue-3: finalize checks the report's claims against the ledger with this sibling (fail-closed without it)
+    fs.copyFileSync(path.join(__dirname, 'forge-claim-check.cjs'), path.join(cd, 'forge-bin', 'forge-claim-check.cjs'));
+    fs.copyFileSync(path.join(__dirname, 'forge-claim-reports.cjs'), path.join(cd, 'forge-bin', 'forge-claim-reports.cjs'));
   }
   const rulesDest = path.join(cd, 'config', 'orchestration', 'FORGE_HARD_RULES.json');
   if (opts.rulesText === undefined) fs.copyFileSync(REAL.rules, rulesDest);
@@ -117,7 +120,7 @@ function buildRun(root, runId, o) {
   must(batch(root, runId, [
     { event_type: 'memory_loaded', agent: 'orchestrator' },
     { event_type: 'owner_prefs_loaded', agent: 'orchestrator' },
-    { event_type: 'research_done', agent: 'orchestrator', note: 'searched for an existing implementation first' },
+    { event_type: 'research_done', agent: 'orchestrator', note: 'searched for an existing implementation first' }, { event_type: 'skill_map_created', agent: 'orchestrator' },
   ]), 'preview batch');
   must(rcCli(root, ['check', '--run', runId, '--phase', 'preview', '--log-event']), 'preview check');
   const work = [

@@ -4,10 +4,13 @@
   "_comment_3": "Two things must both be true before ANY Boss may call this server: (1) opted_in:true here (or the server id listed in an owner-authored config/orchestration/mcp-opt-in.json — either marker counts as opt-in), and (2) that Boss's own entry in config/orchestration/mcp-grants.json allows this server id at this tier. This example shows ONE server (context7) opted in at its registry tier (1) with the least-privilege scope already recorded in mcp-registry.json/mcp-grants.json — nothing here widens a Boss's grant; it only makes the server reachable.",
   "_doc": "See .claude/skills/forge-mcp-clients/SKILL.md for the full doctrine (4 tiers, per-Boss least-privilege, write-primitive hard-gate, defer-loading, honest native fallback). See config/orchestration/mcp-registry.json for the authoritative server catalog and config/orchestration/mcp-grants.json for the authoritative per-Boss grant matrix — this file only demonstrates wiring one entry from that catalog.",
 
+  "_comment_pin": "WP-M1 (2026-10-24): the launch below is the exact launch recorded in config/orchestration/mcp-registry.json#context7 (pin 4.4.4, local stdio transport, the embedded metrics exporter off). Never shorten it to a bare package name or a moving tag: forge-mcp-gate.cjs refuses any grant for a launch that is not provably pinned. Check a host file with: node .claude/forge-bin/forge-mcp-pin.cjs scan-config <file> (exit 0 = no floating launch).",
+
   "mcpServers": {
     "context7": {
       "command": "npx",
-      "args": ["-y", "@upstash/context7-mcp"],
+      "args": ["-y", "@upstash/context7-mcp@4.4.4", "--transport", "stdio"],
+      "env": { "OTEL_SDK_DISABLED": "true" },
       "_forge_opt_in": {
         "opted_in": true,
         "server_id": "context7",

@@ -24,6 +24,21 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+
 function parseArgs(argv) {
   const a = { projectDir: null, run: null, json: false, inPlace: false, install: true };
   for (let i = 0; i < argv.length; i++) {
@@ -254,7 +269,7 @@ function main() {
 
   // Write artifact into the run's artifacts dir (durable proof), if a run id + forge-runs exist in the project.
   if (args.run && /^[A-Za-z0-9_-]+$/.test(args.run)) {
-    const artDir = path.join(projectDir, '.claude', 'forge-runs', args.run, 'artifacts');
+    const artDir = path.join(runDirOf(projectDir, args.run), 'artifacts');
     try {
       fs.mkdirSync(artDir, { recursive: true });
       const artPath = path.join(artDir, 'integration-gate.json');

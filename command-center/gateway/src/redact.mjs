@@ -149,11 +149,52 @@ export function stripDiscordIds(value) {
 //
 // 256 chars comfortably covers the longest possible DISCORD_BOT_TOKEN match (70+1+20+1+70 = 162
 // chars) with margin — the concrete secret shape this finding named — while keeping log latency to a
-// couple hundred bytes at most. It does NOT change the pre-existing, documented limitation that the
-// four unbounded prefix patterns (NVIDIA/sk-/ghp_/AKIA) and the 8192-char-bounded PEM pattern were
-// never guaranteed against an adversarially-placed split at an arbitrary offset — that bound is about
-// a single already-complete value, not about chunk boundaries, and is unchanged by this fix.
+// couple hundred bytes at most. The four unbounded prefix patterns (NVIDIA/sk-/ghp_/AKIA) need no
+// extra room: a split leaves a head that either already matches on its own (ten characters after the
+// prefix) or sits inside this tail. The multi-line PEM pattern needs more than 256 chars and gets its
+// own hold-back rule below (WP A8).
 const STREAM_REDACT_TAIL_CHARS = 256;
+
+// WP A8 (owner-queue item D): the 256-char tail above is shorter than
+// the one multi-line shape, PEM_PRIVATE_KEY (armour line + up to 8192 body chars + armour line). Measured
+// before this fix: a PEM written in two halves came out of createStreamRedactor with its armour line and
+// body readable, because the hold-back line fell inside a key whose closing armour had not arrived yet,
+// so no complete match existed to protect it. An OPEN key (a BEGIN marker no complete match covers) is
+// therefore held back from its first character until it either completes (and is redacted as a whole) or
+// its body passes the 8192-char bound the pattern itself enforces (then the pattern can never match it,
+// so holding it longer protects nothing — the same result redact() gives on the whole value). The extra
+// STREAM_REDACT_TAIL_CHARS leaves room for the closing armour line itself.
+const PEM_BEGIN_MARKER_RE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g;
+const PEM_OPEN_HOLD_CHARS = 8192 + STREAM_REDACT_TAIL_CHARS;
+// The characters every single-line secret shape above is made of (prefixes included). Used only when a
+// stream is CUT rather than finished: a run of them right at the cut may be the head of a token whose
+// rest never arrives, so it is dropped instead of emitted. Bounded by STREAM_REDACT_TAIL_CHARS, which
+// is longer than the longest bounded shape (DISCORD_BOT_TOKEN, 162 chars); the unbounded prefix shapes
+// still match on their own once ten characters follow the prefix.
+const TOKEN_CHAR_RE = /[A-Za-z0-9_.-]/;
+
+function openPemStart(str, spans) {
+  const re = new RegExp(PEM_BEGIN_MARKER_RE.source, 'g');
+  let m;
+  while ((m = re.exec(str)) !== null) {
+    const start = m.index;
+    if (spans.some((s) => s.start <= start && s.end > start)) continue; // already a complete key
+    if (str.length - (start + m[0].length) <= PEM_OPEN_HOLD_CHARS) return start;
+  }
+  return -1;
+}
+
+// Fail-closed tail for a stream that was CUT (abort), never for one that finished (end): an unterminated
+// key and a trailing token fragment can no longer complete, and emitting them would hand out the head
+// of a secret. Operates on already-redacted text, so a remaining BEGIN marker is by definition open.
+function sealCutText(redactedText) {
+  let text = redactedText;
+  const open = text.search(new RegExp(PEM_BEGIN_MARKER_RE.source));
+  if (open !== -1) text = text.slice(0, open);
+  let i = text.length;
+  while (i > 0 && text.length - i < STREAM_REDACT_TAIL_CHARS && TOKEN_CHAR_RE.test(text[i - 1])) i -= 1;
+  return text.slice(0, i);
+}
 
 function findSecretSpans(str) {
   const spans = [];
@@ -197,6 +238,8 @@ function redactSpans(str, spans) {
  * `.on('data', ...)` handlers). `end()` flushes any remaining held-back tail (fully redacted) and
  * must be called once when the underlying stream is known to be finished (child exit/error) — never
  * mid-stream, or a still-forming secret could be flushed as an incomplete, unredacted fragment.
+ * `abort()` is the counterpart for a stream the CALLER cut off (a size limit), not one that ended: it
+ * flushes the held tail fail-closed (sealCutText above), because what is still held can never complete.
  */
 export function createStreamRedactor(writeFn) {
   let carry = '';
@@ -213,6 +256,9 @@ export function createStreamRedactor(writeFn) {
       for (const span of spans) {
         if (span.start < boundary && span.end > boundary) boundary = span.start;
       }
+      // WP A8: an open private key is held from its BEGIN marker on (see PEM_OPEN_HOLD_CHARS).
+      const pemStart = openPemStart(combined, spans);
+      if (pemStart !== -1 && pemStart < boundary) boundary = pemStart;
       if (boundary <= 0) {
         carry = combined;
         return;
@@ -227,6 +273,57 @@ export function createStreamRedactor(writeFn) {
       const out = redact(carry);
       carry = '';
       writeFn(out);
+    },
+    abort() {
+      if (carry.length === 0) return;
+      const out = sealCutText(redact(carry));
+      carry = '';
+      if (out.length > 0) writeFn(out);
+    },
+  };
+}
+
+/**
+ * createCappedRedactedCapture({ maxChars, maxInputChars }) -> { write(chunk), finish() -> string }
+ *
+ * WP A8: a child's stderr kept for a stored record (exec-lifecycle.mjs) used to be accumulated RAW and
+ * without any bound, then redacted once at close — correct about split secrets (the redactor saw the
+ * whole value), but a child writing megabytes to stderr grew gateway memory without limit. This capture
+ * keeps the same guarantee with a bound: every chunk goes through createStreamRedactor (which never
+ * releases part of a secret, see above), only the first `maxChars` redacted characters are kept, and
+ * input stops being read after `maxInputChars` (the stream is then cut with abort(), fail-closed).
+ * Raw text is never stored beyond the redactor's own hold-back, so nothing raw reaches the caller.
+ * finish() is safe to call more than once and always returns the same text.
+ */
+export function createCappedRedactedCapture({ maxChars, maxInputChars }) {
+  let out = '';
+  let inputChars = 0;
+  let done = false;
+  const redactor = createStreamRedactor((text) => {
+    if (out.length < maxChars) out += text.slice(0, maxChars - out.length);
+  });
+  return {
+    write(chunk) {
+      if (done) return;
+      const text = typeof chunk === 'string' ? chunk : String(chunk ?? '');
+      const room = maxInputChars - inputChars;
+      if (text.length > room) {
+        redactor.write(text.slice(0, room));
+        inputChars = maxInputChars;
+        redactor.abort();
+        done = true;
+        return;
+      }
+      inputChars += text.length;
+      redactor.write(text);
+      if (out.length >= maxChars) done = true; // nothing that arrives later can land inside the cap
+    },
+    finish() {
+      if (!done) {
+        done = true;
+        redactor.end();
+      }
+      return out;
     },
   };
 }

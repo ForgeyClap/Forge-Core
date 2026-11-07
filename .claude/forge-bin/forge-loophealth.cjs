@@ -64,7 +64,22 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> <runs>/<id>: the active runs folder, or the legacy one when <id> only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> analyze() needs a root
+const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 const DEFAULT_THRESHOLD = 5;
 const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 // No slash of any kind is allowed, so a validated id can never escape the directory it is joined into —
@@ -86,7 +101,7 @@ function validateId(id, label) {
   return id;
 }
 
-function toollogDir(root) { return path.join(root, '.claude', 'forge-runs', '_toollog'); }
+function toollogDir(root) { return runDirOf(root, '_toollog'); }
 
 /** toollogDirUsable — true only when `_toollog` exists AND is a real directory, never a symlink/junction
  *  (lstat does not follow a link, so a symlinked entry correctly reports isDirectory()===false here). */
@@ -164,7 +179,7 @@ function readAllLines(files) {
  *  never throws (a missing, unreadable, or malformed run.json is uniformly "null" — the caller folds
  *  that into basis 'none'). */
 function readRunJson(root, runId) {
-  const p = path.join(root, '.claude', 'forge-runs', runId, 'run.json');
+  const p = path.join(runDirOf(root, runId), 'run.json');
   let st;
   try { st = fs.lstatSync(p); } catch { return null; }
   if (!st.isFile()) return null;
@@ -246,8 +261,9 @@ function buildResult(basis, window, threshold, read, records, note, dirExists, r
     .map((g) => ({ target: g.target, count: g.count, ok_count: g.ok_count, failed_count: g.failed_count, unknown_count: g.unknown_count, first_ts: g.first_ts, last_ts: g.last_ts, sessions: Array.from(g.sessions).sort() }))
     .sort((a, b) => (b.count - a.count) || a.target.localeCompare(b.target));
 
+  // the folder named as it is in this project's layout (legacy: exactly the old .claude/forge-runs/_toollog text)
   const finalNote = note || (dirExists === false
-    ? 'no .claude/forge-runs/_toollog folder yet — nothing has been logged for this project'
+    ? 'no ' + path.relative(root, toollogDir(root)).split(path.sep).join('/') + ' folder yet — nothing has been logged for this project'
     : null);
 
   return {
@@ -298,6 +314,7 @@ function analyzeBySession(root, sessionId, threshold) {
 function analyze(opts) {
   opts = opts || {};
   const root = opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
+  if (!root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
   const threshold = (Number.isFinite(opts.threshold) && opts.threshold > 0) ? Math.floor(opts.threshold) : DEFAULT_THRESHOLD;
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const hasRun = opts.runId !== undefined && opts.runId !== null;
@@ -360,6 +377,7 @@ if (require.main === module) {
 
   function cliMain(opts) {
     const root = opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
+    if (!root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
     const threshold = (Number.isFinite(opts.threshold) && opts.threshold > 0) ? Math.floor(opts.threshold) : DEFAULT_THRESHOLD;
     const result = analyze({ root, runId: opts.run, sessionId: opts.session, threshold });
     printHuman(result, opts.run || opts.session);

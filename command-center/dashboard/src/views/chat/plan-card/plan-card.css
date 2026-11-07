@@ -1,0 +1,176 @@
+/*
+ * Team-job plan card (WP B3). Tokens only. Reads like a short work order: an eyebrow, the job in
+ * the largest type of the card, a numbered step list with the role on the right, then two quiet
+ * blocks (who helps / estimate) side by side and the three buttons.
+ */
+
+.fw-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  inline-size: 100%;
+  max-inline-size: 46rem;
+  margin-inline: auto;
+  padding: var(--fs-space-5);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface-2);
+  box-shadow: var(--fs-shadow-2);
+}
+
+.fw-plan__eyebrow {
+  margin: 0;
+  font: 600 var(--fs-text-12) / 1 var(--fs-font-body);
+  letter-spacing: 0;
+  color: var(--fs-ink-3);
+}
+
+.fw-plan__title {
+  margin: 0;
+  font: 600 var(--fs-text-22) / var(--fs-leading-snug) var(--fs-font-body);
+  letter-spacing: 0;
+  color: var(--fs-ink);
+  overflow-wrap: anywhere;
+}
+
+.fw-plan__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+  margin: calc(var(--fs-space-1) * -1) 0 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fw-plan__steps {
+  margin: var(--fs-space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  border-block: 1px solid var(--fs-line);
+}
+
+.fw-plan__step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--fs-space-3);
+  padding-block: var(--fs-space-2);
+}
+
+.fw-plan__step + .fw-plan__step {
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-plan__num {
+  inline-size: 1.25rem;
+  font: 600 var(--fs-text-12) / 1 var(--fs-font-mono);
+  color: var(--fs-ink-3);
+  text-align: end;
+}
+
+.fw-plan__step-title {
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
+}
+
+.fw-plan__step-role {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+  white-space: nowrap;
+}
+
+.fw-plan__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--fs-space-3);
+}
+
+.fw-plan__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-3);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+}
+
+.fw-plan__label {
+  margin: 0;
+  font: 600 var(--fs-text-12) / 1 var(--fs-font-body);
+  color: var(--fs-ink-2);
+}
+
+.fw-plan__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2) var(--fs-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-plan__role {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+}
+
+.fw-plan__stamp {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+  border-radius: var(--fs-radius-xs);
+  font: 700 var(--fs-text-12) / 1 var(--fs-font-body);
+  color: var(--fs-ink-2);
+  background: var(--fs-sunken);
+}
+
+.fw-plan__estimate {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+}
+
+.fw-plan__estimate[data-known='false'] {
+  color: var(--fs-ink-2);
+}
+
+.fw-plan__why,
+.fw-plan__note {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
+}
+
+.fw-plan__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+}
+
+@media (max-width: 640px) {
+  .fw-plan {
+    padding: var(--fs-space-4);
+  }
+
+  .fw-plan__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fw-plan__step {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .fw-plan__step-role {
+    grid-column: 2;
+  }
+}

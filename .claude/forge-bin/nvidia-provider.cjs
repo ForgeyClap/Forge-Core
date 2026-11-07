@@ -80,11 +80,21 @@
 const fs = require('fs');
 const path = require('path');
 
-const CLAUDE_DIR = path.resolve(__dirname, '..');
-const PROJECT_DIR = path.resolve(__dirname, '..', '..');
-const MATRIX_FILE = path.join(CLAUDE_DIR, 'config', 'models', 'model-capability-matrix.json');
-const MODEL_MAP_FILE = path.join(CLAUDE_DIR, 'config', 'agents', 'agent-model-map.json');
-const FUNCTION_FIT_FILE = path.join(CLAUDE_DIR, 'config', 'models', 'function-model-fit.json');
+// WP 2.1: the shipped config is read beside this folder (<dir>/../config: .claude/config in a project, config/ in the
+// plugin — the same files); the PROJECT (its .env, its owner settings) comes from forge-paths scriptRoot when it is
+// there (optional require): an installed copy keeps the old own-folder answer, a plugin copy finds the project from
+// CLAUDE_PROJECT_DIR / the cwd, never the plugin's parent folder (null = no project: no project .env is read).
+const CONFIG_DIR = path.join(__dirname, '..', 'config');
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultProjectDir() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+const PROJECT_DIR = defaultProjectDir();
+const MATRIX_FILE = path.join(CONFIG_DIR, 'models', 'model-capability-matrix.json');
+const MODEL_MAP_FILE = path.join(CONFIG_DIR, 'agents', 'agent-model-map.json');
+const FUNCTION_FIT_FILE = path.join(CONFIG_DIR, 'models', 'function-model-fit.json');
 
 // Owner settings (forge-config.cjs) — soft-required, see the header.
 const NVIDIA_OFF_REASON = 'owner config nvidia=off';
@@ -108,7 +118,7 @@ const NVIDIA_UNREADABLE_REASON = 'config unreadable → safe default off';
 /** nvidiaState(opts) -> { on: boolean, reason: string|null }. Never throws. opts.configModule injects a module. */
 function nvidiaState(opts) {
   const mod = opts && opts.configModule !== undefined ? opts.configModule : cfg;
-  const rootOpts = process.env.FORGE_PROJECT_ROOT ? {} : { projectRoot: PROJECT_DIR };
+  const rootOpts = process.env.FORGE_PROJECT_ROOT || !PROJECT_DIR ? {} : { projectRoot: PROJECT_DIR };
   let e;
   try {
     if (mod && typeof mod.safeGet === 'function') {            // forge-config's own fail-safe read (never throws)
@@ -150,7 +160,7 @@ function loadEnvFile(envFile, isGlobal) {
 }
 function loadEnv() {
   if (process.env.NVIDIA_SKIP_ENV_FILES === '1') return;                              // hermetic test isolation (no file key sources)
-  loadEnvFile(path.join(PROJECT_DIR, '.env'), false);                                 // project: key + model overrides only
+  if (PROJECT_DIR) loadEnvFile(path.join(PROJECT_DIR, '.env'), false);                                 // project: key + model overrides only
   loadEnvFile(path.join(require('os').homedir(), '.claude', 'nvidia.env'), true);     // global fallback (one key for all projects)
 }
 loadEnv();

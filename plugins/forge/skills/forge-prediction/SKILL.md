@@ -1,9 +1,13 @@
 ---
 name: forge-prediction
-description: "Forge: prediction, sports-data, and betting analysis (incl. Telegram tips): forecast, odds, value bet, backtest, confidence label — NO real-money betting."
+description: "Playbook for predictions and sports data: odds, backtests, no betting (gebruik bij voorspellingen)."
+# A10 original description (listing budget): "Playbook for predictions and sports data: odds, backtests, confidence labels, no betting (gebruik bij voorspellingen)."
 ---
 
 # Forge playbook — Prediction / sports-data
+
+## When to use
+- Use for: prediction and sports-data systems, including Telegram delivery.
 
 ## Hard rules
 - **Never claim certainty.** Every output carries a confidence/risk label.
@@ -28,3 +32,9 @@ Data sources + quality verified; statistical logic reviewed; backtesting done; o
 
 ## Ship-readiness (unique)
 Backtest results shown with sample size; every output labeled with confidence/risk; assumptions + data-quality notes attached; **no auto-bet path**; Telegram message format tested. The `ship-readiness` prediction + Telegram checklists are advisory; optionally run `codex-reviewer` (Codex) on important code — not a blocker.
+
+## Safety, approval and honesty
+- Approval / safety: no automatic real-money betting / no auto-stake code path.
+- Approval / safety: Telegram token in env only.
+- Honest failure: never claim certainty: every output carries a confidence/risk label; backtests show sample size.
+- Shared gates for every playbook (honesty, owner approval, secrets, reviews): `.claude/docs/forge-reference/playbook-template.md`.

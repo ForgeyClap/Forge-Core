@@ -1,7 +1,7 @@
 /*
  * Forge Workspace — chat workspace stylesheet.
  *
- * Every value here is a var(--forge-*) token. There is no hex, no rgb() and no
+ * Every value here is a v1.0 var(--fs-*) token. There is no hex, no rgb() and no
  * hsl() in this file, and there is no colour anywhere except the rationed ember
  * accent, which appears exactly twice: the composer border while the field has
  * focus, and the streaming caret. Both are "the one active thing on screen".
@@ -21,8 +21,12 @@
   block-size: 100%;
   min-block-size: 0;
   min-inline-size: 0;
-  overflow: hidden;
-  background: var(--forge-color-bg);
+  /* B8-3: hidden sideways, but the column may scroll as a whole when the transcript floor below
+     plus the header and composer do not fit (a very short window): the composer stays reachable
+     instead of the transcript being squeezed to two lines. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--fs-bg);
 }
 
 /* =========================================================================
@@ -33,60 +37,60 @@
 
 .fw-chat__head {
   flex: none;
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-bg);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-bg);
 }
 
 .fw-chat__head-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   inline-size: 100%;
-  max-inline-size: var(--forge-layout-reading);
+  max-inline-size: 46rem;
   margin-inline: auto;
-  padding: var(--forge-space-4) var(--fw-gutter);
+  padding: var(--fs-space-4) var(--fw-gutter);
   min-inline-size: 0;
 }
 
 .fw-chat__crumbs {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-xs);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
 }
 
 .fw-chat__crumb {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  padding: var(--forge-space-1) var(--forge-space-1);
-  border-radius: var(--forge-radius-xs);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-xs);
+  gap: var(--fs-space-1);
+  padding: var(--fs-space-1) var(--fs-space-1);
+  border-radius: var(--fs-radius-xs);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
   cursor: pointer;
   min-inline-size: 0;
 }
 
 .fw-chat__crumb:hover {
-  background: var(--forge-color-hover);
-  color: var(--forge-color-text-secondary);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat__crumb.is-current {
   cursor: default;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat__crumb-sep {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat__titlerow {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
@@ -94,10 +98,10 @@
 .fw-chat__title {
   flex: 1 1 16rem;
   min-inline-size: 0;
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-22);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
 }
 
 .fw-chat__toolbar {
@@ -115,8 +119,8 @@
      whitespace inside each span. The literal spaces in the markup vanish and the
      line renders as "9messages · updated4 min ago". The gap restores the rhythm. */
   gap: 0.32em;
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -126,9 +130,26 @@
 .fw-chat__body {
   position: relative;
   display: flex;
-  flex: 1 1 auto;
-  min-block-size: 0;
+  /* FU-CHAT (owner "kies de beste", Lead option A): a real flex layout. The header, usage line, cards and
+     composer are `flex: none`; the transcript takes ALL the rest (flex-basis 0, so it never sizes to its
+     own content). At the default 1280x840 window that is at least half the viewport in Eenvoudig. The
+     small floor only matters on a very short window: there the whole column scrolls (`.fw-chat`) and
+     the composer stays reachable instead of the transcript collapsing to nothing. */
+  flex: 1 1 0;
+  min-block-size: 8rem;
   min-inline-size: 0;
+}
+
+/* Eenvoudig: a slightly tighter header (no breadcrumb row there, see ChatView) leaves the room to the
+   transcript; the reading column and type sizes are unchanged. */
+.fw-chat-frame[data-ui-mode='eenvoudig'] .fw-chat__head-inner {
+  padding-block: var(--fs-space-3);
+}
+
+/* Uitgebreid keeps today's layout: its fuller header, usage bar and hint block do not fit beside half a
+   viewport, so there the B8-3 readable floor stays and the column scrolls as a whole instead. */
+.fw-chat-frame[data-ui-mode='uitgebreid'] .fw-chat__body {
+  min-block-size: min(18rem, 30vh);
 }
 
 .fw-chat-thread {
@@ -152,11 +173,11 @@
 .fw-chat-thread__list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-6);
+  gap: var(--fs-space-6);
   inline-size: 100%;
-  max-inline-size: var(--forge-layout-reading);
+  max-inline-size: 46rem;
   margin: 0 auto;
-  padding: var(--forge-space-6) var(--fw-gutter) var(--forge-space-8);
+  padding: var(--fs-space-6) var(--fw-gutter) var(--fs-space-7);
   list-style: none;
   min-inline-size: 0;
 }
@@ -170,26 +191,26 @@
 .fw-chat-thread__start {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
-  padding-block-end: var(--forge-space-3);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-end: var(--fs-space-3);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-chat-thread__start-text {
   flex: 1 1 auto;
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-thread__jump {
   position: absolute;
-  inset-block-end: var(--forge-space-4);
+  inset-block-end: var(--fs-space-4);
   inset-inline-start: 50%;
   transform: translateX(-50%);
-  z-index: var(--forge-z-sticky);
-  box-shadow: var(--forge-shadow-md);
+  z-index: 100;
+  box-shadow: var(--fs-shadow-2);
 }
 
 /* =========================================================================
@@ -201,49 +222,81 @@
 .fw-chat-msg {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-chat-msg--user {
   align-self: flex-end;
-  max-inline-size: 85%;
-  padding: var(--forge-space-3) var(--forge-space-4);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-lg);
-  background: var(--forge-color-surface-2);
+  max-inline-size: 80%;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: 16px 16px 4px 16px;
+  background: var(--fs-sunken);
 }
 
+/* Forge's reply reads like a document: no bubble, no rule; a small mark and the word "Forge". */
 .fw-chat-msg--forge {
   align-self: stretch;
-  padding-inline-start: var(--forge-space-4);
-  border-inline-start: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-xs);
+}
+
+.fw-chat-msg__who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink-2);
+}
+
+.fw-chat-msg__who .fw-mark {
+  inline-size: 18px;
+  block-size: 18px;
+}
+
+/* Your own bubble needs no header: the author stays for screen readers, the time and actions show on
+   hover or focus, under the bubble's right edge. */
+.fw-chat-msg--user .fw-chat-msg__head {
+  min-block-size: 0;
+}
+
+.fw-chat-msg__time {
+  opacity: 0;
+  transition: opacity var(--fs-dur-1) var(--fs-ease);
+}
+
+.fw-chat-msg:hover .fw-chat-msg__time,
+.fw-chat-msg:focus-within .fw-chat-msg__time {
+  opacity: 1;
 }
 
 .fw-chat-msg__head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-block-size: var(--fw-control-h-sm);
   min-inline-size: 0;
 }
 
 .fw-chat-msg__author {
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-msg--forge .fw-chat-msg__author {
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
 }
 
 .fw-chat-msg__time,
 .fw-chat-msg__edited {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-chat-msg__edited::before {
   content: '· ';
+}
+
+/* A user turn's author is visually hidden, so its edited marker starts the row: no leading dot. */
+.fw-chat-msg--user .fw-chat-msg__edited::before {
+  content: none;
 }
 
 /* fix-ui-clutter (item 7; widened composer-modes-ui): a small, real (non-dashed — this is a
@@ -253,15 +306,14 @@
 .fw-chat-msg__mode-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  padding: 0 var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-xs);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  text-transform: uppercase;
-  color: var(--forge-color-text-secondary);
+  gap: var(--fs-space-1);
+  padding: 0 var(--fs-space-1);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-xs);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
+  color: var(--fs-ink-2);
   white-space: nowrap;
 }
 
@@ -275,10 +327,10 @@
 .fw-chat-msg__actions {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
   opacity: 0;
-  transition: opacity var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  transition: opacity var(--fs-dur-1) var(--fs-ease);
 }
 
 .fw-chat-msg:hover .fw-chat-msg__actions,
@@ -295,14 +347,18 @@
 
 .fw-chat-msg__body {
   min-inline-size: 0;
-  font-size: var(--forge-text-md);
-  line-height: var(--forge-leading-relaxed);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-15);
+  line-height: 1.7;
+  color: var(--fs-ink);
   overflow-wrap: anywhere;
 }
 
 .fw-chat-msg--user .fw-chat-msg__body {
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink);
+}
+
+.fw-chat-msg--forge .fw-chat-msg__body {
+  max-inline-size: 64ch;
 }
 
 /* ------------------------------------------------------------ meta footer */
@@ -310,23 +366,23 @@
 .fw-chat-msg__foot {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   flex-wrap: wrap;
-  padding-block-start: var(--forge-space-2);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-start: var(--fs-space-2);
+  border-block-start: 1px solid var(--fs-line);
 }
 
 .fw-chat-meta {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  color: var(--forge-color-text-faint);
-  font-size: var(--forge-text-2xs);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
 }
 
 .fw-chat-meta .fw-machine {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
 }
 
 /* =========================================================================
@@ -334,20 +390,20 @@
    ========================================================================= */
 
 .fw-chat-steps {
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
 }
 
 .fw-chat-steps__summary {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-block-size: var(--fw-row-h);
-  padding-inline: var(--forge-space-3);
+  padding-inline: var(--fs-space-3);
   list-style: none;
   cursor: pointer;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-steps__summary::-webkit-details-marker {
@@ -355,14 +411,14 @@
 }
 
 .fw-chat-steps__summary:hover {
-  background: var(--forge-color-hover);
-  border-radius: var(--forge-radius-md);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  border-radius: var(--fs-radius-sm);
 }
 
 .fw-chat-steps__chevron {
   flex: none;
-  color: var(--forge-color-text-muted);
-  transition: transform var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  color: var(--fs-ink-3);
+  transition: transform var(--fs-dur-1) var(--fs-ease);
 }
 
 .fw-chat-steps[open] > .fw-chat-steps__summary .fw-chat-steps__chevron {
@@ -370,69 +426,68 @@
 }
 
 .fw-chat-steps__count {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-steps__hint {
   flex: none;
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0;
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-steps__list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin: 0;
-  padding: var(--forge-space-2) var(--forge-space-3) var(--forge-space-3);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding: var(--fs-space-2) var(--fs-space-3) var(--fs-space-3);
+  border-block-start: 1px solid var(--fs-line);
   list-style: none;
 }
 
 .fw-chat-step {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
-  padding: var(--forge-space-2);
-  padding-inline-start: var(--forge-space-3);
+  padding: var(--fs-space-2);
+  padding-inline-start: var(--fs-space-3);
   border-inline-start: var(--fw-status-width) var(--fw-status-style) var(--fw-status-line);
-  border-radius: 0 var(--forge-radius-sm) var(--forge-radius-sm) 0;
-  background: var(--forge-color-surface-2);
+  border-radius: 0 var(--fs-radius-xs) var(--fs-radius-xs) 0;
+  background: var(--fs-surface-2);
 }
 
 .fw-chat-step__badge {
   flex: none;
-  margin-block-start: var(--forge-space-px);
+  margin-block-start: 1px;
 }
 
 .fw-chat-step__text {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: 1 1 auto;
   min-inline-size: 0;
 }
 
 .fw-chat-step__label {
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
 }
 
 .fw-chat-step__detail {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-step__agent {
   flex: none;
   align-self: flex-start;
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   white-space: nowrap;
 }
 
@@ -445,53 +500,52 @@
 .fw-chat-file {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  padding: var(--forge-space-2);
-  padding-inline-start: var(--forge-space-3);
-  border-inline-start: var(--forge-border-thick) solid var(--forge-color-line-strong);
-  border-radius: 0 var(--forge-radius-sm) var(--forge-radius-sm) 0;
-  background: var(--forge-color-surface-2);
+  padding: var(--fs-space-2);
+  padding-inline-start: var(--fs-space-3);
+  border-inline-start: 2px solid var(--fs-line-strong);
+  border-radius: 0 var(--fs-radius-xs) var(--fs-radius-xs) 0;
+  background: var(--fs-surface-2);
 }
 
 .fw-chat-file__head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-chat-file__path {
   flex: 1 1 auto;
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
   overflow-wrap: anywhere;
 }
 
 .fw-chat-file__tool {
   flex: none;
-  font-size: var(--forge-text-2xs);
-  text-transform: uppercase;
-  letter-spacing: var(--forge-tracking-wide);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
 }
 
 .fw-chat-file__diff {
   margin: 0;
-  max-block-size: var(--forge-space-20);
+  max-block-size: 5rem;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-sunken);
+  padding: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-sunken);
 }
 
 .fw-chat-file__diff code {
   display: block;
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
   white-space: pre;
   font-variant-ligatures: none;
 }
@@ -502,55 +556,54 @@
 .fw-chat-shell {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  padding: var(--forge-space-2);
-  padding-inline-start: var(--forge-space-3);
-  border-inline-start: var(--forge-border-thick) solid var(--forge-color-line-strong);
-  border-radius: 0 var(--forge-radius-sm) var(--forge-radius-sm) 0;
-  background: var(--forge-color-surface-2);
+  padding: var(--fs-space-2);
+  padding-inline-start: var(--fs-space-3);
+  border-inline-start: 2px solid var(--fs-line-strong);
+  border-radius: 0 var(--fs-radius-xs) var(--fs-radius-xs) 0;
+  background: var(--fs-surface-2);
 }
 
 .fw-chat-shell__head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-chat-shell__description {
   flex: 1 1 auto;
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
   overflow-wrap: anywhere;
 }
 
 .fw-chat-shell__status {
   flex: none;
-  font-size: var(--forge-text-2xs);
-  text-transform: uppercase;
-  letter-spacing: var(--forge-tracking-wide);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
 }
 
 .fw-chat-shell__command,
 .fw-chat-shell__result {
   margin: 0;
-  max-block-size: var(--forge-space-20);
+  max-block-size: 5rem;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-sunken);
+  padding: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-sunken);
 }
 
 .fw-chat-shell__command code,
 .fw-chat-shell__result code {
   display: block;
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
   white-space: pre;
   font-variant-ligatures: none;
 }
@@ -562,7 +615,7 @@
 .fw-chat-atts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -571,25 +624,25 @@
 .fw-chat-att {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   block-size: var(--fw-control-h);
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-secondary);
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-2);
   cursor: pointer;
   max-inline-size: 100%;
 }
 
 .fw-chat-att:hover {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text);
+  background: var(--fs-sunken);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink);
 }
 
 .fw-chat-att__name {
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -597,7 +650,7 @@
 }
 
 .fw-chat-att__size {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   white-space: nowrap;
 }
 
@@ -606,17 +659,17 @@
    ========================================================================= */
 
 .fw-chat-md > * + * {
-  margin-block-start: var(--forge-space-3);
+  margin-block-start: var(--fs-space-3);
 }
 
 .fw-chat-md__h {
-  color: var(--forge-color-text);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-snug);
+  color: var(--fs-ink);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
 }
 
 .fw-chat-md > .fw-chat-md__h {
-  margin-block-start: var(--forge-space-5);
+  margin-block-start: var(--fs-space-5);
 }
 
 .fw-chat-md > .fw-chat-md__h:first-child {
@@ -624,22 +677,22 @@
 }
 
 .fw-chat-md__h--1 {
-  font-size: var(--forge-text-xl);
+  font-size: var(--fs-text-22);
 }
 
 .fw-chat-md__h--2 {
-  font-size: var(--forge-text-lg);
+  font-size: var(--fs-text-18);
 }
 
 .fw-chat-md__h--3 {
-  font-size: var(--forge-text-md);
+  font-size: var(--fs-text-15);
 }
 
 .fw-chat-md__h--4,
 .fw-chat-md__h--5,
 .fw-chat-md__h--6 {
-  font-size: var(--forge-text-base);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-14);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-md__p {
@@ -649,90 +702,97 @@
 .fw-chat-md__ul,
 .fw-chat-md__ol {
   margin: 0;
-  padding-inline-start: var(--forge-space-5);
+  padding-inline-start: var(--fs-space-5);
 }
 
 .fw-chat-md__li + .fw-chat-md__li {
-  margin-block-start: var(--forge-space-2);
+  margin-block-start: var(--fs-space-2);
 }
 
 .fw-chat-md__li::marker {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-md__quote {
-  padding-inline-start: var(--forge-space-4);
-  border-inline-start: var(--forge-border-thick) solid var(--forge-color-line-strong);
-  color: var(--forge-color-text-muted);
+  padding-inline-start: var(--fs-space-4);
+  border-inline-start: 2px solid var(--fs-line-strong);
+  color: var(--fs-ink-3);
   font-style: italic;
 }
 
 .fw-chat-md__rule {
   border: 0;
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line);
-  margin-block: var(--forge-space-4);
+  border-block-start: 1px solid var(--fs-line);
+  margin-block: var(--fs-space-4);
 }
 
 .fw-chat-md__link {
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
   text-decoration: underline;
-  text-decoration-color: var(--forge-color-line-loud);
+  text-decoration-color: var(--fs-ink-3);
   text-underline-offset: 2px;
 }
 
 .fw-chat-md__link:hover {
-  text-decoration-color: var(--forge-color-text);
+  text-decoration-color: var(--fs-ink);
 }
 
 .fw-chat-md__code-inline {
-  padding: 0 var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-xs);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-sm);
+  padding: 0 var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
   overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------ code blocks */
 
 .fw-chat-md__code {
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-sunken);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
   overflow: hidden;
 }
 
 .fw-chat-md__code-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-block-size: var(--fw-control-h);
-  padding-inline: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-surface-1);
+  padding-inline: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-surface);
 }
 
 .fw-chat-md__code-lang {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  text-transform: uppercase;
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
 }
 
 .fw-chat-md__code-body {
   margin: 0;
-  padding: var(--forge-space-3);
+  padding: var(--fs-space-3);
   overflow-x: auto;
   overscroll-behavior-x: contain;
 }
 
+/* The block takes keyboard focus so a long line can be scrolled with the arrow keys. The card clips overflow,
+   so the ring is drawn inside the block instead of as an outline around it. */
+.fw-chat-md__code-body:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--fs-accent);
+  border-radius: 0 0 var(--fs-radius-sm) var(--fs-radius-sm);
+}
+
 .fw-chat-md__code-body code {
   display: block;
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-sm);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
   white-space: pre;
   font-variant-ligatures: none;
 }
@@ -742,34 +802,34 @@
 .fw-chat-md__tablewrap {
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
 }
 
 .fw-chat-md__table {
   inline-size: 100%;
   border-collapse: collapse;
-  font-size: var(--forge-text-sm);
-  line-height: var(--forge-leading-snug);
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-snug);
 }
 
 .fw-chat-md__table th,
 .fw-chat-md__table td {
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-block-end: 1px solid var(--fs-line);
   text-align: start;
   vertical-align: top;
 }
 
 .fw-chat-md__table thead th {
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text);
-  font-weight: var(--forge-weight-semibold);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink);
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .fw-chat-md__table tbody td {
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-md__table tbody tr:last-child td {
@@ -788,12 +848,12 @@
 
 .fw-chat-caret {
   display: inline-block;
-  inline-size: var(--forge-border-thick);
+  inline-size: 2px;
   block-size: 1em;
-  margin-inline-start: var(--forge-space-1);
+  margin-inline-start: var(--fs-space-1);
   vertical-align: text-bottom;
-  background: var(--forge-color-accent);
-  animation: fw-chat-blink var(--forge-motion-slower) steps(2, jump-none) infinite;
+  background: var(--fs-accent);
+  animation: fw-chat-blink var(--fs-dur-3) steps(2, jump-none) infinite;
 }
 
 @keyframes fw-chat-blink {
@@ -815,63 +875,72 @@
 
 .fw-chat__dock {
   flex: none;
-  padding: var(--forge-space-3) var(--fw-gutter) var(--forge-space-4);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fw-gutter) var(--fs-space-5);
+  background: var(--fs-bg);
+}
+
+/* Everything in the dock shares the composer's column. */
+.fw-chat__dock > * {
+  inline-size: 100%;
+  max-inline-size: var(--fs-column);
+  margin-inline: auto;
 }
 
 .fw-chat-composer {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   inline-size: 100%;
-  max-inline-size: var(--forge-layout-composer);
+  max-inline-size: var(--fs-column);
   margin-inline: auto;
   min-inline-size: 0;
 }
 
+/* The one memorable shape: the struck corner (BRAND.md). Surface, floating shadow. */
 .fw-chat-composer__shell {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2) var(--forge-space-3) var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-xl);
-  background: var(--forge-color-surface-1);
-  box-shadow: var(--forge-shadow-sm);
+  padding: 0;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-struck);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-2);
   min-inline-size: 0;
 }
 
-/* The composer is the one active control while it holds focus. */
-.fw-chat-composer__shell:focus-within {
-  border-color: var(--forge-color-accent);
-}
-
+/* Focus: the border turns Pauw and a 3 px Pauw-soft halo appears (DESIGN.md §2). Only box-shadow and
+   border colour change; nothing moves. */
 .fw-chat-composer__shell:has(.fw-chat-composer__field:focus-visible) {
-  box-shadow: var(--forge-shadow-focus-ring);
+  border-color: var(--fs-accent);
+  box-shadow:
+    var(--fs-shadow-2),
+    0 0 0 3px var(--fs-accent-soft);
 }
 
 .fw-chat-composer__field {
   inline-size: 100%;
-  min-block-size: var(--forge-space-10);
-  /* Grows to roughly eight lines, then hands over to its own scrollbar.
-     No --forge-layout-composer-max token exists yet; noted in the handover. */
-  max-block-size: calc(var(--forge-space-20) + var(--forge-space-12));
-  padding: var(--forge-space-2) var(--forge-space-1) 0;
+  min-block-size: 52px;
+  /* Grows to roughly eight lines, then hands over to its own scrollbar. */
+  max-block-size: calc(5rem + 3rem);
+  padding: var(--fs-space-4) var(--fs-space-5) var(--fs-space-1);
   border: 0;
   background: transparent;
-  color: var(--forge-color-text);
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-md);
-  line-height: var(--forge-leading-normal);
-  letter-spacing: var(--forge-tracking-tight);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-body);
+  letter-spacing: 0;
   resize: none;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .fw-chat-composer__field::placeholder {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-composer__field:focus,
@@ -880,10 +949,16 @@
   box-shadow: none;
 }
 
+.fw-chat-composer[data-variant='start'] .fw-chat-composer__field {
+  min-block-size: 88px;
+  padding-block-start: var(--fs-space-5);
+}
+
 .fw-chat-composer__row {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-2);
+  padding: 0 var(--fs-space-3) var(--fs-space-3);
   min-inline-size: 0;
   /* Lead fix, measured not eyeballed: this row grew from 3 controls to 10 over this
      run (attach, @-mention, skills, Auto-plan switch, Effort menu, the 4-way send-mode control,
@@ -895,22 +970,22 @@
      at 768px and up the row is measurably unchanged (0px overflow, nothing clipped), so no wide
      layout moves a pixel. `row-gap` keeps the two lines from touching when wrapping does happen. */
   flex-wrap: wrap;
-  row-gap: var(--forge-space-1);
+  row-gap: var(--fs-space-1);
 }
 
 .fw-chat-composer__hint {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex-wrap: wrap;
-  padding-inline: var(--forge-space-2);
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-faint);
+  padding-inline: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-composer__hint-sep {
-  color: var(--forge-color-line-strong);
-  padding-inline: var(--forge-space-1);
+  color: var(--fs-line-strong);
+  padding-inline: var(--fs-space-1);
 }
 
 /* composer-modes-ui: the Auto-plan switch and the Effort menu's labelled trigger sit in the same
@@ -927,13 +1002,13 @@
 .fw-chat-composer__plan-banner {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-lg);
-  background: var(--forge-color-surface-1);
-  color: var(--forge-color-text-secondary);
-  font-size: var(--forge-text-xs);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-12);
 }
 
 /* feat-composer-power: the queue of messages held back while a run is active — same surface/
@@ -944,7 +1019,7 @@
 .fw-chat-composer__queue {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -953,46 +1028,45 @@
 .fw-chat-composer__queue-item {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-lg);
-  background: var(--forge-color-surface-1);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
 }
 
 .fw-chat-composer__queue-item--error {
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-chat-composer__queue-text {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-px);
+  gap: 1px;
   flex: 1 1 auto;
   min-inline-size: 0;
 }
 
 .fw-chat-composer__queue-body {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .fw-chat-composer__queue-error {
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-composer__queue-status {
   flex: none;
   align-self: center;
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  text-transform: uppercase;
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
+  color: var(--fs-ink-3);
 }
 
 /* feat-composer-power: the field wrapper that anchors the `@`-mention / `/`-command popovers to
@@ -1020,15 +1094,15 @@
 
 .fw-chat-menu__panel {
   position: absolute;
-  inset-block-end: calc(100% + var(--forge-space-2));
+  inset-block-end: calc(100% + var(--fs-space-2));
   inset-inline-start: 0;
-  z-index: var(--forge-z-overlay);
+  z-index: 300;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-px);
+  gap: 1px;
   inline-size: max-content;
-  min-inline-size: var(--forge-layout-minimap-w);
-  max-inline-size: var(--forge-layout-inspector);
+  min-inline-size: 168px;
+  max-inline-size: 340px;
   /* fix-ui-clutter (item 5): unbounded height let a long list (e.g. every skill registered on
      a project) grow the popover past the top of the viewport, covering the thread behind it —
      the panel is already positioned ABOVE the composer (inset-block-end above); bounding its
@@ -1037,60 +1111,60 @@
   max-block-size: 40vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-raised);
-  box-shadow: var(--forge-shadow-lg);
+  padding: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-3);
 }
 
 .fw-chat-menu__title {
-  padding-inline: var(--forge-space-2);
-  padding-block-end: var(--forge-space-1);
+  padding-inline: var(--fs-space-2);
+  padding-block-end: var(--fs-space-1);
 }
 
 .fw-chat-menu__item {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2);
-  border-radius: var(--forge-radius-sm);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2);
+  border-radius: var(--fs-radius-xs);
   background: transparent;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
   text-align: start;
   cursor: pointer;
   min-inline-size: 0;
 }
 
 .fw-chat-menu__item:hover {
-  background: var(--forge-color-hover);
-  color: var(--forge-color-text);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink);
 }
 
 .fw-chat-menu__item-text {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-px);
+  gap: 1px;
   min-inline-size: 0;
 }
 
 .fw-chat-menu__item-label {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink);
 }
 
 /* fix-ui-clutter (item 5): an item with no recorded description renders only its name — a
    touch smaller than a labelled item's name, since it is standing in alone for what would
    otherwise be a label + detail pair. */
 .fw-chat-menu__item-label--solo {
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-menu__item-detail {
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 /* composer-modes-ui: the trailing check mark on the CURRENT choice in a single-select menu
@@ -1099,16 +1173,16 @@
   flex: none;
   align-self: center;
   margin-inline-start: auto;
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
 }
 
 .fw-chat-menu__note {
-  padding: var(--forge-space-2) var(--forge-space-2) 0;
-  margin-block-start: var(--forge-space-1);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-faint);
+  padding: var(--fs-space-2) var(--fs-space-2) 0;
+  margin-block-start: var(--fs-space-1);
+  border-block-start: 1px solid var(--fs-line);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -1127,21 +1201,21 @@
 .fw-chat-cc__chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   block-size: var(--fw-control-h);
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-full);
+  padding-inline: var(--fs-space-2);
+  border: 1px dashed var(--fs-line-strong);
+  border-radius: var(--fs-radius-pill);
   background: transparent;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
   cursor: pointer;
   min-inline-size: 0;
 }
 
 .fw-chat-cc__chip:hover {
-  background: var(--forge-color-hover);
-  color: var(--forge-color-text-secondary);
-  border-color: var(--forge-color-line-loud);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink-2);
+  border-color: var(--fs-ink-3);
 }
 
 .fw-chat-cc__glyph,
@@ -1150,7 +1224,7 @@
 }
 
 .fw-chat-cc__text {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1159,56 +1233,56 @@
 
 .fw-chat-cc__panel {
   position: absolute;
-  inset-block-start: calc(100% + var(--forge-space-2));
+  inset-block-start: calc(100% + var(--fs-space-2));
   inset-inline-end: 0;
-  z-index: var(--forge-z-overlay);
+  z-index: 300;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
-  inline-size: var(--forge-layout-inspector);
-  max-inline-size: calc(100vw - var(--forge-space-8));
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-lg);
-  background: var(--forge-color-raised);
-  box-shadow: var(--forge-shadow-lg);
+  gap: var(--fs-space-2);
+  inline-size: 340px;
+  max-inline-size: calc(100vw - var(--fs-space-7));
+  padding: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-3);
   text-align: start;
 }
 
 .fw-chat-cc__panel-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
 }
 
 .fw-chat-cc__lead {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
 }
 
 .fw-chat-cc__state {
   display: flex;
   align-items: baseline;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
 }
 
 .fw-chat-cc__state-title {
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
 }
 
 .fw-chat-cc__detail,
 .fw-chat-cc__hint {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
 }
 
 .fw-chat-cc__hint {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -1216,43 +1290,43 @@
    ========================================================================= */
 
 :root[data-density='compact'] .fw-chat__head-inner {
-  padding-block: var(--forge-space-3);
-  gap: var(--forge-space-1);
+  padding-block: var(--fs-space-3);
+  gap: var(--fs-space-1);
 }
 
 :root[data-density='compact'] .fw-chat__title {
-  font-size: var(--forge-text-lg);
+  font-size: var(--fs-text-18);
 }
 
 :root[data-density='compact'] .fw-chat-thread__list {
-  gap: var(--forge-space-4);
-  padding-block: var(--forge-space-4) var(--forge-space-6);
+  gap: var(--fs-space-4);
+  padding-block: var(--fs-space-4) var(--fs-space-6);
 }
 
 :root[data-density='compact'] .fw-chat-msg {
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
 }
 
 :root[data-density='compact'] .fw-chat-msg--user {
-  padding: var(--forge-space-2) var(--forge-space-3);
+  padding: var(--fs-space-2) var(--fs-space-3);
 }
 
 :root[data-density='compact'] .fw-chat-msg__body {
-  font-size: var(--forge-text-base);
-  line-height: var(--forge-leading-normal);
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-body);
 }
 
 :root[data-density='compact'] .fw-chat-md > * + * {
-  margin-block-start: var(--forge-space-2);
+  margin-block-start: var(--fs-space-2);
 }
 
 :root[data-density='compact'] .fw-chat-composer__field {
-  min-block-size: var(--forge-space-8);
-  font-size: var(--forge-text-base);
+  min-block-size: var(--fs-space-7);
+  font-size: var(--fs-text-14);
 }
 
 :root[data-density='compact'] .fw-chat__dock {
-  padding-block: var(--forge-space-2) var(--forge-space-3);
+  padding-block: var(--fs-space-2) var(--fs-space-3);
 }
 
 /* =========================================================================
@@ -1265,12 +1339,12 @@
   }
 
   .fw-chat-cc__text {
-    max-inline-size: var(--forge-space-20);
+    max-inline-size: 5rem;
   }
 
   .fw-chat-md__table th,
   .fw-chat-md__table td {
-    padding: var(--forge-space-1) var(--forge-space-2);
+    padding: var(--fs-space-1) var(--fs-space-2);
   }
 }
 
@@ -1289,13 +1363,13 @@
 .fw-ask {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-5);
+  gap: var(--fs-space-5);
 }
 
 .fw-ask__question {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   padding: 0;
   border: none;
   margin: 0;
@@ -1306,38 +1380,37 @@
 }
 
 .fw-ask__header {
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-semibold);
-  text-transform: uppercase;
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 /* The one question on screen — deliberately a step up from the old
-   --forge-text-base: isolating it to its own page is the whole point of the
+   14px body size: isolating it to its own page is the whole point of the
    wizard, so it should read with more weight than a line in a crowded list. */
 .fw-ask__text {
   padding: 0;
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-lg);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text);
-  line-height: var(--forge-leading-snug);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-18);
+  font-weight: 500;
+  color: var(--fs-ink);
+  line-height: var(--fs-leading-snug);
 }
 
 .fw-ask__hint {
   margin: 0;
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
 }
 
 .fw-ask__options {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
 }
 
 /* A full-width, fully clickable ROW (not a chip) — the numbered-row shape the
@@ -1346,36 +1419,35 @@
 .fw-ask__option {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   inline-size: 100%;
   min-block-size: var(--fw-row-h);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-sunken);
-  color: var(--forge-color-text-secondary);
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
   text-align: start;
   cursor: pointer;
-  transition: background var(--forge-motion-fast) var(--forge-motion-ease-standard), border-color var(--forge-motion-fast) var(--forge-motion-ease-standard);
 }
 
 .fw-ask__option:hover:not(:disabled):not(.is-selected) {
-  background: var(--forge-color-hover);
-  color: var(--forge-color-text);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink);
 }
 
 .fw-ask__option:active:not(:disabled) {
-  background: var(--forge-color-active);
+  background: color-mix(in srgb, var(--fs-ink) 8%, transparent);
 }
 
 .fw-ask__option.is-selected {
-  background: var(--forge-color-surface-2);
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text);
-  font-weight: var(--forge-weight-semibold);
+  background: var(--fs-surface-2);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink);
+  font-weight: 600;
 }
 
 .fw-ask__option:disabled {
@@ -1391,9 +1463,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-inline-size: var(--forge-space-5);
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-faint);
+  min-inline-size: var(--fs-space-5);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-ask__option-label {
@@ -1410,21 +1482,21 @@
 .fw-ask__other {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   block-size: var(--fw-control-h);
-  padding-inline: var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-bg);
+  padding-inline: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-bg);
 }
 
 .fw-ask__other:has(.fw-ask__other-input:focus-visible) {
-  box-shadow: var(--forge-shadow-focus-ring);
+  box-shadow: var(--fs-focus);
 }
 
 .fw-ask__other-icon {
   flex: none;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-ask__other-input {
@@ -1432,9 +1504,9 @@
   min-inline-size: 0;
   border: 0;
   background: transparent;
-  color: var(--forge-color-text);
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-sm);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-13);
 }
 
 .fw-ask__other-input:focus,
@@ -1461,14 +1533,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   inline-size: 100%;
 }
 
 .fw-ask__summary {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
 }
 
 .fw-ask__summary-list {
@@ -1483,9 +1555,9 @@
 .fw-ask__summary-item {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
-  padding-block: var(--forge-space-3);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  gap: var(--fs-space-1);
+  padding-block: var(--fs-space-3);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-ask__summary-item:last-child {
@@ -1493,16 +1565,16 @@
 }
 
 .fw-ask__summary-q {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
 }
 
 .fw-ask__summary-a {
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
   overflow-wrap: anywhere;
 }
 
@@ -1512,14 +1584,376 @@
 .fw-ask__option-recommended {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin-inline-start: auto;
   flex: none;
-  padding: 0 var(--forge-space-2);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-full);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-secondary);
+  padding: 0 var(--fs-space-2);
+  border: 1px dashed var(--fs-line-strong);
+  border-radius: var(--fs-radius-pill);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
   white-space: nowrap;
+}
+
+/* =========================================================================
+   WP B3 — drag-and-drop target, bypass confirmation, header actions
+   ========================================================================= */
+
+.fw-chat-composer {
+  position: relative;
+}
+
+.fw-chat-composer__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fs-space-2);
+  border: 2px dashed var(--fs-ink-3);
+  border-radius: var(--fs-radius-md);
+  background: color-mix(in srgb, var(--fs-surface) 92%, transparent);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.fw-chat-composer__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line-strong);
+  border-inline-start: 2px solid var(--fs-danger);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+}
+
+.fw-chat-composer__confirm-title {
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+}
+
+.fw-chat-composer__confirm-detail {
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
+}
+
+.fw-chat-composer__confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+}
+
+.fw-chat__rail-toggle {
+  flex: none;
+}
+
+/* WP B3 cards (patch from B3-cards): the stack of cards above the composer. */
+.fw-chat__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  margin-block-end: var(--fs-space-3);
+}
+
+.fw-chat__cards:empty {
+  display: none;
+}
+
+/* =========================================================================
+   FU-CHAT — Eenvoudig: the compact limit toggle and the one-line hint
+   ========================================================================= */
+
+.fw-usage-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  margin-inline-start: auto;
+  min-block-size: 1.75rem;
+  padding: 0 var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: 999px;
+  background: var(--fs-surface);
+  color: var(--fs-ink-3);
+  font: inherit;
+  font-size: var(--fs-text-12);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fw-usage-toggle:hover {
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink-2);
+}
+
+.fw-usage-toggle:active {
+  background: color-mix(in srgb, var(--fs-ink) 8%, transparent);
+}
+
+.fw-usage-toggle:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+.fw-usage-toggle__label {
+  color: var(--fs-ink-2);
+  font-weight: 500;
+}
+
+.fw-usage-toggle__value {
+  font-variant-numeric: tabular-nums;
+  color: var(--fs-ink);
+  font-weight: 500;
+}
+
+.fw-usage-toggle__pair[data-level='high'] .fw-usage-toggle__value {
+  color: var(--fs-danger);
+  font-weight: 600;
+}
+
+/* FU: the limit is almost used up (>= 90 %). The token set is monochrome, so the warning is
+   carried by shape and words, never by a hue: a heavier border, a tinted surface, a warning icon and
+   the visible "bijna op". The border width change is not animated (layout property). */
+.fw-usage-toggle[data-alert='near-limit'] {
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--fs-danger) 40%, transparent);
+  border-style: solid;
+  background: var(--fs-danger-soft);
+  color: var(--fs-ink-2);
+}
+
+.fw-usage-toggle[data-alert='near-limit']:hover {
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+}
+
+.fw-usage-toggle__alert-icon {
+  color: var(--fs-danger);
+}
+
+.fw-usage-toggle__alert {
+  color: var(--fs-danger);
+  font-weight: 600;
+}
+
+.fw-usage-toggle__note {
+  color: var(--fs-ink-3);
+}
+
+.fw-usage-toggle__chevron {
+  color: var(--fs-ink-3);
+  transition: transform var(--fs-dur-1) var(--fs-ease);
+}
+
+.fw-usage-toggle[aria-expanded='true'] .fw-usage-toggle__chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-usage-toggle,
+  .fw-usage-toggle__chevron {
+    transition: none;
+  }
+}
+
+/* The subtitle line carries the toggle at its end; it must stay centred against the pill. */
+.fw-chat__subtitle:has(.fw-usage-toggle) {
+  align-items: center;
+}
+
+.fw-chat-composer__hint--one {
+  flex-wrap: nowrap;
+  min-inline-size: 0;
+}
+
+.fw-chat-composer__scope {
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* On a phone there is no hover to read the title, so the safety line may wrap instead of being cut. */
+@media (max-width: 40rem) {
+  .fw-chat-composer__scope {
+    white-space: normal;
+  }
+}
+
+/* =========================================================================
+   13. Redesign (part 2A): composer row, "+" tray, send, notes, tools
+   ========================================================================= */
+
+.fw-chat-composer__add {
+  flex: none;
+  color: var(--fs-ink-2);
+}
+
+.fw-chat-composer__add[aria-expanded='true'] {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+}
+
+/* The project chip: a quiet pill (mockup .chip-project). */
+.fw-chat-composer__project {
+  min-inline-size: 0;
+}
+
+.fw-chat-composer__project .fw-chat-menu__panel {
+  min-inline-size: 220px;
+}
+
+.fw-chat-composer__chip.fw-chat-menu__trigger {
+  max-inline-size: 260px;
+  min-block-size: 30px;
+  block-size: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-pill);
+  background: transparent;
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+}
+
+.fw-chat-composer__chip.fw-chat-menu__trigger:hover {
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink);
+}
+
+/* Send: the struck square in Pauw. Stop: the same shape, quiet. */
+.fw-chat-composer__send {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 38px;
+  block-size: 38px;
+  margin-inline-start: auto;
+  border: 0;
+  border-radius: 12px 3px 12px 12px;
+  background: var(--fs-accent);
+  color: var(--fs-ink-on-accent);
+  box-shadow: var(--fs-shadow-1);
+  cursor: pointer;
+  transition:
+    transform var(--fs-dur-1) var(--fs-ease-spring),
+    opacity var(--fs-dur-1) var(--fs-ease);
+}
+
+.fw-chat-composer__send:hover:not(:disabled) {
+  background: var(--fs-accent-hover);
+}
+
+.fw-chat-composer__send:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.fw-chat-composer__send:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fw-chat-composer__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.fw-chat-composer__send--stop {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+  box-shadow: none;
+}
+
+.fw-chat-composer__send--stop:hover:not(:disabled) {
+  background: var(--fs-line);
+}
+
+/* The "+" tray: one quiet band inside the composer, above the row. */
+.fw-chat-composer__tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fs-space-2);
+  margin: 0 var(--fs-space-3) var(--fs-space-2);
+  padding: var(--fs-space-2);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface-2);
+  animation: fw-chat-tray-in var(--fs-dur-2) var(--fs-ease) both;
+}
+
+.fw-chat-composer__tray-sep {
+  flex: 1 1 0;
+}
+
+@keyframes fw-chat-tray-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fw-chat-composer__hint--once,
+.fw-chat-composer__hint--example {
+  justify-content: center;
+}
+
+/* Uitgebreid's tools row: quiet, at the column width, no rule under it. */
+.fw-chat__tools {
+  flex: none;
+  inline-size: 100%;
+  max-inline-size: var(--fs-column);
+  margin-inline: auto;
+  padding: var(--fs-space-2) var(--fw-gutter) 0;
+}
+
+/* One line between the thread and the composer: project mismatch, and the example marker in fixtures. */
+.fw-chat__note,
+.fw-chat__example {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-2);
+  margin: 0;
+  padding-inline: var(--fs-space-2);
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
+}
+
+.fw-chat__example {
+  align-items: center;
+  inline-size: 100%;
+  max-inline-size: var(--fs-column);
+  margin: var(--fs-space-3) auto 0;
+  padding-inline: var(--fw-gutter);
+}
+
+.fw-chat__note-icon {
+  flex: none;
+  margin-block-start: 1px;
+  color: var(--fs-info);
+}
+
+.fw-chat__note strong {
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+/* Your bubble keeps its header (time, copy) out of the bubble: under its right edge, on hover/focus. */
+.fw-chat-msg--user {
+  position: relative;
+}
+
+.fw-chat-msg--user .fw-chat-msg__head {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-end: 0;
 }

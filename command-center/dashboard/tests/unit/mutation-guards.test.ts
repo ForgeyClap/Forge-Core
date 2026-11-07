@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { usageField } from '@/bridge/usage/aggregator';
+import { usageField } from '@archive/bridge/usage/aggregator';
 import {
   checkRunningEvidence,
   explainRunTransition,

@@ -10,7 +10,7 @@ an empty/guessed row is worse than no row (never fabricate a pass).
 **Date:** `<YYYY-MM-DD>`
 **Tester:** `<who/what ran it — e.g. "fresh Claude session, no prior context">`
 
-### Trigger phrases (SHOULD activate the skill) — need 6+
+### Trigger phrases (SHOULD activate the skill) — need 8+
 
 | # | Phrase tried | Activated? (Y/N) | Notes |
 |---|---------------|-------------------|-------|
@@ -20,8 +20,10 @@ an empty/guessed row is worse than no row (never fabricate a pass).
 | 4 | | | |
 | 5 | | | |
 | 6 | | | |
+| 7 | | | |
+| 8 | | | |
 
-### Near-miss phrases (should NOT activate this skill) — need 4+
+### Near-miss phrases (should NOT activate this skill) — need 8+, Dutch included; name the competing skill each one belongs to
 
 | # | Phrase tried | Activated? (Y/N) | Notes |
 |---|---------------|-------------------|-------|
@@ -29,6 +31,10 @@ an empty/guessed row is worse than no row (never fabricate a pass).
 | 2 | | | |
 | 3 | | | |
 | 4 | | | |
+| 5 | | | |
+| 6 | | | |
+| 7 | | | |
+| 8 | | | |
 
 **Score:** `<correct>/<total>` → `<percent>%` (target >= 95%)
 

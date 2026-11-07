@@ -13,7 +13,9 @@
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Button, EmptyState, Eyebrow, IconButton, Machine } from '@/components/primitives';
+import { Button, EmptyState, IconButton } from '@/components/primitives';
+import { useLocale } from '@/i18n/use-locale';
+import type { Locale } from '@/i18n';
 import { usePrototype } from '@/prototype/state/prototype-store';
 import { useMindMap, useMindMapList } from '@/prototype/state/adapter/mindmaps';
 import type { MindMapSummary } from '@/prototype/state/adapter/mindmaps';
@@ -23,24 +25,39 @@ import { groupForBranch, layoutMindMap, pathToRoot } from './mindmap-layout';
 import type { MindMapLayout } from './mindmap-layout';
 
 import './mindmap.css';
+import { countKey, localeTag } from '@/i18n/format';
 
 export const EMPTY_TITLE = 'No mind map generated yet';
 export const EMPTY_DETAIL =
   'It is created for L3/L4 runs. When a run writes one to .claude/forge-mindmaps/, it shows up here.';
 
-function formatWhen(iso: string | null): string | null {
+/** A moment in the app language (Dutch first), never in the browser's default language. */
+function formatWhen(iso: string | null, locale: Locale): string | null {
   if (iso === null) return null;
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return null;
-  return new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  return new Date(ms).toLocaleString(localeTag(locale), { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** The page title and lead, the same header as the other Uitgebreid routes, in every state. */
+function MindMapHead({ title, lead }: { title: string; lead: string }) {
+  return (
+    <header className="fw-mm__head">
+      <div className="fw-mm__heading">
+        <h1 className="fw-mm__title">{title}</h1>
+        <p className="fw-mm__subtitle">{lead}</p>
+      </div>
+    </header>
+  );
 }
 
 /* ------------------------------------------------------------------ map list */
 
 function MapList({ maps, selectedId, onSelect }: { maps: readonly MindMapSummary[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const { t, locale } = useLocale();
   return (
-    <nav className="fw-mm-list" aria-label="Mind maps">
-      <Eyebrow className="fw-mm-list__label">Maps · {maps.length}</Eyebrow>
+    <nav className="fw-mm-list" aria-label={t('rd.map.mapsLabel')}>
+      <span className="fw-mm-list__label fw-mm-label">{t('rd.map.maps', { count: maps.length })}</span>
       <ul className="fw-mm-list__items">
         {maps.map((m) => (
           <li key={m.id}>
@@ -52,8 +69,8 @@ function MapList({ maps, selectedId, onSelect }: { maps: readonly MindMapSummary
             >
               <span className="fw-mm-list__title fw-truncate">{m.title}</span>
               <span className="fw-mm-list__meta">
-                <Machine muted>{m.nodeCount} nodes</Machine>
-                {formatWhen(m.generatedAt) ? <span>{formatWhen(m.generatedAt)}</span> : null}
+                <span className="fw-mm-quiet">{t(countKey(m.nodeCount, 'rd.map.nodesOne', 'rd.map.nodesMany'), { count: m.nodeCount })}</span>
+                {formatWhen(m.generatedAt, locale) ? <span>{formatWhen(m.generatedAt, locale)}</span> : null}
               </span>
             </button>
           </li>
@@ -65,21 +82,24 @@ function MapList({ maps, selectedId, onSelect }: { maps: readonly MindMapSummary
 
 /* --------------------------------------------------------------- node detail */
 
+const KIND_KEY = { root: 'rd.map.node.kindRoot', branch: 'rd.map.node.kindBranch', leaf: 'rd.map.node.kindLeaf' } as const;
+
 function NodeDetail({ layout, selectedId, onSelect, onClose }: { layout: MindMapLayout; selectedId: string | null; onSelect: (id: string) => void; onClose: () => void }) {
+  const { t } = useLocale();
   const node = selectedId ? layout.nodes.find((n) => n.id === selectedId) : undefined;
   if (!node) return null;
   const path = pathToRoot(layout, node.id);
   const kids = node.childIds.map((id) => layout.nodes.find((n) => n.id === id)).filter((n): n is NonNullable<typeof n> => !!n);
   return (
-    <section className="fw-mm-detail" aria-label="Selected node" data-group={groupForBranch(node.branch)}>
+    <section className="fw-mm-detail" aria-label={t('rd.map.node.region')} data-group={groupForBranch(node.branch)}>
       <div className="fw-mm-detail__top">
-        <Eyebrow>Selected node · {node.kind}</Eyebrow>
-        <IconButton icon="X" label="Close the node details" size="sm" onClick={onClose} />
+        <span className="fw-mm-label">{t('rd.map.node.heading', { kind: t(KIND_KEY[node.kind]) })}</span>
+        <IconButton icon="X" label={t('rd.map.node.close')} size="sm" onClick={onClose} />
       </div>
-      <h3 className="fw-mm-detail__title">{node.label}</h3>
-      {node.orphan ? <p className="fw-mm-detail__hint">Not connected to the root in this map file.</p> : null}
+      <h2 className="fw-mm-detail__title">{node.label}</h2>
+      {node.orphan ? <p className="fw-mm-detail__hint">{t('rd.map.node.orphan')}</p> : null}
       {path.length > 1 ? (
-        <ol className="fw-mm-detail__path" aria-label="Path from the root">
+        <ol className="fw-mm-detail__path" aria-label={t('rd.map.node.path')}>
           {path.slice(0, -1).map((p) => (
             <li key={p.id}>
               <button type="button" className="fw-mm-chip" data-group={groupForBranch(p.branch)} onClick={() => onSelect(p.id)}>
@@ -89,7 +109,9 @@ function NodeDetail({ layout, selectedId, onSelect, onClose }: { layout: MindMap
           ))}
         </ol>
       ) : null}
-      <Eyebrow>{kids.length ? `Children · ${kids.length}` : 'No children'}</Eyebrow>
+      <span className="fw-mm-label">
+        {kids.length ? t('rd.map.node.children', { count: kids.length }) : t('rd.map.node.noChildren')}
+      </span>
       {kids.length ? (
         <ul className="fw-mm-detail__kids">
           {kids.map((k) => (
@@ -132,6 +154,7 @@ function useNarrowStage(): boolean {
 
 export function MindMapWorkspace({ projectName }: { projectName: string }) {
   const list = useMindMapList(projectName);
+  const { t, locale } = useLocale();
   const [pickedMap, setPickedMap] = useState<string | null>(null);
   const maps = list.value.maps;
   const mapId = pickedMap !== null && maps.some((m) => m.id === pickedMap) ? pickedMap : (maps[0]?.id ?? null);
@@ -148,40 +171,42 @@ export function MindMapWorkspace({ projectName }: { projectName: string }) {
 
   let body: React.ReactNode;
   if (list.status === 'loading') {
-    body = <EmptyState icon="Loader" title="Loading mind maps…" />;
+    body = <EmptyState icon="Loader" title={t('rd.map.loading')} />;
   } else if (list.status === 'error') {
     body = (
       <EmptyState
         icon="CircleAlert"
-        title="Could not load the mind maps"
-        detail={`The Command Center gateway answered: ${list.error ?? 'no reason given'}. Check that it is running, then try again.`}
-        action={<Button size="sm" icon="RefreshCw" onClick={list.reload}>Try again</Button>}
+        title={t('rd.map.error.title')}
+        detail={t('rd.map.error.detail', { reason: list.error ?? '—' })}
+        action={<Button size="sm" icon="RefreshCw" onClick={list.reload}>{t('rd.map.retry')}</Button>}
       />
     );
   } else if (list.value.provenance === 'REFUSED') {
-    body = <EmptyState icon="Lock" title="This project's mind-map folder is not read" detail={list.value.note ?? 'The folder is a link or not a folder.'} />;
+    // The gateway's own note is English server text: shown as is in English, replaced by the Dutch line in Dutch.
+    const note = locale === 'en' ? list.value.note : null;
+    body = <EmptyState icon="Lock" title={t('rd.map.refused.title')} detail={note ?? t('rd.map.refused.detail')} />;
   } else if (maps.length === 0) {
-    body = <EmptyState icon="Map" title={EMPTY_TITLE} detail={EMPTY_DETAIL} />;
+    body = <EmptyState icon="Map" title={t('rd.map.empty.title')} detail={t('rd.map.empty.detail')} />;
   } else {
     let stage: React.ReactNode;
-    if (map.status === 'loading') stage = <EmptyState icon="Loader" title="Loading the map…" compact />;
+    if (map.status === 'loading') stage = <EmptyState icon="Loader" title={t('rd.map.open.loading')} compact />;
     else if (map.status === 'error' || !layout) {
       stage = (
         <EmptyState
           icon="CircleAlert"
-          title="This map could not be opened"
-          detail={map.error ?? 'The file has no usable nodes.'}
-          action={<Button size="sm" icon="RefreshCw" onClick={map.reload}>Try again</Button>}
+          title={t('rd.map.open.error')}
+          detail={map.error ? t('rd.map.open.errorDetail', { reason: map.error }) : t('rd.map.open.noUsable')}
+          action={<Button size="sm" icon="RefreshCw" onClick={map.reload}>{t('rd.map.retry')}</Button>}
           compact
         />
       );
-    } else if (layout.nodes.length === 0) stage = <EmptyState icon="Map" title="This map has no nodes" compact />;
+    } else if (layout.nodes.length === 0) stage = <EmptyState icon="Map" title={t('rd.map.open.noNodes')} compact />;
     else stage = (
       <MindMapCanvas
         layout={layout}
         selectedId={selectedNode}
         onSelect={(id) => setSelected({ map: mapId, node: id })}
-        label={`Mind map: ${map.value?.title ?? ''}`}
+        label={t('rd.map.canvas', { title: map.value?.title ?? '' })}
       />
     );
     body = (
@@ -190,12 +215,17 @@ export function MindMapWorkspace({ projectName }: { projectName: string }) {
           <MapList maps={maps} selectedId={mapId} onSelect={(id) => setPickedMap(id)} />
           {layout && layout.nodes.length && map.status === 'ready' ? (
             <p className="fw-mm__stats">
-              <Machine>{layout.nodes.length}</Machine> nodes · <Machine>{layout.branchCount}</Machine> branches · <Machine>{layout.rings.length}</Machine> levels
+              {`${t(countKey(layout.branchCount, 'rd.map.branchesOne', 'rd.map.branchesMany'), { count: layout.branchCount })} · ${t(
+                countKey(layout.rings.length, 'rd.map.levelsOne', 'rd.map.levelsMany'),
+                { count: layout.rings.length },
+              )}`}
             </p>
           ) : null}
         </div>
         {list.value.unreadable > 0 ? (
-          <p className="fw-mm__note">{list.value.unreadable} map file(s) could not be read and are not listed.</p>
+          <p className="fw-mm__note">
+            {t(countKey(list.value.unreadable, 'rd.map.unreadableOne', 'rd.map.unreadableMany'), { count: list.value.unreadable })}
+          </p>
         ) : null}
         <div className="fw-mm__work">
           <div className="fw-mm__stage">{stage}</div>
@@ -214,16 +244,8 @@ export function MindMapWorkspace({ projectName }: { projectName: string }) {
 
   return (
     <div className="fw-mm">
-      <header className="fw-mm__head">
-        <div className="fw-mm__heading">
-          <Eyebrow>{projectName}</Eyebrow>
-          <h1 className="fw-mm__title">{current ? current.title : 'Mind map'}</h1>
-          <p className="fw-mm__subtitle">
-            The plan of a run as a map: the mission in the middle, each branch a direction it took. Read-only.
-            {current && formatWhen(current.generatedAt) ? ` Generated ${formatWhen(current.generatedAt)}.` : ''}
-          </p>
-        </div>
-      </header>
+      {/* The point count and the date sit on the map's chip in the list; the lead and the stats line do not repeat them. */}
+      <MindMapHead title={current ? current.title : t('nav.mindmap.label')} lead={t('nav.mindmap.description')} />
       {body}
     </div>
   );
@@ -234,15 +256,21 @@ export function MindMapWorkspace({ projectName }: { projectName: string }) {
 export default function MindMapView() {
   const { state } = usePrototype();
   const navigate = useNavigate();
+  const { t } = useLocale();
   const projectName = state.activeProjectId;
   if (!projectName) {
     return (
       <div className="fw-mm">
+        <MindMapHead title={t('nav.mindmap.label')} lead={t('nav.mindmap.description')} />
         <EmptyState
           icon="FolderSearch"
-          title="No project is active."
-          detail="Pick a project first; its mind maps open here."
-          action={<Button variant="primary" size="sm" icon="ArrowRight" onClick={() => navigate('/projects')}>Open the project browser</Button>}
+          title={t('rd.map.noProject.title')}
+          detail={t('rd.map.noProject.detail')}
+          action={
+            <Button variant="primary" size="sm" icon="ArrowRight" onClick={() => navigate('/projects')}>
+              {t('rd.map.noProject.action')}
+            </Button>
+          }
         />
       </div>
     );

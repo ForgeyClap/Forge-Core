@@ -1,0 +1,109 @@
+{
+  "skill": "poteto-mode",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "every description must stay <=200 chars"
+    },
+    {
+      "id": "user-invoked-flag",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "disable-model-invocation: true",
+      "why": "owner-named style mode: only the owner turns it on (upstream is user-invoked too)"
+    },
+    {
+      "id": "user-invoked-wording",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "description: \"User-invoked only: /poteto-mode.",
+      "why": "doctor skillInvocationConflict: a user-invoked skill says so in its description"
+    },
+    {
+      "id": "goal-first",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "Restate, in your own words, the owner's goal",
+      "why": "the goal restatement is the first non-negotiable of poteto mode"
+    },
+    {
+      "id": "principle-decision-rule",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "A principle named without a changed\ndecision was not applied",
+      "why": "principles steer only when the reply names the decision each one changed"
+    },
+    {
+      "id": "principle-table-24",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "| Encode lessons in structure |",
+      "why": "the principle vocabulary (24 names mapped to Forge homes) is the main thing adopted"
+    },
+    {
+      "id": "fork-classification",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "it is not the owner's question",
+      "why": "observable forks are prototyped, not asked"
+    },
+    {
+      "id": "hard-gates-kept",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "Owner-only, always: push, deploy, delete, spend",
+      "why": "Forge hard gates override upstream \"just do it\""
+    },
+    {
+      "id": "outreach-drafted",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "drafted, never sent",
+      "why": "upstream lets external messages proceed; Forge keeps outreach drafted only"
+    },
+    {
+      "id": "goat-routes",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "The upstream per-role model slugs do not apply",
+      "why": "GOAT routing replaces the pstack model slugs"
+    },
+    {
+      "id": "no-hooks-taken",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "The SessionStart and PreToolUse hooks",
+      "why": "pstack hooks are excluded and named as excluded"
+    },
+    {
+      "id": "no-session-start-script",
+      "type": "not_contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "session-start.sh",
+      "why": "no hook script path from upstream is referenced as something to run"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "needle": "| cursor/plugins (pstack, Lauren Tan) |",
+      "why": "provenance table with SHA and licence"
+    },
+    {
+      "id": "body-under-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/poteto-mode/SKILL.md",
+      "n": 500,
+      "why": "doctor skill_hygiene body budget"
+    }
+  ]
+}

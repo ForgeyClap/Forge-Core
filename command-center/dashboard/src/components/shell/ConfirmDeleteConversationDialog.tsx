@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { Button, Modal } from '@/components/primitives';
 import { nextToastId, usePrototype } from '@/prototype/state/prototype-store';
 import { requestDeleteConversation } from './gateway-actions';
+import { useLocale } from '@/i18n/use-locale';
 
 export interface ConfirmDeleteConversationDialogProps {
   readonly open: boolean;
@@ -37,6 +38,7 @@ export function ConfirmDeleteConversationDialog({
   onDeleted,
 }: ConfirmDeleteConversationDialogProps) {
   const { state, dispatch } = usePrototype();
+  const { t } = useLocale();
   const [deleting, setDeleting] = useState(false);
 
   function handleClose() {
@@ -54,8 +56,8 @@ export function ConfirmDeleteConversationDialog({
         type: 'toast/push',
         toast: {
           id: nextToastId(),
-          title: 'Delete failed',
-          detail: result.error ?? 'The gateway could not delete this conversation.',
+          title: t('rd.deleteChat.failed'),
+          detail: result.error ?? t('rd.deleteChat.failedDetail'),
           icon: 'TriangleAlert',
         },
       });
@@ -75,15 +77,15 @@ export function ConfirmDeleteConversationDialog({
       open={open}
       onClose={handleClose}
       size="sm"
-      title="Delete conversation"
-      description={`Permanently deletes "${conversationTitle}". This cannot be undone.`}
+      title={t('rd.deleteChat.title')}
+      description={t('rd.deleteChat.body', { title: conversationTitle })}
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={handleClose} disabled={deleting}>
-            Cancel
+            {t('rd.deleteChat.cancel')}
           </Button>
           <Button variant="danger" size="sm" onClick={() => void handleConfirm()} disabled={deleting}>
-            {deleting ? 'Deleting…' : 'Delete'}
+            {deleting ? t('rd.deleteChat.busy') : t('rd.deleteChat.confirm')}
           </Button>
         </>
       }

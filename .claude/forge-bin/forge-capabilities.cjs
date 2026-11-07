@@ -63,9 +63,23 @@ const fs = require('fs');
 const path = require('path');
 const actiongate = require('./forge-actiongate.cjs');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> pass --root
+const PROJECT_ROOT_DEFAULT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 
-function projectRoot(opts) { return (opts && opts.root) ? path.resolve(opts.root) : PROJECT_ROOT_DEFAULT; }
+function projectRoot(opts) {
+  const root = (opts && opts.root) ? path.resolve(opts.root) : PROJECT_ROOT_DEFAULT;
+  if (!root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
+  return root;
+}
 function claudeDir(opts) { return (opts && opts.claudeDir) ? path.resolve(opts.claudeDir) : path.join(projectRoot(opts), '.claude'); }
 
 // ---------------------------------------------------------------------------
@@ -144,13 +158,30 @@ function inventory(opts) {
 // usage sources — real logged evidence only (see file header)
 // ---------------------------------------------------------------------------
 
-function defaultRunsDir(opts) { return path.join(claudeDir(opts), 'forge-runs'); }
+/** defaultRunsDir(opts) -> the runs folder(s) to read. An explicit opts.claudeDir (test seam) keeps <claudeDir>/
+ *  forge-runs; otherwise the project's layout decides (WP 2.1): legacy = .claude/forge-runs exactly as before, forge =
+ *  [active folder, legacy folder] so runs from before the switch still count. */
+function defaultRunsDir(opts) {
+  if (opts && opts.claudeDir) return path.join(claudeDir(opts), 'forge-runs');
+  const root = projectRoot(opts), active = statePath(root, 'runs'), legacy = path.join(root, '.claude', 'forge-runs');
+  return active === legacy ? legacy : [active, legacy];
+}
 function defaultAgentMemoryDir(opts) { return path.join(claudeDir(opts), 'agent-memory'); }
 
 /** readRunHits(runsDir) -> [{runId, ts, haystack}], one entry per parseable events.jsonl line across every
  *  run directory. Tolerant by design: a missing runsDir, a run with no events.jsonl, or an unparseable/
- *  truncated line is silently skipped rather than thrown — a malformed run must never crash usage(). */
+ *  truncated line is silently skipped rather than thrown — a malformed run must never crash usage().
+ *  runsDir may be an array (WP 2.1: active folder first; a run id already read from an earlier folder wins). */
 function readRunHits(runsDir) {
+  if (Array.isArray(runsDir)) {
+    const out = [], taken = new Set();
+    for (const d of runsDir) {
+      const hits = readRunHits(d);
+      for (const h of hits) if (!taken.has(h.runId)) out.push(h);
+      for (const h of hits) taken.add(h.runId);
+    }
+    return out;
+  }
   let runIds = [];
   try { runIds = fs.readdirSync(runsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); }
   catch { return []; }
@@ -192,16 +223,32 @@ function readTextHaystacks(dir) {
 
 /** readForgeStarHaystacks(claudeDirPath) -> [lowercased file text, ...] for the top-level .claude/FORGE_*.md
  *  and FORGE_*.json files (project memory/ledger/history) — one directory level only, never recursive. */
-function readForgeStarHaystacks(claudeDirPath) {
+function readForgeStarHaystacks(claudeDirPath, skipNames) {
   const out = [];
   let entries = [];
   try { entries = fs.readdirSync(claudeDirPath, { withFileTypes: true }); } catch { return out; }
   for (const e of entries) {
+    if (skipNames && skipNames.has(e.name)) continue; // WP 2.1: already read from its .forge/memory copy
     if (e.isFile() && /^FORGE_.*\.(md|json)$/i.test(e.name)) {
       try { out.push(fs.readFileSync(path.join(claudeDirPath, e.name), 'utf8').toLowerCase()); } catch { /* unreadable — skipped honestly */ }
     }
   }
   return out;
+}
+
+/** memoryHaystacks(opts) -> the FORGE_*.md/.json haystacks of the project memory. Legacy layout (and an explicit
+ *  opts.claudeDir test seam): the top-level .claude/FORGE_* files exactly as before. Forge layout (WP 2.1): the
+ *  .forge/memory files, plus each .claude/FORGE_* file whose name has no .forge/memory copy (install/config files
+ *  and memory not yet moved) - every file is read once, so no mention is counted twice. */
+function memoryHaystacks(opts) {
+  const cd = claudeDir(opts);
+  if ((opts && opts.claudeDir) || !forgePaths) return readForgeStarHaystacks(cd);
+  let mem = null;
+  try { const root = projectRoot(opts); if (forgePaths.layout(root) === 'forge') mem = forgePaths.stateDir(root, 'memory'); } catch { mem = null; }
+  if (!mem) return readForgeStarHaystacks(cd);
+  let moved = [];
+  try { moved = fs.readdirSync(mem); } catch { moved = []; }
+  return [...readForgeStarHaystacks(mem), ...readForgeStarHaystacks(cd, new Set(moved))];
 }
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -228,7 +275,7 @@ function usage(params, opts) {
   const agentMemoryDir = opts.agentMemoryDir ? path.resolve(opts.agentMemoryDir) : defaultAgentMemoryDir(opts);
 
   const runHits = readRunHits(runsDir);
-  const staticHaystacks = [...readTextHaystacks(agentMemoryDir), ...readForgeStarHaystacks(claudeDir(opts))];
+  const staticHaystacks = [...readTextHaystacks(agentMemoryDir), ...memoryHaystacks(opts)];
 
   const caps = inventory(opts);
   return caps.map((cap) => {

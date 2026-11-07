@@ -294,14 +294,14 @@ describe('AgentsView — the Nodes view mode', () => {
     expect(dispatched).toContainEqual({ type: 'agents/layout', layout: 'list' });
   });
 
-  it('with no agents at all, Nodes shows the existing empty state, never an empty graph canvas', () => {
+  it('with no agents at all, there is no layout switch and no graph canvas, only the one honest line', () => {
     const dispatched: PrototypeAction[] = [];
     const emptyState = buildState({ data: { ...EMPTY_DATASET, agents: [] } });
-    const { container, getByText } = renderAgentsView(emptyState, dispatched);
+    const { container, getAllByText } = renderAgentsView(emptyState, dispatched);
 
-    clickSegment(container, /^Nodes$/);
-
+    // fix round: an empty roster has nothing to lay out, so the switch (and Nodes) is gone.
+    expect(container.querySelector('[role="radio"]')).toBeNull();
     expect(container.querySelector('.fw-agents-graph')).toBeNull();
-    expect(getByText('No agents in this state')).toBeTruthy();
+    expect(getAllByText('No Forge agent registry found for this project.')).toHaveLength(1);
   });
 });

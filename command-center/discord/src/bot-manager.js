@@ -190,7 +190,8 @@ async function refreshUsage(){
   try{
     const u = await (await fetch('/api/usage')).json();
     const el = document.getElementById('usage');
-    if (u.unavailable){ el.textContent = u.unavailable; return; }
+    if (u.unavailable){ el.textContent = 'niet beschikbaar: ' + u.unavailable; return; }
+    if (!(u.limits||[]).length && u.text){ el.textContent = u.text.replace(/[_*]/g,''); el.style.whiteSpace = 'pre-line'; return; }
     el.innerHTML = (u.limits||[]).map(l => {
       const cls = l.percent >= 90 ? 'hot' : l.percent >= 70 ? 'warn' : '';
       return '<div class="usage-row"><span>'+l.label+'</span>'
@@ -223,10 +224,11 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && req.url === '/api/usage') {
     try {
-      const { SubscriptionUsage, resetIn } = await import('./subscription-usage.js');
+      const { LocalUsage: SubscriptionUsage, resetIn } = await import('./local-usage.js');
       const usage = await (managerUsage ?? (managerUsage = new SubscriptionUsage())).get();
       return send(200, {
         unavailable: usage.unavailable ?? null,
+        text: usage.unavailable ? '' : SubscriptionUsage.format(usage),
         limits: (usage.limits ?? []).map((l) => ({
           label: l.label,
           percent: l.percent,

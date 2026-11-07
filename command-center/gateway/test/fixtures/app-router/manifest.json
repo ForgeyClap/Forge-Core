@@ -1,0 +1,7 @@
+{
+  "_about": "App router (P1) fixtures. router-example.json is the version-1 example from docs/forge-systeem/APP-ROUTER-DESIGN.md section 2.2, copied as written. rate-limit-unified.jsonl is 'constructed': the rate_limit_info.unifiedWindows layout the CLI rotator verified live on 2026-10-12 (utilization 0..1, resetsAt epoch seconds), with made-up numbers and fixed placeholder ids. The two single-window shapes are the recorded fixtures in ../stream-json/rate-limit-*.jsonl. No secrets anywhere.",
+  "files": [
+    { "file": "router-example.json", "source": "design section 2.2" },
+    { "file": "rate-limit-unified.jsonl", "source": "constructed", "expect": { "five_hour": 42, "seven_day": 13.7 } }
+  ]
+}

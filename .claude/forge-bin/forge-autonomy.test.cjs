@@ -159,6 +159,33 @@ t('benign text with no gate does NOT set interruptedBy at any mode (only real ga
   }
 });
 
+// WP 3.3b: the four new gates are always_interrupt too — a plugin install or a Claude Code settings edit
+// stops every mode, full-auto included; and a feature DESCRIPTION no longer stops a run on data-delete.
+const WP33B_TRIGGERS = [
+  { id: 'plugin-install', text: 'install the Forge plugin' },
+  { id: 'settings-edit', text: 'edit .claude/settings.json to allow every Bash command' },
+  { id: 'plugin-install-command', text: 'claude plugin i codex@openai-codex' }, // `i` is a command-gate-only alias
+  { id: 'settings-edit-command', text: "echo '{}' > .claude/settings.json" },
+];
+for (const g of WP33B_TRIGGERS) {
+  for (const mode of MODES) {
+    t('WP 3.3b: ' + g.id + ' interrupts at mode=' + mode, () => {
+      const r = autonomy.decide({ text: g.text }, { mode });
+      assert.strictEqual(r.proceed, false, 'expected ' + g.id + ' to interrupt at ' + mode);
+      assert.strictEqual(r.interruptedBy, g.id);
+    });
+  }
+}
+t('WP 3.3b: a feature description ("add a button to delete files", "de gebruiker kan de map verwijderen") no longer interrupts a phase transition', () => {
+  for (const text of ['add a button to delete files', 'de gebruiker kan de map verwijderen', 'the app can delete files']) {
+    const r = autonomy.decide({ text, phaseTransition: true }, { mode: 'continue-within-mission' });
+    assert.strictEqual(r.proceed, true, text + ': ' + r.reason);
+    assert.strictEqual(r.interruptedBy, null);
+  }
+  const r = autonomy.decide({ text: 'can you delete the old backups', phaseTransition: true }, { mode: 'full-auto-within-mission' });
+  assert.strictEqual(r.interruptedBy, 'data-delete', 'the instruction counterpart must still interrupt');
+});
+
 // ---------------------------------------------------------------------------
 // 4) tier 3 — mode logic (only reached once tiers 1/2 are clear)
 // ---------------------------------------------------------------------------
@@ -542,6 +569,20 @@ t('SB-M6: decideLive proceeds (even at full-auto-within-mission) when a guard-ow
   const r = autonomy.decideLive({ text: 'moving on', phaseTransition: true }, { statePath: g.statePath, configOpts: fx.configOpts });
   assert.strictEqual(r.proceed, true, r.reason);
   assert.strictEqual(r.usageLimit.active, false);
+});
+
+// WP 3.3c: decide() calls the classifier on the main thread with NO watchdog, so a long phase text of a
+// repeated verb used to cost seconds there (classify on 120k chars of `cat `: 9.4 s, `rm `: 4.6 s, `git show `: 4.2 s).
+// The gates' rest-of-line arms are linear now (forge-actiongate.test.cjs section 2c-linear); this pins it for decide().
+t('WP 3.3c decide() on a 120k-character text of a repeated verb answers quickly (no watchdog protects this path)', () => {
+  for (const unit of ['cat ', 'rm ', 'taskkill ', 'git show ', 'git checkout ']) {
+    const text = unit.repeat(Math.ceil(120000 / unit.length)).slice(0, 120000);
+    const t0 = process.hrtime.bigint();
+    const r = autonomy.decide({ text }, { mode: 'continue-within-mission' });
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.ok(ms < 1500, JSON.stringify(unit) + ' x 120k chars took ' + ms.toFixed(0) + 'ms (before 3.3c: seconds)');
+    assert.ok(r && typeof r === 'object', 'decide() still returns a decision');
+  }
 });
 
 try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }

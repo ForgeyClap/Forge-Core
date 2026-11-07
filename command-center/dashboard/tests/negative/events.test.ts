@@ -31,8 +31,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ForgeStore, StoreValidationError } from '../../src/bridge/storage/store.ts';
-import { EVENT_SCHEMA_VERSION } from '../../src/bridge/storage/schema.ts';
+import { ForgeStore, StoreValidationError } from '../../archive/bridge/storage/store.ts';
+import { EVENT_SCHEMA_VERSION } from '../../archive/bridge/storage/schema.ts';
 import {
   StateTransitionError,
   assertAttachmentTransition,
@@ -41,7 +41,7 @@ import {
   canRunTransition,
   explainRunTransition,
 } from '../../src/shared/state-machines.ts';
-import { UsageAggregator } from '../../src/bridge/usage/aggregator.ts';
+import { UsageAggregator } from '../../archive/bridge/usage/aggregator.ts';
 import type { EventType, ForgeEvent } from '../../src/shared/protocol.ts';
 
 /* ------------------------------------------------------------------ fixtures */

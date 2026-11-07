@@ -1,0 +1,4 @@
+# forge-mobile — team, skills, commands, MCP
+
+## Skills / commands / MCP
+RN / Expo / Flutter docs via Context7 (exact API + version behaviour). For React Native use `/react-build` + `/react-review`; for Flutter use `/flutter-build` + `/flutter-review` + `/flutter-test`. `systematic-debugging` for native/build/native-dependency failures. Popup/settings screens that are essentially web content can borrow `forge-website` conventions (real content, a11y). **Opt-in / environment-gated deps (be honest):** a real **iOS** build needs **macOS + Xcode** — not available on this owner's Windows host; use **Expo EAS Build** (cloud, requires an Expo account) or an Android target instead, and label an iOS build **not-run** if no Mac/EAS is available. **Android** builds need the Android SDK + an emulator or device. Forge writes the code + config regardless; it cannot conjure a toolchain that isn't installed.

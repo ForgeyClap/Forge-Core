@@ -164,6 +164,34 @@ const FORGE_HOOK_COMMANDS = {
   'forge-scribe-stop.cjs': [
     'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-scribe-stop.cjs"',
   ],
+  // 2026-10-24 (modernization plan item 1.6): SubagentStop / SessionEnd / PostToolUseFailure hooks.
+  'forge-subagent-stop.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-subagent-stop.cjs"',
+  ],
+  'forge-session-end.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-session-end.cjs"',
+  ],
+  'forge-tool-failure.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-tool-failure.cjs"',
+  ],
+  // 2026-10-24 (modernization work package 2.9): the account rotator Path A StopFailure hook (matcher
+  // rate_limit|overloaded, from config/orchestration/rotator-hooks.fragment.json).
+  'forge-rotator-hook.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-rotator-hook.cjs"',
+  ],
+  // 2026-11-01 (.7, owner request R-0069): the SessionStart resume brief for startup|resume|clear (from
+  // config/orchestration/resume-brief.fragment.json).
+  'forge-resume-brief.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-resume-brief.cjs"',
+  ],
+  // 2026-11-01 (WP A2 harness proof, fleet rollout WP A13): SubagentStart and PreToolUse/PostToolUse(Agent), see
+  // the settings diff proposal (section 1). Listed so upgrade/unmerge recognise them as Forge's own.
+  'forge-subagent-start.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-subagent-start.cjs"',
+  ],
+  'forge-agent-tool-hook.cjs': [
+    'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-agent-tool-hook.cjs"',
+  ],
 };
 const FORGE_HOOK_COMMAND_SET = new Set(Object.values(FORGE_HOOK_COMMANDS).flat());
 
@@ -457,6 +485,19 @@ function validShape(json) {
 }
 function fullyValidShape(json) { return validShape(json) && guards.deepValidateHooksShape(json); }
 
+/** OWNER_UI_TOP_LEVEL_KEYS — top-level keys Claude Code itself writes into a settings.json on an OWNER action (/plugin:
+ *  enabledPlugins, extraKnownMarketplaces). In the development tree that file is also the template SOURCE, so those keys are
+ *  the owner's own plugin state, never Forge's: a settings.json this tool CREATES for another project, and a recommended copy
+ *  it writes, leave them out (SA-P1B-DOCTOR rework). A merge into an existing file never copies them anyway. */
+const OWNER_UI_TOP_LEVEL_KEYS = Object.freeze(['enabledPlugins', 'extraKnownMarketplaces']);
+/** shippableSourceText(sourceRaw, sourceJson) -> the template text to write into another project: the source bytes as they
+ *  are when it holds no owner-only key, otherwise the source re-rendered in its own formatting without those keys. */
+function shippableSourceText(sourceRaw, sourceJson) {
+  if (!OWNER_UI_TOP_LEVEL_KEYS.some((k) => Object.prototype.hasOwnProperty.call(sourceJson, k))) return sourceRaw;
+  const kept = Object.fromEntries(Object.entries(sourceJson).filter(([k]) => !OWNER_UI_TOP_LEVEL_KEYS.includes(k)));
+  return guards.renderWithFormatting(kept, guards.detectFormatting(sourceRaw));
+}
+
 /** writeAtomicChecked — temp file + rename, optionally chmod'd to `mode` before the rename (POSIX; a
  *  best-effort no-op-ish attribute toggle on Windows). Runs `verify()` right before the rename and aborts
  *  (leaving `file` completely untouched, cleaning up the temp file) when it returns `{ ok:false }`. Used for
@@ -551,6 +592,7 @@ function applySettingsMerge(opts) {
   if (!fullyValidShape(sourceJson)) {
     return { ok: false, status: 'usage-error', message: 'source ' + source + ' has an unexpected hooks/permissions shape (SCHEMA-ACCEPTANCE)' };
   }
+  sourceRaw = shippableSourceText(sourceRaw, sourceJson); // never the owner's plugin state into another project
 
   const t = readTargetKind(target);
 
@@ -794,7 +836,7 @@ function applySettingsUnmerge(opts) {
 }
 
 module.exports = {
-  mergeForgeSettings, unmergeForgeSettings, entryPresent, isForgeHookCommand, mentionsForgeBin, forgeScriptName, validShape, fullyValidShape,
+  mergeForgeSettings, unmergeForgeSettings, entryPresent, OWNER_UI_TOP_LEVEL_KEYS, shippableSourceText, isForgeHookCommand, mentionsForgeBin, forgeScriptName, validShape, fullyValidShape,
   applySettingsMerge, applySettingsUnmerge, checkSettingsMerge, readTargetKind, computeDuplicateMatchers,
   timestampStamp: guards.defaultTimestampStamp,
 };

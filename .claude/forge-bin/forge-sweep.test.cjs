@@ -118,7 +118,7 @@ exports.chat = async (o) => {
 `);
 function run(args, extraEnv) {
   const env = { ...process.env, FORGE_SWEEP_ROOT: ROOT, FORGE_SWEEP_YTDLP: YT_STUB, FORGE_SWEEP_SLEEP_SCALE: '0', STUB_CFG, STUB_CALLS: CALLS,
-    EX_LOG, NVIDIA_SKIP_ENV_FILES: '1', ...(extraEnv || {}) };
+    EX_LOG, NVIDIA_SKIP_ENV_FILES: '1', FORGE_PROJECT_ROOT: ROOT, FORGE_CONFIG_HOME: path.join(ROOT, 'cfg-home'), ...(extraEnv || {}) }; // owner config isolated too: a synced install may set nvidia=off
   delete env.NVIDIA_API_KEY;
   for (const [k, v] of Object.entries(extraEnv || {})) if (v === null) delete env[k];
   const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env, timeout: 60000 });
@@ -410,6 +410,21 @@ t('real provider without a key (mock mode) is refused as a hard failure, never c
   assert.strictEqual(run(['aggregate', '--dir', d4]).code, 0);
   const k = JSON.parse(fs.readFileSync(path.join(d4, 'beginner-knowledge.json'), 'utf8'));
   assert.strictEqual(k.provenance.videos_used, 0, 'mock records are excluded from the knowledge base by default');
+});
+t('PORTABLE: the provider reads the owner config of the test, never the one of the install (an install-shaped config with nvidia=off is honoured only when pointed at)', () => {
+  // in a synced project whose owner set nvidia=off (26h2) the mock-mode test above saw a policy refusal instead.
+  const offRoot = path.join(ROOT, 'nvidia-off-install');
+  fs.mkdirSync(path.join(offRoot, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(offRoot, '.claude', 'FORGE_CONFIG.json'), JSON.stringify({ version: 1, settings: { nvidia: { value: false, set_at: '2026-10-08T20:05:10.591Z', set_by: 'owner /forge config set' } } }));
+  const d5 = path.join(ROOT, '.claude', 'forge-research', 'nokey-off');
+  fs.mkdirSync(path.join(d5, 'transcripts'), { recursive: true });
+  fs.writeFileSync(path.join(d5, 'transcripts', 'okVideo0002.txt'), '[00:01] hi\n');
+  fs.writeFileSync(path.join(d5, 'sweep-ledger.jsonl'), JSON.stringify({ stage: 'transcripts', id: 'okVideo0002', outcome: 'ok', chars: 10 }) + '\n');
+  const off = run(['extract', '--dir', d5], { FORGE_SWEEP_EXTRACT_STUB: null, FORGE_PROJECT_ROOT: offRoot });
+  assert.ok(/owner config nvidia=off/.test(off.out), off.out);
+  assert.ok(!fs.existsSync(path.join(d5, 'extracted', 'okVideo0002.json')), 'a refused call is never counted as an extraction');
+  const iso = run(['extract', '--dir', d5], { FORGE_SWEEP_EXTRACT_STUB: null });
+  assert.ok(/MOCK mode/.test(iso.out) && !/owner config nvidia=off/.test(iso.out), iso.out);
 });
 // ---------------------------------------------------------------- aggregate + status
 t('groupItems merges near-duplicates (Jaccard ≥ 0.6 / shared 4-gram) and counts distinct videos', () => {

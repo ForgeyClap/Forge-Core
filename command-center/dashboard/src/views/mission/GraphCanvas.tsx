@@ -18,6 +18,7 @@ import { GraphEdges } from './GraphEdges';
 import { GraphNodeCard } from './GraphNode';
 import { Minimap } from './Minimap';
 import type { GraphLayout, GraphViewportApi, NodeBox } from './useGraphViewport';
+import { useLocale } from '@/i18n/use-locale';
 
 export interface GraphCanvasProps {
   graph: MissionGraph;
@@ -34,6 +35,7 @@ export interface GraphCanvasProps {
 }
 
 export function GraphCanvas({ graph, layout, view, selectedId, progressByAgent, onSelect }: GraphCanvasProps) {
+  const { t } = useLocale();
   const laneLabels = useMemo(
     () => new Map(graph.lanes.map((lane) => [lane.id, lane.label] as const)),
     [graph.lanes],
@@ -167,19 +169,19 @@ export function GraphCanvas({ graph, layout, view, selectedId, progressByAgent, 
               <path className="fw-graph__legend-line fw-graph__legend-line--flow" d="M1 4 H21" />
               <path className="fw-graph__legend-head" d="M20 1.5 L25 4 L20 6.5 Z" />
             </svg>
-            <span className="fw-graph__legend-text fg-machine">FLOW</span>
+            <span className="fw-graph__legend-text">{t('rd.mission.legend.flow')}</span>
           </span>
           <span className="fw-graph__legend-item">
             <svg className="fw-graph__legend-mark" viewBox="0 0 26 8" aria-hidden="true">
               <path className="fw-graph__legend-line fw-graph__legend-line--dependency" d="M1 4 H25" />
             </svg>
-            <span className="fw-graph__legend-text fg-machine">DEPENDENCY</span>
+            <span className="fw-graph__legend-text">{t('rd.mission.legend.dependency')}</span>
           </span>
           <span className="fw-graph__legend-item">
             <svg className="fw-graph__legend-mark" viewBox="0 0 26 8" aria-hidden="true">
               <path className="fw-graph__legend-line fw-graph__legend-line--feedback" d="M1 4 H25" />
             </svg>
-            <span className="fw-graph__legend-text fg-machine">RETURN PATH</span>
+            <span className="fw-graph__legend-text">{t('rd.mission.legend.feedback')}</span>
           </span>
           <span className="fw-graph__legend-note">
             <ExampleTag detail="Example mission graph. No run was executed, no agent was dispatched and nothing here is connected to Forge, Claude Code or any API." />

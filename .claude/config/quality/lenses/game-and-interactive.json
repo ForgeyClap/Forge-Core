@@ -1,0 +1,161 @@
+{
+  "type": "game-and-interactive",
+  "version": 1,
+  "title": "Game and interactive",
+  "covers": "Browser and Godot games, interactive demos, quizzes and playful experiences someone plays rather than reads.",
+  "domains": ["game"],
+  "stakeholders": [
+    {
+      "id": "player",
+      "who": "A first-time player on the device the game targets",
+      "cares_about": ["knowing what to do within seconds", "controls that respond", "a fair first try"],
+      "would_notice": ["no idea what the goal or the controls are", "a frozen screen with no way out", "controls cut off on a phone", "instant death at the start"]
+    },
+    {
+      "id": "returning-player",
+      "who": "A player who comes back or plays again",
+      "cares_about": ["their progress or high score kept", "a restart that really starts fresh"],
+      "would_notice": ["the high score gone after a reload", "the game running faster, or sounds doubling, after a restart"]
+    },
+    {
+      "id": "tester",
+      "who": "A QA tester playing a full session with DevTools open",
+      "cares_about": ["no errors over a long session", "a steady frame rate"],
+      "would_notice": ["red console errors after a few minutes", "stutter when many objects are on screen"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Look at the start screen for ten seconds: can you tell the goal and the controls?",
+    "Press the first key or tap: does something respond at once?",
+    "On a phone-sized viewport: is anything cut off or too small to touch?"
+  ],
+  "checks": [
+    {
+      "id": "goal-clear",
+      "stakeholder": "player",
+      "claim": "Within the first screen the player can tell the goal and the controls, from the screen itself or a short prompt.",
+      "how_to_inspect": "Show the start screen to someone (or look at it yourself, cold) for ten seconds and ask what the goal and controls are.",
+      "evidence_required": "The start-screen screenshot and the answer given.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A player who cannot tell the goal or controls in the first seconds leaves; no later polish wins them back." }
+    },
+    {
+      "id": "full-loop",
+      "stakeholder": "player",
+      "claim": "The loop completes: start, play, win AND lose are both reachable, and restart works from each.",
+      "how_to_inspect": "Play (or drive with browser automation) to a win and to a loss, and restart from each end screen.",
+      "evidence_required": "Screenshots or a recording of win, lose and restart.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Hard rules", "quote": "reaching a win and a lose condition and a working restart" }
+    },
+    {
+      "id": "no-soft-lock",
+      "stakeholder": "player",
+      "claim": "There is no state the player cannot leave: pause and resume work and input never stops responding.",
+      "how_to_inspect": "Try to break it: pause during a transition, die during a level change, mash keys, switch tabs and come back.",
+      "evidence_required": "The list of attempts and what happened in each.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Hard rules", "quote": "No stuck / soft-lock states." }
+    },
+    {
+      "id": "fits-screen",
+      "stakeholder": "player",
+      "claim": "The game scales or letterboxes at phone and desktop sizes with no cut-off controls or HUD, or it clearly says it is desktop-only.",
+      "how_to_inspect": "Screenshot the play screen at a phone size and at a desktop size, in both orientations on the phone.",
+      "evidence_required": "The screenshots per size.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Hard rules", "quote": "The canvas scales/letterboxes correctly at mobile and desktop sizes with no cut-off UI" }
+    },
+    {
+      "id": "inputs-work",
+      "stakeholder": "player",
+      "claim": "Every declared input works (keyboard, mouse, touch as promised), and touch controls are big enough to hit on a phone.",
+      "how_to_inspect": "Play one round with each declared input method, the touch round on a phone-sized viewport.",
+      "evidence_required": "A note per input method with what was tested.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Domain gates", "quote": "every declared input method works" }
+    },
+    {
+      "id": "feedback",
+      "stakeholder": "player",
+      "claim": "Every player action gets immediate feedback (sound, motion or a visual change), and scoring or damage is visible.",
+      "how_to_inspect": "Perform each action once and note what the player sees or hears in response.",
+      "evidence_required": "The action list with the feedback for each.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Fan-out & flow", "quote": "feedback/juice" }
+    },
+    {
+      "id": "fair-start",
+      "stakeholder": "player",
+      "claim": "A new player can win the first level, with no instant death or unwinnable start.",
+      "how_to_inspect": "Play the first level as a beginner would, three times, without using knowledge of the code.",
+      "evidence_required": "The outcome of the three tries.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Difficulty spikes in the first minute are the most common reason testers stop playing." }
+    },
+    {
+      "id": "hud-readable",
+      "stakeholder": "player",
+      "claim": "Score, lives, timers and menus are readable at phone size and never cover the play area.",
+      "how_to_inspect": "Look at the HUD in the phone-size screenshot at real size.",
+      "evidence_required": "The phone-size screenshot with the HUD noted.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A HUD designed at desktop size becomes unreadable, or blocks the action, on a phone." }
+    },
+    {
+      "id": "audio-respectful",
+      "stakeholder": "player",
+      "claim": "Sound can be muted, does not blast on load, and starts only after a user gesture where browsers require it.",
+      "how_to_inspect": "Load the game with sound on and check the volume at start and the mute control.",
+      "evidence_required": "A note on start volume and the mute control (N/A for a silent game).",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Unexpected loud audio makes players close the tab, and browsers block autoplay anyway." }
+    },
+    {
+      "id": "progress-persists",
+      "stakeholder": "returning-player",
+      "claim": "Saves and high scores, when promised, persist and restore after a reload.",
+      "how_to_inspect": "Set a score or save, reload the page, and check it is restored.",
+      "evidence_required": "Before and after screenshots (N/A when nothing persistent was promised).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Domain gates", "quote": "Save/load / high-scores (if promised) persist and restore across reloads." }
+    },
+    {
+      "id": "clean-restart",
+      "stakeholder": "returning-player",
+      "claim": "A restart resets everything: no doubled speed, double-fired sounds or leftover timers and listeners.",
+      "how_to_inspect": "Restart five times in a row and watch speed, sound and the listener count in DevTools.",
+      "evidence_required": "A note on the fifth run compared with the first.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Domain gates", "quote": "listeners/timers/audio cleaned up on restart (no leak, no double-fire)" }
+    },
+    {
+      "id": "session-clean",
+      "stakeholder": "tester",
+      "claim": "A full session of several minutes shows zero console errors and a steady frame rate.",
+      "how_to_inspect": "Play for at least five minutes with the console and the performance monitor open.",
+      "evidence_required": "The console capture and the frame-rate reading.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-game/SKILL.md", "section": "Domain gates", "quote": "Zero console errors across a full session" }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "No instructions", "symptom": "a start screen with a title and a Play button, and no hint of goal or controls" },
+    { "defect": "Restart leaks", "symptom": "after a few restarts the game runs faster and every sound plays twice" },
+    { "defect": "Soft-lock", "symptom": "dying during a level transition leaves a black screen with no way back" },
+    { "defect": "Desktop-only by accident", "symptom": "touch does nothing, or the controls sit outside the phone screen" },
+    { "defect": "Lost progress", "symptom": "the promised high score resets to 0 after a reload" }
+  ]
+}

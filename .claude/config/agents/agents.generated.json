@@ -1,0 +1,559 @@
+{
+  "schema": "forge-agents-generated/v1",
+  "_doc": "GENERATED from the .claude/agents/*.md frontmatter (the single source of truth for every per-agent fact) by `node .claude/forge-bin/forge-registry-gen.cjs agents --write`. Do not hand-edit: change the agent frontmatter, then regenerate. `forge-registry-gen.cjs agents --check` and forge-doctor `agents` fail on drift. The legacy mirrors agent-registry.json, agent-model-map.json, agent-skill-map.json and agent-tool-policy.json stay until a later wave removes them and are cross-checked against this file.",
+  "policy": {
+    "derived": "bossOrSpecialist: boss for the 12 permanent Bosses, else specialist. roleClass: from the EFFECTIVE tools (tools minus disallowedTools, plus Read/Write/Edit when memory is set; the docs do not say whether disallowedTools removes those memory grants, so they are assumed to survive): write (Write/Edit/NotebookEdit) and shell (Bash/PowerShell) = full-build, write only = write-no-exec, shell only = exec-reviewer, neither = read-only-audit, no tools line = every tool = full-build. route: the GOAT route whose spec model/effort equals the frontmatter model/effort (sonnet/low is triage for head-chef, quick otherwise).",
+    "maxTurns": {
+      "why": "A runaway guard sized well above normal use, never a work budget. At the limit Claude Code returns the output marked partial (v2.1.246+) and the Lead can resume the agent. Reviewers sit lower than builders: they read and report, builders edit, build and fix.",
+      "bands": {
+        "read-only-audit": {
+          "min": 40,
+          "max": 120,
+          "why": "reads and reports; review-boss and security-boss read a whole diff against the goal, so they sit near the top of the band"
+        },
+        "exec-reviewer": {
+          "min": 20,
+          "max": 100,
+          "why": "re-runs commands and reports; scribe and codex-reviewer only drive one CLI"
+        },
+        "write-no-exec": {
+          "min": 40,
+          "max": 120,
+          "why": "plans, work packages and docs; no build loop"
+        },
+        "full-build": {
+          "min": 100,
+          "max": 250,
+          "why": "edit, build, test and fix loops; ui-boss also runs screenshot rounds"
+        }
+      }
+    },
+    "color": {
+      "allowed": [
+        "red",
+        "blue",
+        "green",
+        "yellow",
+        "purple",
+        "orange",
+        "pink",
+        "cyan"
+      ],
+      "families": "purple = mission owner; yellow = coordination and bookkeeping; blue = code builders; pink = interface; orange = external systems and payments; cyan = data, research and docs; green = verification and tests; red = review and security gates"
+    },
+    "skills": "Preloaded at startup: the full skill content is injected, first 32 distinct names, a disable-model-invocation skill cannot be preloaded. Taken from agent-skill-map.json, keeping only skills on disk under .claude/skills that are not disable-model-invocation and carry no situational invocation note (grilling, resolving-merge-conflicts, claude-md-improver stay out). No shipped agent has the Skill tool, so a skill that is not preloaded reaches an agent only through its dispatch prompt.",
+    "disallowedTools": "Added only where the tools allowlist does not already exclude a tool the class forbids. Every shipped agent has an explicit tools allowlist and no read-only agent carries memory, so none needs it today; the check fails if a forbidden tool becomes effective.",
+    "isolation": "Not set on any agent (2026-10-24). Frontmatter isolation applies to EVERY dispatch, but forge-worktrees keeps single-agent sequential work in the main tree; a subagent worktree branches from the remote default branch unless the setting worktree.baseRef is \"head\", and never carries uncommitted work; it holds only tracked files (no node_modules); and log-event.cjs run from a worktree writes into that worktree's forge-runs. Use the Agent tool isolation parameter on parallel dispatches until these are resolved. When set, only \"worktree\" on a full-build agent is valid."
+  },
+  "counts": {
+    "agents": 20,
+    "bosses": 12,
+    "specialists": 8
+  },
+  "agents": [
+    {
+      "name": "boss",
+      "file": ".claude/agents/boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "write-no-exec",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-router",
+        "forge-prd",
+        "forge-brainstorm",
+        "forge-report"
+      ],
+      "memory": "project",
+      "color": "purple"
+    },
+    {
+      "name": "build-boss",
+      "file": ".claude/agents/build-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-debug",
+        "forge-code-review",
+        "forge-worktrees"
+      ],
+      "memory": "project",
+      "color": "blue"
+    },
+    {
+      "name": "codex-reviewer",
+      "file": ".claude/agents/codex-reviewer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Bash",
+        "PowerShell",
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 40,
+      "isolation": null,
+      "skills": [],
+      "memory": null,
+      "color": "green"
+    },
+    {
+      "name": "data-scientist",
+      "file": ".claude/agents/data-scientist.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [],
+      "memory": "project",
+      "color": "cyan"
+    },
+    {
+      "name": "docs-boss",
+      "file": ".claude/agents/docs-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "write-no-exec",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-report",
+        "forge-prd"
+      ],
+      "memory": "project",
+      "color": "cyan"
+    },
+    {
+      "name": "electron-pro",
+      "file": ".claude/agents/electron-pro.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [],
+      "memory": "project",
+      "color": "blue"
+    },
+    {
+      "name": "head-chef",
+      "file": ".claude/agents/head-chef.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "write-no-exec",
+      "route": "triage",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 60,
+      "isolation": null,
+      "skills": [
+        "forge-worktrees",
+        "forge-router"
+      ],
+      "memory": "project",
+      "color": "yellow"
+    },
+    {
+      "name": "integration-boss",
+      "file": ".claude/agents/integration-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-integration"
+      ],
+      "memory": "project",
+      "color": "orange"
+    },
+    {
+      "name": "mcp-developer",
+      "file": ".claude/agents/mcp-developer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [],
+      "memory": "project",
+      "color": "blue"
+    },
+    {
+      "name": "ml-engineer",
+      "file": ".claude/agents/ml-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [],
+      "memory": "project",
+      "color": "cyan"
+    },
+    {
+      "name": "payment-integration",
+      "file": ".claude/agents/payment-integration.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [],
+      "memory": "project",
+      "color": "orange"
+    },
+    {
+      "name": "review-boss",
+      "file": ".claude/agents/review-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "read-only-audit",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-code-review",
+        "forge-verify"
+      ],
+      "memory": null,
+      "color": "red"
+    },
+    {
+      "name": "scribe",
+      "file": ".claude/agents/scribe.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 30,
+      "isolation": null,
+      "skills": [],
+      "memory": null,
+      "color": "yellow"
+    },
+    {
+      "name": "search-boss",
+      "file": ".claude/agents/search-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "read-only-audit",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-scout"
+      ],
+      "memory": null,
+      "color": "cyan"
+    },
+    {
+      "name": "security-boss",
+      "file": ".claude/agents/security-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "read-only-audit",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-verify"
+      ],
+      "memory": null,
+      "color": "red"
+    },
+    {
+      "name": "seo-boss",
+      "file": ".claude/agents/seo-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "read-only-audit",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 60,
+      "isolation": null,
+      "skills": [
+        "forge-website",
+        "forge-scout",
+        "forge-verify"
+      ],
+      "memory": null,
+      "color": "cyan"
+    },
+    {
+      "name": "skill-boss",
+      "file": ".claude/agents/skill-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "write-no-exec",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 60,
+      "isolation": null,
+      "skills": [
+        "forge-scout",
+        "forge-skill-testing"
+      ],
+      "memory": "project",
+      "color": "yellow"
+    },
+    {
+      "name": "test-boss",
+      "file": ".claude/agents/test-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "full-build",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 150,
+      "isolation": null,
+      "skills": [
+        "forge-skill-testing",
+        "forge-verify",
+        "forge-debug"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "ui-boss",
+      "file": ".claude/agents/ui-boss.md",
+      "bossOrSpecialist": "boss",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "SendMessage"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-website",
+        "forge-mobile",
+        "forge-verify"
+      ],
+      "memory": "project",
+      "color": "pink"
+    },
+    {
+      "name": "verify-boss",
+      "file": ".claude/agents/verify-boss.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Bash",
+        "PowerShell",
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [],
+      "memory": null,
+      "color": "green"
+    }
+  ]
+}

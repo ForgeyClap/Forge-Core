@@ -5,6 +5,8 @@ tools: Read, Write, Edit, Bash, PowerShell, Grep, Glob
 model: opus
 effort: medium
 memory: project
+maxTurns: 200
+color: cyan
 ---
 
 # ML Engineer (specialist)

@@ -17,6 +17,7 @@ const core = require('./account-rotator-core.cjs');
 const vault = require('./account-rotator-vault.cjs');
 const tok = require('./account-rotator-token.cjs');
 const handoff = require('./account-rotator-handoff.cjs');
+const flags = require('./account-rotator-flags.cjs');
 
 const LAUNCH_HINT = 'node .claude/forge-bin/account-rotator.cjs launch --auto -- <claude args>';
 const iso = (ms) => new Date(ms).toISOString();
@@ -35,13 +36,14 @@ async function tickRecommend(ctx, e) {
     if (tr[s.name] && tr[s.name] !== st.tokenReadings[s.name]) delta.tokenReadings[s.name] = tr[s.name];
     if (ar[s.name] && ar[s.name] !== readings[s.name]) delta.readings[s.name] = ar[s.name];
   }
-  const launched = tokenSlots.map((s) => ({ name: s.name, at: Date.parse((tr[s.name] || {}).lastUsedAt) })).filter((x) => Number.isFinite(x.at)).sort((a, b) => b.at - a.at)[0];
+  // an orgBlocked slot's launch never became a working session, so it is never the "current" account
+  const launched = tokenSlots.filter((s) => !flags.isOrgBlocked(st.slotFlags, s.name)).map((s) => ({ name: s.name, at: Date.parse((tr[s.name] || {}).lastUsedAt) })).filter((x) => Number.isFinite(x.at)).sort((a, b) => b.at - a.at)[0];
   const current = launched ? launched.name : active;
   const curSlot = current ? slots.find((s) => s.name === current) : null;
   const curRec = !current ? null : current === active && meas ? Object.assign({}, readings[active]) : curSlot && curSlot.token ? tok.tokenReading(curSlot, tr, ar) : readings[current];
   const curReading = core.effectiveReading(curRec, now);
   const trigger = current === active && meas ? e.trigger : core.crossed(curReading.windows, T);
-  const view = tokenSlots.map((s) => ({ name: s.name, eligible: true, reading: core.effectiveReading(tok.tokenReading(s, tr, ar), now), lastUsedAt: (tr[s.name] || {}).lastUsedAt || null }));
+  const view = tokenSlots.map((s) => ({ name: s.name, eligible: !flags.isOrgBlocked(st.slotFlags, s.name), reading: core.effectiveReading(tok.tokenReading(s, tr, ar), now), lastUsedAt: (tr[s.name] || {}).lastUsedAt || null }));
   if (!tokenSlots.length) {
     noteOnce(st, delta, 'token:none', 'TOKEN-MODUS zonder setup-tokens — niets aan te bevelen; `claude setup-token` -> `enroll-token <naam>` per account (of bestandsmodus: /forge config set account-rotator.mode file) / TOKEN MODE without setup tokens — nothing to recommend', log);
     return { action: 'none', reason: 'no-token-accounts', active: current, mode: 'token', trigger };
@@ -50,7 +52,7 @@ async function tickRecommend(ctx, e) {
     if (!ctx.dryRun && st.recommendation && st.recommendation.from === current) delta.set.recommendation = null; // the current account is fine again
     return { action: 'none', reason: 'below-threshold', active: current, maxPct: curReading.maxPct, mode: 'token' };
   }
-  const sel = core.selectTarget({ accounts: view, activeName: current, threshold: T, now, lastLeft: null });
+  const sel = core.selectTarget({ accounts: view, activeName: current, threshold: T, now, lastLeft: null, skipUntested: true });
   let pick = null; let why = null; let tier = null;
   if (sel.target && sel.tier !== 'unknown') { pick = sel.target; tier = sel.tier; why = sel.tier + ' ' + core.fmtPct((sel.ranked[0] || {}).maxPct); }
   else {

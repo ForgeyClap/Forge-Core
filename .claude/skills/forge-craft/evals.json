@@ -1,0 +1,11 @@
+{
+  "skill": "forge-craft",
+  "assertions": [
+    { "id": "desc-budget", "type": "frontmatter_field", "field": "description", "max_length": 200, "why": "the skill listing is over budget; keep this entry short" },
+    { "id": "skill-small", "type": "max_lines", "path": ".claude/skills/forge-craft/SKILL.md", "n": 80, "why": "layer-2 instruction stays short; detail lives in references/" },
+    { "id": "tool-present", "type": "file_exists", "path": ".claude/forge-bin/forge-craft.cjs" },
+    { "id": "fallback-lens-present", "type": "json_valid", "path": ".claude/config/quality/lenses/generic.json", "why": "an unknown deliverable type falls back to this lens" },
+    { "id": "never-marks", "type": "contains", "path": ".claude/skills/forge-craft/SKILL.md", "needle": "The tool never marks anything", "why": "the honesty rule must stay in the always-loaded part" },
+    { "id": "not-done-rule", "type": "contains", "path": ".claude/skills/forge-craft/SKILL.md", "needle": "means the deliverable is not done" }
+  ]
+}

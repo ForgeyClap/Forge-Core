@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Button, Icon, Machine } from '@/components/primitives';
+import { useLocale } from '@/i18n/use-locale';
 
 export interface AgentModelPickerProps {
   readonly label: string;
@@ -40,6 +41,7 @@ export function AgentModelPicker({ label, icon, value, options, pending, onPick 
     return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [open]);
 
+  const { t } = useLocale();
   const disabled = pending || options.length === 0;
 
   return (
@@ -52,15 +54,15 @@ export function AgentModelPicker({ label, icon, value, options, pending, onPick 
         className="fw-agents-modelpick__trigger"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Change ${label}`}
-        title={`Change ${label.toLowerCase()} (currently ${value ?? 'unset'})`}
+        aria-label={t('rd.agents.model.change', { label })}
+        title={t('rd.agents.model.changeHint', { label: label.toLowerCase(), value: value ?? t('rd.agents.model.unset') })}
         disabled={disabled}
         onClick={() => setOpen((was) => !was)}
       >
-        {pending ? 'Saving…' : (value ?? '—')}
+        {pending ? t('rd.agents.model.saving') : (value ?? t('rd.agents.model.unset'))}
       </Button>
       {open ? (
-        <div className="fw-agents-modelpick__panel" role="menu" aria-label={`Choose ${label}`}>
+        <div className="fw-agents-modelpick__panel" role="menu" aria-label={t('rd.agents.model.choose', { label })}>
           {options.map((option) => (
             <button
               key={option}

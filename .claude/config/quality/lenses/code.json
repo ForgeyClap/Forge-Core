@@ -1,0 +1,166 @@
+{
+  "type": "code",
+  "version": 1,
+  "title": "Code",
+  "covers": "Source code, scripts, configuration and tests handed to a reviewer or the next developer.",
+  "domains": ["agent", "api", "bots", "cli", "cms", "data", "ecommerce", "electron", "extension", "figma", "fullstack", "game", "integration", "migration", "mlops", "mobile", "payments", "prediction", "rag", "scraping", "voice", "website"],
+  "selected_by": {
+    "en": ["app", "tool", "script", "pipeline", "generator", "plugin", "software", "api", "backend"],
+    "nl": ["app", "applicatie", "tool", "script", "pipeline", "generator", "plugin", "software", "api", "backend"]
+  },
+  "stakeholders": [
+    {
+      "id": "maintainer",
+      "who": "The next developer who has to change this code",
+      "cares_about": ["finding where things are", "understanding why it works this way", "changing it without breaking something else"],
+      "would_notice": ["names like data2, tmp or handleStuff", "a second way of doing something the codebase already does", "a function too long to hold in your head", "no test to tell them they broke it"]
+    },
+    {
+      "id": "reviewer",
+      "who": "The code reviewer reading the diff",
+      "cares_about": ["a diff that only does what the task needed", "tests that prove the behaviour", "a clean lint and type check"],
+      "would_notice": ["stray console.log or commented-out code", "unrelated reformatting in the diff", "a TODO the release depends on", "a test that only covers the happy path"]
+    },
+    {
+      "id": "operator",
+      "who": "Whoever runs the code and gets the alert when it fails",
+      "cares_about": ["errors that say what failed", "no secrets in logs", "input that cannot crash it"],
+      "would_notice": ["an empty catch that hides a failure", "an error message without context", "a key or token in a log line"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Read git diff --stat: does the list of files match the task, with nothing unrelated?",
+    "Open the main changed file: can you tell from names alone what each function does?",
+    "Find the test for the new behaviour: does it exist, and does it test a failure path too?"
+  ],
+  "checks": [
+    {
+      "id": "diff-scope",
+      "stakeholder": "reviewer",
+      "claim": "The diff holds only what the task needed: no commented-out code, stray debug prints, unrelated reformatting or leftover experiments.",
+      "how_to_inspect": "Read git diff from top to bottom; search the added lines for console.log, print(, debugger and commented-out blocks.",
+      "evidence_required": "The git diff --stat and the search over the added lines.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Correctness & code quality", "quote": "no dead or commented-out code left behind" }
+    },
+    {
+      "id": "no-blocking-todo",
+      "stakeholder": "reviewer",
+      "claim": "No TODO, FIXME or 'temporary' hack that the release depends on.",
+      "how_to_inspect": "Search the added lines for TODO, FIXME, HACK, XXX and temporary; each hit is fixed or has an owner and a reason.",
+      "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Correctness & code quality", "quote": "no unresolved TODO blocking release" }
+    },
+    {
+      "id": "lint-types-clean",
+      "stakeholder": "reviewer",
+      "claim": "Lint and type check are clean where the project has them, without new disable comments.",
+      "how_to_inspect": "Run the project's lint and typecheck commands; search the diff for eslint-disable, @ts-ignore, noqa and type: ignore.",
+      "evidence_required": "The commands with their exit codes and the search output.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/verify-boss.md", "section": "GOAT verifier role", "quote": "those tests plus typecheck/lint where the project has them" }
+    },
+    {
+      "id": "real-tests",
+      "stakeholder": "maintainer",
+      "claim": "New behaviour has a test that would fail without the change, including at least one failure or edge path.",
+      "how_to_inspect": "Read the new tests, then break the change on purpose (or check out the old code) and confirm a test goes red.",
+      "evidence_required": "The test command output and the red run on the broken or old code.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-code-review/SKILL.md", "section": "Review order", "quote": "Tests — does new behavior have a real test" }
+    },
+    {
+      "id": "fix-at-cause",
+      "stakeholder": "maintainer",
+      "claim": "A bug fix changes the cause, not the symptom, and carries a regression test proven red on the old code.",
+      "how_to_inspect": "Write the root cause in one sentence and run the regression test against the commit before the fix.",
+      "evidence_required": "The root-cause sentence and the red-then-green test runs (N/A when the change is not a bug fix).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "2. Sloppy / quality complaints, by deliverable type", "quote": "Fix at the cause, add a regression test, record the lesson." }
+    },
+    {
+      "id": "errors-handled",
+      "stakeholder": "operator",
+      "claim": "Every boundary the change touches handles errors with context: no empty catch, no failure silently turned into null or an empty list.",
+      "how_to_inspect": "Search the diff for catch blocks, .catch(, except: and fallback values; read what each one does with the error.",
+      "evidence_required": "The list of handlers and what each one reports.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Correctness & code quality", "quote": "no empty catch blocks or errors turned into null/[] without context" }
+    },
+    {
+      "id": "input-validated",
+      "stakeholder": "operator",
+      "claim": "Input from users, files, the network or the command line is validated where it enters, before it reaches HTML, a query or a shell.",
+      "how_to_inspect": "Trace each new input to its first use and feed one malformed value through a test or a manual run.",
+      "evidence_required": "The input list with where each is validated, and the malformed-input result.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Security & data", "quote": "User input is validated at the boundary before use" }
+    },
+    {
+      "id": "no-secrets",
+      "stakeholder": "operator",
+      "claim": "No secret, key or token in source, logs, fixtures or commits; secrets come from env with placeholders in .env.example.",
+      "how_to_inspect": "Search the diff and new fixtures for key, token, secret, password and long random strings; check what the new log lines print.",
+      "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Security & data", "quote": "No secret, key, or token appears in source, logs, or committed files." }
+    },
+    {
+      "id": "follows-patterns",
+      "stakeholder": "maintainer",
+      "claim": "The change uses the patterns the codebase already has instead of adding a parallel way of doing the same thing.",
+      "how_to_inspect": "Search the codebase for an existing helper, module or convention that does what the new code does.",
+      "evidence_required": "The search and either the reuse made or why the existing pattern did not fit.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Architecture & design intent", "quote": "No parallel or duplicate pattern was introduced where an established one already existed in the codebase." }
+    },
+    {
+      "id": "size-and-naming",
+      "stakeholder": "maintainer",
+      "claim": "Names say what things are, and functions and files stay within the project's own size conventions.",
+      "how_to_inspect": "Read the names of every new function and variable out of context; compare function and file length with the project norm.",
+      "evidence_required": "The names renamed and any function or file split.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/review-boss.md", "section": "Correctness & code quality", "quote": "Naming, structure, and file size stay within this project's own conventions" }
+    },
+    {
+      "id": "comments-why",
+      "stakeholder": "maintainer",
+      "claim": "Comments explain why, not what, and no comment contradicts the code it sits on.",
+      "how_to_inspect": "Read every comment next to the code it describes, including comments the change made stale.",
+      "evidence_required": "The comments rewritten or removed.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A stale comment misleads the next developer faster than no comment at all." }
+    },
+    {
+      "id": "useful-logs",
+      "stakeholder": "operator",
+      "claim": "Log and error messages name what failed, with an id or input that lets the operator find it, and without personal data.",
+      "how_to_inspect": "Trigger one failure and read the resulting log line as someone who did not write the code.",
+      "evidence_required": "The log line produced by the failure.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "The operator reads the log without the author present; a bare 'something went wrong' turns a short fix into a long hunt." }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Debug leftovers", "symptom": "console.log('here'), print statements or a commented-out old version in the diff" },
+    { "defect": "Swallowed errors", "symptom": "catch (e) {} or a failure turned into [] so the caller thinks there was simply no data" },
+    { "defect": "Happy-path tests only", "symptom": "every test passes valid input; nothing tests the error branch the change added" },
+    { "defect": "Symptom fix", "symptom": "an extra if-check around the crash site while the bad value is still produced upstream" },
+    { "defect": "Silenced checks", "symptom": "new @ts-ignore, eslint-disable or noqa lines instead of fixing the warning" },
+    { "defect": "Drive-by reformatting", "symptom": "hundreds of whitespace changes that hide the three lines that matter" }
+  ]
+}

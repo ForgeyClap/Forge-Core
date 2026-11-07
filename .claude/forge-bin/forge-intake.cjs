@@ -54,7 +54,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1: the project root comes from forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers the project from the cwd, null when there is none). Guarded: a missing
+// or older forge-paths.cjs keeps the old two-folders-up answer.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
 
 // ---- pure helpers ----
 function normText(s) { return String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim(); }
@@ -251,6 +255,7 @@ function toJson(result, task) {
 /** logIntakeNote(runId, root, result, typeLabel) -> {ok:true} | {ok:false, reason}. Best-effort, never
  *  throws; a failure never invalidates the already-printed question list. */
 function logIntakeNote(runId, root, result, typeLabel) {
+  if (!root) return { ok: false, reason: 'no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)' };
   const logEventPath = path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs');
   const note = `forge-intake: ${result.count} intake-vragen voor type ${typeLabel} (${result.required} verplicht)`;
   const payload = JSON.stringify({ agent: 'orchestrator', role: 'lead', note, evidence: 'config/intake/question-bank.json' });
@@ -314,7 +319,8 @@ if (require.main === module) {
       printUsage();
       process.exitCode = 2;
     } else {
-      const bankPath = path.join(PROJECT_ROOT, '.claude', 'config', 'intake', 'question-bank.json');
+      // a copy outside any project reads the bank it ships with (config/ beside the script folder): config, never state
+      const bankPath = PROJECT_ROOT ? path.join(PROJECT_ROOT, '.claude', 'config', 'intake', 'question-bank.json') : path.join(__dirname, '..', 'config', 'intake', 'question-bank.json');
       const loaded = loadBank(bankPath);
       if (!loaded.ok) {
         console.error('forge-intake: ' + loaded.error);

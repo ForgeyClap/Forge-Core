@@ -9,19 +9,26 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { openSandboxProject } from './live-gateway-helpers';
+import { blockedOwnerGatewayUrls, openComposerTray, openSandboxProject } from './live-gateway-helpers';
 
 test.describe('composer /-slash commands', () => {
+  // Fail closed: nothing in this spec may reach the developer's own gateway on 127.0.0.1:4100.
+  test.afterEach(async ({ page }) => {
+    expect(blockedOwnerGatewayUrls(page), 'the page tried to reach the live gateway on 127.0.0.1:4100').toEqual([]);
+  });
+
   test.beforeEach(async ({ page }) => {
     await openSandboxProject(page);
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
+    // Redesign: mode, effort and Auto-plan live in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
     // Every test starts from a fresh browser context (Playwright's default), so localStorage — and
-    // therefore the mode/effort picker — is genuinely at its documented default here: Bypass
-    // (feat-forge-preamble — a project with no persisted choice yet defaults to full permission,
-    // see `mode-storage.ts`'s own doc comment), no effort, Auto-plan off. Asserted once so a future
-    // change to that default is caught honestly rather than this spec silently assuming it.
-    await expect(page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Bypass' })).toHaveAttribute(
+    // therefore the mode/effort picker — is genuinely at its documented default here: Accept edits
+    // ("Mag aanpassen", `mode-storage.ts` DEFAULT_SEND_MODE; fix-sec-round #2 made it never Bypass —
+    // this spec used to assert the older feat-forge-preamble Bypass default), no effort, Auto-plan off.
+    // Asserted once so a future change to that default is caught honestly rather than assumed.
+    await expect(page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Accept edits' })).toHaveAttribute(
       'aria-checked',
       'true',
     );
@@ -38,8 +45,8 @@ test.describe('composer /-slash commands', () => {
     await composer.press('Enter');
 
     await expect(modeGroup.getByRole('radio', { name: 'Plan' })).toHaveAttribute('aria-checked', 'true');
-    // The fresh-context default (Bypass, feat-forge-preamble) is really no longer selected.
-    await expect(modeGroup.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'false');
+    // The fresh-context default (Accept edits) is really no longer selected.
+    await expect(modeGroup.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'false');
     // The command's own trigger text never lingers in the draft as though it were about to be sent.
     await expect(composer).toHaveValue('');
   });
@@ -51,6 +58,12 @@ test.describe('composer /-slash commands', () => {
     await composer.click();
     await composer.fill('/bypass');
     await composer.press('Enter');
+
+    // Bypass needs a one-time confirmation per project (WP B3, `Composer.tsx` setSendMode): until it is
+    // given the mode really does NOT switch.
+    await expect(page.getByText('Turn on full access for this project?')).toBeVisible();
+    await expect(modeGroup.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'false');
+    await page.getByRole('button', { name: 'Yes, full access' }).click();
 
     await expect(modeGroup.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByText(/skips the approval prompts/i)).toBeVisible();
@@ -65,7 +78,8 @@ test.describe('composer /-slash commands', () => {
 
   test('/effort-high really changes the effort trigger label', async ({ page }) => {
     const composer = page.getByRole('textbox').last();
-    const effortTrigger = page.locator('.fw-chat-composer__labelled-trigger');
+    // Two labelled triggers sit in the composer now (Effort and Model): pick the Effort one by its title.
+    const effortTrigger = page.locator('.fw-chat-composer__labelled-trigger[title="Effort"]');
 
     await expect(effortTrigger).toHaveText('Default');
     await composer.click();

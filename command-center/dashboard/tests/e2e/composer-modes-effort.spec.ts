@@ -11,17 +11,26 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { openSandboxProject } from './live-gateway-helpers';
+import { blockedOwnerGatewayUrls, openComposerTray, openSandboxProject } from './live-gateway-helpers';
 
 test.describe('composer mode/effort persistence', () => {
+  // Fail closed: nothing in this spec may reach the developer's own gateway on 127.0.0.1:4100.
+  test.afterEach(async ({ page }) => {
+    expect(blockedOwnerGatewayUrls(page), 'the page tried to reach the live gateway on 127.0.0.1:4100').toEqual([]);
+  });
+
   test('the selected send mode persists per project across a reload', async ({ page }) => {
     await openSandboxProject(page);
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
+    // Redesign: the mode and effort controls sit in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
 
+    // Plan: a non-default choice that needs no extra confirmation (Bypass does, see the slash spec), so
+    // this test stays about per-project persistence only.
     const modeGroup = page.locator('.fw-chat-composer__mode');
-    await modeGroup.getByRole('radio', { name: 'Bypass' }).click();
-    await expect(modeGroup.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
+    await modeGroup.getByRole('radio', { name: 'Plan' }).click();
+    await expect(modeGroup.getByRole('radio', { name: 'Plan' })).toHaveAttribute('aria-checked', 'true');
 
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
@@ -30,35 +39,41 @@ test.describe('composer mode/effort persistence', () => {
     await openSandboxProject(page);
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
+    // Redesign: the mode and effort controls sit in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
 
     await expect(
-      page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Bypass' }),
-      'Bypass mode did not survive a real reload for the same project',
+      page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Plan' }),
+      'Plan mode did not survive a real reload for the same project',
     ).toHaveAttribute('aria-checked', 'true');
   });
 
-  test('a different project never inherits another project\'s stored send mode (Accept edits, chosen explicitly, does not leak)', async ({ page }) => {
+  test('a different project never inherits another project\'s stored send mode (Plan, chosen explicitly, does not leak)', async ({ page }) => {
     await openSandboxProject(page);
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
-    // feat-forge-preamble: a fresh project's own default is now Bypass, so this isolation proof
-    // uses a DIFFERENT non-default choice ('Accept edits') — otherwise a second fresh project
-    // landing on Bypass would be indistinguishable from "leaked" vs. "its own independent default".
-    await page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Accept edits' }).click();
+    // Redesign: the mode and effort controls sit in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
+    // A fresh project's own default is Accept edits (`mode-storage.ts` DEFAULT_SEND_MODE), so this
+    // isolation proof uses a DIFFERENT non-default choice ('Plan') — otherwise a second fresh project
+    // landing on the default would be indistinguishable from "leaked" vs. "its own independent default".
+    await page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Plan' }).click();
+    await expect(page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Plan' })).toHaveAttribute('aria-checked', 'true');
 
     // Switching to a DIFFERENT small sandbox project with no stored choice of its own must read its
-    // OWN default (Bypass, feat-forge-preamble), never the first sandbox project's just-set Accept
-    // edits — this is the fix-sec-round #2 guarantee (`Composer.tsx`'s own header) that a sticky
+    // OWN default (Accept edits), never the first sandbox project's just-set Plan — this is the fix-sec-round #2 guarantee (`Composer.tsx`'s own header) that a sticky
     // mode choice cannot silently follow into an unrelated project. Deliberately another disposable
     // self-test project (never a project with real client work) for the same reason
     // `SANDBOX_PROJECT` itself is one.
     await openSandboxProject(page, 'dashboard-selftest');
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
+    // Redesign: the mode and effort controls sit in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
 
     await expect(
-      page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Bypass' }),
-      'a project with no stored mode of its own showed Accept edits instead of its own Bypass default',
+      page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Accept edits' }),
+      'a project with no stored mode of its own showed the other project\'s Plan instead of its own Accept edits default',
     ).toHaveAttribute('aria-checked', 'true');
   });
 
@@ -66,8 +81,11 @@ test.describe('composer mode/effort persistence', () => {
     await openSandboxProject(page);
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
+    // Redesign: the mode and effort controls sit in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
 
-    const effortTrigger = page.locator('.fw-chat-composer__labelled-trigger');
+    // Two labelled triggers sit in the composer now (Effort and Model): pick the Effort one by its title.
+    const effortTrigger = page.locator('.fw-chat-composer__labelled-trigger[title="Effort"]');
     await expect(effortTrigger).toHaveText('Default');
     await effortTrigger.click();
     await page.getByRole('menuitemradio', { name: 'Low' }).click();
@@ -78,8 +96,10 @@ test.describe('composer mode/effort persistence', () => {
     await openSandboxProject(page);
     await page.goto('/#/chat');
     await page.waitForLoadState('domcontentloaded');
+    // Redesign: the mode and effort controls sit in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
 
-    await expect(page.locator('.fw-chat-composer__labelled-trigger'), 'effort did not survive a real reload').toHaveText(
+    await expect(page.locator('.fw-chat-composer__labelled-trigger[title="Effort"]'), 'effort did not survive a real reload').toHaveText(
       'Low',
     );
   });

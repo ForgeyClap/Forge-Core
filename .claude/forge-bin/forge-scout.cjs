@@ -52,8 +52,11 @@
  *   node forge-scout.cjs terms --domain <d> [--keywords <k1,k2,...>] [--json]
  *   node forge-scout.cjs record --capability <c> --verdict <approve|hard-pass> --reason "<r>" [--source <s>] [--json]
  *   node forge-scout.cjs list [--json]
- * Exit codes: terms/list: 0 always (advisory, never a gate) · record: 0 = recorded · 2 = usage/validation
- *   error (missing/invalid field, malformed ledger).
+ *   node forge-scout.cjs rank --query "<q>" --candidates <file.json> [--cap N] [--json]   (: a JSON list, or {candidates:[...]},
+ *        of {name, description?, url?, source_kind?, updated?, web_only?})
+ *   node forge-scout.cjs adopt-plan --capability <c> [--json]   (: branch + reviewed-diff plan for an APPROVED capability)
+ * Exit codes: terms/list/rank: 0 (advisory, never a gate) · record: 0 = recorded · adopt-plan: 0 = plan, 3 = refused
+ *   (hard-pass or never vetted) · 2 = usage/validation error (missing/invalid field, malformed ledger or candidates file).
  */
 const fs = require('fs');
 const path = require('path');
@@ -351,17 +354,113 @@ function isVetted(capability, opts) {
   return matches[matches.length - 1];
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// rank() / adoptPlan() —. rank() orders search results deterministically: candidates with an
+// inspectable source first, web-only mentions (no url, or only a blog/web page) after them; inside each group by
+// name match, then description match, then source kind, then maintenance; full ties by name. At most RANK_CAP
+// results; the rest is returned in `dropped`. A capability with a prior HARD-PASS is skipped, never re-ranked.
+// adoptPlan() turns an APPROVED capability into a plan: a fresh branch, the copy on that branch only, a reviewed
+// diff, and a merge only after the owner says so. It runs no git command itself.
+// ---------------------------------------------------------------------------------------------------------
+
+const RANK_CAP = 10;
+const GENERIC_WORDS = new Set(['claude', 'code', 'skill', 'skills', 'plugin', 'plugins', 'mcp', 'server', 'servers', 'tool', 'tools', 'a', 'an', 'the', 'for', 'and', 'i', 'stopped', 'using', 'generator']);
+const SOURCE_SCORE = { official: 4, curated: 3, repo: 2, listing: 1, web: 0 };
+const DAY_MS = 86400000;
+
+const words = (s) => String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+const queryWords = (q) => [...new Set(words(q).filter((w) => !GENERIC_WORDS.has(w)))];
+
+/** sourceKind(candidate) -> official|curated|repo|listing|web. An explicit valid source_kind wins; otherwise the
+ *  url decides: a code host or package registry is a repo, skills.sh is a listing, anything else is web. */
+function sourceKind(c) {
+  if (c && Object.prototype.hasOwnProperty.call(SOURCE_SCORE, c.source_kind)) return c.source_kind;
+  const url = String((c && (c.url || c.source)) || '').toLowerCase();
+  if (/^https?:\/\/(www\.)?(github\.com|gitlab\.com|codeberg\.org|npmjs\.com|pypi\.org)\//.test(url)) return 'repo';
+  if (/^https?:\/\/(www\.)?skills\.sh\b/.test(url)) return 'listing';
+  return 'web';
+}
+
+function maintenanceScore(updated, now) {
+  const t = Date.parse(updated || '');
+  if (!Number.isFinite(t)) return 1; // unknown: below anything known to be maintained, above known-stale
+  const days = (now - t) / DAY_MS;
+  return days <= 90 ? 3 : days <= 365 ? 2 : 0;
+}
+
+function nameScore(name, q) {
+  if (!q.length) return 0;
+  const n = words(name);
+  if (n.filter((w) => !GENERIC_WORDS.has(w)).join(' ') === q.join(' ')) return 3;
+  const hits = q.filter((w) => n.includes(w)).length;
+  return hits === q.length ? 2 : hits > 0 ? 1 : 0;
+}
+
+/** rank(candidates, {query, cap, now, vettingPath}) -> {query, cap, ranked[], dropped[], skipped_hard_pass[]} */
+function rank(candidates, opts) {
+  opts = opts || {};
+  if (!Array.isArray(candidates)) throw new Error('forge-scout: rank() requires a list of candidates');
+  const q = queryWords(opts.query);
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const cap = Math.max(1, Math.min(RANK_CAP, Number.isInteger(opts.cap) ? opts.cap : RANK_CAP));
+  const skipped = [];
+  const scored = [];
+  for (const c of candidates) {
+    const name = c && typeof c.name === 'string' ? c.name.trim() : '';
+    if (!name) throw new Error('forge-scout: rank() candidate without a non-empty "name": ' + JSON.stringify(c));
+    const prior = isVetted(name, { vettingPath: opts.vettingPath });
+    if (prior && prior.verdict === 'hard-pass') { skipped.push(name); continue; }
+    const kind = sourceKind(c);
+    const desc = words(c.description);
+    scored.push({
+      name, url: c.url || c.source || null, source_kind: kind,
+      web_only: c.web_only === true || kind === 'web',
+      scores: { name: nameScore(name, q), description: q.filter((w) => desc.includes(w)).length, source: SOURCE_SCORE[kind], maintenance: maintenanceScore(c.updated, now) },
+      prior_verdict: prior ? prior.verdict : null,
+    });
+  }
+  scored.sort((a, b) => (a.web_only - b.web_only) || (b.scores.name - a.scores.name) || (b.scores.description - a.scores.description)
+    || (b.scores.source - a.scores.source) || (b.scores.maintenance - a.scores.maintenance) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const ranked = scored.slice(0, cap).map((x, i) => ({ rank: i + 1, ...x }));
+  return { query: String(opts.query || ''), cap, ranked, dropped: scored.slice(cap).map((x) => x.name), skipped_hard_pass: skipped };
+}
+
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '');
+
+/** adoptPlan(capability, {vettingPath, now, base}) -> {capability, branch, base, steps[]}. Throws unless the
+ *  capability's prevailing ledger verdict is approve (a hard-pass or a never-vetted capability is refused). */
+function adoptPlan(capability, opts) {
+  opts = opts || {};
+  const cap = typeof capability === 'string' ? capability.trim() : '';
+  if (!cap) throw new Error('forge-scout: adoptPlan() requires a non-empty capability string');
+  const prior = isVetted(cap, { vettingPath: opts.vettingPath });
+  if (!prior) throw new Error('forge-scout: "' + cap + '" is not vetted; run Scout and record an approve first');
+  if (prior.verdict !== 'approve') throw new Error('forge-scout: "' + cap + '" has a hard-pass (' + prior.reason + '); it is never adopted');
+  const day = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString().slice(0, 10).replace(/-/g, '');
+  const branch = 'scout/adopt-' + slug(cap) + '-' + day;
+  const base = opts.base || '<current branch>';
+  return {
+    capability: cap, branch, base, steps: [
+      'from a clean working tree: git switch -c ' + branch,
+      'copy only this capability\'s files into the project on that branch; install nothing globally, add no dependency without saying so',
+      'audit the copied folder before any review: node .claude/forge-bin/forge-skill-audit.cjs scan <copied folder>; any non-zero exit stops the adopt: 1 = a high finding (until Security Boss has read every flagged line), 3 = not fully scanned (fix the copy and rescan), 2 = the folder was refused',
+      'review the diff (git diff ' + base + '...' + branch + ') with forge-code-review by Review Boss; Security Boss as well when it touches credentials, network or hooks',
+      'merge only after the owner approves the reviewed diff; MCP-shaped capabilities also need forge-mcp-clients opt-in',
+    ],
+  };
+}
+
 module.exports = {
-  terms, record, list, isVetted,
+  terms, record, list, isVetted, rank, adoptPlan, sourceKind,
   loadLedger, loadLedgerFile, saveLedgerFile, defaultLedger, resolvePath, resolveExplicitPath,
-  SEED_TEMPLATES, VALID_VERDICTS, CONFIG_PATH, USER_CONFIG_PATH, MAX_TERMS, DISCOVERY_SOURCES,
+  SEED_TEMPLATES, VALID_VERDICTS, CONFIG_PATH, USER_CONFIG_PATH, MAX_TERMS, DISCOVERY_SOURCES, RANK_CAP,
 };
 
 // ---- CLI ----
 function parseArgs(argv) {
   const cmd = argv[0] || null;
   const rest = argv.slice(1);
-  const opts = { cmd, domain: null, keywords: [], capability: null, verdict: null, reason: null, source: null, json: false, positional: [] };
+  const opts = { cmd, domain: null, keywords: [], capability: null, verdict: null, reason: null, source: null, query: null, candidates: null, cap: null, json: false, positional: [] };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--domain') opts.domain = rest[++i];
@@ -370,6 +469,9 @@ function parseArgs(argv) {
     else if (a === '--verdict') opts.verdict = rest[++i];
     else if (a === '--reason') opts.reason = rest[++i];
     else if (a === '--source') opts.source = rest[++i];
+    else if (a === '--query') opts.query = rest[++i];
+    else if (a === '--candidates') opts.candidates = rest[++i];
+    else if (a === '--cap') opts.cap = Number(rest[++i]);
     else if (a === '--json') opts.json = true;
     else opts.positional.push(a);
   }
@@ -379,6 +481,8 @@ function printUsage() {
   console.error('Usage: node forge-scout.cjs terms --domain <d> [--keywords <k1,k2,...>] [--json]');
   console.error('       node forge-scout.cjs record --capability <c> --verdict <approve|hard-pass> --reason "<r>" [--source <s>] [--json]');
   console.error('       node forge-scout.cjs list [--json]');
+  console.error('       node forge-scout.cjs rank --query "<q>" --candidates <file.json> [--cap N] [--json]');
+  console.error('       node forge-scout.cjs adopt-plan --capability <c> [--json]');
 }
 
 if (require.main === module) {
@@ -414,6 +518,32 @@ if (require.main === module) {
         for (const e of result.entries) console.log('  [' + e.verdict + '] ' + e.capability + ' — ' + e.reason + (e.source ? ' (' + e.source + ')' : ''));
       }
       process.exitCode = 0;
+    } else if (opts.cmd === 'rank') {
+      if (!opts.query || !opts.candidates) { console.error('forge-scout: rank requires --query "<q>" --candidates <file.json>'); process.exitCode = 2; }
+      else {
+        const data = JSON.parse(fs.readFileSync(opts.candidates, 'utf8'));
+        const cands = Array.isArray(data) ? data : (data && data.candidates);
+        const result = rank(cands, { query: opts.query, cap: Number.isInteger(opts.cap) ? opts.cap : undefined });
+        if (opts.json) console.log(JSON.stringify(result));
+        else {
+          console.log('forge-scout rank — "' + result.query + '" (cap ' + result.cap + ')');
+          for (const r of result.ranked) console.log('  ' + r.rank + '. ' + r.name + (r.web_only ? ' [web-only]' : '') + (r.prior_verdict ? ' [already ' + r.prior_verdict + ']' : '') + ' — name ' + r.scores.name + ', description ' + r.scores.description + ', source ' + r.source_kind + ', maintenance ' + r.scores.maintenance);
+          if (result.dropped.length) console.log('  beyond the cap: ' + result.dropped.join(', '));
+          if (result.skipped_hard_pass.length) console.log('  skipped (prior hard-pass): ' + result.skipped_hard_pass.join(', '));
+        }
+        process.exitCode = 0;
+      }
+    } else if (opts.cmd === 'adopt-plan') {
+      if (!opts.capability) { console.error('forge-scout: adopt-plan requires --capability <c>'); process.exitCode = 2; }
+      else {
+        let plan = null;
+        try { plan = adoptPlan(opts.capability, {}); } catch (e) { if (/not vetted|hard-pass/.test(e.message)) { console.log(e.message); process.exitCode = 3; } else throw e; }
+        if (plan) {
+          if (opts.json) console.log(JSON.stringify(plan));
+          else { console.log('adopt ' + plan.capability + ' on branch ' + plan.branch + ':'); plan.steps.forEach((s, i) => console.log('  ' + (i + 1) + '. ' + s)); }
+          process.exitCode = 0;
+        }
+      }
     } else {
       printUsage();
       process.exitCode = 2;

@@ -41,6 +41,21 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'required-evidence.json');
+
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
 const KNOWN_KINDS = ['artifact', 'event', 'artifact_or_event'];
 
 /** GENERIC_EVENTS — the events that say "something was checked" or "something finished" WITHOUT saying
@@ -147,7 +162,7 @@ function artifactsOnDisk(artifacts, opts) {
   const fs2 = require('fs');
   const path2 = require('path');
   const runDir = opts && opts.runDir ? path2.resolve(opts.runDir)
-    : (opts && opts.root && opts.runId ? path2.resolve(opts.root, '.claude', 'forge-runs', String(opts.runId)) : null);
+    : (opts && opts.root && opts.runId ? runDirOf(path2.resolve(opts.root), String(opts.runId)) : null);
   if (!runDir) return { verified: false, artifacts };
   const kept = [];
   for (const a of artifacts) {

@@ -23,7 +23,12 @@ import { useNavigate } from 'react-router-dom';
 import { Icon, KeyHint, Machine, Spacer } from '@/components/primitives';
 import { nextToastId, usePrototype } from '@/prototype/state/prototype-store';
 import type { Appearance } from '@/prototype/types/prototype-types';
+import { useLocale } from '@/i18n/use-locale';
+import type { MessageKey } from '@/i18n';
+import { useUiMode } from '@/state/ui-mode';
 import { requestNewConversation } from './gateway-actions';
+import { sidebarSectionsFor } from './nav-config';
+import { setHelpView } from './side-pane';
 import './command-palette.css';
 
 /* ----------------------------------------------------------------- fuzzy */
@@ -106,10 +111,21 @@ function groupCommands(commands: readonly Command[]): readonly Group[] {
   return order.map((name) => ({ name, commands: buckets.get(name) ?? [] }));
 }
 
+/** The theme words Instellingen uses, so the palette never names a theme differently. */
+const APPEARANCE_WORD: Readonly<Record<Appearance, MessageKey>> = {
+  light: 'rd.settings.general.light',
+  dark: 'rd.settings.general.dark',
+  system: 'rd.settings.general.system',
+};
+
+const APPEARANCE_ICON: Readonly<Record<Appearance, string>> = { light: 'Sun', dark: 'Moon', system: 'Monitor' };
+
 /* ----------------------------------------------------------------- dialog */
 
 function PaletteDialog() {
   const { state, dispatch } = usePrototype();
+  const { t } = useLocale();
+  const { mode, isAdvanced } = useUiMode();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -134,27 +150,30 @@ function PaletteDialog() {
     (appearance: Appearance) => {
       dispatch({ type: 'appearance/set', appearance });
       toast(
-        `Theme set to ${appearance}`,
-        'Stored as a local preference. Nothing else changed.',
-        appearance === 'light' ? 'Sun' : appearance === 'dark' ? 'Moon' : 'Monitor',
+        t('rd.palette.theme', { name: t(APPEARANCE_WORD[appearance]) }),
+        t('rd.palette.themeSaved'),
+        APPEARANCE_ICON[appearance],
       );
     },
-    [dispatch, toast],
+    [dispatch, toast, t],
   );
 
   const projects = state.data.projects;
   const activeProjectId = state.activeProjectId;
+  const inspectorOpen = state.inspectorOpen;
 
   const commands = useMemo<readonly Command[]>(() => {
     const list: Command[] = [];
+    const groupProjects = t('rd.palette.groupProjects');
+    const groupGo = t('rd.palette.groupGo');
 
     for (const project of projects) {
       list.push({
         id: `open-project-${project.id}`,
-        group: 'Projects',
-        title: `Open project — ${project.name}`,
-        detail: project.id,
-        machineDetail: true,
+        group: groupProjects,
+        title: t('rd.palette.openProject', { name: project.name }),
+        // The project id is machine text: Uitgebreid only (Eenvoudig shows no machine text).
+        ...(isAdvanced ? { detail: project.id, machineDetail: true } : {}),
         icon: 'FolderGit2',
         run: () => {
           dispatch({ type: 'project/activate', id: project.id });
@@ -165,9 +184,9 @@ function PaletteDialog() {
 
     list.push({
       id: 'search-projects',
-      group: 'Projects',
-      title: 'Search projects',
-      detail: 'Open the project list and clear the filter',
+      group: groupProjects,
+      title: t('shell.sidebar.searchProjects'),
+      detail: t('rd.palette.searchProjectsDetail'),
       icon: 'Search',
       run: () => {
         dispatch({ type: 'project/query', query: '' });
@@ -177,15 +196,19 @@ function PaletteDialog() {
 
     list.push({
       id: 'new-conversation',
-      group: 'Go to',
-      title: 'New conversation',
-      detail: 'Starts a new conversation in the active project',
+      group: groupGo,
+      title: t('rd.nav.newChat'),
+      detail: t('rd.palette.newChatDetail'),
       icon: 'MessageSquarePlus',
       run: () => {
         void (async () => {
           const result = await requestNewConversation(activeProjectId);
           if (!result.ok || result.id === null) {
-            toast('New chat failed', result.error ?? 'The gateway could not start a new chat.', 'TriangleAlert');
+            toast(
+              t('shell.sidebar.newChatFailed'),
+              result.error ?? t('shell.sidebar.newChatFailedDetail'),
+              'TriangleAlert',
+            );
             return;
           }
           dispatch({ type: 'conversation/activate', id: result.id });
@@ -194,117 +217,55 @@ function PaletteDialog() {
       },
     });
 
-    list.push({
-      id: 'go-mission',
-      group: 'Go to',
-      title: 'Go to Mission Control',
-      detail: 'The run graph, lanes and the verify loop',
-      icon: 'Waypoints',
-      run: () => go('/mission'),
-    });
+    // The screens themselves: exactly the ones the sidebar offers in this mode, by their current names.
+    const sections = sidebarSectionsFor(mode);
+    for (const item of [...sections.main, ...sections.advanced, ...sections.foot]) {
+      list.push({
+        id: `go-${item.path}`,
+        group: groupGo,
+        title: item.label,
+        detail: item.description,
+        icon: item.icon,
+        run: () => go(item.path),
+      });
+    }
 
-    list.push({
-      id: 'view-agents',
-      group: 'Go to',
-      title: 'View agents',
-      detail: 'The current agent roster',
-      icon: 'Bot',
-      run: () => go('/agents'),
-    });
-
-    list.push({
-      id: 'view-tasks',
-      group: 'Go to',
-      title: 'View tasks',
-      detail: 'Board, table, work packages and phases',
-      icon: 'ListChecks',
-      run: () => go('/tasks'),
-    });
-
-    list.push({
-      id: 'view-tests',
-      group: 'Go to',
-      title: 'View tests',
-      detail: 'Quality gates and the proof ledger',
-      icon: 'ShieldCheck',
-      run: () => go('/tests'),
-    });
-
-    list.push({
-      id: 'open-settings',
-      group: 'Go to',
-      title: 'Open settings',
-      detail: 'Appearance, density and the Claude Code connection',
-      icon: 'Settings',
-      run: () => go('/settings'),
-    });
-
-    list.push({
-      id: 'open-theme',
-      group: 'Go to',
-      title: 'Open theme showcase',
-      detail: 'Every token, status and primitive on one page',
-      icon: 'Palette',
-      run: () => go('/theme'),
-    });
-
-    list.push({
-      id: 'theme-dark',
-      group: 'Appearance',
-      title: 'Switch theme — Dark',
-      detail: 'The forge is a dark room',
-      icon: 'Moon',
-      run: () => setAppearance('dark'),
-    });
-
-    list.push({
-      id: 'theme-light',
-      group: 'Appearance',
-      title: 'Switch theme — Light',
-      detail: 'The same tokens, inverted values',
-      icon: 'Sun',
-      run: () => setAppearance('light'),
-    });
-
-    list.push({
-      id: 'theme-system',
-      group: 'Appearance',
-      title: 'Switch theme — System',
-      detail: 'Follow the operating system',
-      icon: 'Monitor',
-      run: () => setAppearance('system'),
-    });
+    for (const appearance of ['light', 'dark', 'system'] as const) {
+      list.push({
+        id: `theme-${appearance}`,
+        group: t('rd.palette.groupAppearance'),
+        title: t('rd.palette.theme', { name: t(APPEARANCE_WORD[appearance]) }),
+        icon: APPEARANCE_ICON[appearance],
+        run: () => setAppearance(appearance),
+      });
+    }
 
     list.push({
       id: 'toggle-sidebar',
-      group: 'Layout',
-      title: 'Toggle sidebar',
-      detail: 'Fold the navigation down to its rail',
+      group: t('rd.palette.groupLayout'),
+      title: t('rd.bar.shortcutSidebar'),
       icon: 'PanelLeft',
       keys: ['Ctrl', 'B'],
       run: () => dispatch({ type: 'sidebar/toggle' }),
     });
 
-    list.push({
-      id: 'toggle-inspector',
-      group: 'Layout',
-      title: 'Toggle inspector',
-      detail: 'The right-hand detail panel',
-      icon: 'PanelRight',
-      run: () => dispatch({ type: 'inspector/toggle' }),
-    });
-
-    list.push({
-      id: 'toggle-dock',
-      group: 'Layout',
-      title: 'Toggle dock',
-      detail: 'Activity, terminal, tests, events, proof, notices',
-      icon: 'PanelBottomOpen',
-      run: () => dispatch({ type: 'dock/toggle' }),
-    });
+    // Uitgebreid's one side panel (the Details pane, which holds the old inspector and dock tabs), with the
+    // same words and the same action as the bar's "Meer opties" menu.
+    if (isAdvanced) {
+      list.push({
+        id: 'toggle-details',
+        group: t('rd.palette.groupLayout'),
+        title: inspectorOpen ? t('rd.bar.hideDetails') : t('rd.bar.showDetails'),
+        icon: 'PanelRight',
+        run: () => {
+          setHelpView('closed');
+          dispatch({ type: 'inspector/set', open: !inspectorOpen });
+        },
+      });
+    }
 
     return list;
-  }, [projects, activeProjectId, dispatch, go, toast, setAppearance]);
+  }, [projects, activeProjectId, inspectorOpen, mode, isAdvanced, dispatch, go, toast, setAppearance, t]);
 
   const results = useMemo(() => {
     if (query.trim() === '') return commands;
@@ -403,7 +364,7 @@ function PaletteDialog() {
         className="fw-palette__dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Command palette"
+        aria-label={t('rd.palette.label')}
         onKeyDown={onDialogKeyDown}
       >
         <div className="fw-palette__field">
@@ -417,8 +378,8 @@ function PaletteDialog() {
             aria-controls={listId}
             aria-activedescendant={activeId}
             aria-autocomplete="list"
-            aria-label="Search commands"
-            placeholder="Search commands, projects and destinations"
+            aria-label={t('rd.bar.searchCommands')}
+            placeholder={t('rd.palette.placeholder')}
             value={query}
             autoComplete="off"
             spellCheck={false}
@@ -430,10 +391,10 @@ function PaletteDialog() {
           <KeyHint keys={['Esc']} />
         </div>
 
-        <div className="fw-palette__list fw-scroll" id={listId} role="listbox" aria-label="Commands" ref={listRef}>
+        <div className="fw-palette__list fw-scroll" id={listId} role="listbox" aria-label={t('rd.palette.list')} ref={listRef}>
           {results.length === 0 ? (
             <p className="fw-palette__empty">
-              No command matches <Machine>{query}</Machine>
+              {t('rd.palette.empty')} <Machine>{query}</Machine>
             </p>
           ) : (
             groups.map((group) => {
@@ -483,16 +444,16 @@ function PaletteDialog() {
 
         <footer className="fw-palette__foot">
           <span className="fw-palette__hint">
-            <KeyHint keys={['↑', '↓']} /> move
+            <KeyHint keys={['↑', '↓']} /> {t('rd.palette.hintMove')}
           </span>
           <span className="fw-palette__hint">
-            <KeyHint keys={['Enter']} /> run
+            <KeyHint keys={['Enter']} /> {t('rd.palette.hintRun')}
           </span>
           <span className="fw-palette__hint">
-            <KeyHint keys={['Esc']} /> close
+            <KeyHint keys={['Esc']} /> {t('rd.palette.hintClose')}
           </span>
           <Spacer />
-          <span className="fw-palette__honesty">Mostly navigation and local state — "New conversation" is the one command that reaches the gateway.</span>
+          <span className="fw-palette__honesty">{t('rd.palette.honesty')}</span>
         </footer>
       </div>
     </div>

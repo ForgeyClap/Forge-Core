@@ -1,6 +1,7 @@
 ---
 name: forge-verify
-description: Runs Forge's verify-loop — checks a completion claim against events.jsonl and the ticket store, sends it back if false. Use after every agent/work-package completion in a run.
+description: "Use after every work package (is dit echt gedaan): check the done-claim."
+# W2-BUDGET original description (listing budget): "Use after every work package (is dit echt gedaan, verify the claim): check a done-claim against events."
 ---
 
 # forge-verify — the verify-loop
@@ -59,6 +60,37 @@ and logs `ticket_updated`.
 
 The task is now visibly back with the agent. **The Lead must re-dispatch that agent** with the open
 items listed in the rework event before treating the work as done again.
+
+## Claim mode — grade ONE done-claim
+
+The run check above asks "do the events agree with the claim". Claim mode asks the harder question: does
+the artifact itself prove it? Verify Boss uses it per work package.
+
+```
+node .claude/forge-bin/forge-verify.cjs --claim <packet.json|-> --strip          # what you may read
+node .claude/forge-bin/forge-verify.cjs --claim <packet.json|-> [--runner <out.txt>] [--json]
+```
+
+1. **Read only the stripped packet.** `--strip` keeps the artifact, the acceptance criteria, the runner
+   output and the claimed test names, and names every dropped field. The builder's story is not evidence.
+2. **Try to break it before you judge.** Name one property the result implies and look for a small
+   counterexample (an empty input, a boundary, the other platform). Record it as `judgement.break_attempt`.
+3. **Judge every criterion** (`met` with evidence, `unmet`, or `unknown`), or abstain with a reason.
+
+| Verdict | Gate (`wp_verified.verdict`) | Exit | Counts as pass |
+|---|---|---|---|
+| PROVEN | PASS | 0 | yes |
+| NOT-PROVEN | FAIL (one escalation follows) | 1 | no |
+| PARTLY-PROVEN | NEEDS_MORE_EVIDENCE | 2 | no |
+| NO-CONFIDENT-RESULT | NEEDS_OWNER | 2 | no |
+
+Abstaining is allowed and is not a failure: it neither closes the work package nor triggers an
+escalation. NOT-PROVEN comes automatically when the runner reports a failure, a claimed test never ran
+(absent from the runner output), a done-claim hedges ("should work", "probably", "zou moeten werken",
+"waarschijnlijk"), a criterion is unmet, or your break attempt found a counterexample. Packet and
+judgement shapes, runner formats and an example: `references/claim-verdict.md`.
+
+Claims that code "is wired" or "runs at X": see `references/reachability.md`.
 
 ## Honesty rule
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { normalizeBudget } from './local-usage.js';
 
 // C1 fix (2026-09-26 laptop re-audit, coordinator flag): the old default hard-coded the
 // maintainer's own username (`C:\Users\YOU\Documents\ForgeProjects`), which does not exist on any
@@ -92,6 +93,12 @@ export function loadConfig({ env = process.env, cwd = process.cwd(), envFile = '
     pauseAtPercent: Number.parseInt(get('PAUSE_AT_PERCENT', '90'), 10) || 90,
     resumeAtPercent: Number.parseInt(get('RESUME_AT_PERCENT', '80'), 10) || 80,
     dailyCostLimitUsd: Number.parseFloat(get('DAILY_COST_LIMIT_USD', '0')) || 0,
+    // Eigen tokenbudget per venster voor de auto-pauze (schatting uit lokale logs).
+    // Leeg, ongeldig of <= 0 = uit; dan pauzeert alleen het dagplafond.
+    tokenBudgets: {
+      session: normalizeBudget(get('TOKEN_BUDGET_5H', '0')),
+      weekly_all: normalizeBudget(get('TOKEN_BUDGET_WEEK', '0')),
+    },
     // Ongeldige waarde → standaard 8 (niet stil uitschakelen); -1 = expliciet uit.
     briefingHour: (() => {
       const raw = get('BRIEFING_HOUR', '8');

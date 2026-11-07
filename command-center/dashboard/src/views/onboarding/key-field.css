@@ -1,0 +1,213 @@
+/*
+ * KeyField (WP B2 part 2). Dashboard tokens only, so it follows light and dark. The status colours
+ * (--fs-ok/-warn/-fail) come from the B6 roots (.fs-set, .fs-onb) in checkup.css.
+ * Motion: none beyond the shared control transitions.
+ */
+
+.fs-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  min-width: 0;
+}
+
+.fs-key__note {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  line-height: 1.5;
+}
+
+.fs-key__note > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.fs-key__saved {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+}
+
+/* Icon in its own column, the text beside it, the date under the text (round-2 fix: at 390 px a
+   wrapping flex row left the lock icon alone on a line). */
+.fs-key__dots {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--fs-space-2);
+  row-gap: 2px;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.fs-key__dots > svg {
+  grid-row: span 2;
+  align-self: start;
+  margin-top: 2px;
+}
+
+.fs-key__dots small {
+  grid-column: 2;
+  font-weight: normal;
+  color: var(--fs-ink-3);
+}
+
+.fs-key__actions {
+  display: inline-flex;
+  gap: var(--fs-space-2);
+  flex-wrap: wrap;
+}
+
+.fs-key__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  min-width: 0;
+}
+
+.fs-key__label {
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fs-key__row {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fs-key__input {
+  flex: 1 1 220px;
+  min-width: 0;
+  block-size: var(--fw-control-h-sm, 28px);
+  padding-inline: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-bg-side);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  letter-spacing: 0.08em;
+}
+
+.fs-key__input:hover:not(:disabled) {
+  border-color: var(--fs-line-strong);
+}
+
+.fs-key__input:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.fs-key__input[aria-invalid='true'] {
+  border-color: var(--fs-danger);
+}
+
+.fs-key__input:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.fs-key__meta {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+  line-height: 1.5;
+}
+
+.fs-key__msg {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+}
+
+.fs-key__msg:empty {
+  display: none;
+}
+
+.fs-key__msg[data-tone='ok'] {
+  color: var(--fs-ok);
+}
+
+.fs-key__msg[data-tone='warn'] {
+  color: var(--fs-warn);
+}
+
+.fs-key__msg[data-tone='bad'] {
+  color: var(--fs-danger);
+}
+
+/* A change that is saved but not active yet, or whose state is unknown: plain text, no green claim. */
+.fs-key__msg[data-tone='pending'] {
+  color: var(--fs-ink-3);
+  font-weight: 400;
+}
+
+/* Save result, apply state and reconnect answer, one under the other (KEY-VAULT-CONTRACT.md §5). */
+.fs-key__status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-1);
+}
+
+.fs-key__status:empty {
+  display: none;
+}
+
+.fs-key__apply-action {
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-key__input {
+    transition: none;
+  }
+}
+
+/* Onboarding "API-sleutel": which service the key is from. */
+.fs-onb__service {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  max-inline-size: 360px;
+}
+
+.fs-onb__service label {
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+}
+
+.fs-onb__service select {
+  block-size: var(--fw-control-h, 30px);
+  padding-inline: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-bg-side);
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+}
+
+.fs-onb__service select:hover {
+  border-color: var(--fs-line-strong);
+}
+
+.fs-onb__service select:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 1px;
+}

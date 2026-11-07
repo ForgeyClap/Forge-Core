@@ -1,6 +1,7 @@
 ---
 name: forge-docdrift
-description: Detects drift between cited external docs (Claude Code, n8n nodes) and what our skills claim. Use before major n8n work or on /forge docs-check — doc drift, source verification, staleness.
+description: "User-invoked only: /forge-docdrift or /forge docs-check. Fetches the external docs our skills cite (Claude Code, n8n) and flags possible claim drift; manual because it makes network calls."
+disable-model-invocation: true
 ---
 
 # Forge playbook — Docdrift (external-doc claim drift detection)

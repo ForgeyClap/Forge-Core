@@ -1,0 +1,27 @@
+{
+  "skill": "forge-ecc-adapter",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-ecc-adapter/SKILL.md",
+      "why": "the skill file itself must exist for forge-ecc-adapter to be usable at all" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
+      "why": "every description stays <=200 chars (skill-load budget); W2-WIRE keeps this one near 90 for the listing" },
+    { "id": "resolver-exists", "type": "file_exists", "path": ".claude/forge-bin/forge-ecc-path.cjs",
+      "why": "the skill only works through the resolver; a removed tool must turn this eval red" },
+    { "id": "resolve-call", "type": "contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "forge-ecc-path.cjs resolve skill-stocktake",
+      "why": "the stocktake row must run through the resolver, not the hard-coded ~/.claude/skills path" },
+    { "id": "hooks-stay-off", "type": "contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "ECC hooks stay off by policy",
+      "why": "hook-based ECC features are owner-only and must be named out of scope" },
+    { "id": "learn-outside-project", "type": "contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "outside the project, which is an owner-gated edit",
+      "why": "learn/learn-eval write a global skill folder; the skill must say that is a hard gate" },
+    { "id": "no-ecc-edit", "type": "contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "ECC files are never edited (ECC policy section 7)",
+      "why": "ECC policy section 7: the fix lives in the resolver, never in the pinned catalog" },
+    { "id": "instincts-disabled", "type": "contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "disabled by ECC policy: owner approval required",
+      "why": "ECC_GLOBAL_POLICY keeps instincts, evolution and continuous learning OFF; evolve/promote/prune/projects must be named disabled, not run (W2-REVIEWFIX M1)" },
+    { "id": "no-runnable-instinct-cli", "type": "not_contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "resolve continuous-learning-v2)/scripts/instinct-cli.py",
+      "why": "no ready-to-run instinct-cli.py command line through the resolver: prune deletes files outside the project (W2-REVIEWFIX M1)" },
+    { "id": "no-instinct-evolve-line", "type": "not_contains", "path": ".claude/skills/forge-ecc-adapter/SKILL.md", "needle": "instinct-cli.py evolve",
+      "why": "no runnable evolve line either (W2-REVIEWFIX M1)" },
+    { "id": "doctor-guard", "type": "file_exists", "path": ".claude/forge-bin/doctor/checks-tools.cjs",
+      "why": "the ecc_path doctor check that turns red when the resolver breaks must exist" }
+  ]
+}

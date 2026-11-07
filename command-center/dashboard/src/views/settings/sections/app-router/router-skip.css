@@ -1,0 +1,71 @@
+/* A router step that is skipped because its own API ("Eigen API") was removed or switched off
+   (Q5-EIGEN-API-UI). Calm, readable: the warn token as a thin left rule, body ink on the soft warn fill.
+   Used on the chain row (Uitgebreid), as a note (Eenvoudig) and in the Eigen API section. */
+
+.fs-router-skip {
+  margin: 0;
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-left: 2px solid var(--fs-warn);
+  border-radius: 0 var(--fs-radius-sm) var(--fs-radius-sm) 0;
+  background: var(--fs-warn-soft);
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink);
+  overflow-wrap: anywhere;
+}
+
+/* On a chain row it sits under the name, a step smaller. */
+.fs-router__link-main > .fs-router-skip {
+  display: block;
+  margin-top: var(--fs-space-1);
+  font-size: var(--fs-text-12);
+}
+
+.fs-router__link-row[data-unavailable='true'] .fs-router__link-name b {
+  color: var(--fs-ink-2);
+}
+
+/* Inside the Eigen API list box: the after-delete notice keeps the box's padding instead of running to its edge. */
+.fs-capi__box > .fs-router-skip {
+  margin: var(--fs-space-3);
+  border-top: 0;
+}
+
+/* In the Eigen API dialog: above the form, with room before the first field. */
+.fs-capi__router {
+  margin-bottom: var(--fs-space-4);
+}
+
+/* Q6-SHOTS round 1: on a phone the model status pill next to Testen ("De lijst met modellen is nog niet opgehaald.
+   Klik bij Accounts op Testen …") ran past the card edge (pills never wrap). Here it may wrap inside the card;
+   the dot stays on the first line. */
+.fs-router__status .fs-pill {
+  max-inline-size: 100%;
+  white-space: normal;
+  align-items: baseline;
+}
+
+.fs-router__status .fs-pill__dot {
+  align-self: flex-start;
+  margin-block-start: 7px;
+}
+
+/* Q6-SHOTS round 2: at 360 px the mode select ("Claude eerst, dan mijn eigen model") kept the width of its longest
+   option and ran 13 px past the card. On a narrow screen the row is one column: the select takes that column. */
+@media (max-width: 640px) {
+  .fs-set__row[data-row='router-mode'] .fs-set__ctl {
+    min-inline-size: 0;
+  }
+
+  .fs-set__row[data-row='router-mode'] .fs-set__select {
+    inline-size: 100%;
+    min-inline-size: 0;
+  }
+
+  /* Round 3: a status pill that wraps to two or three lines reads as a blob with the full pill radius; on a phone it
+     takes the small radius of the other blocks in this card. */
+  .fs-router__status .fs-pill {
+    border-radius: var(--fs-radius-sm);
+    padding-block: var(--fs-space-1);
+  }
+}

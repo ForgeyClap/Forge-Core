@@ -92,22 +92,31 @@ function renderWithState(ui: ReturnType<typeof createElement>, state: PrototypeS
 describe('an absent project goal renders the honest empty-value convention, never leaked template syntax', () => {
   afterEach(() => cleanup());
 
-  it('ProjectsView shows "—" for the description, not blank space', () => {
+  // Redesign 2B (DESIGN.md §3.3, "one line per element"): the list row and the project page show a
+  // goal line only when a real goal exists. The contract is unchanged and stated directly: an absent
+  // goal never renders as a blank line (an empty element) and never as leaked scaffold text. It may be
+  // absent altogether, or the "—" absence marker.
+  function expectHonestAbsence(element: Element | null): void {
+    if (element === null) return;
+    expect(element.textContent?.trim()).toBe('—');
+  }
+
+  it('ProjectsView never renders a blank description line for an absent goal', () => {
     const { container } = renderWithState(
       createElement(ProjectsView),
       buildState(PROJECT_WITH_NO_GOAL, ''),
     );
-    const description = container.querySelector('.fw-projects__description');
-    expect(description?.textContent).toBe('—');
+    expect(container.querySelector('.fw-projects__name')?.textContent).toBe('100 apps');
+    expectHonestAbsence(container.querySelector('.fw-projects__description'));
   });
 
-  it('ProjectOverviewView shows "—" for the description, not blank space', () => {
+  it('ProjectOverviewView never renders a blank description line for an absent goal', () => {
     const { container } = renderWithState(
       createElement(ProjectOverviewView),
       buildState(PROJECT_WITH_NO_GOAL, '100 apps'),
     );
-    const description = container.querySelector('.fw-project__description');
-    expect(description?.textContent).toBe('—');
+    expect(container.querySelector('h1')?.textContent).toBe('100 apps');
+    expectHonestAbsence(container.querySelector('.fw-project__description'));
   });
 
   it('ProjectsView renders zero forbidden strings and no raw "<...>" template token', () => {

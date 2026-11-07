@@ -1,0 +1,162 @@
+/* Automatiseringen (WP B5). Tokens only. Page frame: ../jobs/xpage.css. */
+
+.fw-auto__alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fs-space-3);
+  max-inline-size: 72ch;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px dashed var(--fs-ink-3);
+  border-radius: var(--fs-radius-sm);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+}
+
+.fw-auto__list {
+  display: flex;
+  flex-direction: column;
+  max-inline-size: 60rem;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-1);
+}
+
+.fw-auto__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--fs-space-4);
+  align-items: start;
+  padding: var(--fs-space-5) var(--fs-space-6);
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-auto__row:first-child {
+  border-block-start: none;
+}
+
+.fw-auto__glyph {
+  display: grid;
+  place-items: center;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border-radius: var(--fs-radius-sm);
+  color: var(--fs-ink-2);
+  background: var(--fs-sunken);
+}
+
+.fw-auto__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-1);
+  min-inline-size: 0;
+}
+
+.fw-auto__title {
+  margin: 0;
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fw-auto__feel {
+  margin: 0;
+  max-inline-size: 62ch;
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+  color: var(--fs-ink-2);
+}
+
+.fw-auto__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fs-space-2) var(--fs-space-3);
+  margin-block-start: var(--fs-space-2);
+}
+
+.fw-auto__muted {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fw-auto__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+  padding: 2px var(--fs-space-2);
+  border-radius: var(--fs-radius-pill);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
+  color: var(--fs-ink-3);
+  background: var(--fs-sunken);
+}
+
+.fw-auto__pill::before {
+  content: '';
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: var(--fs-radius-pill);
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.fw-auto__pill[data-on='true'] {
+  color: var(--fs-ink-on-accent);
+  background: var(--fs-accent);
+}
+
+.fw-auto__control {
+  display: flex;
+  justify-content: flex-end;
+  padding-block-start: 2px;
+}
+
+.fw-auto__control-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--fs-space-1);
+}
+
+.fw-auto__notwired {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .fw-auto__row {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: var(--fs-space-4);
+  }
+
+  .fw-auto__control {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .fw-auto__control-stack {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--fs-space-2);
+  }
+}
+
+/* W3FX-BC: an Uitgebreid route page, not a centred list page. Same left-aligned header as Taken, Controles,
+   Discord and the other Uitgebreid routes: the title starts at the content gutter, so it does not jump when
+   switching tabs. */
+.fw-xpage--route .fw-xpage__header,
+.fw-xpage--route .fw-xpage__body {
+  inline-size: auto;
+  margin-inline: 0;
+  padding-inline: var(--fw-gutter);
+}
+
+.fw-xpage--route .fw-xpage__header {
+  padding-block: var(--fw-gutter) var(--fw-gap);
+}

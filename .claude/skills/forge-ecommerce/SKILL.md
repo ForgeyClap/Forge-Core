@@ -1,19 +1,26 @@
 ---
 name: forge-ecommerce
-description: "Forge: e-commerce and cashflow shops: shop, store, cart, checkout, product, inventory, Shopify, WooCommerce, Etsy, Stripe, order fulfillment, oversell."
+description: "Playbook for web shops: checkout, Shopify, WooCommerce, Etsy (gebruik bij een webwinkel)."
+# A10 original description (listing budget): "Playbook for web shops: cart, checkout, inventory, Shopify, WooCommerce, Etsy, Stripe (gebruik bij een webwinkel)."
+# W2-BUDGET original description (listing budget): "Playbook for web shops: cart, checkout, Shopify, WooCommerce, Etsy (gebruik bij een webwinkel)."
 ---
 
 # Forge playbook — E-commerce / store / digital products
 
+## When to use
+- Use for: stores and digital products: catalog, cart, inventory correctness, orders and store connectors.
+
 Storefront UI defers to `forge-website`; anything that charges a card defers to **`forge-payments`** (this playbook never re-implements card handling). This file owns the commerce-specific concerns: catalog, cart, inventory correctness, orders, and connectors. Forge context: a cashflow or digital-goods shop / Etsy-style shops.
 
 ## Hard rules
-- **Real product/listing data with honest empty states.** No lorem/placeholder products passed off as a real catalog; an empty catalog renders a real empty state, never fake inventory or fabricated sales/metrics.
-- **Oversell-safe inventory.** Stock decrement is an **atomic conditional update** ("first writer wins", `UPDATE ... SET stock = stock - qty WHERE stock >= qty`) or a reservation row — never a read-then-write that races. Concurrent buyers of the last unit → exactly one succeeds. Prefer soft-reserve at cart/checkout intake, hard-decrement at order confirmation.
-- **Idempotent order creation.** `POST /order` (or checkout submit) carries an `Idempotency-Key` with a UNIQUE constraint, because mobile networks retry, users double-tap, and gateways time out — a duplicate submit must return the same order, not create two. (Same pattern as `forge-payments`; keep them consistent.)
-- **Connectors gated until keys + approval.** Store/marketplace connectors (Shopify Admin, WooCommerce, Etsy, Stripe) stay disabled until real keys are present AND the owner approves. **No live publish, store-push, listing update, price change, or spend without explicit owner approval.**
-- **Money = integer minor units + currency** (see `forge-payments`); no float math on prices, tax, shipping, or discounts.
+- **Real product/listing data with honest empty states.**
+- **Oversell-safe inventory.**
+- **Idempotent order creation.**
+- **Connectors gated until keys + approval.**
+- **Money = integer minor units + currency**
 - Secrets (store API keys, webhook secrets) in env + `.env.example` placeholders only.
+
+Full text of every rule: `references/hard-rules.md`.
 
 ## Team (conditional)
 Lead: `build-boss` (full store) or `integration-boss` (connector/sync-only). Specialists: `payment-integration` (checkout/charge — via `forge-payments`), `database-reviewer` (inventory + order schema, race-safety), `silent-failure-hunter` (a dropped inventory sync or swallowed order error looks like a clean sale), `typescript-reviewer` / `python-reviewer`. Storefront: `forge-website` team (a11y, responsive, real content). Optional: `codex-reviewer` on the checkout/order/inventory paths.
@@ -36,4 +43,14 @@ L2 catalog + cart; L3 catalog + cart + checkout + inventory + orders + a connect
 - Customer-facing emails/messages drafted, not auto-sent, without confirmation; idempotency before any order notification (no duplicate "order confirmed" mails on webhook retry).
 
 ## Ship-readiness (unique)
-Real products with honest empty state; one real purchase flow works end-to-end in test mode; oversell-safe inventory proven under concurrency; idempotent orders proven under double-submit; minor-units money reconciles; store connectors gated + no live push/spend done; order notifications idempotent + draft-gated; secrets in env. Advisory checklist; optionally run `codex-reviewer` on checkout/order/inventory — not a blocker; if a live store/marketplace action was requested, it stays owner-gated.
+Evidence checklist before handoff: `references/ship-readiness.md`.
+
+## Safety, approval and honesty
+- Approval / safety: connectors stay disabled until real keys + owner approval; no live publish, store-push, listing update, price change or spend without explicit owner approval.
+- Approval / safety: customer emails drafted, not auto-sent; store API keys and webhook secrets in env.
+- Honest failure: no fabricated sales, inventory or metrics; an empty catalog shows an honest empty state.
+- Shared gates for every playbook (honesty, owner approval, secrets, reviews): `.claude/docs/forge-reference/playbook-template.md`.
+
+## References
+- `references/hard-rules.md` — full text of every hard rule.
+- `references/ship-readiness.md` — full ship-readiness evidence checklist.

@@ -1,0 +1,68 @@
+{
+  "_doc": "E.1 (owner HARD MUST 'end-of-work self-review'): the ONE source of the self-review questions the lead answers in writing, with evidence, before any work is reported done. Same order and numbering as docs/claude-md/end-self-review.md (q1 = question 1 ... q12 = question 12); never renumber, only append (q13 ...). Read by .claude/forge-bin/forge-endreview.cjs (questions, template, record, check) and, through it, by the run-contract rule end-self-review in FORGE_HARD_RULES.json. Each question: id, short {en, nl} (the question itself) and ask {en, nl} (what a real answer covers).",
+  "kind": "forge-self-review-questions",
+  "version": 1,
+  "source": "docs/claude-md/end-self-review.md",
+  "questions": [
+    {
+      "id": "q1",
+      "short": { "en": "Is it what the owner asked?", "nl": "Is het wat de owner vroeg?" },
+      "ask": { "en": "Re-read the request word for word. Anything missing, renamed or silently replaced?", "nl": "Lees de vraag woord voor woord opnieuw. Ontbreekt er iets, is iets hernoemd of stilletjes vervangen?" }
+    },
+    {
+      "id": "q2",
+      "short": { "en": "Does it actually work?", "nl": "Werkt het echt?" },
+      "ask": { "en": "Not \"the tests passed\": run the real thing (the real command, the real file, the real page) and look at the output.", "nl": "Niet \"de tests slaagden\": draai het echte ding (het echte commando, het echte bestand, de echte pagina) en kijk naar de uitvoer." }
+    },
+    {
+      "id": "q3",
+      "short": { "en": "Could it be better?", "nl": "Kan het beter?" },
+      "ask": { "en": "Name the weakest part and either improve it now or say plainly why not.", "nl": "Noem het zwakste deel en verbeter het nu, of zeg duidelijk waarom niet." }
+    },
+    {
+      "id": "q4",
+      "short": { "en": "Is it good?", "nl": "Is het goed?" },
+      "ask": { "en": "Craft lens: who looks at or works with this, and what would they notice in the first ten seconds?", "nl": "Vakmanschapslens: wie bekijkt dit of werkt ermee, en wat zou die in de eerste tien seconden opvallen?" }
+    },
+    {
+      "id": "q5",
+      "short": { "en": "What did I assume?", "nl": "Wat heb ik aangenomen?" },
+      "ask": { "en": "List each assumption; verify the cheap ones; flag the rest.", "nl": "Noem elke aanname; controleer de goedkope; markeer de rest." }
+    },
+    {
+      "id": "q6",
+      "short": { "en": "What can break it?", "nl": "Wat kan het breken?" },
+      "ask": { "en": "Empty input, wrong layout (legacy vs .forge), Windows paths, low memory, a second run.", "nl": "Lege invoer, verkeerde indeling (legacy vs .forge), Windows-paden, weinig geheugen, een tweede run." }
+    },
+    {
+      "id": "q7",
+      "short": { "en": "Did I break something else?", "nl": "Heb ik iets anders kapotgemaakt?" },
+      "ask": { "en": "The affected suites ran; the registries, README rows, plugin build (--check) and ship manifest agree with the code.", "nl": "De geraakte testsuites draaiden; de registers, README-regels, plugin-build (--check) en ship-manifest kloppen met de code." }
+    },
+    {
+      "id": "q8",
+      "short": { "en": "Does it follow every standing rule?", "nl": "Volgt het elke vaste regel?" },
+      "ask": { "en": "Isolation (only this project), gates, honesty, scratch discipline, one writer per file.", "nl": "Isolatie (alleen dit project), poorten, eerlijkheid, scratch-discipline, één schrijver per bestand." }
+    },
+    {
+      "id": "q9",
+      "short": { "en": "Is the proof independent?", "nl": "Is het bewijs onafhankelijk?" },
+      "ask": { "en": "A builder's \"done\" counts only after someone else re-ran the checks.", "nl": "Het \"klaar\" van een bouwer telt pas nadat iemand anders de checks opnieuw draaide." }
+    },
+    {
+      "id": "q10",
+      "short": { "en": "What would the owner ask next?", "nl": "Wat zou de owner hierna vragen?" },
+      "ask": { "en": "Answer it now, or put it in the owner queue with what it unblocks.", "nl": "Beantwoord het nu, of zet het in de owner-wachtrij met wat het vrijmaakt." }
+    },
+    {
+      "id": "q11",
+      "short": { "en": "What is still weak, missing or unverified?", "nl": "Wat is nog zwak, ontbreekt of is niet geverifieerd?" },
+      "ask": { "en": "Say it in the report, first, plainly.", "nl": "Zeg het in het rapport, als eerste, duidelijk." }
+    },
+    {
+      "id": "q12",
+      "short": { "en": "Would I be comfortable if the owner opened it right now?", "nl": "Zou ik me prettig voelen als de owner het nu meteen opende?" },
+      "ask": { "en": "If not, the work is not done: fix it or say why.", "nl": "Zo niet, dan is het werk niet af: fix het of zeg waarom." }
+    }
+  ]
+}

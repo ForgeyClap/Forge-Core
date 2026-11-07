@@ -1,16 +1,19 @@
 ---
 name: using-git-worktrees
-description: "Use before feature work or plan execution needing an isolated workspace (native tool or git worktree)."
+description: "Use before feature work that needs an isolated workspace."
+# A10 original description (listing budget): "Use before feature work or plan execution needing an isolated workspace (native tool or git worktree)."
+# W2-BUDGET original description (listing budget): "Use before feature work or plan execution needing an isolated workspace."
 license: MIT
 ---
 
 <!--
   Source: https://github.com/obra/superpowers
-  Pinned commit: 5bf4e78011075bcfc0dc295f0724994cd123ee71
+  Pinned commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b (tag v7.0.1, also main on 2026-11-02)
   Upstream path: skills/using-git-worktrees/
   License: MIT (c) 2025 Jesse Vincent -- full text in LICENSE next to this file
   Forge vendor note: frontmatter license: MIT key and this provenance block added; everything else verbatim.
-  Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by build-boss, 2026-09-24 -- clean; every upstream file sha256-verified against the pinned-commit manifest before copying.
+  Previous pin: 5bf4e78011075bcfc0dc295f0724994cd123ee71; upgraded 2026-11-02 (WP Q3-SKILLS).
+  Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by skill-boss, 2026-11-02 -- clean; every upstream file git-blob-hash-verified against the pinned commit's tree before copying.
 -->
 
 # Using Git Worktrees

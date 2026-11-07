@@ -1,0 +1,19 @@
+{
+  "_about": "WP B3 error-catalogue fixtures. 'recorded' = copied from real stream-json lines in this machine's own conversation store (CLI 2.1.2xx, July 2026), with session ids and uuids replaced by fixed placeholders. 'constructed' = a real field layout (taken from recorded lines) with values for a case that was not observed live. No secrets anywhere. 'expect' is one entry per line: the error code, or null when the line is not an error.",
+  "files": [
+    { "file": "api-retry-overloaded.jsonl", "source": "recorded", "expect": ["api_retry", "api_retry"] },
+    { "file": "rate-limit-allowed.jsonl", "source": "recorded", "expect": [null, null] },
+    { "file": "rate-limit-rejected.jsonl", "source": "constructed", "expect": ["rate_limited"] },
+    { "file": "result-errors.jsonl", "source": "constructed", "expect": ["logged_out", "rate_limited", "offline", "unknown", null] }
+  ],
+  "texts": [
+    { "source": "constructed", "text": "spawn C:\\Users\\someone\\.local\\bin\\claude.exe ENOENT", "expect": "cli_missing" },
+    { "source": "constructed", "text": "'claude' is not recognized as an internal or external command,\r\noperable program or batch file.", "expect": "cli_missing" },
+    { "source": "constructed", "text": "Invalid API key · Please run /login", "expect": "logged_out" },
+    { "source": "constructed", "text": "Error: getaddrinfo ENOTFOUND api.anthropic.com", "expect": "offline" },
+    { "source": "constructed", "text": "Error: connect ECONNREFUSED 127.0.0.1:11434", "expect": "ollama_down" },
+    { "source": "constructed", "text": "Error: model \"qwen3:8b\" not found, try pulling it first", "expect": "model_not_pulled" },
+    { "source": "constructed", "text": "Claude AI usage limit reached|1785355200", "expect": "rate_limited" },
+    { "source": "recorded", "text": "Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.", "expect": "unknown" }
+  ]
+}

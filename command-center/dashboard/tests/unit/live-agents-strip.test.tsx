@@ -20,14 +20,16 @@ function dispatchesResponse(dispatches: readonly Record<string, unknown>[]): Res
 }
 
 describe('LiveAgentsStrip', () => {
-  it('no agent registry at all: one plain honest line, never an empty box', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => dispatchesResponse([])));
-    render(createElement(LiveAgentsStrip, { agentCount: 0, projectId: 'demo-project' }));
+  it('no agent registry and nothing dispatched: the strip draws nothing (the roster says it once, centred)', async () => {
+    const fetchMock = vi.fn(async () => dispatchesResponse([]));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(createElement(LiveAgentsStrip, { agentCount: 0, projectId: 'demo-project' }));
 
-    // The dispatch poll still runs underneath (hooks are unconditional) even though this branch
-    // never reads its result — `findByText` waits for it to settle so React never warns about a
-    // post-assert state update.
-    expect(await screen.findByText('No Forge agent registry found for this project.')).toBeInTheDocument();
+    // fix round: AgentsView's own empty state carries "No Forge agent registry found" once;
+    // the strip repeating it above was the double line the gate flagged.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('No Forge agent registry found for this project.')).toBeNull();
   });
 
   it('a registry exists but nothing has ever been dispatched: a distinct, different honest line', async () => {
@@ -110,16 +112,17 @@ describe('LiveAgentsStrip — a real dispatch is never hidden behind the "no reg
     render(createElement(LiveAgentsStrip, { agentCount: 0, projectId: 'dashboard-selftest' }));
 
     expect(await screen.findByText('Explore')).toBeInTheDocument();
-    // and the registry fact is still stated — as a note beside the real data, never instead of it
+    // The registry fact itself is stated once by the roster's empty state below (AgentsView); the
+    // strip says where these subagents came from.
     expect(screen.queryByText('No Forge agent registry found for this project.')).toBeNull();
-    await waitFor(() =>
-      expect(screen.getByText(/no Forge agent registry, so the roster below is empty/i)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/dispatched on its own/i)).toBeInTheDocument());
   });
 
-  it('still shows the "no registry" line when there is genuinely nothing dispatched either', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => dispatchesResponse([])));
-    render(createElement(LiveAgentsStrip, { agentCount: 0, projectId: 'dashboard-selftest' }));
-    expect(await screen.findByText('No Forge agent registry found for this project.')).toBeInTheDocument();
+  it('with genuinely nothing dispatched either, the strip stays out of the way (no empty box)', async () => {
+    const fetchMock = vi.fn(async () => dispatchesResponse([]));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = render(createElement(LiveAgentsStrip, { agentCount: 0, projectId: 'dashboard-selftest' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(container.querySelector('.fw-agents__live')).toBeNull();
   });
 });

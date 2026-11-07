@@ -13,9 +13,9 @@
 import { spawn, execFile } from 'node:child_process';
 import readline from 'node:readline';
 import fs from 'node:fs';
-import { appendAssistantTurn, appendConversationEvent } from './conversations.mjs';
-import { redact, redactDeep, redactAndCap } from './redact.mjs';
-import { executionAvailability, filteredEnv, _resetClaudeCliResolutionForTests } from './exec-cli.mjs';
+import { appendAssistantTurn, appendConversationEvent, deriveTitleFromText } from './conversations.mjs';
+import { redact, redactDeep, createCappedRedactedCapture } from './redact.mjs';
+import { executionAvailability, execSpawnEnv, stripExecTokenFromAskMcpConfig, isUsableClaudeConfigDir, withClaudeProfileEnv, _resetClaudeCliResolutionForTests } from './exec-cli.mjs';
 import { buildSpawnSpec } from './exec-argv.mjs';
 import { abandonPendingAsksForConversation } from './ask-store.mjs';
 import {
@@ -35,9 +35,43 @@ import {
   MAX_SHELL_COMMANDS_PER_TURN,
 } from './exec-stream-parse.mjs';
 import { createExecCostAggregator, buildCostSampledRecord } from './exec-cost.mjs';
+import { resumeOptionsFor, createRunSessionTracker } from './sessions/gateway-sessions.mjs';
+// WP B3 (plan 4.4): permission prompts, the acceptEdits default, error codes and the stop sequence.
+import {
+  setRunPauseHooks,
+  registerPermissionRun,
+  observeStreamLine as observePermissionStreamLine,
+  abandonPermissionsForConversation,
+} from './permissions/store.mjs';
+import { resolveEffectiveMode } from './permissions/mode.mjs';
+import { isProjectTrusted } from './permissions/trust.mjs';
+import { extractForgeErrorFromParsedLine } from './exec-stream-parse.mjs';
+import { classifyErrorText, classifyExit, gatewayRestartedError, toForgeErrorEvent } from './error-catalogue.mjs';
+
+// WP B8-3 (Review B8-2, HIGH): a child that ends before its FIRST stdout line never started the turn at all.
+// Before this, such a turn closed with error:null (chat-runs.mjs then counted it 'completed') and the
+// conversation stayed silent. It now closes as a FAILED turn whose error starts with this Dutch sentence, plus
+// one forge_error with an error-catalogue code (the stderr's own code when it names one, else `unknown`).
+export const START_FAILED_MESSAGE = 'Claude kon niet starten';
+let spawnSpecOverride = null; // test-only, set via _setSpawnSpecOverrideForTests()
+/** Test-only: replace buildSpawnSpec for the next executions (fn(text, mode, ...) -> { cmd, args, askMcpConfigPath }); null restores it. */
+export function _setSpawnSpecOverrideForTests(fn) { spawnSpecOverride = typeof fn === 'function' ? fn : null; }
+
+/** The turn error and the catalogue payload for a child that exited before any output (exported for tests). */
+export function startFailure({ exitCode, signal, stderr }) {
+  const how = exitCode !== null && exitCode !== undefined ? 'afsluitcode ' + exitCode : signal ? 'signaal ' + signal : 'onbekende afsluiting';
+  const message = START_FAILED_MESSAGE + ' (' + how + ', geen uitvoer)';
+  const classified = classifyExit({ exitCode, stderr }) || classifyErrorText('');
+  const stderrText = typeof stderr === 'string' && stderr.trim() ? stderr.trim() : null;
+  const payload = { ...classified, details: (message + (stderrText ? ': ' + (classified.details || stderrText) : '')).slice(0, 600) };
+  return { message, payload };
+}
 
 const MAX_CONCURRENT_EXECUTIONS = 3;
 const STDERR_CAP_BYTES = 4000;
+// WP A8: how much child stderr is read at all before the capture is cut (fail-closed, see
+// createCappedRedactedCapture). Far above the 4000 chars a turn stores; it only bounds memory.
+const STDERR_INPUT_LIMIT_CHARS = 256 * 1024;
 
 // fix-exec-timeout (HIGH, checkup finding): a spawned `claude -p` child previously had NO wall-clock
 // cap — it was only ever cleaned up on 'close'/'error'/an explicit stopExecution() call, so a
@@ -53,7 +87,8 @@ const STDERR_CAP_BYTES = 4000;
 const DEFAULT_EXEC_TIMEOUT_MS = 30 * 60 * 1000;
 let execTimeoutMsOverride = null; // test-only, set via _setExecTimeoutMsForTests()
 
-function resolveExecTimeoutMs() {
+/** The wall-clock cap of one execution in ms (CLI turns and, App router P2, provider turns alike). */
+export function resolveExecTimeoutMs() {
   if (execTimeoutMsOverride !== null) return execTimeoutMsOverride;
   const envValue = Number(process.env.CC_EXEC_TIMEOUT_MS);
   return Number.isFinite(envValue) && envValue > 0 ? envValue : DEFAULT_EXEC_TIMEOUT_MS;
@@ -96,19 +131,67 @@ export function _pendingExecTimeoutCountForTests() {
   return pendingTimeoutTimers.size;
 }
 
-// convId -> { child, turnId, requestId, startedAt, timeoutTimer }
+// convId -> running entry. App router P2 (review finding 9) defines the entry contract:
+//   kind 'cli'      { kind, child, turnId, requestId, startedAt, timeoutTimer, markFinished, fireExecTimeout, ... }
+//                   one spawned `claude -p` child (startExecution below);
+//   kind 'provider' { kind, turnId, requestId, startedAt, timeoutTimer: null, abort(reason), markFinished,
+//                   stoppedByUser } one answers-only provider or codex turn (app-router/provider-turn.mjs),
+//                   registered through registerProviderRun(). It has no child: stop and drain call abort().
+// Both kinds make the conversation busy (isConversationBusy), so chat-runs.mjs and agent-dispatches.mjs
+// need no change. The caps are separate: CLI children count toward MAX_CONCURRENT_EXECUTIONS only,
+// provider turns toward MAX_CONCURRENT_PROVIDER_TURNS only (a provider turn spawns no claude child).
+// The ask/permission pause functions below act only on entries with a reaper (fireExecTimeout), so a
+// provider entry is a no-op there.
 const running = new Map();
+const MAX_CONCURRENT_PROVIDER_TURNS = 3;
 
 export function isConversationBusy(convId) { return running.has(convId); }
 export function runningExecutionCount() { return running.size; }
 export function maxConcurrentExecutions() { return MAX_CONCURRENT_EXECUTIONS; }
+export function maxConcurrentProviderTurns() { return MAX_CONCURRENT_PROVIDER_TURNS; }
+function countRunning(kind) {
+  let n = 0;
+  for (const e of running.values()) if ((e.kind === 'provider' ? 'provider' : 'cli') === kind) n += 1;
+  return n;
+}
+/** Running provider turns (App router P2). */
+export function providerRunCount() { return countRunning('provider'); }
+
+/**
+ * App router P2: registers one provider turn in the shared running map, so the conversation is busy,
+ * Stop aborts it and a gateway drain interrupts it. Returns { ok: true, entry } or { ok: false, reason }
+ * with the same honest reasons startExecution gives. `abort(reason)` must end the turn's stream.
+ */
+export function registerProviderRun(convId, { turnId, requestId, abort }) {
+  if (drainModeReason !== null) return { ok: false, reason: 'gateway is draining (' + drainModeReason + ') — no new executions; the supervisor will start a fresh gateway' };
+  if (typeof abort !== 'function') return { ok: false, reason: 'provider turn has no abort handle' };
+  if (isConversationBusy(convId)) return { ok: false, reason: 'conversation already has a pending execution' };
+  if (providerRunCount() >= MAX_CONCURRENT_PROVIDER_TURNS) {
+    return { ok: false, reason: 'gateway-wide provider turn limit reached (' + MAX_CONCURRENT_PROVIDER_TURNS + ' running)' };
+  }
+  const entry = { kind: 'provider', turnId, requestId, startedAt: Date.now(), timeoutTimer: null, abort, stoppedByUser: false, finished: false };
+  entry.markFinished = () => {
+    if (entry.finished) return false;
+    entry.finished = true;
+    return true;
+  };
+  running.set(convId, entry);
+  return { ok: true, entry };
+}
+
+/** App router P2: removes a provider turn's entry, but only while it is still that conversation's entry. */
+export function releaseProviderRun(convId, entry) {
+  if (running.get(convId) !== entry) return false;
+  running.delete(convId);
+  return true;
+}
 
 // Shared tree-kill logic, used by BOTH an explicit stopExecution() call and the wall-clock timeout
 // below — one kill path, not two, per the WP instruction to reuse stopExecution's own kill logic
 // rather than adding a second kill mechanism. Tree-kill on Windows via taskkill /T so no orphaned
 // grandchildren survive. Best-effort only: the caller has already released the slot/state regardless
 // of whether the underlying OS kill actually succeeds.
-function killChildTree(child) {
+export function killChildTree(child) {
   try {
     if (process.platform === 'win32') {
       execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => { /* best-effort */ });
@@ -117,6 +200,57 @@ function killChildTree(child) {
     }
   } catch {
     /* best-effort kill only */
+  }
+}
+
+// WP B3 (plan 4.4) stop sequence: interrupt -> close stdin -> kill the exact PID (tree).
+//   1. interrupt: SIGINT to the child on POSIX. On Windows a signal cannot be delivered without
+//      killing (Node maps every signal to TerminateProcess), and in -p text mode the CLI has no
+//      stdin control channel, so nothing is sent there;
+//   2. close stdin, so a CLI that reads it sees end-of-input;
+//   3. kill the exact PID with killChildTree: at once when no interrupt could be delivered,
+//      otherwise after `graceMs` if the child has not exited by itself.
+// Returns the steps taken, in order (the test asserts them). Never throws.
+const STOP_GRACE_MS = 2000;
+export function interruptThenKill(child, { platform = process.platform, graceMs = STOP_GRACE_MS, kill = killChildTree } = {}) {
+  const steps = [];
+  let interrupted = false;
+  if (platform !== 'win32') {
+    try {
+      interrupted = child.kill('SIGINT') === true;
+    } catch {
+      interrupted = false;
+    }
+  }
+  steps.push(interrupted ? 'interrupt' : 'interrupt_unavailable');
+  try {
+    if (child.stdin && !child.stdin.destroyed) child.stdin.end();
+    steps.push('stdin_closed');
+  } catch {
+    steps.push('stdin_close_failed');
+  }
+  if (!interrupted || graceMs <= 0) {
+    kill(child);
+    steps.push('killed');
+    return steps;
+  }
+  const timer = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) kill(child);
+  }, graceMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  steps.push('kill_scheduled');
+  return steps;
+}
+
+// WP B3 (error catalogue): one classified error as its own `forge_error` conversation event, next to
+// (never instead of) the raw event it came from. Best-effort like every other event write here.
+function emitForgeError(convId, turnId, requestId, event) {
+  if (!event) return false;
+  try {
+    appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'forge_error', data: event });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -131,6 +265,9 @@ function killChildTree(child) {
 // of four hand-rolled copies. Best-effort throughout: a store write failure here must never crash
 // the exec lifecycle it is merely cleaning up after.
 function abandonPendingAsk(convId, reason) {
+  // WP B3: an open permission card of this run is closed out too (permission_abandoned event,
+  // never a user deny); the store logs its own events.
+  try { abandonPermissionsForConversation(convId, reason); } catch { /* best-effort */ }
   let abandonedAsks;
   try {
     abandonedAsks = abandonPendingAsksForConversation(convId, reason);
@@ -147,12 +284,29 @@ function abandonPendingAsk(convId, reason) {
 // Starts one `claude -p` turn for `convId`. Returns { started:true, turnId, requestId } or
 // { started:false, reason }. Never throws — every failure path is a truthful, reported reason
 // (per D2: "a degraded but truthful product beats a fake send button").
-export function startExecution({ convId, turnId, requestId, text, cwd, mode, effort, model }) {
+// WP A4: `fork` (optional) continues the conversation's stored Claude session under a new session
+// id (`--resume <id> --fork-session`); without it a stored session is simply resumed.
+// App router P2 (design 4.1, 6.1): four optional fields, all absent when the router is off (then this
+// function runs exactly as before; no `route` field is written anywhere):
+//   route           the RouteDecision record of design 4.7 for this attempt (target_id, kind, label, ...);
+//                   it is stamped on the assistant record with its `outcome` and `retried`;
+//   claudeConfigDir an absolute Claude Code profile folder (extra account), or null for the main login;
+//   handover        { text, turns, chars, truncated } context piped into the child's stdin, or null;
+//   onSettled(r)    called ONCE, synchronously, at the end of the attempt and BEFORE its record is
+//                   written (review finding 10). It may start attempt 2 and returns { retried }. When it
+//                   reports retried:true this attempt is stored as a `route_attempt_failed` event instead
+//                   of a turn record, so a turn_id always has exactly one assistant record (finding 1).
+// On a routed turn stdin is always closed (spike S2: an open, silent stdin costs a 3 s wait).
+export function startExecution({ convId, turnId, requestId, text, cwd, mode, effort, model, fork = false, route = null, claudeConfigDir = null, handover = null, onSettled = null }) {
   if (drainModeReason !== null) return { started: false, reason: 'gateway is draining (' + drainModeReason + ') — no new executions; the supervisor will start a fresh gateway' };
+  const routed = route !== null && typeof route === 'object';
+  if (claudeConfigDir !== null && claudeConfigDir !== undefined && !isUsableClaudeConfigDir(claudeConfigDir)) {
+    return { started: false, reason: 'the account folder for this turn is not an absolute path — turn refused' };
+  }
   const availability = executionAvailability();
   if (!availability.available) return { started: false, reason: availability.note };
   if (isConversationBusy(convId)) return { started: false, reason: 'conversation already has a pending execution' };
-  if (runningExecutionCount() >= MAX_CONCURRENT_EXECUTIONS) {
+  if (countRunning('cli') >= MAX_CONCURRENT_EXECUTIONS) {
     return { started: false, reason: 'gateway-wide execution limit reached (' + MAX_CONCURRENT_EXECUTIONS + ' running)' };
   }
 
@@ -161,12 +315,32 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
   // (exec-argv.mjs's own header carries the full rationale + the 2026-07-30 --allowed-tools
   // correction). `askMcpConfigPath` is undefined in mock mode (buildSpawnSpec's mock branch never
   // looks at askContext at all) — `cleanupAskMcpConfig` below is then a harmless no-op.
-  const { cmd, args, askMcpConfigPath } = buildSpawnSpec(text, mode, effort, model, { convId, turnId, requestId });
+  // WP A4 (shared session module): a conversation with a stored Claude session resumes it, so the
+  // model remembers earlier turns (before A4 every spawn was a fresh session). The tracker stores
+  // the session id from this run's first main system/init line (see gateway-sessions.mjs).
+  const sessionOptions = resumeOptionsFor(convId, routed ? { cwd, fork, targetId: route.target_id } : { cwd, fork });
+  // WP B3: what the turn is SPAWNED with. No mode / 'execute' -> acceptEdits (every other tool
+  // asks through the permission card); 'bypass' only for a project the user marked trusted.
+  const effective = resolveEffectiveMode(mode, { trusted: mode === 'bypass' && isProjectTrusted(cwd) });
+  const { cmd, args, askMcpConfigPath } = (spawnSpecOverride || buildSpawnSpec)(text, effective.mode, effort, model, { convId, turnId, requestId }, sessionOptions);
   if (!cmd) return { started: false, reason: 'claude CLI path could not be resolved' };
+  const sessionTracker = createRunSessionTracker({
+    convId,
+    cwd,
+    model,
+    title: deriveTitleFromText(redact(text)),
+    resumeSessionId: sessionOptions.resumeSessionId,
+    targetId: routed && typeof route.target_id === 'string' ? route.target_id : null,
+    onError: ({ action, message }) => {
+      try {
+        appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'session_store_error', data: { action, message } });
+      } catch { /* best-effort — same rationale as every other event write from the stream handlers */ }
+    },
+  });
 
-  // Best-effort: a per-execution mcp-config file carries this boot's real exec token in
-  // plaintext, so it is removed again the moment this execution closes/errors/times out — never
-  // left to accumulate across a long-running gateway process. Missing/already-removed is fine.
+  // Best-effort: the per-execution mcp-config file is single-use, so it is removed again the moment
+  // this execution closes/errors/times out — never left to accumulate across a long-running gateway
+  // process. Missing/already-removed is fine.
   function cleanupAskMcpConfig() {
     if (!askMcpConfigPath) return;
     try {
@@ -176,26 +350,46 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     }
   }
 
+  // WP A8 item 3: the exec token must not sit on disk for the turn. The config builder
+  // (exec-argv.mjs) still writes it, so it is stripped here BEFORE the child exists and handed over
+  // in the child's environment instead (execSpawnEnv). Fail-closed: a config that cannot be proven
+  // token-free is deleted and the turn is refused with the real reason.
+  if (askMcpConfigPath) {
+    const stripped = stripExecTokenFromAskMcpConfig(askMcpConfigPath);
+    if (!stripped.ok) {
+      cleanupAskMcpConfig();
+      return { started: false, reason: 'ask-mcp config could not be cleared of the exec token (' + stripped.reason + ') — turn refused' };
+    }
+  }
+
   let child;
   try {
-    child = spawn(cmd, args, {
+    const spawnOptions = {
       cwd,
-      env: filteredEnv(),
+      env: execSpawnEnv({ askMcpConfigPath }),
       shell: false, // NEVER shell:true — args are passed as a real argv array, never interpolated
       windowsHide: true,
       detached: process.platform !== 'win32', // enables a POSIX process-group kill on stop
-    });
+    };
+    // App router: a turn on an extra account runs with that account's profile folder (exec-cli.mjs
+    // withClaudeProfileEnv: drops inherited credential-shaped claude_ names, sets the folder). Without
+    // a folder (router off, or the main account) the env is exactly execSpawnEnv's.
+    if (claudeConfigDir) spawnOptions.env = withClaudeProfileEnv(spawnOptions.env, claudeConfigDir);
+    child = spawn(cmd, args, spawnOptions);
   } catch (err) {
+    cleanupAskMcpConfig(); // a config file for a child that never existed must not linger
     return { started: false, reason: 'spawn failed: ' + (err && err.message ? err.message : String(err)) };
   }
 
   // feat-fix-ghost-asks item 4: `currentTimeoutMs`/`timeoutDeadline` track whichever wall-clock
   // window is ACTIVE right now (the original exec budget, an ask-paused replacement, or a resumed
   // remainder — see `pauseExecTimeoutForAsk`/`resumeExecTimeoutAfterAsk` below); `pausedRemainingMs`
-  // is `undefined` except while genuinely paused for a pending ask; `fireExecTimeout` is a STABLE
+  // is `undefined` except while genuinely paused for a pending ask (`askPaused`) and/or an open
+  // permission card (`permissionPaused`, WP B3) — two separate flags; `fireExecTimeout` is a STABLE
   // per-execution reference to the one real timeout callback, re-scheduled (never redefined) by
   // both functions so every phase shares the exact same kill/cleanup/event logic.
   const entry = {
+    kind: 'cli',
     child,
     turnId,
     requestId,
@@ -204,13 +398,62 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     currentTimeoutMs: null,
     timeoutDeadline: null,
     pausedRemainingMs: undefined,
+    askPaused: false,
+    askDeadline: undefined,
+    permissionPaused: false,
     fireExecTimeout: null,
   };
   running.set(convId, entry);
+  registerPermissionRun(convId, { cwd });
+  // Only a downgrade is logged: the 'execute' -> acceptEdits default is the normal case and adds no event.
+  if (effective.downgraded) {
+    try {
+      appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'permission_mode', data: { requested: effective.requested, effective: effective.mode, downgraded: effective.downgraded, reason: effective.reason } });
+    } catch { /* best-effort */ }
+  }
+  let forgeErrorEmitted = false;
+  let stdoutLineCount = 0; // WP B8-3: 0 at close = the child never produced its first output line
+
+  // App router P2: what a routed attempt needs to decide its outcome. Router off: null, never read.
+  const routeTrack = routed ? { toolUse: false, rateLimitEvents: [], streamError: null, unparsed: '' } : null;
+  if (routed) writeRouteStdin(child, handover && typeof handover.text === 'string' ? handover.text : '', (err) => {
+    try {
+      appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'context_handover_failed', data: { code: (err && err.code) || 'error' } });
+    } catch { /* best-effort: the turn's own close path still reports the turn */ }
+  });
+  let routeSettled = false;
+  // Called once by whichever end path writes the record. Returns null on an unrouted turn.
+  function settleRoute(end) {
+    if (!routed || routeSettled) return null;
+    routeSettled = true;
+    const result = routeAttemptResult(end, routeTrack, entry.stoppedByUser === true);
+    let retried = false;
+    if (typeof onSettled === 'function') {
+      try {
+        const r = onSettled(result);
+        retried = !!(r && r.retried === true);
+      } catch (err) {
+        try {
+          appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'route_settle_error', data: { message: err && err.message ? err.message : String(err) } });
+        } catch { /* best-effort */ }
+      }
+    }
+    return { retried, route: { ...route, outcome: result.outcome, retried } };
+  }
+  // Writes the attempt's record: the assistant turn as before, or (attempt 2 really started) the
+  // route_attempt_failed event with the same fields (review findings 1 and 10).
+  function writeTurnRecord(fields, end) {
+    const settled = settleRoute(end);
+    if (settled && settled.retried) {
+      appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'route_attempt_failed', data: { ...fields, route: settled.route } });
+      return;
+    }
+    appendAssistantTurn(convId, settled ? { ...fields, route: settled.route } : fields);
+  }
 
   let resultPayload = null;
   let textBuffer = '';
-  let stderrBuffer = '';
+  const stderrCapture = createCappedRedactedCapture({ maxChars: STDERR_CAP_BYTES, maxInputChars: STDERR_INPUT_LIMIT_CHARS });
   // fix-stream-insights: accumulated straight off the SAME real tool_use blocks the readline
   // handler below already parses out of every assistant line — `fileEdits` grows (bounded,
   // MAX_FILE_EDITS_PER_TURN) across the whole turn, `todoSnapshot` is overwritten by the LAST
@@ -292,7 +535,7 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     const firedTimeoutMs = entry.currentTimeoutMs;
     try {
       appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'timed_out', data: { timeout_ms: firedTimeoutMs } });
-      appendAssistantTurn(convId, {
+      writeTurnRecord({
         turn_id: turnId,
         request_id: requestId,
         text: textBuffer,
@@ -301,7 +544,7 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
         stop_reason: 'timed_out',
         exit_code: null,
         error: 'execution exceeded the ' + firedTimeoutMs + 'ms wall-clock timeout and was terminated',
-        stderr: redactAndCap(stderrBuffer, STDERR_CAP_BYTES),
+        stderr: stderrCapture.finish(),
         // feat-live-stream gap #2: a killed-for-timeout turn can genuinely have real Edit/Write/
         // TodoWrite/Bash activity from before the timeout fired — carrying it here (instead of
         // the previous silent omission) means Test Boss/the owner sees the real work a wedged
@@ -314,7 +557,7 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
         // before the timeout fired.
         session_id: capturedSessionId,
         agent_type: lastAgentType,
-      });
+      }, { timedOut: true });
     } catch { /* best-effort — mirrors the 'close'/'error' handlers' own rationale below */ }
     // feat-gateway-cost-sampling: a wedged child can genuinely have reported its real usage before
     // the timeout fired — same honest carry-through as file_edits/todos/session_id above. A child
@@ -336,11 +579,14 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
   const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   rl.on('line', (line) => {
     if (!line.trim()) return;
+    stdoutLineCount += 1;
     let parsed;
     try {
       parsed = JSON.parse(line);
     } catch {
       appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'stdout_unparsed', data: redact(line) });
+      // App router: kept (bounded, in memory only) to classify a plain-text failure such as a lost login.
+      if (routeTrack && routeTrack.unparsed.length < ROUTE_UNPARSED_CAP) routeTrack.unparsed += line.slice(0, ROUTE_UNPARSED_CAP - routeTrack.unparsed.length) + '\n';
       return;
     }
     // fix-unavailable: checked on EVERY line regardless of `type` — the real session id rides
@@ -349,6 +595,8 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     // 'result'` the way model/tokens/contextWindow are.
     const sessionId = extractSessionIdFromParsedLine(parsed);
     if (sessionId !== null) capturedSessionId = sessionId;
+    sessionTracker.observe(parsed);
+    observePermissionStreamLine(convId, parsed); // WP B3: which helper asked a permission
 
     // Redacted ONCE per line and reused by every branch below — the subagent/hook records are
     // distilled from the already-redacted object, so a credential can never reach a stored record
@@ -396,6 +644,13 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     }
 
     appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: parsed.type || 'unknown', data: redactedParsed });
+    const streamError = extractForgeErrorFromParsedLine(parsed);
+    // api_retry is transient (the CLI keeps going), so it never stands in for the final exit error.
+    if (emitForgeError(convId, turnId, requestId, streamError) && streamError.code !== 'api_retry') forgeErrorEmitted = true;
+    if (routeTrack) {
+      if (streamError && streamError.code !== 'api_retry') routeTrack.streamError = streamError;
+      if (parsed.type === 'rate_limit_event' && routeTrack.rateLimitEvents.length < ROUTE_RATE_LIMIT_EVENTS_CAP) routeTrack.rateLimitEvents.push(redactedParsed);
+    }
 
     // feat-subagent-visibility (hook branch): a real SubagentStart/SubagentStop hook line becomes
     // its own bounded, typed `hook_event` record ALONGSIDE the raw system line above — unlike a
@@ -415,6 +670,7 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     if (parsed.type === 'assistant' && parsed.message && Array.isArray(parsed.message.content)) {
       for (const block of parsed.message.content) {
         if (block && block.type === 'text' && typeof block.text === 'string') textBuffer += block.text;
+        if (routeTrack && block && block.type === 'tool_use') routeTrack.toolUse = true;
         const fileEdit = extractFileEditFromToolUseBlock(block);
         if (fileEdit && fileEdits.length < MAX_FILE_EDITS_PER_TURN) {
           fileEdits.push(fileEdit);
@@ -479,10 +735,15 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     // armour line (dashes and all) plus body intact. The dashes are left off this sentence on
     // purpose — spelled in full, the marker makes this comment itself look like a leaked key to
     // every credential scanner that reads the file, including this project's own, which reported
-    // it. Accumulating raw and redacting ONCE, on the whole buffer at close (via
-    // redactAndCap below), closes both: the pattern always sees the credential whole. Memory is
-    // unchanged — this buffer already accumulated without a running bound.
-    child.stderr.on('data', (chunk) => { stderrBuffer += chunk.toString('utf8'); });
+    // it. fix-cap-order closed both by accumulating raw and redacting ONCE at close — but that raw
+    // buffer had no bound at all. WP A8 keeps the guarantee and adds the bound: stderrCapture
+    // (redact.mjs createCappedRedactedCapture) streams every chunk through the stream redactor, which
+    // never releases part of a secret (a split token or an open private key is held until it is
+    // whole), keeps only the first STDERR_CAP_BYTES redacted chars, and stops reading after
+    // STDERR_INPUT_LIMIT_CHARS. setEncoding('utf8') makes Node decode across chunk seams, so a
+    // multi-byte character split by the pipe is no longer turned into two replacement characters.
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => { stderrCapture.write(chunk); });
   }
 
   child.on('error', (err) => {
@@ -497,7 +758,8 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     // must never escape as an uncaught process-level exception.
     try {
       appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'spawn_error', data: { message: err.message } });
-      appendAssistantTurn(convId, {
+      emitForgeError(convId, turnId, requestId, toForgeErrorEvent(classifyExit({ spawnError: err.message }), 'spawn'));
+      writeTurnRecord({
         turn_id: turnId,
         request_id: requestId,
         text: '',
@@ -513,7 +775,7 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
         // have captured a real session id/agent dispatch from before it fired.
         session_id: capturedSessionId,
         agent_type: lastAgentType,
-      });
+      }, { spawnError: true });
     } catch { /* best-effort — see comment above */ }
   });
 
@@ -531,9 +793,14 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
     // `resultPayload` above, finally kept instead of discarded — null (never 0/'') whenever the CLI
     // did not report it (mock mode, a spawn error, or a shape this parser does not recognize).
     const usageFields = extractResultUsage(resultPayload);
+    // WP B8-3: no output line at all and not stopped by the user = the turn never started; make it a
+    // visible FAILED turn instead of an empty "completed" one.
+    const failedToStart = stdoutLineCount === 0 && resultPayload === null && !entry.stoppedByUser
+      ? startFailure({ exitCode: code, signal, stderr: stderrCapture.finish() })
+      : null;
     // Same best-effort rationale as the 'error' handler above.
     try {
-      appendAssistantTurn(convId, {
+      writeTurnRecord({
         turn_id: turnId,
         request_id: requestId,
         text: finalText,
@@ -541,8 +808,8 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
         duration_ms: resultPayload ? (resultPayload.duration_ms ?? null) : null,
         stop_reason: resultPayload ? (resultPayload.stop_reason ?? null) : (signal ? 'killed:' + signal : null),
         exit_code: code,
-        error: resultPayload && resultPayload.is_error ? 'the model reported is_error:true' : null,
-        stderr: redactAndCap(stderrBuffer, STDERR_CAP_BYTES),
+        error: failedToStart ? failedToStart.message : resultPayload && resultPayload.is_error ? 'the model reported is_error:true' : null,
+        stderr: stderrCapture.finish(),
         input_tokens: usageFields.inputTokens,
         output_tokens: usageFields.outputTokens,
         cache_creation_input_tokens: usageFields.cacheCreationInputTokens,
@@ -564,8 +831,21 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
         // feat-live-stream: same explicit-null convention, one field over, for real Bash
         // commands (command/description/result/is_error) this turn genuinely ran.
         shell_commands: shellCommands.length > 0 ? shellCommands : null,
-      });
+      }, { exitCode: code, isErrorResult: !!(resultPayload && resultPayload.is_error), failedToStart, stderr: stderrCapture.finish() });
     } catch { /* best-effort — see comment above */ }
+    // WP B3: a failed exit that the stream itself did not explain gets one classified error.
+    if (failedToStart && !forgeErrorEmitted) {
+      emitForgeError(convId, turnId, requestId, toForgeErrorEvent(failedToStart.payload, 'exit'));
+    } else if (!forgeErrorEmitted && !entry.stoppedByUser && code !== 0) {
+      emitForgeError(convId, turnId, requestId, toForgeErrorEvent(classifyExit({ exitCode: code, stderr: stderrCapture.finish() }), 'exit'));
+    }
+    // WP A4: a resumed session that failed before the CLI started it is dropped, so the next turn
+    // starts a fresh session instead of failing on the same stale id; recorded as a visible event.
+    if (sessionTracker.finish({ exitCode: code }) === 'cleared') {
+      try {
+        appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'session_resume_failed', data: { session_id: sessionOptions.resumeSessionId, exit_code: code } });
+      } catch { /* best-effort — see comment above */ }
+    }
     // feat-gateway-cost-sampling: the normal run-close path — the one place a full, real stream has
     // genuinely finished arriving, so this is where the measurement is honest and complete.
     emitCostSampled();
@@ -583,16 +863,98 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
 export function stopExecution(convId) {
   const entry = running.get(convId);
   if (!entry) return { stopped: false };
+  if (entry.kind === 'provider') return stopProviderRun(convId, entry);
   const { child, turnId, requestId, timeoutTimer } = entry;
   running.delete(convId);
   clearExecTimeout(timeoutTimer);
-  killChildTree(child);
+  entry.stoppedByUser = true;
+  interruptThenKill(child); // WP B3: interrupt -> close stdin -> kill the exact PID
   appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'stopped_by_user' });
   // fix-ghost-asks: the real root cause this WP measured — a stop used to kill the child and log
   // stopped_by_user without ever touching a still-pending ask, leaving the dashboard showing a
   // question nobody is listening to anymore (see this file's own `abandonPendingAsk` header).
   abandonPendingAsk(convId, 'execution_stopped');
   return { stopped: true };
+}
+
+// ---- App router P2 helpers ----------------------------------------------------------------------
+
+const ROUTE_UNPARSED_CAP = 600;
+const ROUTE_RATE_LIMIT_EVENTS_CAP = 16;
+
+// Closes the child's stdin after writing the handover (if any). An 'error' on stdin (EPIPE: the child
+// exited before it read) is reported through onError only when context was really being written; an
+// empty close that races the child's exit loses nothing, and the turn's close path reports the turn.
+function writeRouteStdin(child, text, onError) {
+  const stdin = child && child.stdin;
+  if (!stdin) return;
+  stdin.on('error', (err) => { if (text) onError(err); });
+  if (text) stdin.write(text);
+  stdin.end();
+}
+
+/**
+ * The outcome of one routed attempt (design 4.7 `outcome`). Pure; exported for tests.
+ * Order: a user stop, then a timeout or spawn error, then a clean answer, then the classified code.
+ */
+export function routeOutcomeFor({ stoppedByUser = false, timedOut = false, spawnError = false, exitCode = null, isErrorResult = false, errorCode = null } = {}) {
+  if (stoppedByUser) return 'stopped';
+  if (timedOut || spawnError) return 'error';
+  if (exitCode === 0 && !isErrorResult) return 'ok';
+  if (errorCode === 'rate_limited') return 'rate_limited';
+  if (errorCode === 'logged_out') return 'logged_out';
+  return 'error';
+}
+
+// Everything onSettled gets about a finished CLI attempt.
+function routeAttemptResult(end, track, stoppedByUser) {
+  let errorCode = track.streamError ? track.streamError.code : null;
+  let resumeAt = track.streamError ? track.streamError.resume_at || null : null;
+  if (!errorCode && !end.timedOut && !end.spawnError && end.exitCode !== 0) {
+    const fromExit = end.failedToStart ? end.failedToStart.payload : classifyExit({ exitCode: end.exitCode, stderr: end.stderr });
+    if (fromExit && fromExit.code !== 'unknown') errorCode = fromExit.code;
+    if (!errorCode && track.unparsed) {
+      const fromText = classifyErrorText(track.unparsed);
+      if (fromText.code !== 'unknown') errorCode = fromText.code;
+    }
+    if (fromExit && fromExit.resume_at) resumeAt = fromExit.resume_at;
+  }
+  const outcome = routeOutcomeFor({ stoppedByUser, timedOut: end.timedOut, spawnError: end.spawnError, exitCode: end.exitCode === undefined ? null : end.exitCode, isErrorResult: end.isErrorResult, errorCode });
+  return {
+    outcome,
+    errorCode,
+    resumeAt,
+    hadToolUse: track.toolUse,
+    stoppedByUser,
+    timedOut: end.timedOut === true,
+    exitCode: end.exitCode === undefined ? null : end.exitCode,
+    rateLimitEvents: track.rateLimitEvents.slice(),
+  };
+}
+
+function stopProviderRun(convId, entry) {
+  running.delete(convId);
+  entry.stoppedByUser = true;
+  try {
+    entry.abort('stopped');
+  } catch (err) {
+    try {
+      appendConversationEvent(convId, { turn_id: entry.turnId, request_id: entry.requestId, kind: 'stop_failed', data: { message: err && err.message ? err.message : String(err) } });
+    } catch { /* best-effort */ }
+  }
+  appendConversationEvent(convId, { turn_id: entry.turnId, request_id: entry.requestId, kind: 'stopped_by_user' });
+  abandonPendingAsk(convId, 'execution_stopped');
+  return { stopped: true };
+}
+
+function interruptProviderRun(convId, entry, reason) {
+  running.delete(convId);
+  entry.markFinished(); // terminal: the provider turn's own finish path then writes no turn record
+  try { entry.abort('drain'); } catch { /* best-effort — the interrupted event below is the ledger outcome */ }
+  try { appendConversationEvent(convId, { turn_id: entry.turnId, request_id: entry.requestId, kind: 'interrupted', data: { reason: reason || 'gateway drain' } }); } catch { /* best-effort */ }
+  emitForgeError(convId, entry.turnId, entry.requestId, toForgeErrorEvent(gatewayRestartedError(reason || 'gateway drain'), 'gateway'));
+  abandonPendingAsk(convId, 'gateway_drain');
+  return { convId, pid: null, kind: 'provider' };
 }
 
 /** SHUTDOWN-COÖRDINATIE (Codex r4 #13-rest). De drain sloot alleen HTTP: actieve claude-
@@ -607,6 +969,10 @@ export function isDraining() { return drainModeReason !== null; }
 export function interruptAllExecutions(reason) {
   const interrupted = [];
   for (const [convId, entry] of [...running.entries()]) {
+    if (entry.kind === 'provider') {
+      interrupted.push(interruptProviderRun(convId, entry, reason));
+      continue;
+    }
     const { child, turnId, requestId, timeoutTimer } = entry;
     running.delete(convId);
     clearExecTimeout(timeoutTimer);
@@ -615,6 +981,7 @@ export function interruptAllExecutions(reason) {
     if (typeof entry.markFinished === 'function') entry.markFinished();
     killChildTree(child);
     try { appendConversationEvent(convId, { turn_id: turnId, request_id: requestId, kind: 'interrupted', data: { reason: reason || 'gateway drain' } }); } catch { /* best-effort — de kill zelf is het belangrijkst */ }
+    emitForgeError(convId, turnId, requestId, toForgeErrorEvent(gatewayRestartedError(reason || 'gateway drain'), 'gateway'));
     abandonPendingAsk(convId, 'gateway_drain');
     interrupted.push({ convId, pid: child && child.pid });
   }
@@ -650,15 +1017,15 @@ export function interruptAllExecutions(reason) {
  */
 export function pauseExecTimeoutForAsk(convId, askTimeoutMs) {
   const entry = running.get(convId);
-  if (!entry || entry.timeoutTimer === null || typeof entry.fireExecTimeout !== 'function') return;
-  const remainingMs = Math.max(0, entry.timeoutDeadline - Date.now());
-  clearExecTimeout(entry.timeoutTimer);
-  entry.pausedRemainingMs = remainingMs;
-  const capMs = Math.max(0, askTimeoutMs);
-  entry.currentTimeoutMs = capMs;
-  entry.timeoutDeadline = Date.now() + capMs;
-  entry.timeoutTimer = scheduleExecTimeout(entry.fireExecTimeout, capMs);
-  if (typeof entry.timeoutTimer.unref === 'function') entry.timeoutTimer.unref();
+  if (!entry || typeof entry.fireExecTimeout !== 'function') return;
+  if (entry.timeoutTimer === null && !entry.permissionPaused) return;
+  const now = Date.now();
+  // WP B3-gw fix: the ORIGINAL budget is saved once, by whichever pause came first; a second ask
+  // (or an ask under an open permission card) never overwrites it with an active cap's remainder.
+  if (entry.pausedRemainingMs === undefined) entry.pausedRemainingMs = Math.max(0, entry.timeoutDeadline - now);
+  entry.askPaused = true;
+  entry.askDeadline = now + Math.max(0, askTimeoutMs);
+  applyReaperPauseState(entry, now);
 }
 
 /**
@@ -666,7 +1033,9 @@ export function pauseExecTimeoutForAsk(convId, askTimeoutMs) {
  * server.mjs the moment an ask's blocked promise settles (answered, timed out, OR abandoned — see
  * that route's own comment), regardless of outcome. Restores the ORIGINAL remaining exec budget
  * that was left when the pause began, never a fresh full window, so the reaper still eventually
- * fires for a genuinely wedged execution once the ask concludes.
+ * fires for a genuinely wedged execution once the ask concludes. WP B3-gw: while a permission card
+ * is still open the run stays paused; the budget comes back only when both pauses are clear
+ * (applyReaperPauseState below).
  *
  * No-op (never throws) when this convId is not currently paused: never paused, already resumed, or
  * the execution already ended (`running.get(convId)` returns nothing once any of the four real
@@ -674,22 +1043,73 @@ export function pauseExecTimeoutForAsk(convId, askTimeoutMs) {
  */
 export function resumeExecTimeoutAfterAsk(convId) {
   const entry = running.get(convId);
-  if (!entry || entry.pausedRemainingMs === undefined) return;
-  const remainingMs = entry.pausedRemainingMs;
-  delete entry.pausedRemainingMs;
+  if (!entry || !entry.askPaused) return;
+  entry.askPaused = false;
+  entry.askDeadline = undefined;
+  applyReaperPauseState(entry, Date.now());
+}
+
+/**
+ * WP B3 (plan 4.4): while a permission card of this run is open the wall-clock reaper is paused
+ * WITHOUT a cap: an unanswered card is "Gepauzeerd", never a failure. The remaining budget is kept
+ * and restored by resumeExecTimeoutAfterPermission once the last open card is answered. Called by
+ * permissions/store.mjs through setRunPauseHooks (below). Returns true when it paused a run.
+ */
+export function pauseExecTimeoutForPermission(convId) {
+  const entry = running.get(convId);
+  if (!entry || typeof entry.fireExecTimeout !== 'function') return false;
+  if (entry.permissionPaused) return true;
+  const now = Date.now();
+  if (entry.pausedRemainingMs === undefined) entry.pausedRemainingMs = Math.max(0, entry.timeoutDeadline - now);
+  entry.permissionPaused = true;
+  applyReaperPauseState(entry, now);
+  return true;
+}
+
+export function resumeExecTimeoutAfterPermission(convId) {
+  const entry = running.get(convId);
+  if (!entry || !entry.permissionPaused) return;
+  entry.permissionPaused = false;
+  applyReaperPauseState(entry, Date.now());
+}
+
+/**
+ * WP B3-gw fix (Review Boss LOW): the ONE place that turns the two independent pause flags into
+ * the reaper's actual timer, so neither resume path can restore the budget while the other pause
+ * is still active:
+ *   - an open permission card (permissionPaused): no deadline at all;
+ *   - else an open ask (askPaused): the rest of that ask's own window, counted from the ask's start;
+ *   - else (both clear): the ORIGINAL remaining budget saved by the first pause, never a fresh one.
+ */
+function applyReaperPauseState(entry, now) {
+  if (!entry.permissionPaused && !entry.askPaused && entry.pausedRemainingMs === undefined) return;
   clearExecTimeout(entry.timeoutTimer);
-  entry.currentTimeoutMs = remainingMs;
-  entry.timeoutDeadline = Date.now() + remainingMs;
-  entry.timeoutTimer = scheduleExecTimeout(entry.fireExecTimeout, remainingMs);
+  entry.timeoutTimer = null;
+  if (entry.permissionPaused) {
+    entry.timeoutDeadline = Infinity;
+    return;
+  }
+  let ms;
+  if (entry.askPaused) {
+    ms = Math.max(0, entry.askDeadline - now);
+  } else {
+    ms = entry.pausedRemainingMs;
+    delete entry.pausedRemainingMs;
+  }
+  entry.currentTimeoutMs = ms;
+  entry.timeoutDeadline = now + ms;
+  entry.timeoutTimer = scheduleExecTimeout(entry.fireExecTimeout, ms);
   if (typeof entry.timeoutTimer.unref === 'function') entry.timeoutTimer.unref();
 }
+
+setRunPauseHooks({ pause: pauseExecTimeoutForPermission, resume: resumeExecTimeoutAfterPermission });
 
 /** Test-only: exposes whether `convId`'s currently running execution has its wall-clock timer
  *  paused for a pending ask right now — `null` when there is no running execution for it at all. */
 export function _isExecTimeoutPausedForAskForTests(convId) {
   const entry = running.get(convId);
   if (!entry) return null;
-  return entry.pausedRemainingMs !== undefined;
+  return entry.askPaused === true;
 }
 
 /** Test-only: approximately how many ms remain before `convId`'s currently ACTIVE timeout timer
@@ -709,8 +1129,15 @@ export function _execTimeoutRemainingMsForTests(convId) {
 // has set up.
 export function _resetExecBridgeForTests() {
   _resetClaudeCliResolutionForTests();
-  for (const entry of running.values()) clearExecTimeout(entry.timeoutTimer);
+  for (const entry of running.values()) {
+    clearExecTimeout(entry.timeoutTimer);
+    if (entry.kind === 'provider') {
+      entry.markFinished();
+      try { entry.abort('reset'); } catch { /* test reset only: the stream is being thrown away */ }
+    }
+  }
   running.clear();
   execTimeoutMsOverride = null;
   drainModeReason = null;
+  spawnSpecOverride = null;
 }

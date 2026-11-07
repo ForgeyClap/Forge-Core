@@ -43,7 +43,7 @@ beforeEach(() => {
   for (const f of fs.readdirSync(tempDir)) fs.rmSync(path.join(tempDir, f));
 });
 
-test('_buildAskMcpConfigObjectForTests builds a real mcpServers config carrying THIS execution\'s own conv/turn/request id and the current-boot exec token', () => {
+test('_buildAskMcpConfigObjectForTests builds a real mcpServers config carrying THIS execution\'s own conv/turn/request id and NEVER the exec token', () => {
   const config = _buildAskMcpConfigObjectForTests({ convId: 'c-1', turnId: 't-1', requestId: 'req-1' });
   assert.ok(config.mcpServers['forge-ask']);
   const server = config.mcpServers['forge-ask'];
@@ -54,7 +54,17 @@ test('_buildAskMcpConfigObjectForTests builds a real mcpServers config carrying 
   assert.equal(server.env.CC_ASK_TURN_ID, 't-1');
   assert.equal(server.env.CC_ASK_REQUEST_ID, 'req-1');
   assert.equal(server.env.CC_ASK_GATEWAY_ORIGIN, 'http://127.0.0.1:4100');
-  assert.equal(server.env.CC_ASK_EXEC_TOKEN, getExecToken());
+  // WP B1a rework (A8 follow-up): the exec token travels only in the spawned child's environment
+  // (exec-cli.mjs execSpawnEnv); the per-turn config file must never carry it, in any field.
+  assert.equal('CC_ASK_EXEC_TOKEN' in server.env, false, 'the builder must not put the exec token in the config');
+  assert.equal(JSON.stringify(config).includes(getExecToken()), false, 'the exec token value must appear nowhere in the config');
+});
+
+test('the config file buildSpawnSpec writes is token-free on disk straight from the builder (no strip step needed)', () => {
+  const spec = buildSpawnSpec('hello', 'execute', undefined, undefined, { convId: 'c-1', turnId: 't-1', requestId: 'req-1' });
+  const raw = fs.readFileSync(spec.askMcpConfigPath, 'utf8');
+  assert.equal(raw.includes(getExecToken()), false);
+  assert.equal(raw.includes('CC_ASK_EXEC_TOKEN'), false);
 });
 
 test('MCP WIRING: buildSpawnSpec with an askContext appends EXACTLY --mcp-config <realfile> --strict-mcp-config, and NEVER --allowed-tools/--disallowedTools', () => {

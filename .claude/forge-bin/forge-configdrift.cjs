@@ -254,10 +254,24 @@ function assertRunId(runId) {
     throw new Error('forge-configdrift: invalid run_id (allowed: A-Z a-z 0-9 _ -): ' + runId);
   }
 }
+// WP 2.1: forge-paths.cjs is optional (a copied tool or an older install keeps .claude/forge-runs and the own-folder
+// root). With it a run lives in the ACTIVE runs folder (.forge/runs once <root>/.forge/ exists, where log-event.cjs
+// writes it) and a plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd, never from its own folder.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function runsDirOf(root) {
+  const legacy = path.join(path.resolve(root), '.claude', 'forge-runs');
+  if (!forgePaths) return legacy;
+  try { return forgePaths.stateDir(root, 'runs'); } catch { return legacy; }
+}
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
 function runDirOf(root, runId, opts) {
   assertRunId(runId);
   if (opts && opts.runDir) return path.resolve(opts.runDir);
-  return path.join(path.resolve(root), '.claude', 'forge-runs', runId);
+  return path.join(runsDirOf(root), runId);
 }
 
 /** writeBaseline(root, runId, opts) -> {path, baseline}. The ONLY write this module performs, and it lands
@@ -631,7 +645,7 @@ if (require.main === module) {
   const main = () => {
     const argv = process.argv.slice(2);
     const cmd = argv[0];
-    let root = path.resolve(__dirname, '..', '..');
+    let root = defaultRoot();
     let wantJson = false;
     const pos = [];
     for (let i = 1; i < argv.length; i++) {
@@ -640,6 +654,7 @@ if (require.main === module) {
       else pos.push(argv[i]);
     }
     const runId = pos[0];
+    if ((cmd === 'snapshot' || cmd === 'diff') && !root) { console.error('forge-configdrift: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); process.exitCode = 1; return; }
 
     if (cmd === 'snapshot') {
       if (!runId) { console.error('Usage: node forge-configdrift.cjs snapshot <run_id> [--root DIR]'); process.exitCode = 1; return; }

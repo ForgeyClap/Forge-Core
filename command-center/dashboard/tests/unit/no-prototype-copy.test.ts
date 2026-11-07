@@ -406,50 +406,57 @@ describe('populated production render — catches F1 and F3 together (fix-cert-f
   });
 
   it('ProjectsView shows "—", never a fabricated "0", for a non-active project\'s taskCount/health (F3)', () => {
-    const state = buildTwoProjectRunningState();
-    const { container } = renderProduction(createElement(ProjectsView), { state });
+    // (2B, DESIGN.md §3.3): the measured counts per row show in Uitgebreid only, so the F3
+    // contract is checked there. Eenvoudig rows carry no counts at all (projects-b5.test.tsx).
+    setUiMode('uitgebreid');
+    try {
+      const state = buildTwoProjectRunningState();
+      const { container } = renderProduction(createElement(ProjectsView), { state });
 
-    const rows = container.querySelectorAll('.fw-projects__item');
-    expect(rows.length).toBe(2);
+      const rows = container.querySelectorAll('.fw-projects__item');
+      expect(rows.length).toBe(2);
 
-    const activeRow = container.querySelector('.fw-projects__item[data-active="true"]');
-    const otherRow = [...rows].find((row) => row.getAttribute('data-active') !== 'true');
-    expect(activeRow, 'active project row not found').toBeTruthy();
-    expect(otherRow, 'non-active project row not found').toBeTruthy();
+      const activeRow = container.querySelector('.fw-projects__item[data-active="true"]');
+      const otherRow = [...rows].find((row) => row.getAttribute('data-active') !== 'true');
+      expect(activeRow, 'active project row not found').toBeTruthy();
+      expect(otherRow, 'non-active project row not found').toBeTruthy();
 
-    // The active project's detail is real — it must still show the real numbers, not '—'.
-    const activeTasks = activeRow!.querySelector('[title="Tasks"] .fg-machine');
-    expect(activeTasks?.textContent).toBe('5');
-    // The Meter renders a label span ("Health") ahead of the value span — assert the value alone.
-    const activeHealthValue = activeRow!.querySelector('.fw-projects__health .fw-meter__value');
-    expect(activeHealthValue?.textContent).toBe('80%');
-    // fix-cert-rest (item 1): the active project's missionCount/agentCount are ALSO real — must
-    // still show the real numbers, not '—'.
-    const activeMissions = activeRow!.querySelector('[title="Missions"] .fg-machine');
-    expect(activeMissions?.textContent).toBe('1');
-    const activeAgents = activeRow!.querySelector('[title="Agents"] .fg-machine');
-    expect(activeAgents?.textContent).toBe('1');
+      // The active project's detail is real — it must still show the real numbers, not '—'.
+      const activeTasks = activeRow!.querySelector('[title="Tasks"] .fg-machine');
+      expect(activeTasks?.textContent).toBe('5');
+      // The Meter renders a label span ("Health") ahead of the value span — assert the value alone.
+      const activeHealthValue = activeRow!.querySelector('.fw-projects__health .fw-meter__value');
+      expect(activeHealthValue?.textContent).toBe('80%');
+      // fix-cert-rest (item 1): the active project's missionCount/agentCount are ALSO real — must
+      // still show the real numbers, not '—'.
+      const activeMissions = activeRow!.querySelector('[title="Missions"] .fg-machine');
+      expect(activeMissions?.textContent).toBe('1');
+      const activeAgents = activeRow!.querySelector('[title="Agents"] .fg-machine');
+      expect(activeAgents?.textContent).toBe('1');
 
-    // The non-active project's detail was never measured — it must read as absent, never "0".
-    const otherTasks = otherRow!.querySelector('[title="Tasks"] .fg-machine');
-    expect(otherTasks?.textContent).toBe('—');
-    // a11y-new: this used to assert the exact string '—'. That broke the moment a visually-hidden
-    // "Health: not measured" label was added for screen readers — a change that makes the output
-    // MORE honest, not less. Asserting the incidental rendered string is the same trap this run
-    // found three times in the anti-fabrication tests, so the assertion now states the CONTRACT and
-    // is strictly stronger than before: an absence marker must be present, AND no fabricated
-    // measurement may appear. `0` and `%` would both be a claim about health that was never taken.
-    const otherHealth = otherRow!.querySelector('.fw-projects__health');
-    const otherHealthText = otherHealth?.textContent ?? '';
-    expect(otherHealthText).toContain('—');
-    expect(otherHealthText).not.toMatch(/\d/);
-    expect(otherHealthText).not.toContain('%');
-    // fix-cert-rest (item 1): missionCount/agentCount are the SAME F3-class fabrication as
-    // taskCount/health above — the non-active project's 0s must read as absent, never "0".
-    const otherMissions = otherRow!.querySelector('[title="Missions"] .fg-machine');
-    expect(otherMissions?.textContent).toBe('—');
-    const otherAgents = otherRow!.querySelector('[title="Agents"] .fg-machine');
-    expect(otherAgents?.textContent).toBe('—');
+      // The non-active project's detail was never measured — it must read as absent, never "0".
+      const otherTasks = otherRow!.querySelector('[title="Tasks"] .fg-machine');
+      expect(otherTasks?.textContent).toBe('—');
+      // a11y-new: this used to assert the exact string '—'. That broke the moment a visually-hidden
+      // "Health: not measured" label was added for screen readers — a change that makes the output
+      // MORE honest, not less. Asserting the incidental rendered string is the same trap this run
+      // found three times in the anti-fabrication tests, so the assertion now states the CONTRACT and
+      // is strictly stronger than before: an absence marker must be present, AND no fabricated
+      // measurement may appear. `0` and `%` would both be a claim about health that was never taken.
+      const otherHealth = otherRow!.querySelector('.fw-projects__health');
+      const otherHealthText = otherHealth?.textContent ?? '';
+      expect(otherHealthText).toContain('—');
+      expect(otherHealthText).not.toMatch(/\d/);
+      expect(otherHealthText).not.toContain('%');
+      // fix-cert-rest (item 1): missionCount/agentCount are the SAME F3-class fabrication as
+      // taskCount/health above — the non-active project's 0s must read as absent, never "0".
+      const otherMissions = otherRow!.querySelector('[title="Missions"] .fg-machine');
+      expect(otherMissions?.textContent).toBe('—');
+      const otherAgents = otherRow!.querySelector('[title="Agents"] .fg-machine');
+      expect(otherAgents?.textContent).toBe('—');
+    } finally {
+      setUiMode('eenvoudig');
+    }
   });
 });
 
@@ -509,7 +516,10 @@ describe('AgentsView never renders "NOT REQUIRED" for a null (unmeasured) verifi
     expect(found, `AgentsView rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
 
     const verifiedChip = container.querySelector('[data-verification="verified"]');
-    expect(verifiedChip?.textContent).toContain('VERIFIED');
+    // Redesign (3A): sentence case, no ALL CAPS label. The en catalog key rd.agents.verification.verified now
+    // wins over the 3A fallback copy, so this pins the merged value.
+    expect(verifiedChip?.textContent).toContain('Verified');
+    expect(verifiedChip?.textContent).not.toContain('VERIFIED');
 
     const unmeasuredChip = container.querySelector('[data-verification="unknown"]');
     expect(unmeasuredChip, 'expected an absent-verification chip for the null agent').toBeTruthy();
@@ -525,7 +535,11 @@ describe('AgentsView never renders "NOT REQUIRED" for a null (unmeasured) verifi
 /* ========================================================================== */
 
 /**
- * Sidebar/Topbar/Dock/Inspector/ConnectionBanner/CommandPalette/SettingsView
+ * Redesign 1C: the topbar, the dock row and the account popover are gone. The chrome scanned here is
+ * the new shell: the Sidebar, the Bar with its `?` (Help) and `...` (More options, Uitgebreid only)
+ * menus, and the one side pane (Help, or Details = Inspector "Selection" + Dock "Log").
+ *
+ * Sidebar/Bar/Dock/Inspector/ConnectionBanner/CommandPalette/SettingsView
  * read `useGatewayConnection()`/`useGatewayClaudeCodeHealth()` directly
  * (`gateway-adapter.ts`'s module-level polling singleton), not through a
  * swappable React Context the way `ChatView`/`FilesView` do above — there is
@@ -544,6 +558,9 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import AppShell from '@/components/shell/AppShell';
 import { PrototypeProvider } from '@/prototype/PrototypeProvider';
 import SettingsView from '@/views/settings/SettingsView';
+import { LEGACY_FLAG_KEY } from '@/views/settings/settings-model';
+import { setUiMode } from '@/state/ui-mode';
+import { setHelpView } from '@/components/shell/side-pane';
 
 /**
  * Real, accurate strings that happen to contain a forbidden substring —
@@ -615,6 +632,20 @@ async function flush(ms = 30): Promise<void> {
   });
 }
 
+/** Opens a Bar menu by its button name and picks one item: the only way into the side pane now. */
+function pickFromBarMenu(menuName: string, itemName: string | RegExp): void {
+  fireEvent.click(screen.getByRole('button', { name: menuName }));
+  const menu = screen.getByRole('menu', { name: menuName });
+  fireEvent.click(within(menu).getByRole('menuitem', { name: itemName }));
+}
+
+/** Uitgebreid: `...` (More options) > Show details opens the Details pane (Selection + Log tabs). */
+async function openDetailsPane(): Promise<HTMLElement> {
+  pickFromBarMenu('More options', 'Show details');
+  await flush();
+  return screen.getByRole('complementary', { name: 'Details' });
+}
+
 describe('shell chrome + Settings — no forbidden copy in a real production mount', () => {
   beforeEach(() => {
     installFetchMock();
@@ -623,67 +654,141 @@ describe('shell chrome + Settings — no forbidden copy in a real production mou
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    // Module-level shell state outlives a render: reset it so no test leaks an open pane or a mode.
+    setHelpView('closed');
+    setUiMode('eenvoudig');
   });
 
-  it('renders the default shell (Sidebar, Topbar, Dock rail, Settings) cleanly', async () => {
+  it('renders the default shell (Sidebar, Bar, Settings) cleanly, with Settings as the one h1', async () => {
     renderShell(createElement(SettingsView));
     await flush();
+    // The bar draws no title on a page that has its own (DESIGN.md §2): the page owns the h1.
+    expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual(['Settings']);
     const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
     expect(found, `shell rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
   });
 
-  it('shows no forbidden copy in any Settings section', async () => {
-    renderShell(createElement(SettingsView));
-    await flush();
+  // WP B6 (plan §4.6): Settings is ONE searchable page now. It has no "Settings sections" nav any
+  // more; it has a table of contents ("Groups") over ten groups (four in Eenvoudig, ten in
+  // Uitgebreid, plus Eigen API as its own group under Accounts). The new page is scanned in Uitgebreid so every group renders; the old
+  // twelve-section screen survives only as a developer view (dev build + localStorage flag), and
+  // its old section-by-section scan is kept below, scoped to that view.
+  it('shows no forbidden copy in any group of the one-page Settings (Uitgebreid: all ten groups)', async () => {
+    setUiMode('uitgebreid');
+    try {
+      renderShell(createElement(SettingsView));
+      await flush();
 
-    // Scoped to the Settings section nav — Sidebar's own primary nav also
-    // renders an "Agents" link, so an unscoped getByText('Agents') is ambiguous.
-    const settingsNav = screen.getByRole('navigation', { name: 'Settings sections' });
-
-    const sectionLabels = [
-      'Appearance',
-      'Layout',
-      'Chat preferences',
-      'Claude Code connection',
-      'Models',
-      'Forge settings',
-      'Agents',
-      'Skills',
-      'Permissions',
-      'Data and privacy',
-      'Keyboard shortcuts',
-    ];
-    for (const label of sectionLabels) {
-      fireEvent.click(within(settingsNav).getByText(label));
-      const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
-      expect(found, `Settings/${label} rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+      expect(screen.queryByRole('navigation', { name: 'Settings sections' })).toBeNull();
+      const toc = screen.getByRole('navigation', { name: 'Groups' });
+      const groupLabels = [
+        'General',
+        'Accounts',
+        'Safety',
+        'Privacy',
+        'Models',
+        'Usage',
+        'Connections',
+        'Folders',
+        'Diagnostics',
+        'About Forge',
+      ];
+      expect(within(toc).getAllByRole('link').map((link) => link.textContent)).toEqual(groupLabels);
+      expect(document.querySelectorAll('section.fs-set__group:not([data-group="eigenapi"])')).toHaveLength(groupLabels.length);
+      // Eigen API is its own group under Accounts in Uitgebreid (DESIGN.md §3.4, fix round XR-SET), without a list entry.
+      expect(document.querySelectorAll('section.fs-set__group[data-group="eigenapi"]')).toHaveLength(1);
+      for (const label of groupLabels) {
+        fireEvent.click(within(toc).getByText(label));
+        const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
+        expect(found, `Settings/${label} rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+      }
+    } finally {
+      setUiMode('eenvoudig');
     }
   });
 
-  it('shows no forbidden copy in any Dock tab once opened', async () => {
+  it('shows only the four Eenvoudig groups by default, with no forbidden copy', async () => {
+    renderShell(createElement(SettingsView));
+    await flush();
+    const toc = screen.getByRole('navigation', { name: 'Groups' });
+    expect(within(toc).getAllByRole('link').map((link) => link.textContent)).toEqual(['General', 'Accounts', 'Safety', 'Privacy']);
+    const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
+    expect(found, `Settings (Eenvoudig) rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+  });
+
+  it('shows no forbidden copy in any section of the legacy developer view (dev flag on)', async () => {
+    globalThis.localStorage.setItem(LEGACY_FLAG_KEY, '1');
+    try {
+      renderShell(createElement(SettingsView));
+      await flush();
+
+      // Scoped to the legacy Settings section nav — Sidebar's own primary nav
+      // also renders an "Agents" link, so an unscoped getByText('Agents') is ambiguous.
+      const settingsNav = await screen.findByRole('navigation', { name: 'Settings sections' });
+
+      const sectionLabels = [
+        'Appearance',
+        'Layout',
+        'Chat preferences',
+        'Claude Code connection',
+        'Models',
+        'Forge settings',
+        'Agents',
+        'Skills',
+        'Permissions',
+        'Data and privacy',
+        'Keyboard shortcuts',
+      ];
+      for (const label of sectionLabels) {
+        fireEvent.click(within(settingsNav).getByText(label));
+        const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
+        expect(found, `Settings/legacy/${label} rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+      }
+    } finally {
+      globalThis.localStorage.removeItem(LEGACY_FLAG_KEY);
+    }
+  });
+
+  it('shows no forbidden copy in any Dock tab, reached through More options > Show details > Log', async () => {
+    setUiMode('uitgebreid');
     renderShell(createElement(SettingsView));
     await flush();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show dock/i }));
+    const pane = await openDetailsPane();
+    fireEvent.click(within(pane).getByRole('tab', { name: /^Log/ }));
+    // The embedded dock shows three everyday tabs; "More" reveals the other three.
+    fireEvent.click(within(pane).getByRole('button', { name: 'More' }));
     const tabNames = ['Activity', 'Terminal', 'Tests', 'Events', 'Proof', 'Notices'];
-    const tabs = screen.getAllByRole('tab');
     for (const name of tabNames) {
-      const tab = tabs.find((candidate) => (candidate.textContent ?? '').startsWith(name));
+      const tab = within(pane)
+        .getAllByRole('tab')
+        .find((candidate) => (candidate.textContent ?? '').startsWith(name));
       expect(tab, `dock tab not found: ${name}`).toBeTruthy();
       fireEvent.click(tab as HTMLElement);
+      expect(tab).toHaveAttribute('aria-selected', 'true');
       const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
       expect(found, `Dock/${name} rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
     }
   });
 
-  it('shows no forbidden copy in the Inspector once opened', async () => {
+  it('shows no forbidden copy in the Inspector, reached through More options > Show details > Selection', async () => {
+    setUiMode('uitgebreid');
     renderShell(createElement(SettingsView));
     await flush();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show inspector/i }));
+    const pane = await openDetailsPane();
+    const selection = within(pane).getByRole('tab', { name: /^Selection/ });
+    fireEvent.click(selection);
+    expect(selection).toHaveAttribute('aria-selected', 'true');
     await flush();
     const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
     expect(found, `Inspector rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+  });
+
+  it('hides More options (and so the Details pane) in Eenvoudig', async () => {
+    renderShell(createElement(SettingsView));
+    await flush();
+    expect(screen.queryByRole('button', { name: 'More options' })).toBeNull();
   });
 
   it('shows no forbidden copy in the command palette', async () => {
@@ -696,39 +801,56 @@ describe('shell chrome + Settings — no forbidden copy in a real production mou
     expect(found, `CommandPalette rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
   });
 
-  it('shows no forbidden copy in the account popover, and no "Prototype user" identity', async () => {
+  // Redesign 1C: the account popover is gone; its keyboard-shortcut list moved to `?` (Help) >
+  // Keyboard shortcuts, which opens in the side pane. The account itself is one line in the sidebar foot.
+  it('shows no forbidden copy in Help > Keyboard shortcuts, and no "Prototype user" identity anywhere', async () => {
     renderShell(createElement(SettingsView));
     await flush();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Account and preferences' }));
-    await screen.findByRole('dialog', { name: /Account and preferences/i });
+    // English reads "Shortcuts" (rd.bar.shortcuts) or "Keyboard shortcuts" (the old shell copy): both name the same item.
+    const shortcuts = /^(keyboard )?shortcuts$/i;
+    pickFromBarMenu('Help', shortcuts);
+    await flush();
+    const pane = screen.getByRole('complementary', { name: shortcuts });
+    // Three chords: Ctrl K (palette), Ctrl B (sidebar), Esc (close).
+    expect(within(pane).getAllByRole('term')).toHaveLength(3);
     const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
-    expect(found, `account popover rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+    expect(found, `Help/Keyboard shortcuts rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
     expect(screen.queryByText(/Prototype user/i)).toBeNull();
+  });
+
+  it('shows no forbidden copy in either Bar menu (Help in every mode, More options in Uitgebreid)', async () => {
+    setUiMode('uitgebreid');
+    renderShell(createElement(SettingsView));
+    await flush();
+
+    for (const name of ['Help', 'More options']) {
+      fireEvent.click(screen.getByRole('button', { name }));
+      const menu = screen.getByRole('menu', { name });
+      expect(within(menu).getAllByRole('menuitem').length, name).toBeGreaterThan(0);
+      const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
+      expect(found, `Bar menu ${name} rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+      fireEvent.keyDown(menu, { key: 'Escape' });
+      expect(screen.queryByRole('menu')).toBeNull();
+    }
   });
 
   // build-newproject: this assertion used to pin the OPPOSITE state — button disabled, title
   // "no gateway route exists". That was honest then; the route exists now (POST /api/projects,
   // owner-approved), so the same honesty contract flips: the button must be ENABLED and must no
   // longer carry the stale excuse. A test asserting yesterday's reality is the same defect as
-  // copy describing yesterday's backend.
-  it('enables "New project" for real (the route exists now) and keeps the project menu to Open + Pin only', async () => {
+  // copy describing yesterday's backend. Redesign 1C: there is exactly one "New project" now (the
+  // small + beside My projects); the sidebar's per-project menu is gone.
+  it('enables the one "New project" button for real (the route exists now)', async () => {
     renderShell(createElement(SettingsView));
     await flush();
 
     const newProjectButtons = screen.getAllByRole('button', { name: 'New project' });
-    expect(newProjectButtons.length).toBeGreaterThan(0);
-    for (const button of newProjectButtons) {
-      expect(button).not.toBeDisabled();
-      expect(button.getAttribute('title') ?? '').not.toMatch(/no gateway route exists/i);
-    }
-
-    const moreButton = await screen.findByRole('button', { name: /More actions for demo-project/i });
-    fireEvent.click(moreButton);
-    const menu = await screen.findByRole('menu');
-    const items = within(menu).getAllByRole('menuitem');
-    expect(items.map((item) => item.textContent?.trim())).toEqual(['Open', 'Pin']);
+    expect(newProjectButtons).toHaveLength(1);
+    const [button] = newProjectButtons;
+    expect(button).not.toBeDisabled();
+    expect(button.getAttribute('title') ?? '').not.toMatch(/no gateway route exists/i);
     const found = scanForbiddenAllowlisted(collectRenderedText(document.body));
-    expect(found, `project menu rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
+    expect(found, `shell rendered forbidden term(s): ${found.join(', ')}`).toEqual([]);
   });
 });

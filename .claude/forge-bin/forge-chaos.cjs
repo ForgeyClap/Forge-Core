@@ -161,7 +161,9 @@ function runProviderScript(fetchStubSrc, chatArgs, envExtra) {
     '})().catch((e) => { process.stdout.write(JSON.stringify({ __harness_uncaught: String((e && e.message) || e) })); process.exitCode = 1; });',
   ].join('\n');
   fs.writeFileSync(scriptPath, src, 'utf8');
-  const env = Object.assign({}, process.env, { NVIDIA_API_KEY: FAKE_KEY, NVIDIA_SKIP_ENV_FILES: '1' }, envExtra || {});
+  // owner config isolated too: an install whose owner set nvidia=off (a synced project's own FORGE_CONFIG.json)
+  // must not turn the provider's real retry path into a policy refusal — the probe reads an empty temp config instead
+  const env = Object.assign({}, process.env, { NVIDIA_API_KEY: FAKE_KEY, NVIDIA_SKIP_ENV_FILES: '1', FORGE_PROJECT_ROOT: scriptDir, FORGE_CONFIG_HOME: scriptDir }, envExtra || {});
   return spawnSync(process.execPath, [scriptPath], { encoding: 'utf8', env, timeout: 15000 });
 }
 function runRoutingProbeScript() {
@@ -175,7 +177,7 @@ function runRoutingProbeScript() {
     'process.stdout.write(JSON.stringify({ routeResult: routeResult, modelResult: modelResult }));',
   ].join('\n');
   fs.writeFileSync(scriptPath, src, 'utf8');
-  const env = Object.assign({}, process.env, { NVIDIA_API_KEY: '', NVIDIA_SKIP_ENV_FILES: '1' });
+  const env = Object.assign({}, process.env, { NVIDIA_API_KEY: '', NVIDIA_SKIP_ENV_FILES: '1', FORGE_PROJECT_ROOT: scriptDir, FORGE_CONFIG_HOME: scriptDir });
   return spawnSync(process.execPath, [scriptPath], { encoding: 'utf8', env, timeout: 10000 });
 }
 function parseChildJson(r) {

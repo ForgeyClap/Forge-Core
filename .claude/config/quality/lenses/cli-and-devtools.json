@@ -1,0 +1,161 @@
+{
+  "type": "cli-and-devtools",
+  "version": 1,
+  "title": "CLI and developer tools",
+  "covers": "Command-line tools, scripts, installers, SDKs, plugins and other tools a developer or owner runs.",
+  "domains": ["cli"],
+  "stakeholders": [
+    {
+      "id": "first-time-user",
+      "who": "Someone installing and running the tool for the first time, often on another machine",
+      "cares_about": ["it installs and runs the first time", "help that answers their question", "error messages that say how to fix it"],
+      "would_notice": ["a stack trace instead of a message", "--help that lists flags without saying what they do", "it only works on the author's machine or without spaces in the path"]
+    },
+    {
+      "id": "scripter",
+      "who": "Someone using the tool in a script, a pipe or CI",
+      "cares_about": ["exit codes they can trust", "clean stdout they can parse"],
+      "would_notice": ["exit 0 after an error", "progress text mixed into the JSON output", "a hang waiting for input in CI"]
+    },
+    {
+      "id": "maintainer",
+      "who": "The person who releases and updates the tool",
+      "cares_about": ["tests that cover the command-line contract", "a release users can actually see"],
+      "would_notice": ["no test for exit codes or stderr", "a version number that does not match the release"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Run it with --help: do you know what it does and how to start?",
+    "Run it with no arguments: does it do something safe and say what to do next?",
+    "Run it with a wrong flag: is the message short, clear and helpful?"
+  ],
+  "checks": [
+    {
+      "id": "help-useful",
+      "stakeholder": "first-time-user",
+      "claim": "--help shows a synopsis, every flag with what it does, and at least one example; --version prints the real version.",
+      "how_to_inspect": "Run the tool with --help and with --version and read both outputs as a newcomer.",
+      "evidence_required": "The --help and --version output exactly as printed.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Hard rules", "quote": "Real arg parser + --help + --version." }
+    },
+    {
+      "id": "bad-input-clear",
+      "stakeholder": "first-time-user",
+      "claim": "Wrong or missing input gives a one-line explanation and the usage, with a non-zero exit, never a stack trace.",
+      "how_to_inspect": "Run it with an unknown flag, a missing argument and a file that does not exist.",
+      "evidence_required": "The three outputs and their exit codes.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Domain gates", "quote": "unknown flags fail cleanly with usage" }
+    },
+    {
+      "id": "fresh-install",
+      "stakeholder": "first-time-user",
+      "claim": "It installs and runs from a clean environment (new folder, another user, a path with spaces), not only on the author's machine.",
+      "how_to_inspect": "Install into a fresh temporary folder whose path contains a space and run the documented first command.",
+      "evidence_required": "The transcript of that run.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "3. \"Would this person look at this?\" examples", "quote": "kijk niet vanuit mijn pc" }
+    },
+    {
+      "id": "safe-default",
+      "stakeholder": "first-time-user",
+      "claim": "A bare run changes nothing; destructive actions need an explicit flag or confirmation and offer a dry run.",
+      "how_to_inspect": "Run the tool with no flags in a scratch folder and compare the folder before and after; run each destructive command with --dry-run.",
+      "evidence_required": "The before and after listing and the dry-run output.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Domain gates", "quote": "a bare run is non-destructive" }
+    },
+    {
+      "id": "os-honest",
+      "stakeholder": "first-time-user",
+      "claim": "It was run on every operating system it claims to support (Windows and a POSIX shell at least, when both are claimed); untested platforms are labelled as such.",
+      "how_to_inspect": "Run the main commands on each claimed platform, or label the platforms where that did not happen.",
+      "evidence_required": "One transcript per platform, or the label in the docs.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Safety, approval and honesty", "quote": "never claim \"cross-platform\" for an OS you did not actually run on" }
+    },
+    {
+      "id": "human-output",
+      "stakeholder": "first-time-user",
+      "claim": "Normal output is written for the person reading it: short status lines in plain words, no internal ids or debugging noise.",
+      "how_to_inspect": "Run the main command and read every line as a beginner would; mark anything they would not understand.",
+      "evidence_required": "The output before and after.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "2. Sloppy / quality complaints, by deliverable type", "quote": "Status text written for the system, not for a beginner owner." }
+    },
+    {
+      "id": "exit-codes",
+      "stakeholder": "scripter",
+      "claim": "Exit 0 means success only; distinct failures get distinct non-zero codes, documented in --help or the docs.",
+      "how_to_inspect": "Trigger each failure class (usage, not found, runtime) and read the exit code of each.",
+      "evidence_required": "The exit code per failure class.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Hard rules", "quote": "Correct exit codes." }
+    },
+    {
+      "id": "stdout-stderr",
+      "stakeholder": "scripter",
+      "claim": "Data goes to stdout and logs, prompts and progress go to stderr, so a pipe stays clean.",
+      "how_to_inspect": "Run the tool with 2>/dev/null (or 2>$null) and check the remaining output is only data; pipe it into a parser.",
+      "evidence_required": "The piped run and its parsed result.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Hard rules", "quote": "Machine output → stdout; diagnostics, logs, prompts, progress → stderr" }
+    },
+    {
+      "id": "no-hang",
+      "stakeholder": "scripter",
+      "claim": "It never waits for input when stdin is not a terminal, and long work shows progress on stderr.",
+      "how_to_inspect": "Run it with stdin closed or redirected from an empty file and check that it finishes or fails with a message.",
+      "evidence_required": "The run with closed stdin and its exit code.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A prompt that waits forever in CI is a silent hang, found only when the pipeline times out." }
+    },
+    {
+      "id": "ctrl-c",
+      "stakeholder": "scripter",
+      "claim": "Ctrl-C stops it cleanly: no half-written files, no orphan child processes.",
+      "how_to_inspect": "Start a long operation, press Ctrl-C, then check for partial files and leftover processes.",
+      "evidence_required": "The folder listing and process check after the interrupt.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Hard rules", "quote": "handle Ctrl-C (SIGINT) cleanly" }
+    },
+    {
+      "id": "contract-tests",
+      "stakeholder": "maintainer",
+      "claim": "Tests cover exit codes, stdout, stderr and piping, not only the core functions.",
+      "how_to_inspect": "Read the test file for assertions on exit code, stdout and stderr, and run it.",
+      "evidence_required": "The test run and the assertions found.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-cli/SKILL.md", "section": "Domain gates", "quote": "Tests cover exit codes + stdout + stderr + pipe" }
+    },
+    {
+      "id": "release-visible",
+      "stakeholder": "maintainer",
+      "claim": "A release users can see exists (a published package or release page, not only a tag), and its version matches --version.",
+      "how_to_inspect": "Open the package registry or release page and compare its version with the tool's --version output.",
+      "evidence_required": "The release URL or registry entry and the --version output (N/A when nothing is released).",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "2. Sloppy / quality complaints, by deliverable type", "quote": "a release is not done until the GitHub Release exists" }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Stack trace for a typo", "symptom": "a mistyped flag prints 40 lines of internals instead of one line of usage" },
+    { "defect": "Exit 0 on failure", "symptom": "the CI step stays green although the tool printed an error" },
+    { "defect": "Logs in the data stream", "symptom": "'Loading...' at the top of the JSON output breaks the parser" },
+    { "defect": "Works on my machine", "symptom": "fails on Windows or in a folder whose path has a space" },
+    { "defect": "Help without meaning", "symptom": "--help lists -f, -x, -q with no description and no example" }
+  ]
+}

@@ -10,8 +10,8 @@
  *      Nothing is dumped flat.
  *   2. Provenance. Ids, paths, models, timestamps, commands and console output
  *      wear <Machine>; prose written by a person stays in the sans face.
- *   3. Honesty. Every record here is local example data. The footer says so,
- *      and simulated evidence carries an <ExampleTag/> next to it.
+ *   3. Honesty. Outside production every record here is example data. A tag in the
+ *      head says so, and simulated evidence carries an <ExampleTag/> next to it.
  *
  * Nothing in this panel reads a file, runs a command or contacts anything.
  *
@@ -32,15 +32,28 @@
  * and only where each builder actually reads it (see each sibling's own header for a per-file
  * note; not every builder needs `select` or `production`). `buildDetail` below is now a thin
  * dispatch switch over those eleven builders; this file itself keeps being the composer — the
- * `<Inspector/>` component, its drag-to-dismiss handling and its header/body/footer render are
- * unchanged and stay here. Every name this file exported before (`Inspector`, the default export)
- * is unchanged, so no other file in the codebase needed to change a single import.
+ * `<Inspector/>` component and its header/body render stay here (the drag-to-dismiss sheet
+ * chrome was removed in W3FX-D, see below).
+ *
+ * Redesign (part 3D, review F2): the shell mounts it as `<Inspector embedded />`, the
+ * "Selectie" tab of the Uitgebreid Details pane (SidePane.tsx). The pane is the frame and the only
+ * landmark, so the embedded panel is a plain <div> under the pane's h2. The pane's own close
+ * (SidePane `close()`, focus back to #fw-main) is the one way out. Labels are sentence case, mono
+ * stays on paths and ids, and the example-data note is a tag in the head (shown only outside
+ * production).
+ *
+ * W3FX-D: `embedded` defaults to false, like Dock. A mount without it (tests, a future host) gets
+ * the same panel as its own <aside> landmark with an h2. The old sheet chrome (drag handle, close
+ * button, footer) had no caller left and is gone. Every name this file exported before
+ * (`Inspector`, the default export) is unchanged.
  */
 
-import { useCallback, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
-import { Button, EmptyState, ExampleTag, Eyebrow, IconButton, StatusBadge } from '@/components/primitives';
+import { useCallback } from 'react';
+import { Button, EmptyState, ExampleTag, StatusBadge } from '@/components/primitives';
+import type { ReactNode } from 'react';
 import { isProductionMode } from '@/config/mode';
+import { useLocale } from '@/i18n/use-locale';
+import { useUiMode } from '@/state/ui-mode';
 import { usePrototype } from '@/prototype/state/prototype-store';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
 import { KIND_LABEL } from './inspector-shared';
@@ -98,46 +111,25 @@ function buildDetail(state: PrototypeState, select: SelectFn): Detail | null {
 
 /* -------------------------------------------------------------- component */
 
-const DISMISS_DISTANCE = 96;
+export interface InspectorProps {
+  /**
+   * Inside the Uitgebreid Details pane (how the shell mounts it). A plain <div> under the pane's h2.
+   * Without it (the default, like Dock) the panel is its own <aside> landmark with an h2.
+   */
+  readonly embedded?: boolean;
+}
 
-export function Inspector() {
+export function Inspector({ embedded = false }: InspectorProps) {
   const { state, dispatch } = usePrototype();
-  const [dragY, setDragY] = useState(0);
-  const dragging = useRef(false);
-  const startY = useRef(0);
-  const moved = useRef(false);
+  // WP B3-copy: subscribing here re-renders the builders (which read `t()` and `getUiMode()`)
+  // when the locale or Eenvoudig/Uitgebreid changes.
+  const { t } = useLocale();
+  useUiMode();
 
   const select = useCallback(
     (selection: Selection) => dispatch({ type: 'select', selection }),
     [dispatch],
   );
-
-  const close = useCallback(() => dispatch({ type: 'inspector/set', open: false }), [dispatch]);
-
-  function onHandleDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    dragging.current = true;
-    moved.current = false;
-    startY.current = event.clientY;
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function onHandleMove(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!dragging.current) return;
-    const delta = Math.max(0, event.clientY - startY.current);
-    if (delta > 4) moved.current = true;
-    setDragY(delta);
-  }
-
-  function onHandleUp(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!dragging.current) return;
-    dragging.current = false;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    const delta = Math.max(0, event.clientY - startY.current);
-    setDragY(0);
-    if (delta > DISMISS_DISTANCE) close();
-  }
 
   if (!state.inspectorOpen) return null;
 
@@ -150,80 +142,64 @@ export function Inspector() {
    */
   const selectionKey = state.selection.kind === 'none' ? 'none' : `${kind}:${state.selection.id}`;
 
-  return (
-    <aside
-      className="fw-inspector"
-      aria-label="Inspector"
-      data-kind={kind}
-      data-dragging={dragY > 0 ? 'true' : undefined}
-      style={
-        dragY > 0
-          ? {
-              transform: `translateY(${dragY}px)`,
-              opacity: Math.max(0.35, 1 - dragY / (DISMISS_DISTANCE * 2)),
-            }
-          : undefined
-      }
-    >
-      <button
-        type="button"
-        className="fw-inspector__handle"
-        aria-label="Dismiss the inspector sheet"
-        title="Drag down, or press, to dismiss"
-        onPointerDown={onHandleDown}
-        onPointerMove={onHandleMove}
-        onPointerUp={onHandleUp}
-        onPointerCancel={onHandleUp}
-        onClick={() => {
-          if (!moved.current) close();
-        }}
-      >
-        <span className="fw-inspector__grabber" aria-hidden="true" />
-      </button>
+  /* XR-COPY2: the badge speaks the shared status words (StatusBadge follows the locale), the same word
+   * the card on the board shows. The old Dutch override used `inspector.status.*`, where `waiting` reads
+   * "WACHT OP JOU": a queued task then claimed the owner had to act. */
+  const status = detail?.status ? <StatusBadge status={detail.status} size="sm" /> : null;
 
+  const body: ReactNode = detail ? (
+    detail.body
+  ) : (
+    <EmptyState
+      icon="SearchX"
+      title={t('inspector.notInDataTitle')}
+      detail={production ? t('inspector.notInLive') : t('inspector.notInExample')}
+      compact
+      action={
+        <Button size="sm" icon="X" onClick={() => select({ kind: 'none' })}>
+          {t('inspector.clearSelection')}
+        </Button>
+      }
+    />
+  );
+
+  const Root = embedded ? 'div' : 'aside';
+  const Title = embedded ? 'h3' : 'h2';
+
+  return (
+    <Root
+      className="fw-inspector"
+      data-embedded={embedded ? 'true' : undefined}
+      data-kind={kind}
+      aria-label={embedded ? undefined : t('inspector.region')}
+    >
       <header className="fw-inspector__head">
         <div className="fw-inspector__heading">
-          <Eyebrow>{KIND_LABEL[kind]}</Eyebrow>
-          <h2 className="fw-inspector__title" title={detail?.titleTooltip}>
-            {detail ? detail.title : 'Record not found'}
-          </h2>
+          {/* The kind and the status share one quiet line, so the title gets the full width.
+              "Details" is already the pane title, so the empty selection shows no kind label. */}
+          {kind !== 'none' || status || !production ? (
+            <div className="fw-inspector__kind-row">
+              {kind !== 'none' ? (
+                <p className="fw-inspector__kind">
+                  <span className="fw-sentence">{KIND_LABEL[kind]}</span>
+                </p>
+              ) : null}
+              <span className="fw-inspector__head-actions">
+                {status}
+                <ExampleTag detail={t('inspector.exampleNote')} />
+              </span>
+            </div>
+          ) : null}
+          <Title className="fw-inspector__title" title={detail?.titleTooltip}>
+            {detail ? detail.title : t('inspector.notFoundTitle')}
+          </Title>
           {detail?.subtitle ? <div className="fw-inspector__subtitle">{detail.subtitle}</div> : null}
         </div>
-        <div className="fw-inspector__head-actions">
-          {detail?.status ? <StatusBadge status={detail.status} size="sm" /> : null}
-          <IconButton icon="PanelRightClose" label="Close inspector" size="sm" onClick={close} />
-        </div>
       </header>
-
-      <div className="fw-inspector__body fw-scroll" key={selectionKey}>
-        {detail ? (
-          detail.body
-        ) : (
-          <EmptyState
-            icon="SearchX"
-            title="Not in this dataset"
-            detail={
-              production
-                ? 'The selected id does not exist in the live data.'
-                : 'The selected id does not exist in the local example data.'
-            }
-            compact
-            action={
-              <Button size="sm" icon="X" onClick={() => select({ kind: 'none' })}>
-                Clear selection
-              </Button>
-            }
-          />
-        )}
+      <div className="fw-inspector__body" key={selectionKey}>
+        {body}
       </div>
-
-      <footer className="fw-inspector__foot">
-        <ExampleTag detail="Every record in this panel is local example data. The prototype is not connected to Forge, Claude Code or any API." />
-        <span className="fw-inspector__foot-text">
-          {production ? 'Live record from the local gateway' : 'Local example record'}
-        </span>
-      </footer>
-    </aside>
+    </Root>
   );
 }
 

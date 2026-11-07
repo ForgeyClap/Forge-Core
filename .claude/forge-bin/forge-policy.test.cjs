@@ -418,6 +418,344 @@ t('user overlay: absent or broken -> nothing added, no throw', () => {
   assert.deepStrictEqual(loadRouting(d).userAdded, []);
 });
 
+// =====================================================================================================
+// WP 1.5: the agent .md frontmatter is the single source of truth; agents.generated.json is generated
+// from it and agentsGeneratedCheck() fails on drift, on broken frontmatter rules and on a disagreeing legacy mirror.
+// =====================================================================================================
+console.log('');
+console.log('WP 1.5 — agent frontmatter as the single source of truth (parse / derive / generated-file check)');
+const P = require('./forge-policy.cjs');
+const REPO = path.resolve(__dirname, '..', '..');
+
+t('parseAgentFrontmatter: comma tools, block list, inline list, quoted values and CRLF', () => {
+  const fm = P.parseAgentFrontmatter('---\r\nname: x\r\ndescription: "Use when: a"\r\ntools: Read, Grep\r\nskills:\r\n  - one\r\n  - "two"\r\ndisallowedTools: [Write, Edit]\r\nmaxTurns: 40\r\n---\r\nbody\r\n');
+  assert.strictEqual(fm.fields.description, 'Use when: a');
+  assert.strictEqual(fm.fields.tools, 'Read, Grep');
+  assert.deepStrictEqual(fm.fields.skills, ['one', 'two']);
+  assert.deepStrictEqual(fm.fields.disallowedTools, ['Write', 'Edit']);
+  assert.strictEqual(fm.fields.maxTurns, '40');
+  assert.deepStrictEqual(fm.keys, ['name', 'description', 'tools', 'skills', 'disallowedTools', 'maxTurns']);
+  assert.deepStrictEqual(fm.problems, []);
+});
+t('parseAgentFrontmatter: a nested block (hooks:) is {nested:true}, a missing fence is null, duplicates and stray lines are reported', () => {
+  const fm = P.parseAgentFrontmatter('---\nname: x\nhooks:\n  PreToolUse:\n    - matcher: Bash\nstray line\nname: y\n---\n');
+  assert.deepStrictEqual(fm.fields.hooks, { nested: true });
+  assert.ok(fm.problems.some((p) => /duplicate key "name"/.test(p)) && fm.problems.some((p) => /stray line/.test(p)), JSON.stringify(fm.problems));
+  assert.strictEqual(P.parseAgentFrontmatter('no fence here'), null);
+});
+t('effectiveTools: memory adds Read/Write/Edit and is assumed to survive disallowedTools; no tools line = every tool', () => {
+  assert.deepStrictEqual(P.effectiveTools({ tools: 'Read, Grep', memory: 'project' }).tools, ['Read', 'Grep', 'Write', 'Edit']);
+  assert.deepStrictEqual(P.effectiveTools({ tools: 'Read, Grep', disallowedTools: 'Write, Edit', memory: 'project' }).tools, ['Read', 'Grep', 'Write', 'Edit']);
+  assert.deepStrictEqual(P.effectiveTools({ tools: 'Read, Bash', disallowedTools: ['Bash(git push *)'] }).tools, ['Read'], 'a specifier entry removes the whole tool');
+  assert.deepStrictEqual(P.effectiveTools({}), { tools: ['*'], inheritsAll: true });
+});
+t('roleClassOf: the write x shell matrix, * = full-build, Bash(git *) still counts as shell', () => {
+  assert.strictEqual(P.roleClassOf(['Read', 'Grep']), 'read-only-audit');
+  assert.strictEqual(P.roleClassOf(['Read', 'Write']), 'write-no-exec');
+  assert.strictEqual(P.roleClassOf(['Read', 'Bash(git *)']), 'exec-reviewer');
+  assert.strictEqual(P.roleClassOf(['Edit', 'PowerShell']), 'full-build');
+  assert.strictEqual(P.roleClassOf(['*']), 'full-build');
+  assert.strictEqual(P.roleClassOf(['Read', 'NotebookEdit']), 'write-no-exec');
+});
+t('agentRouteOf: sonnet/low is triage for head-chef and quick for scribe; opus/xhigh is deep; a non-route is null', () => {
+  assert.strictEqual(P.agentRouteOf('head-chef', 'sonnet', 'low'), 'triage');
+  assert.strictEqual(P.agentRouteOf('scribe', 'sonnet', 'low'), 'quick');
+  assert.strictEqual(P.agentRouteOf('my-agent', 'sonnet', 'low'), 'quick');
+  assert.strictEqual(P.agentRouteOf('boss', 'opus', 'xhigh'), 'deep');
+  assert.strictEqual(P.agentRouteOf('x', 'fable', 'high'), null, 'escalate is never a default route');
+  assert.strictEqual(P.agentRouteOf('x', 'sonnet', 'max'), null);
+});
+t('PERMANENT_BOSSES == forge-doctor BOSS_NAMES == agent-registry.json "agents" keys', () => {
+  const D = require('./forge-doctor.cjs');
+  const reg = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'config', 'agents', 'agent-registry.json'), 'utf8'));
+  assert.deepStrictEqual([...P.PERMANENT_BOSSES].sort(), [...D.BOSS_NAMES].sort());
+  assert.deepStrictEqual([...P.PERMANENT_BOSSES].sort(), Object.keys(reg.agents).filter((k) => !k.startsWith('_')).sort());
+});
+
+// ---- REAL tree ----
+const realGen = P.agentsGeneratedCheck(REPO);
+const realFile = JSON.parse(fs.readFileSync(path.join(REPO, ...P.AGENTS_GENERATED_REL), 'utf8'));
+/** generatedProof(root) -> {mode, own} — the real-tree proof of agents.generated.json, portable (2026-11-02: a synced
+ *  project with its own agent file, 26h2's idea-reviewer.md, turned this suite red). In the development tree the file
+ *  regenerates byte-identically from ALL agent files. In a synced project the file is the shipped template copy and the
+ *  project may add its own agents: every LISTED agent must equal a fresh build of its file, schema/_doc/policy must equal
+ *  the generator, and the unlisted agent files are returned as project-own. Throws on any mismatch. */
+function generatedProof(root) {
+  const text = fs.readFileSync(path.join(root, ...P.AGENTS_GENERATED_REL), 'utf8').replace(/\r\n/g, '\n');
+  const file = JSON.parse(text);
+  assert.deepStrictEqual(file.counts, { agents: 20, bosses: 12, specialists: 8 });
+  const names = file.agents.map((a) => a.name);
+  assert.deepStrictEqual(names, [...names].sort());
+  const fresh = P.buildAgentsGenerated(root).data;
+  if (P.isDevTree(root)) { assert.strictEqual(JSON.stringify(fresh, null, 2) + '\n', text); return { mode: 'dev', own: [] }; }
+  const byName = new Map(fresh.agents.map((a) => [a.name, a]));
+  for (const a of file.agents) assert.deepStrictEqual(byName.get(a.name), a, a.name + ' in agents.generated.json differs from a fresh build of .claude/agents/' + a.name + '.md');
+  assert.deepStrictEqual([fresh.schema, fresh._doc, fresh.policy], [file.schema, file._doc, file.policy], 'schema, _doc or policy differ from the shipped generator');
+  return { mode: 'synced', own: fresh.agents.map((a) => a.name).filter((n) => !names.includes(n)) };
+}
+t('real tree: agentsGeneratedCheck is applicable and IN SYNC with 0 violations (synced project: the 20 shipped agents, project-own agents only noted)', () => {
+  assert.ok(realGen.applicable === true && realGen.ok === true && realGen.checked === 20, JSON.stringify(realGen.violations.slice(0, 5)));
+  if (P.isDevTree(REPO)) return;
+  assert.strictEqual(realGen.devTree, false);
+  for (const own of generatedProof(REPO).own) assert.ok(realGen.notes.some((n) => n.includes('project-own agent ' + own + ' ')), own + ' not noted: ' + JSON.stringify(realGen.notes));
+});
+t('real tree: the generated file lists 20 agents (12 bosses + 8 specialists), sorted, and regenerates byte-identically (synced project: per listed agent)', () => {
+  const g = generatedProof(REPO);
+  assert.strictEqual(g.mode, P.isDevTree(REPO) ? 'dev' : 'synced');
+  if (g.own.length) console.log('    note: project-own agent(s) beside the shipped set: ' + g.own.join(', '));
+});
+t('real tree: derived roleClass == agent-tool-policy class and route == FORGE_MODEL_ROUTING agentDefaults for all 20', () => {
+  const pol = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'config', 'agents', 'agent-tool-policy.json'), 'utf8'));
+  const routing = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'FORGE_MODEL_ROUTING.json'), 'utf8'));
+  for (const a of realFile.agents) {
+    assert.strictEqual(a.roleClass, pol.agents[a.name].class, a.name + ' class');
+    assert.strictEqual(a.route, routing.agentDefaults[a.name], a.name + ' route');
+  }
+});
+t('real tree: GOAT model/effort untouched — every agent equals agent-model-map claudeTier/claudeEffort and routingCheck is green', () => {
+  const mm = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'config', 'agents', 'agent-model-map.json'), 'utf8'));
+  for (const a of realFile.agents) assert.ok(a.model === mm.agents[a.name].claudeTier && a.effort === mm.agents[a.name].claudeEffort, a.name);
+  assert.strictEqual(routingCheck(REPO).ok, true);
+});
+t('real tree: no agent sets isolation (dispatch-contract conflicts) and no agent needs disallowedTools', () => {
+  assert.ok(realFile.agents.every((a) => a.isolation === null && a.disallowedTools.length === 0));
+  assert.ok(/worktree\.baseRef/.test(realFile.policy.isolation) && /log-event\.cjs/.test(realFile.policy.isolation));
+});
+t('real tree: every Write-forbidding agent has an explicit tools allowlist without Write/Edit and no memory', () => {
+  for (const a of realFile.agents.filter((x) => x.roleClass === 'read-only-audit' || x.roleClass === 'exec-reviewer')) {
+    assert.ok(Array.isArray(a.tools) && !a.tools.includes('Write') && !a.tools.includes('Edit') && a.memory === null, a.name);
+  }
+});
+t('real tree: maxTurns — every reviewer (read-only-audit / exec-reviewer) stays below every full-build agent', () => {
+  const rev = realFile.agents.filter((a) => a.roleClass === 'read-only-audit' || a.roleClass === 'exec-reviewer').map((a) => a.maxTurns);
+  const bld = realFile.agents.filter((a) => a.roleClass === 'full-build').map((a) => a.maxTurns);
+  assert.ok(Math.max(...rev) < Math.min(...bld), JSON.stringify({ rev, bld }));
+});
+t('real tree: specialists preload nothing; Bosses preload only skills on disk, model-invocable and listed in agent-skill-map', () => {
+  const sm = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'config', 'agents', 'agent-skill-map.json'), 'utf8'));
+  for (const a of realFile.agents) {
+    if (a.bossOrSpecialist === 'specialist') { assert.deepStrictEqual(a.skills, [], a.name); continue; }
+    assert.ok(a.skills.length >= 1 && a.skills.length <= P.SKILL_PRELOAD_CAP, a.name);
+    for (const s of a.skills) {
+      assert.ok(sm.agents[a.name].includes(s), a.name + ' ' + s + ' not in map');
+      const fm = P.parseAgentFrontmatter(fs.readFileSync(path.join(REPO, '.claude', 'skills', s, 'SKILL.md'), 'utf8'));
+      assert.ok(fm && String(fm.fields['disable-model-invocation']).toLowerCase() !== 'true', s + ' is disable-model-invocation');
+    }
+  }
+});
+
+// ---- HERMETIC: a temp copy of the SHIPPED agents (the ones agents.generated.json lists; a synced project's own agent
+// files stay out, 2026-11-02) + config/agents + the skills they preload (+ grill-me, a DMI skill). o.src = the tree to copy
+// from (default this tree), so the fixture itself is tested against a synced-project-shaped source.
+function agentsFixture(opts) {
+  const o = opts || {};
+  const src = o.src || REPO;
+  const fx = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-agents-')); cleanups.push(fx);
+  fs.cpSync(path.join(src, '.claude', 'agents'), path.join(fx, '.claude', 'agents'), { recursive: true });
+  const shipped = new Set(JSON.parse(fs.readFileSync(path.join(src, ...P.AGENTS_GENERATED_REL), 'utf8')).agents.map((a) => a.name + '.md'));
+  for (const f of fs.readdirSync(path.join(fx, '.claude', 'agents'))) if (f.endsWith('.md') && !shipped.has(f)) fs.unlinkSync(path.join(fx, '.claude', 'agents', f));
+  const cfg = path.join(fx, '.claude', 'config', 'agents');
+  fs.mkdirSync(cfg, { recursive: true });
+  for (const f of ['agent-registry.json', 'agent-model-map.json', 'agent-skill-map.json', 'agent-tool-policy.json', 'agents.generated.json']) fs.copyFileSync(path.join(src, '.claude', 'config', 'agents', f), path.join(cfg, f));
+  for (const s of new Set(realFile.agents.flatMap((a) => a.skills).concat(['grill-me']))) {
+    fs.mkdirSync(path.join(fx, '.claude', 'skills', s), { recursive: true });
+    fs.copyFileSync(path.join(REPO, '.claude', 'skills', s, 'SKILL.md'), path.join(fx, '.claude', 'skills', s, 'SKILL.md'));
+  }
+  if (!o.noDevTree) fs.writeFileSync(path.join(fx, '.claude', 'config', 'forge-dev-tree.json'), JSON.stringify({ dev_tree: true }));
+  return fx;
+}
+const agentPath = (fx, name) => path.join(fx, '.claude', 'agents', name + '.md');
+function editAgent(fx, name, fn) { const p = agentPath(fx, name); const before = fs.readFileSync(p, 'utf8'); const after = fn(before); assert.notStrictEqual(after, before, 'fixture edit of ' + name + ' changed nothing'); fs.writeFileSync(p, after); }
+const addLine = (line) => (text) => text.replace(/(\r?\n)---(\r?\n)/, '$1' + line + '$1---$2'); // before the CLOSING fence
+function regen(fx) { fs.writeFileSync(path.join(fx, ...P.AGENTS_GENERATED_REL), JSON.stringify(P.buildAgentsGenerated(fx).data, null, 2) + '\n'); }
+
+t('hermetic: the untouched copy is IN SYNC (0 violations, 20 checked)', () => {
+  const r = P.agentsGeneratedCheck(agentsFixture());
+  assert.ok(r.ok && r.applicable && r.checked === 20, JSON.stringify(r.violations.slice(0, 3)));
+});
+// PORTABLE: the shape of a synced project that keeps its own agent file (26h2: idea-reviewer.md, no color,
+// no maxTurns) — the real-tree proof and the fixture builder must hold there, and the dev tree must stay strict.
+const OWN_AGENT = '---\nname: idea-reviewer\ndescription: a project-own reviewer\ntools: Read, Grep\nmodel: sonnet\n---\nbody\n';
+function syncedShape() { const s = agentsFixture({ noDevTree: true }); fs.writeFileSync(agentPath(s, 'idea-reviewer'), OWN_AGENT); return s; }
+t('PORTABLE: a synced-project-shaped copy with a project-own agent passes the real-tree proof (listed agents byte-equal, the own agent named)', () => {
+  const s = syncedShape();
+  assert.deepStrictEqual(generatedProof(s), { mode: 'synced', own: ['idea-reviewer'] });
+  const r = P.agentsGeneratedCheck(s);
+  assert.ok(r.ok && r.applicable && r.devTree === false && r.checked === 20 && r.notes.some((n) => n.includes('project-own agent idea-reviewer ')), JSON.stringify(r));
+});
+t('PORTABLE: the same copy WITH the dev-tree marker fails the proof and the check (the development tree stays strict)', () => {
+  const d = agentsFixture(); fs.writeFileSync(agentPath(d, 'idea-reviewer'), OWN_AGENT);
+  assert.throws(() => generatedProof(d));
+  assert.ok(kinds(P.agentsGeneratedCheck(d)).includes('drift-agent-added'));
+});
+t('PORTABLE: a synced-shaped proof still catches a listed agent that drifted from its file', () => {
+  const s = syncedShape();
+  editAgent(s, 'build-boss', (x) => x.replace(/^maxTurns: \d+/m, 'maxTurns: 199'));
+  assert.throws(() => generatedProof(s), /build-boss in agents\.generated\.json differs/);
+});
+t('PORTABLE: agentsFixture built FROM a synced-shaped source copies only the shipped (listed) agents and is IN SYNC', () => {
+  const fx = agentsFixture({ src: syncedShape() });
+  assert.ok(!fs.existsSync(agentPath(fx, 'idea-reviewer')), 'the project-own agent leaked into the fixture');
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(r.ok && r.devTree === true && r.checked === 20, JSON.stringify(r.violations.slice(0, 3)));
+});
+t('DRIFT: maxTurns changed in the frontmatter but not regenerated -> drift-field naming build-boss.maxTurns', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'build-boss', (s) => s.replace(/^maxTurns: \d+/m, 'maxTurns: 199'));
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(!r.ok && r.violations.some((x) => x.kind === 'drift-field' && x.agent === 'build-boss' && /build-boss\.maxTurns/.test(x.detail)), JSON.stringify(r.violations));
+});
+t('DRIFT: a hand edit of the generated file is caught (the file is never the source)', () => {
+  const fx = agentsFixture();
+  const gp = path.join(fx, ...P.AGENTS_GENERATED_REL);
+  const j = JSON.parse(fs.readFileSync(gp, 'utf8'));
+  j.agents.find((a) => a.name === 'boss').color = 'red';
+  fs.writeFileSync(gp, JSON.stringify(j, null, 2));
+  assert.ok(P.agentsGeneratedCheck(fx).violations.some((x) => x.kind === 'drift-field' && /boss\.color/.test(x.detail)));
+});
+t('DRIFT: a new agent file -> drift-agent-added in the dev tree; outside it only a note (project-own agent)', () => {
+  const extra = '---\nname: extra-agent\ndescription: x\ntools: Read\nmodel: sonnet\neffort: low\nmaxTurns: 40\ncolor: cyan\n---\nbody\n';
+  const dev = agentsFixture();
+  fs.writeFileSync(agentPath(dev, 'extra-agent'), extra);
+  assert.ok(kinds(P.agentsGeneratedCheck(dev)).includes('drift-agent-added'));
+  const inst = agentsFixture({ noDevTree: true });
+  fs.writeFileSync(agentPath(inst, 'extra-agent'), extra);
+  const r = P.agentsGeneratedCheck(inst);
+  assert.ok(r.ok && r.devTree === false && r.notes.some((n) => /extra-agent/.test(n)), JSON.stringify(r));
+});
+t('DRIFT: a deleted agent file -> drift-agent-removed', () => {
+  const fx = agentsFixture();
+  fs.unlinkSync(agentPath(fx, 'verify-boss'));
+  assert.ok(P.agentsGeneratedCheck(fx).violations.some((x) => x.kind === 'drift-agent-removed' && x.agent === 'verify-boss'));
+});
+t('generated file missing: red in the dev tree, n/a (ok) in an installed project', () => {
+  const dev = agentsFixture();
+  fs.unlinkSync(path.join(dev, ...P.AGENTS_GENERATED_REL));
+  const r = P.agentsGeneratedCheck(dev);
+  assert.ok(!r.ok && kinds(r).includes('generated-missing'));
+  const inst = agentsFixture({ noDevTree: true });
+  fs.unlinkSync(path.join(inst, ...P.AGENTS_GENERATED_REL));
+  const r2 = P.agentsGeneratedCheck(inst);
+  assert.ok(r2.ok === true && r2.applicable === false, JSON.stringify(r2));
+  // a fixture that only adds the dev-tree marker (no routing file, no registry: it does not define the agent set) is
+  // n/a — forge-doctor.test's ship_manifest full-doctor fixture is exactly this shape and must stay green on agents
+  const bare = agentsFixture();
+  fs.unlinkSync(path.join(bare, ...P.AGENTS_GENERATED_REL));
+  fs.unlinkSync(path.join(bare, '.claude', 'config', 'agents', 'agent-registry.json'));
+  const r3 = P.agentsGeneratedCheck(bare);
+  assert.ok(r3.ok === true && r3.applicable === false && r3.devTree === true && /marker without/.test(r3.reason), JSON.stringify(r3));
+});
+t('generated file not JSON -> generated-unreadable, frontmatter rules still run', () => {
+  const fx = agentsFixture();
+  fs.writeFileSync(path.join(fx, ...P.AGENTS_GENERATED_REL), '{ broken');
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(!r.ok && kinds(r).includes('generated-unreadable') && r.checked === 20);
+});
+t('RULE: preloading a disable-model-invocation skill (grill-me) -> skill-not-preloadable', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'boss', (s) => s.replace(/(  - forge-report)(\r?\n)/, '$1$2  - grill-me$2'));
+  regen(fx);
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(r.violations.some((x) => x.kind === 'skill-not-preloadable' && x.agent === 'boss') && !kinds(r).includes('skill-not-in-map'), JSON.stringify(r.violations));
+});
+t('RULE: a missing skill -> skill-missing + skill-not-in-map; 33 skills -> skills-over-cap', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'search-boss', (s) => s.replace(/(  - forge-scout)(\r?\n)/, '$1$2  - no-such-skill$2'));
+  const many = Array.from({ length: 33 }, (_, i) => '  - fake-skill-' + i).join('\n');
+  editAgent(fx, 'security-boss', (s) => s.replace(/  - forge-verify/, many.replace(/\n/g, s.includes('\r\n') ? '\r\n' : '\n')));
+  regen(fx);
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(r.violations.some((x) => x.kind === 'skill-missing' && x.agent === 'search-boss') && r.violations.some((x) => x.kind === 'skill-not-in-map' && x.agent === 'search-boss'));
+  assert.ok(r.violations.some((x) => x.kind === 'skills-over-cap' && x.agent === 'security-boss'));
+});
+t('RULE: skills as a scalar instead of a YAML list -> skills-not-a-list', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'security-boss', (s) => s.replace(/skills:\r?\n  - forge-verify/, 'skills: forge-verify'));
+  regen(fx);
+  assert.ok(kinds(P.agentsGeneratedCheck(fx)).includes('skills-not-a-list'));
+});
+t('RULE: isolation: worktree is accepted on a full-build agent and refused on a read-only one; other values refused', () => {
+  const ok = agentsFixture();
+  editAgent(ok, 'build-boss', addLine('isolation: worktree'));
+  regen(ok);
+  const r1 = P.agentsGeneratedCheck(ok);
+  assert.ok(r1.ok, JSON.stringify(r1.violations));
+  const bad = agentsFixture();
+  editAgent(bad, 'review-boss', addLine('isolation: worktree'));
+  editAgent(bad, 'ui-boss', addLine('isolation: sandbox'));
+  regen(bad);
+  const r2 = P.agentsGeneratedCheck(bad);
+  assert.ok(r2.violations.some((x) => x.kind === 'isolation-not-allowed' && x.agent === 'review-boss') && r2.violations.some((x) => x.kind === 'isolation-invalid' && x.agent === 'ui-boss'));
+});
+t('RULE: bad color, missing color, an unknown field (typo maxturns) and maxTurns outside the class band', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'build-boss', (s) => s.replace(/^color: blue/m, 'color: teal'));
+  editAgent(fx, 'ui-boss', (s) => s.replace(/^color: pink\r?\n/m, ''));
+  editAgent(fx, 'docs-boss', addLine('maxturns: 5'));
+  editAgent(fx, 'integration-boss', (s) => s.replace(/^maxTurns: \d+/m, 'maxTurns: 500'));
+  editAgent(fx, 'scribe', (s) => s.replace(/^maxTurns: \d+/m, 'maxTurns: 10'));
+  editAgent(fx, 'seo-boss', (s) => s.replace(/^maxTurns: \d+/m, 'maxTurns: many'));
+  regen(fx);
+  const r = P.agentsGeneratedCheck(fx);
+  const has = (k, a) => r.violations.some((x) => x.kind === k && x.agent === a);
+  assert.ok(has('bad-color', 'build-boss') && has('color-missing', 'ui-boss') && has('unknown-field', 'docs-boss'), JSON.stringify(r.violations));
+  assert.ok(has('maxturns-out-of-band', 'integration-boss') && has('maxturns-out-of-band', 'scribe') && has('maxturns-invalid', 'seo-boss'), JSON.stringify(r.violations));
+});
+t('RULE: memory: project on review-boss -> its tools become write-capable -> class-drift + class-forbidden-tool (Write, Edit)', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'review-boss', addLine('memory: project'));
+  regen(fx);
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(r.violations.some((x) => x.kind === 'class-drift' && x.agent === 'review-boss'));
+  assert.ok(r.violations.some((x) => x.kind === 'class-forbidden-tool' && x.agent === 'review-boss' && /Write, Edit/.test(x.detail)), JSON.stringify(r.violations));
+});
+t('LEGACY: a Boss filed under specialistAgents, or a wrong agentFile -> registry-drift', () => {
+  const fx = agentsFixture();
+  const rp = path.join(fx, '.claude', 'config', 'agents', 'agent-registry.json');
+  const reg = JSON.parse(fs.readFileSync(rp, 'utf8'));
+  reg.specialistAgents['build-boss'] = reg.agents['build-boss']; delete reg.agents['build-boss'];
+  reg.specialistAgents['scribe'].agentFile = '.claude/agents/notulist.md';
+  fs.writeFileSync(rp, JSON.stringify(reg));
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(r.violations.some((x) => x.kind === 'registry-drift' && x.agent === 'build-boss') && r.violations.some((x) => x.kind === 'registry-drift' && x.agent === 'scribe' && /notulist/.test(x.detail)));
+});
+t('LEGACY: a preloaded skill agent-skill-map does not list for that agent -> skill-not-in-map', () => {
+  const fx = agentsFixture();
+  editAgent(fx, 'review-boss', (s) => s.replace(/(  - forge-verify)(\r?\n)/, '$1$2  - forge-debug$2'));
+  regen(fx);
+  const r = P.agentsGeneratedCheck(fx);
+  assert.deepStrictEqual(r.violations.map((x) => x.kind + ':' + x.agent), ['skill-not-in-map:review-boss']);
+});
+t('LEGACY: absent mirrors are notes, never a crash; the frontmatter is still judged', () => {
+  const fx = agentsFixture();
+  for (const f of ['agent-registry.json', 'agent-skill-map.json', 'agent-tool-policy.json']) fs.unlinkSync(path.join(fx, '.claude', 'config', 'agents', f));
+  const r = P.agentsGeneratedCheck(fx);
+  assert.ok(r.ok === true && r.notes.length === 3 && r.checked === 20, JSON.stringify(r));
+});
+t('frontmatter-unparseable: an agent file without frontmatter is a violation and buildAgentsGenerated reports it', () => {
+  const fx = agentsFixture();
+  fs.writeFileSync(agentPath(fx, 'scribe'), 'no frontmatter at all\n');
+  assert.ok(P.buildAgentsGenerated(fx).problems.some((p) => p.agent === 'scribe'));
+  assert.ok(kinds(P.agentsGeneratedCheck(fx)).includes('frontmatter-unparseable'));
+});
+t('doctor: agentsCheck is red on generated drift and its ✗ line names it; green copy says "generated config in sync"', () => {
+  const D = require('./forge-doctor.cjs');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-docsum-')); cleanups.push(base);
+  const rep = D.runDoctor(base);
+  const lineOf = (a) => D.printSummary(Object.assign({}, rep, { checks: Object.assign({}, rep.checks, { agents: a }) })).split(/\r?\n/).find((l) => / agents /.test(l)) || '';
+  const green = agentsFixture();
+  const g = D.agentsCheck(green);
+  assert.ok(g.ok === true && g.generated.applicable === true, JSON.stringify(g.generated));
+  assert.ok(/✓ agents .*generated config in sync \(20 agents\)/.test(lineOf(g)), lineOf(g));
+  const red = agentsFixture();
+  editAgent(red, 'test-boss', (s) => s.replace(/^color: green/m, 'color: yellow'));
+  const rr = D.agentsCheck(red);
+  assert.ok(rr.ok === false && rr.generated.ok === false && rr.toolPolicy.ok === true);
+  assert.ok(/✗ agents .*GENERATED CONFIG DRIFT: 1 violation\(s\): drift-field \(test-boss\.color/.test(lineOf(rr)), lineOf(rr));
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-plain-')); cleanups.push(plain);
+  assert.strictEqual(D.agentsCheck(plain).generated.applicable, false, 'a project without the file and without the dev-tree marker is n/a');
+});
+
 for (const d of cleanups) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ } }
 
 console.log(passed + ' passed, ' + failed + ' failed');

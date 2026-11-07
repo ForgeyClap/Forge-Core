@@ -182,7 +182,7 @@
  * cc-wire-usage (WP: wire the Claude usage bar to real data) UPDATE — two
  * additions purpose-built so `UsageBar.tsx`/`gateway-usage.ts` can stop
  * depending on the bridge's own dead `getUsageState`/`useLatency` (the
- * `src/bridge/**` WebSocket that `live-store.ts`'s own header already
+ * `archive/bridge/**` WebSocket that `live-store.ts`'s own header already
  * documents as constructed-but-never-connected):
  *
  *   - `GatewayConnectionStore` now measures a REAL client-side round-trip on
@@ -191,7 +191,7 @@
  *     window (`LATENCY_WINDOW` samples) to compute a real p95. `useGatewayLatency()`
  *     exposes it. A negative/non-finite delta is REJECTED, never clamped to a
  *     fake 0 — the same "a broken sample is proof of clock trouble, not a
- *     perfect measurement" principle `bridge/usage/latency.ts` documents,
+ *     perfect measurement" principle `shared/latency.ts` documents,
  *     reimplemented locally here (no runtime import of that dead-bridge file).
  *   - `classifyProjectType()` is the honest `ProjectType` mapper the header
  *     above already describes — exported so `toGatewayProject`'s new `type`

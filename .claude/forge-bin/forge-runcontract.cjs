@@ -65,6 +65,16 @@
  *   started before it is `historical_exempt` for that rule, never retroactively red). A phase-less check of a
  *   rules file without `since` behaves exactly as before. The registry's other V2 sections (lifecycle,
  *   completion_sequence, steps, orchestration enforcement labels) are DATA for docs/CLIs and are not read here.
+ * I.6 (Forge Intelligence): a trigger form "run-shape:<plan-scale|plan-card|visible-deliverable|serial-plan>"
+ *   (the rule applies only when the run ITSELF declares that shape in its run.json / plan-card.json / anticipate.json —
+ *   opt-in, so older runs are judged exactly as before) and a check type "run-evidence" (plan card, anticipation overlay,
+ *   recorded craft review, a named reason for a serial plan). Every result carries `run_shape` and `exceptions` (rules met
+ *   by a recorded decision_logged exception — reported, never a silent pass). See the "RUN SHAPE + RUN EVIDENCE" block.
+ * A2: run-evidence kind "dispatch-harness" (rule dispatch-harness-match, warn, complexity >= L2): the run's
+ *   dispatch events joined to harness-written records by forge-harness-match.cjs; rule_details carry a `harness` summary.
+ *   A13: when the project has no SubagentStart hook running forge-subagent-start.cjs (settings.json /
+ *   settings.local.json) and the harness recorded nothing start-side for the run, the rule is a visible warning
+ *   "harness hooks not installed" instead of counting every dispatch as unmatched (harnessHooksInstalled).
  *     params.phase     — optional 'preview'|'wp'|'complete' (default 'complete' = every rule).
  *     opts.root        — project root (default: two levels up from forge-bin, i.e. this project).
  *     opts.runDir       — override the run directory directly (test hermeticity).
@@ -120,14 +130,63 @@ const path = require('path');
 const crypto = require('crypto');
 
 const RULES_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_HARD_RULES.json');
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there
+ *  (one run never spans two folders; in the legacy layout always <root>/.claude/forge-runs/<id>). */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+/** appliesPathExists(root, rel) -> true when a rule's `applies_if_exists` path exists in this project (WP 2.1). The
+ *  registry names legacy state paths (".claude/forge-scribe/ledger.jsonl"); in the forge layout the same file lives
+ *  under the state folder of that key (.forge/scribe/ledger.jsonl), so a legacy .claude/forge-<key>/... path is
+ *  ALSO looked up there - otherwise opting in would silently switch a rule off. Legacy layout: the plain check. */
+function appliesPathExists(root, rel) {
+  if (fs.existsSync(path.join(root, rel))) return true;
+  const m = /^\.claude[\\/]forge-([a-z][a-z0-9_]*)(?:[\\/](.*))?$/.exec(String(rel));
+  if (!m) return false;
+  let dir;
+  try { dir = statePath(root, m[1], true); } catch { return false; } // not a canon key / unjudgeable layout
+  return dir !== path.join(root, '.claude', 'forge-' + m[1]) && fs.existsSync(m[2] ? path.join(dir, m[2]) : dir);
+}
+/** relPosix(root, p) -> p relative to root with forward slashes (the form evidence strings and messages use). */
+function relPosix(root, p) { return path.relative(root, p).split(path.sep).join('/'); }
+/** runFolderLabel(ctx) -> the run folder as an owner reads it: project-relative when it lies inside the root (legacy:
+ *  exactly .claude/forge-runs/<id> as before; forge layout: .forge/runs/<id>), else the old literal. */
+function runFolderLabel(ctx) {
+  try {
+    const rp = ctx && ctx.root && ctx.runDir ? relPosix(ctx.root, ctx.runDir) : '';
+    if (rp && !rp.startsWith('..') && !path.isAbsolute(rp)) return rp;
+  } catch { /* the literal below */ }
+  return '.claude/forge-runs/' + (ctx && ctx.runId);
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> pass --root
+const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
+/** rootOf(opts) -> opts.root (resolved) or DEFAULT_ROOT; a clear error instead of a crash when neither exists. */
+function rootOf(opts) {
+  if (opts && opts.root) return path.resolve(opts.root);
+  if (!DEFAULT_ROOT) throw new Error('forge-runcontract: no project root found (no .claude, .forge or .git above the current folder; pass --root)');
+  return DEFAULT_ROOT;
+}
 
 const KNOWN_TRIGGER_LITERALS = new Set(['always', 'web', 'correctness-critical']);
 // V2 (part A): closure / sequence / reaction / file-touched — see the "V2 CHECK TYPES" block
 // further down for their exact semantics. A rules file using them must reach a fleet copy only AFTER this
 // checker does (an older checker degrades them to `unevaluated`, S6 — never a crash).
 const V2_CHECK_TYPES = new Set(['closure', 'sequence', 'reaction', 'file-touched']);
-const KNOWN_CHECK_TYPES = new Set(['event-present', 'artifact-present', 'doctor-check', 'independent-verification', ...V2_CHECK_TYPES]);
+// I.6 (Forge Intelligence): the run-evidence check type and the run-shape trigger form — see the "RUN SHAPE"
+// block further down. Kept out of V2_CHECK_TYPES on purpose: that set names the four version-2 types exactly.
+const RUN_EVIDENCE_TYPE = 'run-evidence';
+const KNOWN_CHECK_TYPES = new Set(['event-present', 'artifact-present', 'doctor-check', 'independent-verification', ...V2_CHECK_TYPES, RUN_EVIDENCE_TYPE]);
 const KNOWN_SEVERITIES = new Set(['block', 'warn']);
 // Rule PHASE: when an obligation is due. A check at phase X judges every rule whose phase rank is <= X;
 // later-phase rules are reported in `phase_deferred`, never as missing. A rule without a phase is 'complete'
@@ -147,6 +206,12 @@ const CRITICAL_DOMAINS_FALLBACK = ['finance', 'parser', 'ocr', 'data', 'predicti
 // <=/== operators nobody asked for would be vocabulary this file has to keep honouring forever.
 const COMPLEXITY_TRIGGER_RE = /^complexity:>=L([1-4])$/;
 const LEVEL_RE = /^L([1-4])$/i;
+// I.6: "run-shape:<shape>" — the rule applies only when the run ITSELF declares that shape (its run.json, plan-card.json or
+// anticipate.json; see readRunShape). A well-formed shape this checker does not know degrades like any unknown trigger.
+const RUN_SHAPE_TRIGGER_RE = /^run-shape:([a-z][a-z0-9-]*)$/;
+// S3b: web-ui-deliverable is a narrower view of visible-deliverable (the declared types include web-ui, so
+// the web-ui craft lens is in the run's review plan) — same declaration source, no new detector.
+const RUN_SHAPES = new Set(['plan-scale', 'plan-card', 'visible-deliverable', 'serial-plan', 'web-ui-deliverable']);
 // TRIGGER_SHAPE_RE separates "structurally broken config" from "vocabulary this checker predates". A bare
 // token (`always`) or a namespaced token with a NON-EMPTY payload (`domain:finance`, `complexity:>=L3`,
 // `phase:beta`) is structurally well-formed; anything else (missing, non-string, blank, `domain:` with no
@@ -179,6 +244,8 @@ function isValidTrigger(t) {
   if (typeof t !== 'string') return false;
   if (KNOWN_TRIGGER_LITERALS.has(t)) return true;
   if (t.startsWith('domain:') && t.length > 'domain:'.length) return true;
+  const rs = RUN_SHAPE_TRIGGER_RE.exec(t);
+  if (rs) return RUN_SHAPES.has(rs[1]);
   return COMPLEXITY_TRIGGER_RE.test(t);
 }
 /** isWellFormedTrigger(t) -> boolean — true when `t` is at least SHAPED like a trigger, even if this
@@ -252,7 +319,7 @@ function loadRulesMeta(rulesPath) {
     if (!r.rule || typeof r.rule !== 'string') throw new Error('forge-runcontract: rule "' + r.id + '" is missing a string "rule" in ' + p);
     if (!isValidTrigger(r.trigger)) {
       if (!isWellFormedTrigger(r.trigger)) {
-        throw new Error('forge-runcontract: rule "' + r.id + '" has an invalid "trigger" in ' + p + ' (must be "always", "web", "correctness-critical", "domain:<x>", or "complexity:>=L<1-4>")');
+        throw new Error('forge-runcontract: rule "' + r.id + '" has an invalid "trigger" in ' + p + ' (must be "always", "web", "correctness-critical", "domain:<x>", "complexity:>=L<1-4>" or "run-shape:<shape>")');
       }
       // well-formed but unknown vocabulary -> this rules file is newer than this checker. Degrade honestly.
       unknownTriggers.push({ id: r.id, trigger: r.trigger });
@@ -276,6 +343,10 @@ function loadRulesMeta(rulesPath) {
     const KEYLESS_CHECK_TYPES = new Set(['doctor-check', 'independent-verification']);
     if (!checkTypeKnown) {
       /* shape of an unknown check type is unknowable here — skipped on purpose, see S6 above */
+    } else if (r.check.type === RUN_EVIDENCE_TYPE) {
+      // I.6: keyless like the whole-stream checks; an unknown `evidence` value degrades like an unknown option (S6)
+      const degraded = validateRunEvidenceCheck(r, p);
+      if (degraded) unknownCheckTypes.push({ id: r.id, check_type: r.check.type, reason: degraded.reason });
     } else if (V2_CHECK_TYPES.has(r.check.type)) {
       // each new type carries its own shape (open/close/key, before/after, on/require, files) — a broken
       // shape throws like any malformed config; a well-formed but UNKNOWN option value (e.g. a future
@@ -317,6 +388,14 @@ function loadRulesMeta(rulesPath) {
     // optional project-relative path; the rule applies only while that path exists under the run's root
     if (r.applies_if_exists !== undefined && !isSafeRelPath(r.applies_if_exists)) {
       throw new Error('forge-runcontract: rule "' + r.id + '" has an invalid "applies_if_exists" ' + JSON.stringify(r.applies_if_exists) + ' in ' + p + ' (must be a project-relative path without "..", e.g. ".claude/forge-scribe/ledger.jsonl")');
+    }
+    // I.6: optional owner-facing failure text (both languages) and the one next command; an older checker ignores both
+    if (r.message !== undefined && !(r.message && typeof r.message === 'object' && !Array.isArray(r.message)
+      && typeof r.message.en === 'string' && r.message.en.trim() && typeof r.message.nl === 'string' && r.message.nl.trim())) {
+      throw new Error('forge-runcontract: rule "' + r.id + '" has an invalid "message" in ' + p + ' (must be {"en": "<text>", "nl": "<tekst>"}, both non-empty)');
+    }
+    if (r.next_step !== undefined && !(typeof r.next_step === 'string' && r.next_step.trim())) {
+      throw new Error('forge-runcontract: rule "' + r.id + '" has an invalid "next_step" in ' + p + ' (must be a non-empty string: the one command to run next)');
     }
   }
   if (data.owners_allowlist !== undefined && !Array.isArray(data.owners_allowlist)) {
@@ -451,7 +530,7 @@ function manifestCompleteness(root, runId, events, ownerAllowlist) {
  *  `complexity` may be null/undefined (not known for this run); a rule scoped to the axis a caller knows
  *  nothing about simply does not apply — the same under-claiming discipline the domain axis has always used,
  *  never a fabricated match. Only "always" rules apply when neither is known. Never throws. */
-function ruleApplies(rule, domain, complexity) {
+function ruleApplies(rule, domain, complexity, shape) {
   const d = domain ? String(domain).trim().toLowerCase() : null;
   if (rule.trigger === 'always') return true;
   // complexity is a domain-INDEPENDENT axis — evaluated before the domain guard below, so a
@@ -461,6 +540,10 @@ function ruleApplies(rule, domain, complexity) {
     const level = levelNum(complexity);
     return level > 0 && level >= Number(cx[1]);
   }
+  // I.6: the run-shape axis is domain-independent too. No shape passed (an older caller) = the run declares nothing =
+  // the rule does not apply — the same under-claiming discipline as an unknown domain, never a fabricated match.
+  const rs = RUN_SHAPE_TRIGGER_RE.exec(rule.trigger);
+  if (rs) return !!(shape && shape.applies && shape.applies[rs[1]] === true);
   if (!d) return false;
   if (rule.trigger === 'web') return WEB_DOMAINS.has(d);
   if (rule.trigger === 'correctness-critical') return criticalDomains().some((x) => String(x).toLowerCase() === d);
@@ -542,18 +625,56 @@ function declaredLevel(runMeta) {
  * will NOT be asked for a PRD. That is a real hole, and it is the honest one to leave open — the alternative
  * (guessing heaviness from weaker signals) would block light runs on nothing.
  */
-function resolveComplexity(events, runMeta, paramLevel) {
+function resolveComplexity(events, runMeta, paramLevel, harnessUnits) {
   const units = countUnits(events || []);
   const derived = levelFromUnits(units);
-  const declared = declaredLevel(runMeta);
+  // Category tests O26: the level declared on run_started is a declaration too. A headless session cannot
+  // write run.json (O25), so reading only run.json dropped restaurant-v2's L2 and judged the run L1.
+  const startEv = (events || []).find((e) => e && e.event_type === 'run_started');
+  const fromRunJson = declaredLevel(runMeta);
+  const fromStart = declaredLevel(startEv);
+  const declared = fromRunJson && fromStart ? maxLevel(fromRunJson, fromStart) : (fromRunJson || fromStart);
   const param = parseLevel(paramLevel);
+  // Category tests O19: the real SubagentStart hook lines of this run (harnessUnitsFor) can only RAISE the
+  // level. A Lead that logs fewer dispatches than it really made no longer lowers its own bar.
+  const harness = Number.isFinite(harnessUnits) && harnessUnits > 0 ? levelFromUnits(harnessUnits) : null;
 
   let level = derived;
+  if (harness) level = maxLevel(level, harness);
   if (declared) level = maxLevel(level, declared);
   if (param) level = maxLevel(level, param);
 
-  const source = (declared === level) ? 'declared' : (param === level) ? 'param' : 'derived';
-  return { level, declared, derived, source, units };
+  const source = (declared === level) ? 'declared' : (param === level) ? 'param' : (harness === level && harness !== derived) ? 'harness' : 'derived';
+  return { level, declared, derived, source, units, harness_units: Number.isFinite(harnessUnits) ? harnessUnits : null };
+}
+
+/** harnessUnitsFor(root, runId, events) -> number | null. Real SubagentStart hook lines that belong to this run: stamped
+ *  with it, or unstamped and inside its time window (run_started .. run_completed, else now). null = no hook log. */
+function harnessUnitsFor(root, runId, events) {
+  const recs = harnessRecordsFor(root, runId, events, 'start');
+  return recs === null ? null : recs.length;
+}
+/** harnessRecordsFor(root, runId, events, kind) -> record[] | null. The hook lines of `kind` ('start' | 'stop' | 'tool')
+ *  that belong to this run: stamped with it, or unstamped and inside its time window (run_started .. run_completed, else
+ *  now). null = no hook log (or the matcher is absent). The ONE window rule; harnessUnitsFor and skill-delivery share it. */
+function harnessRecordsFor(root, runId, events, kind) {
+  let HM; try { HM = require('./forge-harness-match.cjs'); } catch { return null; }
+  let H; try { H = HM.loadHarness(root); } catch { return null; }
+  if (!H || !H.records || !H.files.length || !Array.isArray(H.records[kind])) return null;
+  const ms = (v) => { const n = Date.parse(v); return Number.isFinite(n) ? n : null; };
+  const tsOfEv = (e) => ms(e && (e.timestamp || e.ts || e.ingested_at));
+  const startEv = (events || []).find((e) => e && e.event_type === 'run_started');
+  const endEv = (events || []).filter((e) => e && e.event_type === 'run_completed').pop();
+  const from = startEv ? tsOfEv(startEv) : null;
+  const to = endEv ? tsOfEv(endEv) : Infinity;
+  const out = [];
+  for (const r of H.records[kind]) {
+    if (!r || typeof r !== 'object') continue;
+    if (r.run) { if (r.run === runId) out.push(r); continue; }
+    const at = ms(r.ts);
+    if (from !== null && at !== null && at >= from && at <= to) out.push(r);
+  }
+  return out;
 }
 
 // ---- reading a run's real content (PURE projection — never assumed) --------------------------------------
@@ -1138,7 +1259,7 @@ function independentVerification(events, opts) {
     return Object.assign({ ok: false, route: null, reason: 'geen enkel toegelaten work-event in deze run — er is niets om onafhankelijk van te zijn (lifecycle-, notitie- en audit-events tellen niet als werk)' }, base);
   }
   if (!completions.length) {
-    return Object.assign({ ok: false, route: null, reason: 'geen review-completion in deze run — verwacht ' + [...REVIEW_DONE_TYPES].join('/') + ' met review_id, subject_log_hash, commit_sha en evidence_digest, gelogd door een agent die hier geen werk deed' }, base);
+    return Object.assign({ ok: false, route: null, reason: missingCompletionReason(opts) }, base);
   }
 
 
@@ -1285,6 +1406,21 @@ function independentVerification(events, opts) {
   return Object.assign({ ok: false, route: null, reason: 'geen bruikbare review-completion: ' + afgewezenRedenen.join(' | ') }, base);
 }
 
+/** missingCompletionReason(opts) — R1 (category tests 2026-11-07): the reason when a run has no review completion names
+ *  only the fields THIS root requires (commit_sha only where git exists: opts.noGit is the real probe) and the exact
+ *  one-line log command, never a shell chain. Known values (run id, HEAD, evidence digest) are filled in. */
+function missingCompletionReason(opts) {
+  const o = opts || {};
+  const fields = ['review_id', 'review_verdict', 'subject_log_hash'].concat(o.noGit ? [] : ['commit_sha'], ['evidence_digest']);
+  const payload = { agent: '<reviewer, did no work in this run>', review_id: '<the id of your review_started>', review_verdict: 'approved', subject_log_hash: '<entry_hash of the last event in events.jsonl>' };
+  if (!o.noGit) payload.commit_sha = typeof o.commitSha === 'string' && SHA1_RE.test(o.commitSha) ? o.commitSha : '<git HEAD sha>';
+  payload.evidence_digest = typeof o.evidenceDigest === 'string' && SHA256_RE.test(o.evidenceDigest) ? o.evidenceDigest : '<digest of gate-evidence.json>';
+  const runId = typeof o.runId === 'string' && /^[A-Za-z0-9_.-]+$/.test(o.runId) ? o.runId : '<run_id>';
+  return 'geen review-completion in deze run — verwacht ' + [...REVIEW_DONE_TYPES].join('/') + ' met ' + fields.slice(0, -1).join(', ') + ' en ' + fields[fields.length - 1]
+    + (o.noGit ? ' (deze root heeft geen git-repository, dus geen commit om aan te binden)' : '')
+    + ', gelogd door een agent die hier geen werk deed, na zijn eigen review_started met hetzelfde review_id. Eén regel: node .claude/forge-dashboard/log-event.cjs ' + runId + " review_completed '" + JSON.stringify(payload) + "'";
+}
+
 /** sanitizeIv — alleen wat een lezer nodig heeft om te begrijpen WAAROM, nooit ruwe eventpayloads:
  *  daar kan vrije tekst (paden, commando's, output) in staan die niet in een contractuitslag hoort. */
 function sanitizeIv(iv) {
@@ -1298,7 +1434,7 @@ function sanitizeIv(iv) {
       subject_log_hash: kort(iv.review.subject_log_hash),
       evidence_digest: kort(iv.review.evidence_digest),
     } : null,
-    reason: kort(iv.reason),
+    reason: String(iv.reason == null ? '' : iv.reason).slice(0, 1000), // room for the one-line log command
   };
 }
 
@@ -1334,7 +1470,7 @@ function isInsideRoot(realRoot, resolved) {
  *  elke herhaling zonder dat het bewijs verandert, en zouden de digest onbruikbaar maken. Wat er wél in
  *  zit is precies wat een oordeel draagt: welke poort, of hij slaagde, en de hash van zijn uitvoer. */
 function canonicalEvidenceDigest(root, runId) {
-  const file = path.join(root, '.claude', 'forge-runs', runId, 'gate-evidence.json');
+  const file = path.join(runDirOf(root, runId), 'gate-evidence.json');
   let raw;
   try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
   let j;
@@ -2193,6 +2329,438 @@ function scribeReconcileBinding(rule, ctx) {
   }
 }
 
+// =====================================================================================================
+// RUN SHAPE + RUN EVIDENCE (I.6, modernization Phase I "Forge Intelligence"). Owner problem
+// (docs/claude-md/intelligence-bar.md): the owner had to repeat "turn it on / start more lanes / you forgot X / sloppy
+// output" because those rules lived only as prose the Lead should follow. Four contract rules now ENFORCE what the
+// anticipation engine reported as default-but-not-enforced: the plan card, the anticipation overlay, the craft review and
+// "serial needs a named blocker".
+// BINDING DESIGN — opt-in BY RUN SHAPE. A rule with trigger "run-shape:<shape>" applies only when the run ITSELF declares
+// that shape, read from three files in its own run folder and nothing else (never the domain, never an event count), so
+// every run that predates the plan flow, and every older test fixture, is judged exactly as before:
+//   plan-scale          run.json work_packages >= 3 (a number or a list) or lanes >= 2 (lanes.expected | lanes_expected |
+//                       expected_lanes | a number), or anticipate.json input.lanes >= 2, or a readable plan card with >= 3
+//                       packages or >= 2 expected lanes;
+//   plan-card           a non-empty plan-card.json sits in the run folder;
+//   visible-deliverable run.json deliverable_types (a list or "a,b") or anticipate.json input.type names a visible,
+//                       user-facing type (VISIBLE_DELIVERABLE_TYPES);
+//   serial-plan         a readable plan card with >= 4 packages and no file shared inside a wave (lanes.collisions empty)
+//                       that runs with 1 expected lane (run.json's declared lanes win over the card's lanes.expected);
+//   web-ui-deliverable  (S3b) the visible-deliverable types above include web-ui (same declaration, narrower view).
+// The check type `run-evidence {evidence, exception?}` judges what the shape owes: plan-card (plan-card.json written by
+// forge-plan-card.cjs --run), anticipation (anticipate.json for THIS run, status applied or reverted), craft-review
+// (craft-review-<type>.json per visible type, re-validated through forge-craft.cjs checkRecorded: untampered, valid, no
+// unresolved block DEFECT) and parallelism-reason (a recorded decision that names the blocker).
+// EXCEPTION — never a dead end, never silent: the run logs
+//   decision_logged {rule:'<exact rule id>', decision:'not-applicable', reason:'<why, at least 12 characters>', agent}
+// (craft-review: an optional deliverable_type limits it to one type, and it never replaces a review that exists;
+// parallelism-reason: decision 'serial' or 'not-applicable', and `blocking` must name the file, lock or dependency). An
+// excepted rule is listed in result.exceptions and its rule_details say via:'exception' — never a plain, silent pass.
+// The owner path (owner_override with a configured `by`) still applies to every one of these rules.
+// =====================================================================================================
+const VISIBLE_DELIVERABLE_TYPES = ['web-ui', 'copy-and-content', 'documents-and-spreadsheets', 'game-and-interactive', 'voice-and-chat', 'cli-and-devtools'];
+// E.1 (owner HARD MUST 'end-of-work self-review'): `self-review` judges the run's self-review.json through
+// forge-endreview.cjs checkRecorded (untampered, every question answered with evidence or an open item, for THIS run) AND
+// a '## Self-review' heading in final-report.md. Its rule (end-self-review) is triggered by complexity, not by a run shape,
+// and carries no agent exception: only the owner_override path clears it.
+// S3b: `craft-evidence` judges <run folder>/craft-evidence-web-ui.json through forge-craft-evidence.cjs
+// checkFile (the per-record check its checkRun runs, pointed at the folder this contract reads): every viewport and state
+// the web-ui lens asks for, real screenshot files inside the project. Its rule (craft-evidence-recorded) is opt-in by the
+// web-ui-deliverable shape and, like end-self-review, carries no agent exception: only owner_override clears it.
+// A2: `dispatch-harness` joins the run's subagent_started/agent_started
+// events to what the HARNESS recorded (PreToolUse/PostToolUse(Agent), SubagentStart/Stop, the Workflow journal) through
+// forge-harness-match.cjs matchRun({final:true}); met when the match percentage (matched / every dispatch except an
+// external CLI) reaches check.min_match_pct (default 95). Its rule (dispatch-harness-match) is triggered by complexity,
+// carries no agent exception, and is fail-closed when forge-harness-match.cjs is absent.
+// SK1 (category tests): `skill-delivery` joins the run's latest skill map (normalised by forge-skillmap.cjs)
+// to the skills_opened on this run's SubagentStop lines (harnessRecordsFor 'stop'); see evaluateSkillDelivery. Its rule
+// (skill-delivered) is triggered by complexity and carries no agent exception.
+// F14 (category tests round 6): `shape-declared` asks that the run DECLARED its shape at all (an anticipate.json
+// applied for this run, a plan-card.json with a card hash, or a run.json with deliverable_types). Five of eight measured
+// runs declared nothing, so every run-shape rule was silently not applicable. It infers nothing: it only demands the
+// declaration step /forge already prescribes.
+const RUN_EVIDENCE_KINDS = new Set(['plan-card', 'anticipation', 'craft-review', 'parallelism-reason', 'self-review', 'craft-evidence', 'dispatch-harness', 'skill-delivery', 'shape-declared']);
+const CRAFT_EVIDENCE_TYPE = 'web-ui';
+const PLAN_SCALE_MIN_PACKAGES = 3, PLAN_SCALE_MIN_LANES = 2, SERIAL_PLAN_MIN_PACKAGES = 4;
+const EXCEPTION_MIN_REASON = 12;
+const ANTICIPATE_DONE_STATUSES = new Set(['applied', 'reverted']);
+const CARD_HASH_RE = /^[0-9a-f]{64}$/;
+
+/** validateRunEvidenceCheck(rule, rulesPath) -> null | {reason} (an `evidence` value this checker does not know: degrade
+ *  like an unknown option, S6). Throws on a structurally broken shape. */
+function validateRunEvidenceCheck(r, p) {
+  const c = r.check;
+  const bad = (what) => { throw new Error('forge-runcontract: rule "' + r.id + '" (check.type ' + RUN_EVIDENCE_TYPE + ') ' + what + ' in ' + p); };
+  if (c.key !== undefined) bad('carries a check.key — run-evidence is keyless (its "evidence" names what it reads); remove it so the rule cannot silently look key-driven');
+  if (typeof c.evidence !== 'string' || !CHECK_TYPE_SHAPE_RE.test(c.evidence)) bad('needs "evidence": one of ' + [...RUN_EVIDENCE_KINDS].join(', '));
+  if (c.exception !== undefined) {
+    const x = c.exception;
+    if (!x || typeof x !== 'object' || Array.isArray(x)) bad('has an invalid "exception" (must be {event, decisions[, require]})');
+    if (!(typeof x.event === 'string' && /^[a-z][a-z0-9_]*$/.test(x.event))) bad('exception needs "event": the registered event type that records it (decision_logged)');
+    if (!Array.isArray(x.decisions) || !x.decisions.length || !x.decisions.every((d) => typeof d === 'string' && CHECK_TYPE_SHAPE_RE.test(d))) bad('exception needs "decisions": a non-empty list of decision tokens such as "not-applicable"');
+    if (x.require !== undefined && !(Array.isArray(x.require) && x.require.every((f) => typeof f === 'string' && /^[a-z][a-z0-9_]*$/.test(f)))) bad('exception has an invalid "require" (a list of field names)');
+  }
+  // A2: the one numeric option, and only on the evidence kind that reads it
+  if (c.min_match_pct !== undefined && (c.evidence !== 'dispatch-harness' || typeof c.min_match_pct !== 'number' || !Number.isFinite(c.min_match_pct) || c.min_match_pct < 0 || c.min_match_pct > 100)) {
+    bad('has an invalid "min_match_pct" (a number from 0 to 100, only with evidence "dispatch-harness")');
+  }
+  return RUN_EVIDENCE_KINDS.has(c.evidence) ? null : { reason: 'unknown run-evidence evidence "' + c.evidence + '" (this checker knows: ' + [...RUN_EVIDENCE_KINDS].join(', ') + ')' };
+}
+
+/** readShapeFile(dir, name) -> {present, ok, data, error}. present = the file exists and is not blank; never throws. */
+function readShapeFile(dir, name) {
+  let raw;
+  try { raw = fs.readFileSync(path.join(dir, name), 'utf8'); }
+  catch (e) { const code = (e && e.code) || 'unreadable'; return { present: code !== 'ENOENT', ok: false, data: null, error: code === 'ENOENT' ? null : code }; }
+  if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
+  if (!raw.trim()) return { present: false, ok: false, data: null, error: 'empty file' };
+  let data;
+  try { data = JSON.parse(raw); } catch { return { present: true, ok: false, data: null, error: 'not valid JSON' }; }
+  return data && typeof data === 'object' && !Array.isArray(data) ? { present: true, ok: true, data, error: null } : { present: true, ok: false, data: null, error: 'not a JSON object' };
+}
+function posInt(v) { const n = typeof v === 'string' && v.trim() ? Number(v) : v; return Number.isInteger(n) && n > 0 ? n : null; }
+function countOf(v) { return Array.isArray(v) ? (v.length || null) : posInt(v); }
+function slugOf(v) { return String(v).trim().toLowerCase().replace(/\s+/g, '-'); }
+function listOf(v) {
+  const raw = Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : []);
+  return [...new Set(raw.filter((x) => typeof x === 'string' && x.trim()).map(slugOf))];
+}
+function declaredLanesOf(run) {
+  if (run.lanes && typeof run.lanes === 'object' && !Array.isArray(run.lanes)) { const n = posInt(run.lanes.expected); if (n) return n; }
+  for (const v of [run.lanes, run.lanes_expected, run.expected_lanes]) { const n = posInt(v); if (n) return n; }
+  return null;
+}
+function planCardInfo(f) {
+  if (!f || !f.ok) return null;
+  const d = f.data, lanes = d.lanes && typeof d.lanes === 'object' && !Array.isArray(d.lanes) ? d.lanes : {};
+  const ids = new Set([].concat(Array.isArray(d.ready) ? d.ready : [], Array.isArray(d.blocked) ? d.blocked : []).filter((x) => typeof x === 'string' && x.trim()));
+  return { hash: typeof d.cardHash === 'string' && CARD_HASH_RE.test(d.cardHash) ? d.cardHash : null, packages: ids.size,
+    expected: posInt(lanes.expected), collisions: Array.isArray(lanes.collisions) ? lanes.collisions.length : null };
+}
+
+/** readRunShape(runDir) -> {applies:{<shape>: bool}, why:{<shape>: [text]}, declared, card, anticipate, deliverable_types,
+ *  visible_types, serial, _files} — what the run itself declares (see the block comment above). Read-only, never throws. */
+function readRunShape(runDir) {
+  const files = { run: readShapeFile(runDir, 'run.json'), card: readShapeFile(runDir, 'plan-card.json'), anticipate: readShapeFile(runDir, 'anticipate.json') };
+  const run = files.run.ok ? files.run.data : {};
+  const an = files.anticipate.ok ? files.anticipate.data : null;
+  const anInput = an && an.input && typeof an.input === 'object' && !Array.isArray(an.input) ? an.input : {};
+  const card = planCardInfo(files.card);
+  const declared = { work_packages: countOf(run.work_packages), lanes: declaredLanesOf(run), deliverable_types: listOf(run.deliverable_types) };
+  const anLanes = posInt(anInput.lanes), anType = typeof anInput.type === 'string' && anInput.type.trim() ? slugOf(anInput.type) : null;
+  const types = [...new Set(declared.deliverable_types.concat(anType ? [anType] : [], listOf(an && an.deliverable_types)))];
+  const visible = types.filter((t) => VISIBLE_DELIVERABLE_TYPES.includes(t));
+  const why = { 'plan-scale': [], 'plan-card': [], 'visible-deliverable': [], 'serial-plan': [], 'web-ui-deliverable': [] };
+  if (declared.work_packages >= PLAN_SCALE_MIN_PACKAGES) why['plan-scale'].push('run.json declares ' + declared.work_packages + ' work packages');
+  if (declared.lanes >= PLAN_SCALE_MIN_LANES) why['plan-scale'].push('run.json declares ' + declared.lanes + ' expected lanes');
+  if (anLanes >= PLAN_SCALE_MIN_LANES) why['plan-scale'].push('anticipate.json counted ' + anLanes + ' parallel parts');
+  if (card && (card.packages >= PLAN_SCALE_MIN_PACKAGES || card.expected >= PLAN_SCALE_MIN_LANES)) why['plan-scale'].push('the plan card holds ' + card.packages + ' packages and ' + (card.expected || '?') + ' expected lane(s)');
+  if (files.card.present) why['plan-card'].push('plan-card.json is in the run folder');
+  if (visible.length) why['visible-deliverable'].push('declared deliverable type(s): ' + visible.join(', '));
+  if (visible.includes(CRAFT_EVIDENCE_TYPE)) why['web-ui-deliverable'].push('declared deliverable type ' + CRAFT_EVIDENCE_TYPE + ' (its craft lens is in the review plan)');
+  const lanesSource = declared.lanes ? 'run.json' : 'plan-card.json';
+  const lanesNow = declared.lanes || (card ? card.expected : null);
+  const serial = card && card.packages >= SERIAL_PLAN_MIN_PACKAGES && card.collisions === 0 && lanesNow === 1
+    ? { packages: card.packages, lanes: 1, lanes_source: lanesSource, card_expected: card.expected } : null;
+  if (serial) why['serial-plan'].push(serial.packages + ' packages with no file shared inside a wave, 1 expected lane (' + lanesSource + ')');
+  const applies = {};
+  for (const s of RUN_SHAPES) applies[s] = why[s].length > 0;
+  return {
+    applies, why, declared, card, serial, deliverable_types: types, visible_types: visible,
+    anticipate: an ? { status: typeof an.status === 'string' ? an.status : null, run_id: typeof an.run_id === 'string' ? an.run_id : null, lanes: anLanes, type: anType } : null,
+    _files: files,
+  };
+}
+/** summarizeRunShape(shape) -> the compact, payload-free view every check() result carries as `run_shape`. */
+function summarizeRunShape(s) {
+  const f = (x) => (x.present ? (x.ok ? 'readable' : 'unreadable: ' + x.error) : 'absent');
+  return {
+    declares_shape: Object.values(s.applies).some(Boolean), applies: Object.assign({}, s.applies),
+    why: Object.fromEntries(Object.entries(s.why).filter(([, v]) => v.length)),
+    deliverable_types: s.deliverable_types.slice(0, 12), visible_types: s.visible_types.slice(),
+    files: { 'run.json': f(s._files.run), 'plan-card.json': f(s._files.card), 'anticipate.json': f(s._files.anticipate) },
+  };
+}
+
+/** findShapeException(events, rule, {type?}) -> the LAST valid recorded exception for this rule, or null; also counts
+ *  near misses (a decision for this rule that was not accepted) so the reason can say why. */
+function findShapeException(events, rule, opts) {
+  const x = rule.check && rule.check.exception;
+  const out = { hit: null, rejected: [] };
+  if (!x) return out;
+  const type = String(x.event).trim().toLowerCase();
+  const decisions = new Set(x.decisions.map(normVal));
+  const req = Array.isArray(x.require) ? x.require : [];
+  for (let i = 0; i < (events || []).length; i++) {
+    const e = events[i];
+    if (typeOf(e) !== type || e.rule !== rule.id) continue;
+    const reject = (why) => { out.rejected.push({ index: i, why }); };
+    if (eventIsDisproven(e)) { reject('the writer disproved it'); continue; }
+    if (typeof e.decision !== 'string' || !decisions.has(normVal(e.decision))) { reject('decision must be ' + [...decisions].join(' or ')); continue; }
+    const reason = typeof e.reason === 'string' ? e.reason.trim() : '';
+    if (reason.length < EXCEPTION_MIN_REASON || !isMeaningfulReason(reason, rule.id)) { reject('reason must say why in at least ' + EXCEPTION_MIN_REASON + ' characters'); continue; }
+    const missingField = req.find((f) => !(typeof e[f] === 'string' && e[f].trim()));
+    if (missingField) { reject('"' + missingField + '" must name the ' + (missingField === 'blocking' ? 'file, lock or dependency that blocks parallel lanes' : 'value')); continue; }
+    const dt = fieldValue(e, 'deliverable_type');
+    if (opts && opts.type && dt !== null && normVal(dt) !== normVal(opts.type)) continue; // an exception for another type
+    out.hit = Object.assign({ index: i, decision: normVal(e.decision), reason: reason.slice(0, 300), by: fieldValue(e, 'agent') },
+      req.length ? { fields: Object.fromEntries(req.map((f) => [f, String(e[f]).trim().slice(0, 200)])) } : {}, dt !== null ? { deliverable_type: normVal(dt) } : {});
+  }
+  return out;
+}
+
+/** evaluateRunEvidence(rule, ctx) -> detail {ok, evidence, reason, via?, exception?, types?, message?, next_step?}. Never
+ *  throws: an internal error is a FAILED check whose reason carries the error — never a pass. */
+function evaluateRunEvidence(rule, ctx) {
+  const c = rule.check;
+  const shape = ctx.runShape || readRunShape(ctx.runDir);
+  const runId = String(ctx.runId || '');
+  const folder = runFolderLabel(ctx);
+  const subst = (s, type) => String(s).split('<run_id>').join(runId || '<run_id>').split('<type>').join(type || '<type>');
+  const base = { evidence: c.evidence, shape_why: (shape.why[String(rule.trigger).replace(/^run-shape:/, '')] || []).slice() };
+  const pass = (reason, via, extra) => Object.assign({}, base, { ok: true, via, reason }, extra || {});
+  const fail = (reason, extra, type) => Object.assign({}, base, { ok: false, reason }, extra || {},
+    rule.next_step ? { next_step: subst(rule.next_step, type) } : {}, rule.message ? { message: { en: subst(rule.message.en, type), nl: subst(rule.message.nl, type) } } : {});
+  const nearMiss = (ex) => (ex.rejected.length ? ' (a decision_logged for this rule was found but not accepted: ' + ex.rejected[ex.rejected.length - 1].why + ')' : '');
+  try {
+    if (c.evidence === 'plan-card') {
+      const f = shape._files.card, card = shape.card;
+      if (card && card.hash) return pass('plan card ' + card.hash.slice(0, 12) + ' is recorded in ' + folder + '/plan-card.json (' + card.packages + ' package(s), ' + (card.expected || '?') + ' expected lane(s))', 'evidence');
+      const ex = findShapeException(ctx.events, rule);
+      if (ex.hit) return pass('exception recorded (' + ex.hit.decision + '): ' + ex.hit.reason, 'exception', { exception: ex.hit });
+      const what = !f.present ? 'no plan card in ' + folder + ' (plan-card.json)' : !f.ok ? folder + '/plan-card.json is unreadable (' + f.error + ')' : folder + '/plan-card.json carries no card hash, so it was not written by forge-plan-card.cjs --run';
+      return fail(what + ' — the rule applies because ' + (base.shape_why.join('; ') || 'the run declares a multi-package plan') + nearMiss(ex));
+    }
+    if (c.evidence === 'anticipation') {
+      const f = shape._files.anticipate, d = f.ok ? f.data : null;
+      if (d && ANTICIPATE_DONE_STATUSES.has(String(d.status)) && d.run_id === runId) return pass('anticipate.json is ' + d.status + ' for this run (' + (Array.isArray(d.active) ? d.active.length : 0) + ' active item(s), ' + (Array.isArray(d.waits_for_owner) ? d.waits_for_owner.length : 0) + ' waiting for the owner)', 'evidence');
+      const ex = findShapeException(ctx.events, rule);
+      if (ex.hit) return pass('exception recorded (' + ex.hit.decision + '): ' + ex.hit.reason, 'exception', { exception: ex.hit });
+      const what = !f.present ? 'no anticipate.json in ' + folder : !f.ok ? 'anticipate.json is unreadable (' + f.error + ')'
+        : d.run_id !== runId ? 'anticipate.json belongs to run "' + String(d.run_id).slice(0, 80) + '", not this one' : 'anticipate.json has status "' + String(d.status).slice(0, 40) + '" (applied or reverted is needed)';
+      return fail('this run has a plan card but ' + what + nearMiss(ex));
+    }
+    if (c.evidence === 'parallelism-reason') {
+      const ex = findShapeException(ctx.events, rule);
+      if (ex.hit) {
+        const blocking = ex.hit.fields && ex.hit.fields.blocking ? ' — blocking: ' + ex.hit.fields.blocking : '';
+        return pass((ex.hit.decision === 'serial' ? 'serial run explained' : 'exception recorded (' + ex.hit.decision + ')') + blocking + ' — ' + ex.hit.reason, ex.hit.decision === 'serial' ? 'reason' : 'exception', { exception: ex.hit });
+      }
+      const sp = shape.serial || { packages: '?', lanes_source: 'unknown' };
+      return fail('the plan card holds ' + sp.packages + ' packages with no file shared inside a wave, yet the run has 1 expected lane (' + sp.lanes_source + ') and no recorded reason names what blocks parallel lanes' + nearMiss(ex));
+    }
+    if (c.evidence === 'craft-review') {
+      const types = shape.visible_types;
+      const C = softRequire('forge-craft.cjs');
+      if (!C || typeof C.checkRecorded !== 'function') return fail('forge-craft.cjs (checkRecorded) is not available next to this checker — the recorded craft review cannot be judged (fail-closed)', null, types[0]);
+      const items = types.map((t) => {
+        let rec;
+        try { rec = C.checkRecorded({ root: ctx.root, runDir: ctx.runDir, type: t, runId }); }
+        catch (e) { rec = { recorded: true, valid: false, problems: ['it could not be judged (' + String((e && e.message) || e).split('\n')[0].slice(0, 160) + ')'] }; }
+        if (rec && rec.recorded) {
+          const unresolved = Array.isArray(rec.unresolved_block_defects) ? rec.unresolved_block_defects : [];
+          if (!rec.valid) return { type: t, ok: false, recorded: true, reason: t + ': the recorded review is not valid — ' + (rec.problems || []).slice(0, 2).join('; ') };
+          if (unresolved.length) return { type: t, ok: false, recorded: true, unresolved_block_defects: unresolved.slice(0, MAX_DETAIL_ITEMS), reason: t + ': ' + unresolved.length + ' unresolved block DEFECT(s): ' + unresolved.slice(0, 6).join(', ') + ' — an accepted weakness on a block check still means not done; fix it and record the review again' };
+          // owner-data checks marked WAITING_ON_OWNER (with how the placeholder is labelled) are a
+          // recorded, VISIBLE exception (exceptionsOf), never a silent pass and never an unresolved block DEFECT
+          const waiting = Array.isArray(rec.waiting_on_owner) ? rec.waiting_on_owner.filter((w) => w && typeof w.id === 'string') : [];
+          const wait = waiting.length ? { decision: 'waiting-on-owner', deliverable_type: t, by: rec.reviewer || null, index: null,
+            reason: t + ': ' + waiting.map((w) => w.id).join(', ') + ' wait on data only the owner can give; labelled to the visitor: ' + waiting.map((w) => w.id + ' — ' + String(w.evidence || '').slice(0, 160)).join(' | ') } : null;
+          return Object.assign({ type: t, ok: true, recorded: true, via: 'evidence', reason: t + ': craft review recorded, no unresolved block DEFECT' + (waiting.length ? '; ' + waiting.length + ' owner-data check(s) waiting on the owner (visible exception): ' + waiting.map((w) => w.id).join(', ') : '') + (rec.notes && rec.notes.length ? ' (' + String(rec.notes[0]).slice(0, 160) + ')' : '') },
+            wait ? { waiting_on_owner: wait } : {});
+        }
+        const ex = findShapeException(ctx.events, rule, { type: t });
+        if (ex.hit) return { type: t, ok: true, recorded: false, via: 'exception', exception: Object.assign({ deliverable_type: t }, ex.hit), reason: t + ': exception recorded — ' + ex.hit.reason };
+        return { type: t, ok: false, recorded: false, reason: t + ': no craft review recorded (craft-review-' + t + '.json in ' + folder + ')' + nearMiss(ex) };
+      });
+      const reason = items.map((i) => i.reason).join(' | ') || 'no visible deliverable type declared';
+      const firstOpen = items.find((i) => !i.ok);
+      if (!items.length || firstOpen) return fail(reason, { types: items }, firstOpen ? firstOpen.type : null);
+      const via = items.every((i) => i.via === 'exception') ? 'exception' : items.some((i) => i.via === 'exception') ? 'evidence+exception' : 'evidence';
+      return pass(reason, via, { types: items });
+    }
+    if (c.evidence === 'self-review') {
+      const E = softRequire('forge-endreview.cjs');
+      if (!E || typeof E.checkRecorded !== 'function') return fail('forge-endreview.cjs (checkRecorded) is not available next to this checker — the self-review cannot be judged (fail-closed)');
+      let rec;
+      try { rec = E.checkRecorded({ root: ctx.root, runDir: ctx.runDir, runId }); }
+      catch (e) { return fail('the self-review could not be judged (' + String((e && e.message) || e).split('\n')[0].slice(0, 160) + ')'); }
+      if (rec && rec.ok) {
+        const s = rec.summary || { questions: 0, with_evidence: 0, open_items: [] };
+        return pass('self-review recorded in ' + folder + '/self-review.json (' + s.questions + ' questions, ' + s.with_evidence + ' with evidence, ' + s.open_items.length + ' open item(s)) and final-report.md has the Self-review section', 'evidence');
+      }
+      return fail('self-review not done: ' + ((rec && rec.problems) || []).slice(0, 3).join('; '));
+    }
+    if (c.evidence === 'craft-evidence') {
+      const t = CRAFT_EVIDENCE_TYPE, file = 'craft-evidence-' + t + '.json';
+      const V = softRequire('forge-craft-evidence.cjs');
+      if (!V || typeof V.checkFile !== 'function' || typeof V.checkRun !== 'function') return fail('forge-craft-evidence.cjs (checkRun/checkFile) is not available next to this checker — the screenshot evidence cannot be judged (fail-closed)', null, t);
+      let rec;
+      try { rec = V.checkFile({ root: ctx.root, file: path.join(ctx.runDir, file), type: t }); }
+      catch (e) { return fail('the screenshot evidence could not be judged (' + String((e && e.message) || e).split('\n')[0].slice(0, 160) + ')', null, t); }
+      if (rec && rec.code === 0 && rec.ok === true) {
+        const s = rec.summary || { views: 0, entries_filled: 0, entries_na: 0, screenshots_verified: 0 };
+        return pass(t + ' screenshot evidence complete in ' + folder + '/' + file + ' (' + s.views + ' view(s), ' + s.screenshots_verified + ' screenshot file(s) verified, ' + s.entries_na + ' n/a)', 'evidence');
+      }
+      const probs = ((rec && rec.problems) || []).slice(0, 3).join('; ') || 'the record could not be judged';
+      return fail((rec && rec.code === 2 ? 'the screenshot evidence cannot be judged: ' : 'screenshot evidence not complete: ') + probs, null, t);
+    }
+    if (c.evidence === 'dispatch-harness') return evaluateDispatchHarness(c, ctx, runId, pass, fail);
+    if (c.evidence === 'skill-delivery') return evaluateSkillDelivery(ctx, runId, pass, fail);
+    if (c.evidence === 'shape-declared') {
+      const fa = shape._files.anticipate, fc = shape._files.card, fr = shape._files.run, an = fa.ok ? fa.data : null;
+      if (an && ANTICIPATE_DONE_STATUSES.has(String(an.status)) && an.run_id === runId) return pass('anticipate.json is ' + an.status + ' for this run (deliverable types: ' + (shape.deliverable_types.join(', ') || 'none detected') + ')', 'evidence');
+      if (shape.card && shape.card.hash) return pass('plan card ' + shape.card.hash.slice(0, 12) + ' is recorded in ' + folder + '/plan-card.json', 'evidence');
+      if (shape.declared.deliverable_types.length) return pass('run.json declares deliverable_types: ' + shape.declared.deliverable_types.join(', '), 'evidence');
+      const state = (f, name, extra) => name + ' ' + (!f.present ? 'absent' : !f.ok ? 'unreadable (' + f.error + ')' : extra);
+      return fail('the run never declared its shape, so every run-shape rule (plan card, anticipation, craft review, screenshot evidence) would silently not apply: '
+        + state(fa, 'anticipate.json', an ? (an.run_id !== runId ? 'belongs to run "' + String(an.run_id).slice(0, 60) + '"' : 'has status "' + String(an.status).slice(0, 30) + '" (applied is needed)') : '')
+        + '; ' + state(fc, 'plan-card.json', 'has no card hash (not written by forge-plan-card.cjs --run)')
+        + '; ' + state(fr, 'run.json', 'declares no deliverable_types'));
+    }
+    return fail('unknown run-evidence evidence "' + c.evidence + '"');
+  } catch (e) {
+    return Object.assign({}, base, { ok: false, error: true, reason: 'evaluator error (' + (e && e.message ? e.message : String(e)) + ') — reported as not satisfied, never as a pass' });
+  }
+}
+/** evaluateDispatchHarness(check, ctx, runId, pass, fail) -> detail — A2. The run's dispatch events joined
+ *  to the harness records by forge-harness-match.cjs (final view: the run is being judged at completion). Fail-closed when
+ *  the matcher is absent or throws; `harness` carries the counts and the first unmatched dispatches (ids + reasons only). */
+function evaluateDispatchHarness(c, ctx, runId, pass, fail) {
+  const H = softRequire('forge-harness-match.cjs');
+  if (!H || typeof H.matchRun !== 'function' || typeof H.meetsThreshold !== 'function') return fail('forge-harness-match.cjs (matchRun) is not available next to this checker — the dispatches cannot be matched to harness records (fail-closed)');
+  const min = typeof c.min_match_pct === 'number' ? c.min_match_pct : H.DEFAULT_MIN_MATCH_PCT;
+  let rep;
+  try { rep = H.matchRun({ root: ctx.root, runId, events: ctx.events, final: true }); }
+  catch (e) { return fail('the dispatches could not be matched (' + String((e && e.message) || e).split('\n')[0].slice(0, 160) + ')'); }
+  const s = rep.summary;
+  const open = rep.items.filter((i) => i.status !== 'matched' && i.unverifiable_kind !== 'external-cli');
+  const harness = {
+    min_match_pct: min, dispatches: s.dispatches, matched: s.matched, unmatched: s.unmatched, unverifiable: s.unverifiable,
+    unverifiable_by_kind: s.unverifiable_by_kind, match_pct: s.match_pct, orphans: s.orphans, live: rep.harness.live,
+    open: open.slice(0, MAX_DETAIL_ITEMS).map((i) => ({ dispatch_id: i.dispatch_id, agent: i.agent, status: i.status, kind: i.unverifiable_kind || i.kind, reason: String(i.reason).slice(0, 200) })),
+  };
+  if (s.dispatches === 0) return pass('no subagent_started/agent_started dispatch event in this run — nothing to match', 'evidence', { harness });
+  const hooks = harnessHooksInstalled(ctx.root, rep.harness.live);
+  harness.hooks = hooks;
+  if (!hooks.installed) {
+    return fail('harness hooks not installed: ' + hooks.reason + ' — ' + s.dispatches + ' dispatch(es) not counted as unmatched; install the SubagentStart and PreToolUse/PostToolUse(Agent) hooks (forge-subagent-start.cjs, forge-agent-tool-hook.cjs; forge-sync merges them into .claude/settings.json)', { harness });
+  }
+  const kinds = Object.entries(s.unverifiable_by_kind).map(([k, n]) => k + ' ' + n).join(', ');
+  const line = s.dispatches + ' dispatch(es): ' + s.matched + ' matched, ' + s.unmatched + ' unmatched, ' + s.unverifiable + ' unverifiable' + (kinds ? ' (' + kinds + ')' : '')
+    + '; match ' + (s.match_pct === null ? 'n/a' : s.match_pct + '%') + ' (needs ' + min + '%)';
+  if (s.provable === 0) return pass(line + ' — only dispatch kinds no Claude Code hook can see; reported, not judged', 'evidence', { harness });
+  if (H.meetsThreshold(s, min)) return pass(line, 'evidence', { harness });
+  return fail(line + (open.length ? ' — first open: ' + open.slice(0, 3).map((i) => String(i.dispatch_id || '(no dispatch_id)').slice(0, 60) + ' (' + (i.unverifiable_kind || i.status) + ')').join(', ') : ''), { harness });
+}
+/** skillMapOfEvent(ev) -> the map object a skill_map_created event carries (map, skill_map, skills, payload.map,
+ *  details.map), or null. `skills` is read too: it is the field the older skill-map-recorded next step suggested. */
+function skillMapOfEvent(ev) {
+  const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!isMap(ev)) return null;
+  return [ev.map, ev.skill_map, ev.skills, isMap(ev.payload) ? ev.payload.map : null, isMap(ev.details) ? ev.details.map : null].find(isMap) || null;
+}
+/** evaluateSkillDelivery(ctx, runId, pass, fail) -> detail — SK1. For every agent type in ALL the run's
+ *  skill map (normalised by forge-skillmap.cjs against the skills that really exist) that has SubagentStop lines for this
+ *  run with transcript_scanned true, every assigned skill must be in the union of their skills_opened. Never dispatched
+ *  and not-scanned types are listed, not failed; no stop line with transcript_scanned at all = not measured (pass). */
+/** Agent types that build, make the UI or test: dispatching one without any assigned skill fails skill-delivered (SK4).
+ *  Planning/recording roles (boss, head-chef, scribe, skill-boss, docs-boss, search-boss), read-only reviewers and the
+ *  built-in Claude Code agents are deliberately absent: their core skills come from their own frontmatter preload. */
+const SKILL_EXECUTOR_TYPES = new Set(['build-boss', 'ui-boss', 'test-boss', 'integration-boss', 'seo-boss', 'electron-pro', 'data-scientist', 'mcp-developer', 'ml-engineer', 'payment-integration']);
+function evaluateSkillDelivery(ctx, runId, pass, fail) {
+  const SM = softRequire('forge-skillmap.cjs');
+  if (!SM || typeof SM.normalizeSkillMap !== 'function' || typeof SM.knownSkillNames !== 'function') return fail('forge-skillmap.cjs (normalizeSkillMap) is not available next to this checker — the skill map cannot be read (fail-closed)');
+  const mapEvents = (ctx.events || []).filter((e) => e && e.event_type === 'skill_map_created');
+  if (!mapEvents.length) return pass('no skill_map_created in this run — nothing assigned to deliver (skill-map-recorded judges whether a map or a skill_discovery was logged)', 'evidence');
+  // SK2: EVERY map of the run counts together. A later map may add skills, never drop them — restaurant-v4's
+  // Lead answered a failing skill-delivered by logging a "corrected" map of only what was opened.
+  const known = SM.knownSkillNames(ctx.root);
+  const map = {};
+  for (const ev of mapEvents) {
+    const part = SM.normalizeSkillMap(skillMapOfEvent(ev), known);
+    for (const [a, skills] of Object.entries(part)) map[a] = Array.from(new Set((map[a] || []).concat(skills)));
+  }
+  const agents = Object.keys(map);
+  if (!agents.length) return fail('the skill map names no real skills per agent; log map as {"<agent-type>": ["<skill>"]} (skill_map_created with field map, each skill a folder with a SKILL.md under .claude/skills)');
+  const lines = harnessRecordsFor(ctx.root, runId, ctx.events, 'stop') || [];
+  const keyOf = (t) => { const k = typeof t === 'string' ? SM.agentTypeKey(t.slice(t.lastIndexOf(':') + 1)) : null; return k; };
+  if (!lines.some((l) => typeof l.transcript_scanned === 'boolean')) {
+    return pass('not measured: no SubagentStop line of this run records transcript_scanned (the stop hook predates skill tracking, or no hook log) — ' + agents.length + ' agent type(s) in the map', 'evidence', { skill_delivery: { measured: false, agents } });
+  }
+  const sd = { measured: true, agents, delivered: [], missing: [], not_dispatched: [], not_scanned: [], unassigned: [] };
+  // SK4 (windows-v5): an executing agent type dispatched in this run with no skill in ANY map of the run.
+  for (const l of lines) {
+    const k = keyOf(l.agent_type);
+    if (k && SKILL_EXECUTOR_TYPES.has(k) && !map[k] && !sd.unassigned.includes(k)) sd.unassigned.push(k);
+  }
+  for (const a of agents) {
+    const own = lines.filter((l) => keyOf(l.agent_type) === a);
+    if (!own.length) { sd.not_dispatched.push(a); continue; }
+    const scanned = own.filter((l) => l.transcript_scanned === true);
+    if (!scanned.length) { sd.not_scanned.push(a); continue; }
+    const opened = new Set(scanned.flatMap((l) => (Array.isArray(l.skills_opened) ? l.skills_opened : [])).filter((s) => typeof s === 'string').map((s) => s.toLowerCase()));
+    const lacking = map[a].filter((s) => !opened.has(s.toLowerCase()));
+    if (lacking.length) sd.missing.push({ agent: a, skills: lacking.slice(0, MAX_DETAIL_ITEMS) });
+    else sd.delivered.push(a);
+  }
+  const listed = (sd.not_dispatched.length ? '; not dispatched in this run (not judged): ' + sd.not_dispatched.join(', ') : '')
+    + (sd.not_scanned.length ? '; transcript not scanned (not measured): ' + sd.not_scanned.join(', ') : '');
+  const problems = [];
+  if (sd.unassigned.length) problems.push('dispatched with no assigned skill in any skill map of this run: ' + sd.unassigned.join(', ') + ' (log skill_map_created {"map":{"' + sd.unassigned[0] + '":["<the category playbook, e.g. forge-website, forge-game, forge-mobile>"]}} BEFORE dispatching it)');
+  if (sd.missing.length) problems.push('assigned skill(s) never opened: ' + sd.missing.map((m) => m.agent + ' did not open ' + m.skills.join(', ')).join(' | '));
+  if (problems.length) return fail(problems.join(' ; ') + listed, { skill_delivery: sd });
+  return pass(sd.delivered.length + ' agent type(s) opened every assigned skill' + (sd.delivered.length ? ' (' + sd.delivered.join(', ') + ')' : '') + listed, 'evidence', { skill_delivery: sd });
+}
+/** harnessHooksInstalled(root, live) -> {installed, via, reason} — A13 (fleet rollout). The dispatch-start
+ *  side of the harness proof only exists when forge-subagent-start.cjs is registered under SubagentStart in the project's
+ *  .claude/settings.json or .claude/settings.local.json. A project that never got the hook (most of the fleet until the
+ *  owner-gated rollout) would otherwise see EVERY dispatch counted as unmatched, which says "the Lead faked it" when the
+ *  truth is "nothing was listening". The harness having recorded this run's start side (a SubagentStart or Agent-tool
+ *  record, e.g. hooks shipped by the plugin or user-level settings) also counts as installed. Read-only, never throws. */
+const HARNESS_START_HOOK = 'forge-subagent-start.cjs';
+function harnessHooksInstalled(root, live) {
+  const files = ['settings.json', 'settings.local.json'];
+  for (const f of files) {
+    const p = path.join(root || '', '.claude', f);
+    let j;
+    try { j = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^﻿/, '')); } catch { continue; }
+    const groups = j && j.hooks && Array.isArray(j.hooks.SubagentStart) ? j.hooks.SubagentStart : [];
+    const hit = groups.some((g) => g && Array.isArray(g.hooks) && g.hooks.some((h) => h && typeof h.command === 'string' && h.command.includes(HARNESS_START_HOOK)));
+    if (hit) return { installed: true, via: '.claude/' + f, reason: HARNESS_START_HOOK + ' registered under SubagentStart in .claude/' + f };
+  }
+  if (live && (live.start > 0 || live.tool > 0)) return { installed: true, via: 'harness-records', reason: 'the harness recorded this run (SubagentStart ' + live.start + ', Agent tool ' + live.tool + ' record(s))' };
+  return { installed: false, via: null, reason: 'no SubagentStart hook running ' + HARNESS_START_HOOK + ' in .claude/settings.json or .claude/settings.local.json and no SubagentStart/Agent-tool harness record for this run' };
+}
+/** exceptionsOf(ruleId, detail) -> [{id, decision, reason, by, deliverable_type?, index}] — every excepted part of a rule. */
+function exceptionsOf(ruleId, d) {
+  const out = [];
+  const add = (x) => out.push(Object.assign({ id: ruleId, decision: x.decision, reason: x.reason, by: x.by || null, index: x.index }, x.deliverable_type ? { deliverable_type: x.deliverable_type } : {}));
+  if (d && d.ok && d.via === 'exception' && d.exception) add(d.exception);
+  if (d && d.ok && Array.isArray(d.types)) for (const t of d.types) if (t.via === 'exception' && t.exception) add(t.exception);
+  if (d && d.ok && Array.isArray(d.types)) for (const t of d.types) if (t.waiting_on_owner) add(t.waiting_on_owner); // R2
+  return out;
+}
+/** sanitizeRunEvidence — rule_details carry short reasons, ids and the next step, never raw file or event payloads. */
+function sanitizeRunEvidence(d) {
+  const kort = (s, n) => String(s == null ? '' : s).slice(0, n || 400);
+  const exc = (x) => (x ? Object.assign({ decision: x.decision, reason: kort(x.reason, 300), by: x.by || null, index: x.index }, x.fields ? { fields: x.fields } : {}, x.deliverable_type ? { deliverable_type: x.deliverable_type } : {}) : undefined);
+  const out = { ok: d.ok === true, check_type: RUN_EVIDENCE_TYPE, evidence: d.evidence || null, reason: kort(d.reason, 600) };
+  if (d.via) out.via = d.via;
+  if (d.error) out.error = true;
+  if (d.exception) out.exception = exc(d.exception);
+  if (Array.isArray(d.types)) {
+    out.types = d.types.slice(0, MAX_DETAIL_ITEMS).map((t) => Object.assign({ type: t.type, ok: t.ok === true, recorded: t.recorded === true, reason: kort(t.reason, 300) },
+      t.via ? { via: t.via } : {}, Array.isArray(t.unresolved_block_defects) ? { unresolved_block_defects: t.unresolved_block_defects.slice(0, MAX_DETAIL_ITEMS) } : {}, t.exception ? { exception: exc(t.exception) } : {}, t.waiting_on_owner ? { waiting_on_owner: exc(t.waiting_on_owner) } : {}));
+  }
+  if (Array.isArray(d.shape_why) && d.shape_why.length) out.shape_why = d.shape_why.slice(0, 5).map((s) => kort(s, 200));
+  if (d.harness && typeof d.harness === 'object') out.harness = d.harness; // A2: counts + ids/reasons only (built by evaluateDispatchHarness)
+  if (d.skill_delivery && typeof d.skill_delivery === 'object') out.skill_delivery = d.skill_delivery; // SK1: agent types + skill names only
+  if (d.next_step) out.next_step = kort(d.next_step, 300);
+  if (d.message) out.message = { en: kort(d.message.en, 900), nl: kort(d.message.nl, 900) };
+  return out;
+}
+
 function checkSatisfied(rule, ctx) {
   const c = rule.check;
   let satisfied = false;
@@ -2205,7 +2773,7 @@ function checkSatisfied(rule, ctx) {
     }
   }
   else if (c.type === 'independent-verification') {
-    const iv = independentVerification(ctx.events, { commitSha: ctx.commitSha, noGit: ctx.noGit, evidenceDigest: ctx.evidenceDigest, evidenceLegacyDigests: ctx.evidenceLegacyDigests, evidenceAllGreen: ctx.evidenceAllGreen, evidenceFailed: ctx.evidenceFailed, evidenceCommit: ctx.evidenceCommit, knownAgents: ctx.knownAgents });
+    const iv = independentVerification(ctx.events, { commitSha: ctx.commitSha, noGit: ctx.noGit, evidenceDigest: ctx.evidenceDigest, evidenceLegacyDigests: ctx.evidenceLegacyDigests, evidenceAllGreen: ctx.evidenceAllGreen, evidenceFailed: ctx.evidenceFailed, evidenceCommit: ctx.evidenceCommit, knownAgents: ctx.knownAgents, runId: ctx.runId });
     satisfied = iv.ok;
     ctx._independentVerification = iv; // reden meegeven aan de rapportage (F-12)
   }
@@ -2214,6 +2782,11 @@ function checkSatisfied(rule, ctx) {
   else if (V2_CHECK_TYPES.has(c.type)) {
     const detail = evaluateV2(rule, ctx);
     ctx._v2Detail = detail; // reported in result.rule_details (why it is open, not only that it is)
+    satisfied = detail.ok === true;
+  }
+  else if (c.type === RUN_EVIDENCE_TYPE) {
+    const detail = evaluateRunEvidence(rule, ctx); // I.6
+    ctx._shapeDetail = detail; // reported in result.rule_details + result.exceptions
     satisfied = detail.ok === true;
   }
 
@@ -2266,6 +2839,17 @@ function checkSatisfied(rule, ctx) {
 }
 
 const OWNER_PROFILE_PATH = path.join(__dirname, '..', 'FORGE_OWNER_PROFILE.json');
+/** ownerProfileDefault() -> this installation's owner profile (WP 2.1). An installed copy in a legacy project:
+ *  OWNER_PROFILE_PATH exactly as before. In the forge layout: .forge/memory/FORGE_OWNER_PROFILE.json, falling back to
+ *  the .claude copy until it exists. A plugin copy: the discovered project's profile (OWNER_PROFILE_PATH when none). */
+function ownerProfileDefault() {
+  const name = 'FORGE_OWNER_PROFILE.json';
+  if (!DEFAULT_ROOT) return OWNER_PROFILE_PATH;
+  try {
+    if (forgePaths && typeof forgePaths.memoryFile === 'function' && forgePaths.layout(DEFAULT_ROOT) === 'forge') return forgePaths.memoryFile(DEFAULT_ROOT, name, { read: true });
+  } catch { /* an unjudgeable layout reads the legacy file below */ }
+  return DEFAULT_ROOT === path.resolve(__dirname, '..', '..') ? OWNER_PROFILE_PATH : path.join(DEFAULT_ROOT, '.claude', name);
+}
 
 /** isMeaningfulReason(reason, ruleId) -> boolean — true only when `reason` is a non-blank string that says
  *  MORE than just the bare rule id or the bare "override:<ruleId>" token (V9-fix, DEFECT 2: the doctor's own
@@ -2298,7 +2882,7 @@ function loadOwnerAllowlist(rulesData, opts) {
   if (rulesData && Array.isArray(rulesData.owners_allowlist)) {
     for (const id of rulesData.owners_allowlist) if (typeof id === 'string' && id.trim()) ids.add(id.trim().toLowerCase());
   }
-  const profilePath = (opts && opts.ownerProfilePath) || OWNER_PROFILE_PATH;
+  const profilePath = (opts && opts.ownerProfilePath) || ownerProfileDefault();
   try {
     const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
     const fromProfile = (profile && typeof profile.owner_id === 'string') ? profile.owner_id
@@ -2352,8 +2936,8 @@ function check(params, opts) {
   }
   const phase = explicitPhase || DEFAULT_PHASE;
 
-  const root = opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
-  const runDir = opts.runDir ? path.resolve(opts.runDir) : path.join(root, '.claude', 'forge-runs', params.run_id);
+  const root = rootOf(opts);
+  const runDir = opts.runDir ? path.resolve(opts.runDir) : runDirOf(root, params.run_id);
   const eventsPath = opts.eventsPath || path.join(runDir, 'events.jsonl');
   const artifactsDir = path.dirname(eventsPath);
 
@@ -2372,7 +2956,7 @@ function check(params, opts) {
   // normal here (12 of this project's 30 runs have none) — it degrades to "nothing declared", never a throw.
   let runMeta = null;
   try { runMeta = JSON.parse(fs.readFileSync(path.join(artifactsDir, 'run.json'), 'utf8')); } catch { runMeta = null; }
-  const cx = resolveComplexity(events, runMeta, params.complexity);
+  const cx = resolveComplexity(events, runMeta, params.complexity, harnessUnitsFor(root, params.run_id, events));
 
   /** RC-DOMAIN-BYPASS (out-p5.md) — domain used to come ONLY from `params.domain`; a run whose
    *  own run.json genuinely declared `domain:"finance"` was silently read as domain:null the moment a
@@ -2397,9 +2981,11 @@ function check(params, opts) {
    *  narrower override can still legitimately ADD rules (the caller's own declared intent) without ever
    *  being able to drop the run's own declared ones. No conflict (equal, or only one present) is the
    *  ordinary single-domain case, unchanged. */
+  // I.6: what the run itself declares (run.json / plan-card.json / anticipate.json) — the axis run-shape triggers read
+  const runShape = readRunShape(artifactsDir);
   function ruleAppliesForRun(rule, complexity) {
-    if (!domainOverridden) return ruleApplies(rule, domain, complexity);
-    return ruleApplies(rule, declaredDomain, complexity) || ruleApplies(rule, paramDomain, complexity);
+    if (!domainOverridden) return ruleApplies(rule, domain, complexity, runShape);
+    return ruleApplies(rule, declaredDomain, complexity, runShape) || ruleApplies(rule, paramDomain, complexity, runShape);
   }
   // V25 (2026-09-24 THIRD Codex recheck, out-p8.md remaining gap) — ruleAppliesForRun() above only decided
   // whether a domain_aware rule's OBLIGATION applies at all (the union). checkSatisfied()'s domain-specific
@@ -2423,8 +3009,11 @@ function check(params, opts) {
   const runStart = runStartedAt(events, runMeta);
   const phaseDeferred = [];
   const historicalExempt = [];
+  // I.6: a KNOWN run-shape rule whose shape this run does not declare is not applicable, not "deferred" — kept out of
+  // phase_deferred so a phased check of an older run reports exactly what it reported before these rules existed.
+  const shapeAbsent = (r) => { const m = RUN_SHAPE_TRIGGER_RE.exec(r.trigger); return !!m && RUN_SHAPES.has(m[1]) && !runShape.applies[m[1]]; };
   for (const r of rules) {
-    if (phaseRankOf(r.phase) > PHASE_RANK[phase]) { phaseDeferred.push(r.id); continue; }
+    if (phaseRankOf(r.phase) > PHASE_RANK[phase]) { if (!shapeAbsent(r)) phaseDeferred.push(r.id); continue; }
     const ex = sinceExemption(r, runStart);
     if (ex) historicalExempt.push({ id: r.id, since: ex.since, reason: ex.reason });
   }
@@ -2443,6 +3032,7 @@ function check(params, opts) {
   const missing = [];
   const warnings = [];
   const overridden = [];
+  const exceptions = []; // I.6: rules (or parts) met by a RECORDED exception — reported, never a silent pass
   /** part ii: a rule with `applies_if_exists` (a project-relative path) applies only while that
    *  path exists under this root — the fail-safe for a capability a project may not have (owner-requests-reconciled
    *  applies only where the scribe has captured something). Reported here, never as satisfied, missing or warned. A
@@ -2486,7 +3076,7 @@ function check(params, opts) {
   for (const rule of rules) {
     if (notJudgedIds.has(rule.id)) continue; // phase_deferred / historical_exempt — see above
     if (unknownTriggerIds.has(rule.id)) continue;
-    if (typeof rule.applies_if_exists === 'string' && !fs.existsSync(path.join(root, rule.applies_if_exists))) {
+    if (typeof rule.applies_if_exists === 'string' && !appliesPathExists(root, rule.applies_if_exists)) {
       notApplicable.push({ id: rule.id, reason: rule.applies_if_exists + ' does not exist in this project, so the rule does not apply' });
       continue;
     }
@@ -2533,10 +3123,14 @@ function check(params, opts) {
      *  caller says so — forge-finalize's acceptance path does, and only for a receipt on the checked-in
      *  legacy-receipt allowlist. A live run's review must pin the current (strict) form. */
     const legacyForms = opts.acceptLegacyEvidenceDigests === true ? ((evidenceSet || {}).legacy_digests || []) : [];
-    const ruleCtx = { events, artifacts, domain, domainCandidates: domainCandidatesForRule, runDir: artifactsDir, commitSha: effectieveCommit || null, noGit: noGitAtRoot, evidenceDigest: (evidenceSet || {}).digest || null, evidenceLegacyDigests: legacyForms, evidenceAllGreen: (evidenceSet || {}).allGreen === true, evidenceFailed: ((evidenceSet || {}).failed || []).concat(((evidenceSet || {}).unverified || []).map((n) => n + ' (output unverified)')), evidenceCommit: (evidenceSet || {}).commit || null, knownAgents: knownAgentNames(root) || new Set(), root, ownerAllowlist };
+    const ruleCtx = { events, artifacts, domain, domainCandidates: domainCandidatesForRule, runDir: artifactsDir, commitSha: effectieveCommit || null, noGit: noGitAtRoot, evidenceDigest: (evidenceSet || {}).digest || null, evidenceLegacyDigests: legacyForms, evidenceAllGreen: (evidenceSet || {}).allGreen === true, evidenceFailed: ((evidenceSet || {}).failed || []).concat(((evidenceSet || {}).unverified || []).map((n) => n + ' (output unverified)')), evidenceCommit: (evidenceSet || {}).commit || null, knownAgents: knownAgentNames(root) || new Set(), root, ownerAllowlist, runShape, runId: params.run_id };
     const ruleSatisfied = checkSatisfied(rule, ruleCtx);
     if (ruleCtx._independentVerification) ruleDetails['independent-verification'] = sanitizeIv(ruleCtx._independentVerification);
     if (ruleCtx._v2Detail) ruleDetails[rule.id] = sanitizeV2(ruleCtx._v2Detail, rule.check.type);
+    if (ruleCtx._shapeDetail) {
+      ruleDetails[rule.id] = sanitizeRunEvidence(ruleCtx._shapeDetail);
+      if (ruleSatisfied) exceptions.push(...exceptionsOf(rule.id, ruleCtx._shapeDetail));
+    }
     if (ruleSatisfied) { satisfied.push(rule.id); continue; }
 
     // V9-fix (DEFECT 2): a rule flagged cannot_override:true is NEVER even eligible for the override lookup —
@@ -2617,7 +3211,7 @@ function check(params, opts) {
     // complexity_* is reported on EVERY result, even when no rule is scoped to it — a caller must always be
     // able to see which level a verdict was reached at, and whether that level was declared or only derived.
     complexity: cx.level, complexity_source: cx.source, complexity_declared: cx.declared,
-    complexity_derived: cx.derived, complexity_units: cx.units,
+    complexity_derived: cx.derived, complexity_units: cx.units, complexity_harness_units: cx.harness_units,
     unevaluated,
     /** wat DIT proces werkelijk las. Een aanroeper (finalize) kan zelf alleen eindpunten
      *  vergelijken; het venster waarin dit kind las blijft dan onzichtbaar (A→B→A). Door de gebruikte
@@ -2632,6 +3226,8 @@ function check(params, opts) {
     not_applicable: notApplicable, // rules whose applies_if_exists path is absent in this project
     run_started_at: runStart ? runStart.iso : null, run_started_source: runStart ? runStart.source : null,
     ruleset_version_used: (rulesData.version === undefined ? null : rulesData.version),
+    // I.6: the shape this run declares (what the run-shape rules read) and every rule met by a recorded exception
+    run_shape: summarizeRunShape(runShape), exceptions,
   };
 
   // gate_evaluated proof event (2026-08-02, opt-in — the gap this closes: this checker existed, was
@@ -2662,6 +3258,7 @@ function logEventScriptFor(root) {
 function logGateEvaluated(result, opts) {
   opts = opts || {};
   const root = opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
+  if (!root && !opts.logEventPath) return { ok: false, event_type: 'gate_evaluated', reason: 'no project root found (no .claude, .forge or .git above the current folder; pass --root)' };
   const script = opts.logEventPath || logEventScriptFor(root);
   if (!opts.logEventPath && !fs.existsSync(script)) {
     return { ok: false, event_type: 'gate_evaluated', reason: 'no event writer under this root (' + script + ' missing) — refusing cross-install fallback' };
@@ -2675,7 +3272,8 @@ function logGateEvaluated(result, opts) {
     + (result.complexity ? ' · complexity ' + result.complexity + ' (' + result.complexity_source + ')' : '')
     + (result.overridden.length ? ' · ' + result.overridden.length + ' overridden' : '')
     + (result.warnings.length ? ' · warnings: ' + result.warnings.join(', ') : '')
-    + (result.unevaluated && result.unevaluated.length ? ' · unevaluated: ' + result.unevaluated.map((u) => u.id).join(', ') : '');
+    + (result.unevaluated && result.unevaluated.length ? ' · unevaluated: ' + result.unevaluated.map((u) => u.id).join(', ') : '')
+    + (result.exceptions && result.exceptions.length ? ' · exceptions: ' + [...new Set(result.exceptions.map((x) => x.id))].join(', ') : '');
   const ev = { run_id: result.run_id, event_type: 'gate_evaluated', agent: 'orchestrator', note, ok: result.ok };
   if (opts.phase) ev.phase = opts.phase;
   let res;
@@ -2709,7 +3307,8 @@ function logGateEvaluated(result, opts) {
 const DEFAULT_COMPLETION_SEQUENCE = [
   // the same step 1 command as the registry — a test gate runs through the forge-testrun wrapper
   { step: 1, id: 'gate-evidence', action: 'record the raw evidence of every gate that ran (exit code + output hash per gate)', command: 'node .claude/forge-bin/forge-gate-evidence.cjs --run <run_id> --gate "<name>::node .claude/forge-bin/forge-testrun.cjs -- <test command>" [--gate ...]' },
-  { step: 2, id: 'final-report', action: 'write the honest final report', produces: 'final-report.md in the run folder' },
+  // E.1: step 2 names the self-review section printer (the report needs a '## Self-review' section, end-self-review rule)
+  { step: 2, id: 'final-report', action: 'write the honest final report, with its Self-review section (answer every question, then record the answers)', command: 'node .claude/forge-bin/forge-endreview.cjs template --run <run_id>', produces: 'final-report.md in the run folder' },
   { step: 3, id: 'contract-check', action: 'judge the complete contract and log the proof', command: 'node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --log-event' },
   { step: 4, id: 'run-completed', action: 'log run_completed', command: 'node .claude/forge-dashboard/log-event.cjs <run_id> run_completed \'{"agent":"orchestrator","summary":"..."}\'' },
   { step: 5, id: 'finalize', action: 'write the one authoritative receipt', command: 'node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --log-event --finalize' },
@@ -2914,7 +3513,7 @@ function evaluateCompletionStep(step, ctx) {
       case 'final-report':
         return hasArtifact(ctx.artifacts, 'final-report')
           ? out('done', 'final-report.md is present and non-empty')
-          : out('pending', 'write a non-empty .claude/forge-runs/' + ctx.runId + '/final-report.md (log report_generated before step 3)');
+          : out('pending', 'write a non-empty ' + runFolderLabel(ctx) + '/final-report.md with a ## Self-review section, then forge-endreview.cjs record --run ' + ctx.runId + ' --answers <answers.json> (log report_generated before step 3)');
       case 'contract-check': {
         const c = ctx.contract;
         if (!c) return out('unevaluated', 'the contract could not be evaluated');
@@ -2984,14 +3583,15 @@ function summarizeContract(c) {
     warning_details: (c.warnings || []).map((id) => ({ id, reason: why(id) })),
     overridden: (c.overridden || []).map((o) => o.id), unevaluated: (c.unevaluated || []).map((u) => u.id),
     historical_exempt: (c.historical_exempt || []).map((x) => x.id),
+    exceptions: [...new Set((c.exceptions || []).map((x) => x.id))], // I.6: met by a recorded exception, never silently
   };
 }
 
 function runPaths(params, opts) {
   if (!params || !params.run_id || typeof params.run_id !== 'string') throw new Error('forge-runcontract: a non-empty "run_id" string is required');
   if (!/^[A-Za-z0-9_-]+$/.test(params.run_id)) throw new Error('forge-runcontract: invalid run_id (allowed: A-Z a-z 0-9 _ -): ' + params.run_id);
-  const root = opts && opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
-  const runDir = path.join(root, '.claude', 'forge-runs', params.run_id);
+  const root = rootOf(opts);
+  const runDir = runDirOf(root, params.run_id);
   return { root, runDir, eventsPath: path.join(runDir, 'events.jsonl'), rulesPath: (opts && opts.rulesPath) || path.join(root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json') };
 }
 
@@ -3104,6 +3704,9 @@ function howTo(rule, contract, id) {
     return 'when it really happened, log ' + keys.slice(0, 3).join(' / ') + (keys.length > 3 ? ' / … (' + keys.length + ' kinds)' : '');
   }
   if (c.type === 'artifact-present') return 'write a non-empty ' + toArray(c.key).join(' / ') + ' file in the run folder';
+  // I.6: the rule's own next command (run id filled in), else its owner-facing message
+  if (c.type === RUN_EVIDENCE_TYPE && d && (d.next_step || d.message)) return String(d.next_step || d.message.en).slice(0, 240);
+  if (c.type === RUN_EVIDENCE_TYPE && (rule.next_step || rule.message)) return String(rule.next_step || rule.message.en).split('<run_id>').join((contract && contract.run_id) || '<run_id>').slice(0, 240);
   if (d && d.reason) return String(d.reason).slice(0, 180);
   return String(rule.rule || '').slice(0, 180);
 }
@@ -3151,7 +3754,7 @@ function nextOf(state, obligations, sequence) {
  *  (unclassified, open, planned, in-progress). part ii. Never throws. */
 function scribeSummaryOf(root) {
   try {
-    if (!fs.existsSync(path.join(root, '.claude', 'forge-scribe', 'ledger.jsonl'))) return null;
+    if (!fs.existsSync(path.join(statePath(root, 'scribe', true), 'ledger.jsonl'))) return null;
     const tool = path.join(root, '.claude', 'forge-bin', 'forge-scribe.cjs');
     if (!fs.existsSync(tool)) return { error: 'forge-bin/forge-scribe.cjs is missing' };
     const g = require(tool).gate({ root });
@@ -3247,6 +3850,7 @@ function formatPlan(plan) {
     L.push('Obligations due by now: none open');
   }
   if (later.length) L.push('Not yet due (' + later.length + '): ' + later.map((o) => o.id).join(', ').slice(0, 220));
+  if (c.exceptions && c.exceptions.length) L.push('Met by a recorded exception (visible, not a plain pass): ' + c.exceptions.join(', ').slice(0, 200));
   if (plan.state.status === 'preview' || plan.state.status === 'empty') L.push('Before the first work package: ' + plan.preview_check_command);
   L.push('Completion sequence (' + plan.sequence_source + '):');
   for (const s of plan.sequence) {
@@ -3299,7 +3903,12 @@ function openPhasesOf(events, rulesData, opts) {
 
 /** handoffSnapshot(root, runId, opts) -> {written, skipped?, failed?, path, approx_tokens?, reason?, config_note?}. */
 function handoffSnapshot(root, runId, opts) {
-  const rel = '.claude/FORGE_SNAPSHOT.md';
+  // where the snapshot lives in this project's layout (legacy: exactly .claude/FORGE_SNAPSHOT.md as before; forge
+  // layout: the active .forge/memory file) - shown when no snapshot path comes back from the writer
+  let rel = '.claude/FORGE_SNAPSHOT.md';
+  try {
+    if (forgePaths && typeof forgePaths.memoryFile === 'function' && forgePaths.layout(root) === 'forge') rel = relPosix(root, forgePaths.memoryFile(root, 'FORGE_SNAPSHOT.md'));
+  } catch { /* the legacy label */ }
   const cfg = opts.configModule !== undefined ? opts.configModule : softRequire('forge-config.cjs');
   let configNote = null;
   try {
@@ -3324,10 +3933,11 @@ function handoffSnapshot(root, runId, opts) {
 
 /** handoffScribe(root, opts) -> {in_use, ok?, refreshed?, path?, text?, open?, done_unacked?, reason?}. */
 function handoffScribe(root, opts) {
-  if (!fs.existsSync(path.join(root, '.claude', 'forge-scribe', 'ledger.jsonl'))) {
+  const scribeDir = statePath(root, 'scribe', true); // legacy: .claude/forge-scribe exactly as before
+  if (!fs.existsSync(path.join(scribeDir, 'ledger.jsonl'))) {
     return { in_use: false, reason: 'the scribe is not in use here (no .claude/forge-scribe/ledger.jsonl)' };
   }
-  const rel = '.claude/forge-scribe/DIGEST.md';
+  const rel = relPosix(root, path.join(scribeDir, 'DIGEST.md'));
   const mod = opts.scribeModule !== undefined ? opts.scribeModule : softRequire('forge-scribe.cjs');
   if (!mod || typeof mod.digest !== 'function') return { in_use: true, ok: false, path: rel, reason: 'forge-scribe.cjs is not available next to forge-runcontract.cjs' };
   let text = null, refreshed = false, reason = null;
@@ -3421,7 +4031,7 @@ module.exports = {
   // RC-MANIFEST-STALE — exported so a test can exercise the manifest-completeness gate and the
   // owner-authenticated per-package skip directly, without spawning the CLI.
   manifestCompleteness, findManifestSkip, MANIFEST_SKIP_RULE, MANIFEST_GATED_RULE_IDS,
-  resolveComplexity, countUnits, levelFromUnits, declaredLevel, parseLevel, isValidTrigger, isWellFormedTrigger, isWellFormedCheckType,
+  resolveComplexity, harnessUnitsFor, countUnits, levelFromUnits, declaredLevel, parseLevel, isValidTrigger, isWellFormedTrigger, isWellFormedCheckType,
   RULES_PATH, OWNER_PROFILE_PATH, KNOWN_TRIGGER_LITERALS, KNOWN_CHECK_TYPES, KNOWN_SEVERITIES,
   COMPLEXITY_TRIGGER_RE, DISPATCH_EVENT_TYPES, DECLARED_LEVEL_FIELDS,
   // V2 (part A): the four new check types, phase/since, and the file-touched baseline helpers
@@ -3444,6 +4054,10 @@ module.exports = {
   isUnmetStep, completionSequenceAtClose,
   // part ii: the plan's owner-requests line (scribe summary).
   scribeSummaryOf,
+  // I.6: run-shape triggers and the run-evidence check (plan card, anticipation, craft review, parallelism)
+  RUN_SHAPE_TRIGGER_RE, RUN_SHAPES, RUN_EVIDENCE_TYPE, RUN_EVIDENCE_KINDS, VISIBLE_DELIVERABLE_TYPES, CRAFT_EVIDENCE_TYPE, harnessHooksInstalled,
+  PLAN_SCALE_MIN_PACKAGES, PLAN_SCALE_MIN_LANES, SERIAL_PLAN_MIN_PACKAGES, EXCEPTION_MIN_REASON,
+  readRunShape, summarizeRunShape, evaluateRunEvidence, findShapeException, validateRunEvidenceCheck, exceptionsOf,
 };
 
 // ---- CLI ----
@@ -3531,7 +4145,7 @@ if (require.main === module) {
          *  waarin dit script staat), maar de HEAD werd uit `process.cwd()` gehaald. Een absolute aanroep
          *  vanuit repo B beoordeelde dan een run uit repo A tegen de HEAD van B — de commitbinding wees
          *  naar de verkeerde geschiedenis. Eén effectieve root voor run, regels, registry, bewijs én HEAD. */
-        const effectiveRoot = callOpts.root ? path.resolve(callOpts.root) : DEFAULT_ROOT;
+        const effectiveRoot = rootOf(callOpts);
         // a phased check judges only part of the contract, so it can never be the input to finalize
         if (opts.finalize && opts.phase && opts.phase !== DEFAULT_PHASE) {
           throw new Error('--finalize needs the complete contract; drop --phase ' + opts.phase + ' (or pass --phase complete)');
@@ -3553,6 +4167,11 @@ if (require.main === module) {
               (result.warnings.length ? ', ' + result.warnings.length + ' warning(s)' : '') + ')');
           } else {
             console.log('NOT DONE — ' + opts.run + ' is missing ' + result.missing.length + ' required rule(s):');
+            // C1: windows-v6's Lead saw "✗ MISSING verify-checked" with no reason and no next step
+            // (event-present rules carry no rule_details) and stayed stuck. A rule without its own reason now prints its how-to.
+            let ruleById = new Map();
+            try { ruleById = new Map(loadRules(callOpts.rulesPath || path.join(effectiveRoot, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json')).rules.map((x) => [x.id, x])); } catch { /* the hint is best-effort */ }
+            var printHowTo = (id) => { const d = result.rule_details && result.rule_details[id]; if (d && (d.reason || d.message)) return; const rule = ruleById.get(id); if (rule) console.log('      ↳ how: ' + howTo(rule, result, id)); };
             /** N-09: de gesaneerde reden bestond al in `rule_details`, maar alleen de JSON-modus toonde
              *  hem. Een operator die de gewone uitvoer las, zag "MISSING independent-verification" en
              *  moest zelf raden of het zelf-goedkeuring, stale werk, een verkeerde commit of een
@@ -3561,6 +4180,9 @@ if (require.main === module) {
               console.log('  ✗ MISSING ' + m);
               const d = result.rule_details && result.rule_details[m];
               if (d && d.reason) console.log('      ↳ ' + String(d.reason).slice(0, 300));
+              // I.6: the rule's own next step, in English and Dutch (only rules that carry a message)
+              if (d && d.message) { console.log('      ↳ next: ' + String(d.message.en).slice(0, 600)); console.log('      ↳ NL: ' + String(d.message.nl).slice(0, 600)); }
+              printHowTo(m);
             }
           }
           console.log(cxLine);
@@ -3573,6 +4195,7 @@ if (require.main === module) {
           if (result.historical_exempt.length) console.log('  · historical-exempt (this run started before the rule existed): ' + result.historical_exempt.map((x) => x.id + ' (since ' + x.since + ')').join(', '));
           if (result.not_applicable && result.not_applicable.length) console.log('  · not applicable in this project: ' + result.not_applicable.map((x) => x.id + ' (' + x.reason + ')').join(', '));
           for (const o of result.overridden) console.log('  ↷ overridden: ' + o.id + ' — "' + o.note + '"');
+          for (const x of result.exceptions || []) console.log('  · exception (recorded, visible): ' + x.id + (x.deliverable_type ? ' [' + x.deliverable_type + ']' : '') + ' — "' + String(x.reason).slice(0, 200) + '"' + (x.by ? ' (by ' + x.by + ')' : ''));
           // An un-judgeable rule must be LOUD: a stale synced rules file that silently drops a rule is exactly
           // the failure this degrade path exists to make visible.
           for (const u of result.unevaluated) console.log('  ⚠ unevaluated: ' + u.id + ' — ' + u.reason);
@@ -3589,7 +4212,7 @@ if (require.main === module) {
         // eindigt een groen contract pas in exit 0 wanneer ook forge-finalize zijn digest-receipt schreef.
         if (result.ok && opts.finalize) {
           const finMod = require(path.join(__dirname, 'forge-finalize.cjs'));
-          const fin = finMod.finalize(opts.root ? path.resolve(opts.root) : path.resolve(__dirname, '..', '..'), opts.run);
+          const fin = finMod.finalize(rootOf(opts), opts.run);
           if (opts.json) console.log(JSON.stringify({ finalize: fin.ok ? 'finalized' : 'refused', reason: fin.reason || null }));
           else console.log(fin.ok ? '  ⇒ FINALIZED @ ' + fin.receipt.digest.slice(0, 16) + '…' + (fin.idempotent ? ' (idempotente herbevestiging)' : '') : '  ⇒ FINALIZE REFUSED — ' + fin.reason);
           process.exitCode = (fin.ok && !logWriteFailed) ? 0 : 3;

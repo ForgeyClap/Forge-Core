@@ -1,0 +1,6 @@
+{
+  "code": "offline",
+  "details": "getaddrinfo ENOTFOUND api.anthropic.com",
+  "expect_title": "Geen internet",
+  "expect_action": "Opnieuw proberen"
+}

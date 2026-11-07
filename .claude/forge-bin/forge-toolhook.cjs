@@ -107,8 +107,14 @@
  * LIVE-SESSION CONTRACT (non-negotiable — this runs on every tool call of every agent)
  * ---------------------------------------------------------------------------------------------------
  *   - NEVER throws. Every failure path is caught and returned as {ok:false, reason}; the CLI always exit 0.
- *   - NEVER blocks: no `decision:"block"`, no non-zero exit, ever.
- *   - NEVER writes stdout. Not one byte, on any path. Diagnostics go to a size-capped local file.
+ *   - NEVER blocks a tool call: no non-zero exit, ever. ONE deliberate exception to "silent": when a
+ *     Write/Edit/MultiEdit put GLOBAL keyboard/mouse input into a project file (SendKeys, SendInput, keybd_event,
+ *     mouse_event, WScript.Shell SendKeys/AppActivate; forge-global-input.cjs decides), the CLI prints exactly one
+ *     PostToolUse feedback object `{"decision":"block","reason":...}` on stdout. For PostToolUse that does NOT undo
+ *     the write; Claude Code only shows the NL + EN reason to the model (in windows-game-v6 a launch check typed
+ *     Enter/Esc/b into the owner's other terminal through SendKeys). The check runs apart from the ledger (it also
+ *     runs with tool-log off) and is fail-open: any error in it prints nothing.
+ *   - Otherwise NEVER writes stdout. Not one byte, on any other path. Diagnostics go to a size-capped local file.
  *   - Owner setting `tool-log` (forge-config.cjs, default ON): OFF -> run() returns
  *     {ok:true, wrote:false, skipped:true, reason:'owner config tool-log=off'} before parsing the payload —
  *     no ledger line, no diagnostics line, exit 0. Read for the root this hook acts on (FORGE_PROJECT_ROOT,
@@ -135,7 +141,7 @@
  *   buildLine(payload, opts)                   -> the record object
  *   run(rawStdinJson, opts)                    -> { ok, wrote, path, reason, rotated, line, skipped? }
  *
- * CLI: reads stdin, calls run(), ALWAYS exits 0, ALWAYS silent.
+ * CLI: reads stdin, calls run(), ALWAYS exits 0, silent except the global-input feedback (globalInputFeedback).
  *   opts: { root, runId, now, truncated, headBytes, maxLogBytes, configModule }
  */
 const fs = require('fs');
@@ -167,6 +173,23 @@ try {
 // Owner settings (forge-config.cjs) — soft-required, see the LIVE-SESSION CONTRACT above.
 let cfg = null;
 try { cfg = require('./forge-config.cjs'); } catch { cfg = null; }
+// WP 2.1: the tool log goes into the project's ACTIVE runs folder (forge-paths stateDir: .claude/forge-runs in a
+// legacy project, exactly as before; .forge/runs once <root>/.forge/ exists). Soft-required like the two above: a
+// copy without forge-paths.cjs, or an older resolver, keeps the legacy folder.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.layout === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function runsDir(root) {
+  const legacy = path.join(root, '.claude', 'forge-runs');
+  if (!forgePaths) return legacy;
+  try { return forgePaths.stateDir(root, 'runs'); } catch { return legacy; }
+}
+/** isForgeProject(root) -> a Forge project this hook may write into: it has .claude/ (as before) or, WP 2.1, it uses
+ *  the .forge/ state root. Neither -> degrade silently; never create a stray tree. */
+function isForgeProject(root) {
+  if (fs.existsSync(path.join(root, '.claude'))) return true;
+  if (!forgePaths) return false;
+  try { return forgePaths.layout(root) === 'forge'; } catch { return false; }
+}
 /** configRead(key, fallback, opts) -> { value, source, degraded, reason } via forge-config.safeGet (FAIL-SAFE,
  *  review-boss M3: a damaged settings file never switches a flagged feature on). `fallback` is this file's copy of
  *  the schema default, used only when forge-config.cjs is absent or broken; an older copy without safeGet is read
@@ -632,9 +655,9 @@ function record(rawStdinJson, opts, root) {
   }
   // A project with no Forge install degrades SILENTLY (same convention as forge-snapshot-marker.cjs) —
   // this must never create a stray .claude/ tree in whatever directory it happens to be invoked from.
-  if (!fs.existsSync(path.join(root, '.claude'))) return { ok: true, wrote: false, reason: 'no-forge-project', path: null };
+  if (!isForgeProject(root)) return { ok: true, wrote: false, reason: 'no-forge-project', path: null };
 
-  const dir = path.join(root, '.claude', 'forge-runs', LOG_DIRNAME);
+  const dir = path.join(runsDir(root), LOG_DIRNAME);
   const bucket = sessionBucket(payload.session_id);
   const file = path.join(dir, bucket + '.jsonl');
   // belt-and-braces containment (SESSION_RE already forbids separators and dots)
@@ -669,14 +692,35 @@ function record(rawStdinJson, opts, root) {
   return { ok: true, wrote: true, reason: null, path: file, rotated, line };
 }
 
+/** globalInputFeedback(rawStdinJson, opts) -> the PostToolUse feedback JSON text, or ''. Only for a
+ *  Write/Edit/MultiEdit whose written code uses global keyboard/mouse input (forge-global-input.cjs::feedbackFor).
+ *  Independent of the ledger and of the tool-log setting. Fail-open: a missing module, a truncated or unparseable
+ *  payload, or any error gives '' (nothing printed). opts.globalInputModule injects the detector in tests. */
+function globalInputFeedback(rawStdinJson, opts) {
+  opts = opts || {};
+  try {
+    if (opts.truncated || typeof rawStdinJson !== 'string' || !rawStdinJson) return '';
+    if (!/"tool_name"\s*:\s*"(?:Write|Edit|MultiEdit)"/.test(rawStdinJson.slice(0, HEAD_BYTES))) return '';
+    let gi = opts.globalInputModule;
+    if (gi === undefined) { try { gi = require('./forge-global-input.cjs'); } catch { gi = null; } }
+    if (!gi || typeof gi.feedbackFor !== 'function') return '';
+    let payload;
+    try { payload = JSON.parse(rawStdinJson); } catch { return ''; }
+    const fb = gi.feedbackFor(payload, { root: resolveProjectRoot(opts) });
+    if (!fb || fb.decision !== 'block' || typeof fb.reason !== 'string') return '';
+    return JSON.stringify({ decision: 'block', reason: fb.reason });
+  } catch { return ''; }
+}
+
 module.exports = {
-  run, summarizeTarget, deriveOk, sessionBucket, buildLine, serialize, salvage, scrubRecord,
+  run, globalInputFeedback, summarizeTarget, deriveOk, sessionBucket, buildLine, serialize, salvage, scrubRecord,
   firstToken, canonicalCommand, hostOf, relPath, resolveProjectRoot, configOn, configRead, routingLabel, syncMaintenance,
+  runsDir, isForgeProject, // WP 2.1: shared with forge-tool-failure.cjs and forge-subagent-stop.cjs
   MAX_TARGET_CHARS, MAX_LINE_BYTES, MAX_LOG_BYTES, HEAD_BYTES, FAILSAFE_MS, LOG_DIRNAME,
   KNOWN_COMMANDS, ASSIGN_PREFIX_RE,
 };
 
-// ---- CLI (advisory hook target — ALWAYS exits 0, ALWAYS silent, NEVER blocks a tool call).
+// ---- CLI (advisory hook target — ALWAYS exits 0, NEVER blocks a tool call, silent except the W1 global-input feedback).
 // Async stdin collection, the pattern already proven safe on Windows by forge-snapshot-marker.cjs and
 // forge-hook-secret-scrub.cjs (a synchronous fd-0 read is avoided deliberately). Only the first HEAD_BYTES
 // are retained; the rest is drained and dropped so a multi-megabyte tool_response can neither blow up
@@ -687,7 +731,8 @@ if (require.main === module) {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log('Usage: node forge-toolhook.cjs < <PostToolUse hook JSON on stdin>');
     console.log('  Claude Code runs this as a PostToolUse hook; it appends one line per file-changing tool call to');
-    console.log('  .claude/forge-runs/_toollog/ (never blocks, always exits 0). There is nothing to run by hand.');
+    console.log('  .claude/forge-runs/_toollog/ (.forge/runs/_toollog/ in a project with .forge/; never blocks, always exits 0).');
+    console.log('  There is nothing to run by hand.');
     process.exit(0);
   }
   let finished = false;
@@ -708,7 +753,11 @@ if (require.main === module) {
       let buf = Buffer.concat(chunks);
       let truncated = dropped;
       if (buf.length > HEAD_BYTES) { buf = buf.subarray(0, HEAD_BYTES); truncated = true; }
-      run(buf.toString('utf8'), { truncated });
+      const raw = buf.toString('utf8');
+      run(raw, { truncated });
+      // the one stdout write this hook may make — PostToolUse feedback on global input (see header)
+      const fb = globalInputFeedback(raw, { truncated });
+      if (fb) { try { fs.writeSync(1, fb); } catch { /* a closed stdout must not fail the tool call */ } }
     } catch { /* an advisory hook must never fail the tool call it observes */ }
     clearTimeout(failsafe);
     finish();

@@ -1,0 +1,4 @@
+# forge-extension — ship-readiness (full text)
+
+## Ship-readiness (unique)
+Manifest permissions minimal and each justified; no remote code / `eval`; messaging validates sender + payload; MV3 CSP strict; service worker termination-resilient (state in `chrome.storage`); no secrets in the package; extension **loaded unpacked with the core flow exercised** (real output attached) and a production zip built. Store-listing prerequisites — single-purpose description, privacy policy if user data, per-permission justifications, screenshots — are noted as **owner action** (submission itself needs a developer account and is owner-gated). Firefox/Safari ports are out of scope unless requested. Advisory checklist; running `security-boss` / `codex-reviewer` on the permission + messaging surface is strongly recommended here — not a blocker, but say so if it was not run.

@@ -1,0 +1,169 @@
+{
+  "domain": "fullstack",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-fullstack/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-fullstack/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-fullstack/SKILL.md",
+      "section": "Ship-readiness"
+    },
+    {
+      "path": ".claude/skills/forge-fullstack/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "fs-auth-flow",
+      "claim": "The auth flow is tested: signup, login, logout and refresh.",
+      "evidence_required": "Test or e2e output covering all four.",
+      "how_to_run": "Run the auth tests or e2e suite and quote the cases.",
+      "severity": "block",
+      "honesty_note": "The auth flow counts as verified only when actually run.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Auth flow tested (signup/login/logout/refresh)"
+      }
+    },
+    {
+      "id": "fs-server-auth",
+      "claim": "Auth is enforced server-side on every protected route; a client-side check is never the only guard and tokens are not in localStorage.",
+      "evidence_required": "A negative test against protected routes and a search for localStorage token use.",
+      "how_to_run": "Run the protected-route tests; search the client for localStorage token storage.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Auth on every protected route, enforced server-side (authn + authz)."
+      }
+    },
+    {
+      "id": "fs-validation",
+      "claim": "Every endpoint validates its input.",
+      "evidence_required": "Validation-failure tests per endpoint.",
+      "how_to_run": "Run the validation tests and quote them.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Domain gates",
+        "quote": "validation on all endpoints"
+      }
+    },
+    {
+      "id": "fs-migrations-fresh-db",
+      "claim": "Migrations run clean on a fresh DB and are reversible.",
+      "evidence_required": "The output of the migrations on an empty database, plus a down/rollback run.",
+      "how_to_run": "Create a fresh DB, run the migrations up and down, quote the output.",
+      "severity": "block",
+      "honesty_note": "Fresh-DB migrations count as verified only when actually run.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Domain gates",
+        "quote": "migrations clean on a fresh DB"
+      }
+    },
+    {
+      "id": "fs-e2e",
+      "claim": "The e2e suite is green.",
+      "evidence_required": "The e2e run output with the exit code.",
+      "how_to_run": "Run the project e2e command and quote the exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Domain gates",
+        "quote": "e2e green"
+      }
+    },
+    {
+      "id": "fs-secrets",
+      "claim": "Secrets are in env with .env.example placeholders; none in the client bundle.",
+      "evidence_required": "A search of the built client bundle and the diff for secrets with no hits, and a complete .env.example.",
+      "how_to_run": "Build, search the bundle; read .env.example.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Secrets in env + .env.example placeholders; no secrets in the client bundle."
+      }
+    },
+    {
+      "id": "fs-migration-review",
+      "claim": "DB migrations are reviewed by database-reviewer.",
+      "evidence_required": "The review record for each migration.",
+      "how_to_run": "Read the review notes or the run ledger.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Hard rules",
+        "quote": "DB migrations reviewed by database-reviewer and reversible."
+      }
+    },
+    {
+      "id": "fs-no-folder-mixing",
+      "claim": "No folder mixing.",
+      "evidence_required": "The changed paths compared with the project layout.",
+      "how_to_run": "git diff --stat against the project structure.",
+      "severity": "warn",
+      "honesty_note": "The playbook does not define folder mixing; judge against the project layout and say what was compared.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no folder mixing"
+      }
+    },
+    {
+      "id": "fs-rollback-seed",
+      "claim": "Rollback and seed are documented.",
+      "evidence_required": "The rollback and seed instructions.",
+      "how_to_run": "Read the docs.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "rollback/seed documented"
+      }
+    },
+    {
+      "id": "fs-codex-review",
+      "claim": "Auth, secret and DB changes get the Codex adversarial review.",
+      "evidence_required": "The Codex review result, or a note that Codex did not run.",
+      "how_to_run": "Read the review record.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Auth/secret/DB changes are a required Codex review area"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Dev/preview by default; production needs explicit user approval.",
+      "source": {
+        "path": ".claude/skills/forge-fullstack/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "dev/preview by default; production needs explicit user approval."
+      }
+    }
+  ],
+  "not_applicable_when": [],
+  "gaps": [
+    "\"no folder mixing\" (Domain gates) is not defined anywhere in forge-fullstack, so the card carries it as warn with a manual comparison.",
+    "Contradiction reported, not fixed: forge-fullstack Hard rules call auth/secret/DB changes \"a required Codex review area\" (force /codex:adversarial-review), while the shared gates and project CLAUDE.md say codex-reviewer is optional and never a blocker; the card carries it as warn."
+  ]
+}

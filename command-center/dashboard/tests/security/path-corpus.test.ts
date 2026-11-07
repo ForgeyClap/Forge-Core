@@ -1,9 +1,9 @@
 /**
  * Forge Workspace — the adversarial path corpus, driven through the REAL guard.
  *
- * `src/bridge/security/paths.test-vectors.ts` is data with no imports. This file
+ * `archive/bridge/security/paths.test-vectors.ts` is data with no imports. This file
  * is the runner. Every one of its vectors is pushed through the actual exported
- * functions in `src/bridge/security/paths.ts` — no re-implementation, no
+ * functions in `archive/bridge/security/paths.ts` — no re-implementation, no
  * paraphrase of the rule, no mock. If the guard changes, this suite changes its
  * answer, which is the only reason a corpus like this is worth having.
  *
@@ -44,8 +44,8 @@ import {
   isPathGuardError,
   isSensitivePath,
   sanitizeSlug,
-} from '@/bridge/security/paths';
-import type { PathErrorCode } from '@/bridge/security/paths';
+} from '@archive/bridge/security/paths';
+import type { PathErrorCode } from '@archive/bridge/security/paths';
 import {
   ALL_VECTORS,
   COLLISION_VECTORS,
@@ -54,8 +54,8 @@ import {
   SENSITIVE_VECTORS,
   SLUG_VECTORS,
   VECTOR_COUNTS,
-} from '@/bridge/security/paths.test-vectors';
-import type { LinkVector } from '@/bridge/security/paths.test-vectors';
+} from '@archive/bridge/security/paths.test-vectors';
+import type { LinkVector } from '@archive/bridge/security/paths.test-vectors';
 
 /**
  * C0 and C1 control characters. Built from a string so the source file itself

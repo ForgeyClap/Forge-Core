@@ -5,10 +5,10 @@
  * frame a graph you have not measured.
  *
  *   computeGraphLayout / useGraphLayout
- *     Turns `col` / `row` into pixels. Every distance comes from the layout
- *     tokens (--forge-layout-node-w / node-h / col-gap / lane-gap), read once
- *     from the document and cached, with numeric fallbacks so the module still
- *     produces a sane graph under jsdom or before the stylesheet lands.
+ *     Turns `col` / `row` into pixels. Every distance comes from the fixed graph
+ *     geometry below (node 188 x 62, column gap 78, lane gap 26). of the
+ *     redesign dropped the old layout tokens; the stylesheet only uses
+ *     the minimap size, so the numbers live here once.
  *
  *   useGraphViewport
  *     Pan (pointer + touch + arrow keys), zoom (wheel, +/-, buttons), fit (0),
@@ -31,35 +31,11 @@ interface TokenSizes {
   readonly laneGap: number;
 }
 
-/** Mirrors brand/tokens.json. Used verbatim when the document is unavailable. */
+/** The graph geometry in px. Pure numbers: the same in jsdom, before the stylesheet lands and in the app. */
 const TOKEN_FALLBACK: TokenSizes = { nodeW: 188, nodeH: 62, colGap: 78, laneGap: 26 };
 
-let tokenCache: TokenSizes | null = null;
-
-/** Reads the four layout tokens once. getComputedStyle is expensive; this is not. */
 function readTokenSizes(): TokenSizes {
-  if (tokenCache) return tokenCache;
-  if (typeof document === 'undefined' || typeof window === 'undefined') return TOKEN_FALLBACK;
-
-  let sizes = TOKEN_FALLBACK;
-  try {
-    const style = window.getComputedStyle(document.documentElement);
-    const read = (name: string, fallback: number): number => {
-      const value = Number.parseFloat(style.getPropertyValue(name));
-      return Number.isFinite(value) && value > 0 ? value : fallback;
-    };
-    sizes = {
-      nodeW: read('--forge-layout-node-w', TOKEN_FALLBACK.nodeW),
-      nodeH: read('--forge-layout-node-h', TOKEN_FALLBACK.nodeH),
-      colGap: read('--forge-layout-col-gap', TOKEN_FALLBACK.colGap),
-      laneGap: read('--forge-layout-lane-gap', TOKEN_FALLBACK.laneGap),
-    };
-  } catch {
-    sizes = TOKEN_FALLBACK;
-  }
-
-  tokenCache = sizes;
-  return sizes;
+  return TOKEN_FALLBACK;
 }
 
 /* ------------------------------------------------------------------ layout */

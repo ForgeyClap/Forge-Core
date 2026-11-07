@@ -1,0 +1,4 @@
+# forge-migration — ship-readiness (full text)
+
+## Ship-readiness
+Characterization/regression suite green (with real output) and covering the behavior being migrated; each slice's cutover is flag-gated with a rollback that was actually exercised; a parity diff shows old == new for the migrated slice (or every discrepancy is documented + accepted by the owner); data migration reconciled (counts + checksums attached) with a verified backup before any source decommission; **no big-bang cutover was performed**; decommission of the legacy path happens only after a stable parity window. The `ship-readiness` checklist is advisory; optionally run `codex-reviewer` (Codex) on the ported slice + the parity/reconciliation logic (recommended for auth, money, or data-migration slices) — not a blocker. If the legacy system could not be run in this environment, say so: report the characterization + parity work as **designed, not executed**, rather than implying green.

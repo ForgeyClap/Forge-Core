@@ -42,7 +42,7 @@ const recommend = require('./account-rotator-recommend.cjs');
 
 const iso = (ms) => new Date(ms).toISOString();
 function noteOnce(st, delta, key, msg, logFn) { if (st.lastNoticeKey === key) return; delta.lastNoticeKey = key; logFn(msg); }
-const eligibleFor = (flags) => (s) => M.fileEligible(s) && !(flags && flags[s.name] && flags[s.name].needsRelogin);
+const eligibleFor = (flags) => (s) => M.fileEligible(s) && !(flags && flags[s.name] && (flags[s.name].needsRelogin || flags[s.name].orgBlocked));
 const modeOf = (S) => (S && S.mode && S.mode.value === 'file' ? 'file' : 'token');
 
 /** tick(ctx) -> {action, reason, ...}. ctx = {P, S, deps, dryRun, manual: {target}|{auto}, force, lockTimeoutMs}. */
@@ -200,7 +200,7 @@ async function tickLocked(ctx) {
     target = sel.target; tier = sel.tier;
   }
   if (ctx.dryRun) return finish({ action: 'would-switch', from: active, to: target, tier, trigger, ranked: sel ? sel.ranked : [] });
-  const pf0 = await txn.preflight(P, target, Object.assign({ slotFlags: st.slotFlags, allowNeedsRelogin: !!ctx.force }, capOpts)); // before ANY pause
+  const pf0 = await txn.preflight(P, target, Object.assign({ slotFlags: st.slotFlags, allowNeedsRelogin: !!ctx.force, allowOrgBlocked: !!ctx.force }, capOpts)); // before ANY pause
   if (!pf0.ok) {
     noteOnce(st, delta, 'preflight:' + target + ':' + pf0.reason, 'GEEN WISSEL / NO SWITCH — voorwaarde niet voldaan / precondition failed: ' + pf0.reason, log);
     return finish({ action: 'none', reason: 'preflight-failed', detail: pf0.reason, active, to: target });
@@ -231,7 +231,7 @@ async function runSwitch(ctx, o) {
       swap: async (name) => {
         const st = vault.readState(P);
         const pf = firstPf && firstPf.target && firstPf.target.name === name ? firstPf
-          : await txn.preflight(P, name, { settleMs: deps.settleMs, identify: deps.identify, hooks: deps.swapHooks, measure, readings: st.readings, now: deps.now(), slotFlags: st.slotFlags, allowNeedsRelogin: o.kind === 'rollback' || !!ctx.force });
+          : await txn.preflight(P, name, { settleMs: deps.settleMs, identify: deps.identify, hooks: deps.swapHooks, measure, readings: st.readings, now: deps.now(), slotFlags: st.slotFlags, allowNeedsRelogin: o.kind === 'rollback' || !!ctx.force, allowOrgBlocked: !!ctx.force });
         firstPf = null;
         if (!pf.ok) return { ok: false, rolledBack: true, outcome: 'preflight-failed', reason: pf.reason };
         if (deps.swapImpl) return deps.swapImpl(P, pf, { hooks: deps.swapHooks });
@@ -323,7 +323,7 @@ async function handlePendingVerify(ctx, e) {
     log('NIET GEVERIFIEERD / NOT VERIFIED — ' + pv.to + ' gaf 401 (' + failures + '/2)' + (pv.auto ? '' : ' — handmatige wissel: geen automatische terugzet / manual switch: no automatic rollback'));
     return { action: 'none', reason: 'unverified', failures, active };
   }
-  delta.set.slotFlags = Object.assign({}, st.slotFlags, { [pv.to]: { needsRelogin: true, at: iso(now) } });
+  delta.set.slotFlags = Object.assign({}, st.slotFlags, { [pv.to]: Object.assign({}, st.slotFlags[pv.to] || {}, { needsRelogin: true, at: iso(now) }) }); // an orgBlocked flag on the slot survives
   if (!pv.auto) {
     delta.set.pendingVerify = null;
     log('HANDMATIGE WISSEL NIET GEVERIFIEERD / MANUAL SWITCH UNVERIFIED — ' + pv.to + ' heeft een nieuwe login nodig (claude /login, dan enroll ' + pv.to + ' --force); niet automatisch teruggezet / needs a new login; not rolled back automatically');
@@ -363,7 +363,8 @@ function writeNotification(P, slots, now, T, res, mode) {
       const rec = core.slotMode(s) === 'token' ? tok.tokenReading(s, st.tokenReadings, st.readings) : st.readings[s.name];
       const r = core.effectiveReading(rec, now);
       const j = core.judge(r, T);
-      return { name: s.name, mode: core.slotMode(s), status: r.status, maxPct: r.maxPct, usable: j.usable, needsRelogin: !!(st.slotFlags[s.name] && st.slotFlags[s.name].needsRelogin),
+      const fl = st.slotFlags[s.name] || {};
+      return { name: s.name, mode: core.slotMode(s), status: r.status, maxPct: r.maxPct, usable: fl.orgBlocked ? false : j.usable, untested: !!j.untested, needsRelogin: !!fl.needsRelogin, orgBlocked: !!fl.orgBlocked,
         windows: r.windows.map((w) => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt })), measuredAt: r.measuredAt };
     }),
   });

@@ -65,6 +65,8 @@ import {
   TriangleAlert, Type, Unplug, UserRound,
   UserRoundSearch, Users, Waypoints, Workflow,
   Wrench, X,
+  // v1.0 redesign: Leer Forge, Eigen sleutel, the ? button, mail suggestion.
+  CircleHelp, GraduationCap, KeyRound, Mail,
 } from 'lucide-react';
 import type { ComponentType, SVGProps } from 'react';
 
@@ -121,6 +123,8 @@ const ICONS = {
   TriangleAlert, Type, Unplug, UserRound,
   UserRoundSearch, Users, Waypoints, Workflow,
   Wrench, X,
+  // v1.0 redesign: Leer Forge, Eigen sleutel, the ? button, mail suggestion.
+  CircleHelp, GraduationCap, KeyRound, Mail,
 };
 
 /** The names this build actually ships. */

@@ -1,0 +1,139 @@
+{
+  "domain": "electron",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-electron/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-electron/references/ship-readiness.md",
+      "section": "Ship-readiness"
+    },
+    {
+      "path": ".claude/skills/forge-electron/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "el-hardening-flags",
+      "claim": "contextIsolation:true, nodeIntegration:false, sandbox:true (where feasible) and webSecurity:true on every window.",
+      "evidence_required": "The file:line of each flag for every BrowserWindow.",
+      "how_to_run": "Search for new BrowserWindow and quote the webPreferences lines.",
+      "severity": "block",
+      "honesty_note": "Verify, do not assume: a flag without a cited config line is NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "verified on every window (cite the file:line)"
+      }
+    },
+    {
+      "id": "el-preload-ipc",
+      "claim": "The preload exposes a minimal validated API, no raw ipcRenderer on window, and IPC payloads are validated.",
+      "evidence_required": "The contextBridge API and the payload validation in each ipcMain handler.",
+      "how_to_run": "Read the preload and ipcMain handlers; run the IPC tests if present.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Preload exposes a minimal, validated API; no raw ipcRenderer on window; IPC payloads validated."
+      }
+    },
+    {
+      "id": "el-csp",
+      "claim": "A strict CSP is set with no unsafe-eval or wildcard script sources.",
+      "evidence_required": "The CSP header or meta tag.",
+      "how_to_run": "Search for Content-Security-Policy and quote it.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Strict CSP set; no unsafe-eval/wildcard script sources."
+      }
+    },
+    {
+      "id": "el-secrets",
+      "claim": "No secrets in the bundle; secure OS storage for sensitive data.",
+      "evidence_required": "A search of the packaged app for secrets with no hits, and use of safeStorage.",
+      "how_to_run": "Unpack the asar and search; read the storage code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No secrets in the bundle; secure OS storage used for sensitive data."
+      }
+    },
+    {
+      "id": "el-installer",
+      "claim": "The intended installer is built and actually installs and launches on a clean machine.",
+      "evidence_required": "Build output plus a launch screenshot or log from a clean machine.",
+      "how_to_run": "Run the build (for example electron-builder) and install on a clean VM; quote the output.",
+      "severity": "block",
+      "honesty_note": "No signing cert or no clean-machine test: NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "it actually installs + launches on a clean machine"
+      }
+    },
+    {
+      "id": "el-observed-perf",
+      "claim": "Cold-start and idle-memory numbers are observed, and listeners/watchers/intervals are cleaned up on window close.",
+      "evidence_required": "Measured numbers with how they were taken, and the cleanup code.",
+      "how_to_run": "Launch the app, measure start time and memory; read the close handlers.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Cold-start + idle-memory numbers reported are observed, not guessed"
+      }
+    },
+    {
+      "id": "el-no-mock-data",
+      "claim": "No test, demo or mock data in the shipped artifact.",
+      "evidence_required": "A search of the packaged artifact for fixture/mock data with no hits.",
+      "how_to_run": "Unpack the build and search for mock/demo/test fixtures.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No test/demo/mock data in the shipped artifact."
+      }
+    },
+    {
+      "id": "el-auto-update",
+      "claim": "Auto-update, if present, is signature-verified and rollback-capable.",
+      "evidence_required": "The updater config with signature verification and a rollback path.",
+      "how_to_run": "Read the auto-update config.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-electron/references/ship-readiness.md",
+        "section": "Ship-readiness",
+        "quote": "auto-update (if any) signature-verified + rollback-capable"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Never ship an unsigned silent updater.",
+      "source": {
+        "path": ".claude/skills/forge-electron/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "never ship an unsigned silent updater."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "el-auto-update does not apply when the app has no auto-update.",
+    "The work is only the renderer UI: use the website card."
+  ],
+  "gaps": []
+}

@@ -40,6 +40,35 @@ Patterns adapted into Forge's own vocabulary from public MIT-licensed community 
 
 See `.claude/skills/VENDORED-SKILLS.md` for the complete vendored-skills registry and per-skill modification ledger.
 
+## Skill-library upgrade Q3-SKILLS
+
+Sources read as untrusted data on 2026-11-02; nothing installed, no scripts or commands taken over. "Adapted" =
+rewritten in Forge's words from a source whose LICENSE file was seen (licence file shipped in the skill folder);
+"ideas only" = no LICENSE file confirmed, a copyleft/non-commercial licence, or MIT declared only in a frontmatter
+(one rule for all lanes: frontmatter-only MIT counts as ideas only). Exact paths and commits: each skill's own
+provenance block.
+
+| Forge skill | Adapted (licence file in folder) | Ideas only (no text) |
+|---|---|---|
+| forge-a11y | wshobson/agents wcag-audit-patterns, screen-reader-testing (MIT) | — |
+| forge-auth | wshobson/agents auth-implementation-patterns (MIT); supabase/agent-skills auth + RLS rules (MIT) | clerk/skills |
+| forge-database | supabase/agent-skills postgres best practices (MIT); affaan-m/ecc database-migrations (MIT); prisma/skills (MIT) | — |
+| forge-devops | docker/skills, cloudflare/skills (Apache-2.0); wshobson/agents cicd-automation (MIT) | vercel-labs/agent-skills deploy-to-vercel; hashicorp/agent-skills terraform-style-guide (MPL-2.0) |
+| forge-observability | ribrewguy/agent-skills (MIT) | — |
+| forge-security-review | — (Forge-native text) | trailofbits/skills differential-review (CC-BY-SA-4.0); OWASP Top 10 as public reference |
+| forge-testing | currents-dev/playwright-best-practices-skill (MIT) | anthropics/skills webapp-testing |
+| forge-web-quality | addyosmani/web-quality-skills, addyosmani/agent-skills, coreyhaines31/marketingskills, kostja94/marketing-skills (MIT) | vercel-labs/agent-skills react-best-practices |
+| forge-website | vercel-labs/web-interface-guidelines (MIT, LICENSE added in the Q3 fix round) | vercel-labs/agent-skills react-best-practices |
+| forge-electron | agents-inc/skills desktop-security-electron (MIT, LICENSE verified at 845a1f2); hairyf/skills tauri (MIT) | jwynia/agent-skills electron-best-practices; pedronauck/skills electron-release |
+| forge-mobile | expo/skills (MIT); flutter/skills (BSD-3-Clause) | — |
+| forge-payments | stripe/ai stripe-best-practices, mollie/ai mollie-payments (MIT) | — |
+| forge-prd | phuryn/pm-skills (MIT) | deanpeters/Product-Manager-Skills (CC BY-NC-SA 4.0) |
+| forge-rag | ai-evals-course/evals-skills, anthropics/skills build-eval (Apache-2.0) | — |
+| forge-agent | anthropics/skills claude-api, mcp-builder (Apache-2.0) | — |
+| forge-api | ribrewguy/agent-skills rest-api-design (MIT); `references/openapi.md` and `references/graphql.md` Forge-native | — |
+| forge-data | dbt-labs/dbt-agent-skills (Apache-2.0); `references/etl-patterns.md` Forge-native | — |
+| forge-i18n-docs | — (Forge-native, written in the Q3 fix round) | — |
+
 ## Checked, already covered (no text adapted)
 
 These community patterns were compared with the Forge file and found to be covered there in substance already, so

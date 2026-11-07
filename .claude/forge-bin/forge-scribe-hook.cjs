@@ -8,20 +8,30 @@
  * scrubbed) the moment it is typed, by a hook the model cannot forget to run.
  *
  * PER PROMPT (stdin = the hook JSON: prompt, session_id, transcript_path, prompt_id, cwd):
+ *   0..8: closed LEADING harness blocks (<browser_instruction>, <ide_opened_file>, <ide_selection>, <system-reminder>; forge-scribe-classify stripLeadingHarness) are removed first, so only the owner's words are recorded and classified; nothing left -> skip 'harness-only' (counter only, no text); unclosed tag or any error -> the old behaviour.
  *   1. skip ONLY machine text (forge-scribe-classify.cjs machineSkip): a background agent's <task-notification> turn,
  *      tool-result / local-command echoes, the body of a slash command or skill, a slash-command expansion without
  *      arguments or for a Forge tool subcommand, a bare slash command, /forge status|runs|dashboard|config|... Each skip
  *      adds one counter line to .claude/forge-scribe/skipped.jsonl (no text) where the scribe is in use, so a wrongly
  *      skipped prompt is at least countable. A question or an ack IS the owner talking and is captured (SC-11);
+ *   1b. ORIGIN FILTER (WP 3.8, forge-scribe.cjs originOf): text whose START (or a dominant wrapper) is a subagent
+ *      hand-back (<agent-message ...>, "[Subagent hand-back]"), a cross-session / teammate message, a system notification
+ *      or another harness envelope is skipped the same way with reason 'system-origin': no inbox record, no ledger item,
+ *      no digest line and no REPEAT or split instruction. Owner prose that merely QUOTES such a tag is captured; when the
+ *      origin is unsure it is captured and marked origin_uncertain (the receipt says so);
  *   2. call forge-scribe.cjs capture() IN-PROCESS (no second node) with source 'hook' — the provenance the owner check
  *      requires — passing the active run (forge-stop-obligations.cjs findActiveRun) so a mid-run item is marked
  *      impact:pending. capture() itself first re-folds any inbox prompt a crash left without an item (SC-07);
  *   3. while a run is active, append one `scribe_head` event to that run through the project's own event writer: the
  *      writer stamps the scribe ledger/inbox head and line count itself (an anchor outside the scribe store, SC-06);
  *   4. print at most three lines as additionalContext: the receipt naming the R-id it created; when the prompt REPEATS
- *      an earlier owner ask (WP-SCRIBE-REPEAT, forge-scribe-classify.cjs OWNER REPEATS — token sets, no extra I/O) one
- *      'REPEAT x<n> of R-.. — the owner had to ask again: create/refresh the HARD RULE now ...' line; and, only when the
- *      digest differs from what this session last saw, the compact DIGEST on one line (<= 1200 chars).
+ *      an earlier owner ask (forge-scribe.cjs OWNER REPEATS v2, WP 3.8 — owner words only, token sets, no extra I/O) one
+ *      'REPEAT x<n> of R-.. — why: R-.. 75% (shared words) — the owner had to ask again: create/refresh the HARD RULE
+ *      now ...' line naming at most the 3 most similar earlier owner asks; and, only when the digest differs from what
+ *      this session last saw, the compact DIGEST on one line (<= 1200 chars; built from forge-scribe.cjs ownerView, so a
+ *      stored repeat link shows only while v2 confirms it). WP I.8c: when the owner's own words are a "turn it on / you
+ *      forgot" correction, capture tags the record 'toggle-correction' and the receipt ends with "[tc] toggle-correction
+ *      (make it a default/rule/check)"; tagged items show "[tc]" in the digest line. A hand-back is never recorded (1b).
  *
  * DEADLINE (SC-12; Codex R5 SV-09): the work is synchronous, and the NODE LIMIT is that a timer cannot interrupt it — a
  * timer callback (including the CLI's failsafe below) only runs after the current synchronous task returns, so it can
@@ -35,8 +45,10 @@
  * The capture of the prompt itself is never skipped for time.
  *
  * GUARANTEES: fail-open (any error -> exit 0 and no output); never blocks a prompt (no exit 2, no decision); no LLM
- * call, no network. Writes only inside <root>/.claude/forge-scribe/ (and the one scribe_head line in the active run's
- * event log) and never creates the scribe folder for a skipped prompt. Uses ONLY the project's own forge-scribe copy.
+ * call, no network. Writes only inside the scribe store folder — <root>/.claude/forge-scribe/, or <root>/.forge/scribe/
+ * in a project that opted into the .forge layout (WP 2.1) — (and the one scribe_head line in the active run's event log)
+ * and never creates the scribe folder for a skipped prompt. Uses ONLY the project's own forge-scribe copy (a plugin copy
+ * never falls back to its own sibling modules and never writes beside its script).
  *
  * PROBE (Claude Code 2.1.291): UserPromptSubmit fires in `claude -p` mode, does NOT fire for an Agent-tool
  * subagent's own prompt, and DOES fire again for the <task-notification> turn when a background agent finishes. The
@@ -54,7 +66,17 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1: the fallback root comes from forge-paths.cjs scriptRootInfo (guarded: an older or missing copy keeps the
+// legacy literal). An installed copy (<project>/.claude/forge-bin) answers its own project exactly as before; a plugin
+// copy outside any project answers null and the hook then does nothing (it never writes beside its own script).
+const SCRIPT_ROOT = (() => {
+  try {
+    const P = require('./forge-paths.cjs');
+    if (P && typeof P.scriptRootInfo === 'function') return P.scriptRootInfo(__dirname);
+  } catch { /* older or missing forge-paths.cjs: the legacy literal below */ }
+  return { root: path.resolve(__dirname, '..', '..'), source: 'script' };
+})();
+const DEFAULT_ROOT = SCRIPT_ROOT.root;
 const MAX_STDIN_BYTES = 8 * 1024 * 1024;  // a pasted log is still an owner prompt; the scribe itself caps the text
 const DEADLINE_MS = 4000;                 // the settings.json timeout is 5 s; the CLI gives up silently before that
 const BUDGET_MS = 2500;                   // optional steps after the capture run only while this is left
@@ -80,7 +102,8 @@ const sha = (s) => crypto.createHash('sha256').update(String(s), 'utf8').digest(
 function str(v, max) { return typeof v === 'string' && v.trim() ? v.slice(0, max) : null; }
 function nowOf(opts) { return opts && typeof opts.now === 'function' ? opts.now() : new Date(); }
 
-/** resolveRoot(opts) — opts.projectRoot, else CLAUDE_PROJECT_DIR (Claude Code sets it for hooks), else this file's project. */
+/** resolveRoot(opts) — opts.projectRoot, else CLAUDE_PROJECT_DIR (Claude Code sets it for hooks), else this file's
+ *  project; null when a plugin copy is not inside any project (WP 2.1). */
 function resolveRoot(opts) {
   if (opts && opts.projectRoot) return path.resolve(opts.projectRoot);
   const env = (opts && opts.env) || process.env;
@@ -88,9 +111,12 @@ function resolveRoot(opts) {
   return DEFAULT_ROOT;
 }
 
-/** loadScribe(root, opts) -> {SC, S, C} from the project's OWN forge-bin, or null (no scribe, or it does not load). */
+/** loadScribe(root, opts) -> {SC, S, C} from the project's OWN forge-bin, or null (no scribe, or it does not load,
+ *  or no root). WP 2.1 deliberately adds NO fallback to a plugin copy's sibling modules: that would start capturing
+ *  verbatim owner prompts in every folder the plugin hook fires in — an owner decision, not a path migration. */
 function loadScribe(root, opts) {
   if (opts && opts.scribe !== undefined) return opts.scribe;
+  if (!root) return null;
   const dir = path.join(root, '.claude', 'forge-bin');
   const files = ['forge-scribe.cjs', 'forge-scribe-store.cjs', 'forge-scribe-classify.cjs'].map((f) => path.join(dir, f));
   if (!files.every((f) => fs.existsSync(f))) return null;
@@ -207,10 +233,11 @@ function receiptLine(r, act) {
     else if (r.class === 'question' || r.class === 'ack') s += ' — answer it (' + CLI + ' transition ' + r.rid + ' answer --reason "...") or apply it with --prompt ' + r.pid;
     else if (act && (r.class === 'new' || r.class === 'change' || r.class === 'cancel')) s += ' — run ' + act.run_id + ' is active: ' + CLI + ' impact ' + r.rid + ' --run ' + act.run_id;
     if (r.truncated) s += ' (prompt longer than the cap: kept up to the cap)';
+    if (r.origin_uncertain) s += ' (origin uncertain: ' + oneLine(r.origin_reason || 'may be pasted system text', 70) + ' — check these are the owner\'s words)';
   }
   return oneLine(s, RECEIPT_MAX_CHARS);
 }
-const REPEAT_MAX_CHARS = 420;
+const REPEAT_MAX_CHARS = 600;
 /** repeatLine(captured) -> '[forge-scribe] R-n REPEAT x<n> of R-.. — the owner had to ask again: ...' + how to link it. */
 function repeatLine(r) {
   return oneLine('[forge-scribe] ' + r.rid + ' ' + r.repeat_note + ' — then: ' + CLI + ' transition ' + r.rid + ' repeat-rule --ref standing_rule:<id>|decision_logged:<event_id>', REPEAT_MAX_CHARS);
@@ -230,22 +257,42 @@ function runPrompt(payload, opts) {
     const env = opts.env || process.env;
     if (isOff(env.FORGE_SCRIBE_HOOK)) return out({ reason: 'disabled (FORGE_SCRIBE_HOOK=off)' });
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return out({ reason: 'no hook payload' });
-    const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
-    if (!prompt.trim()) return out({ reason: 'empty prompt' });
+    const rawPrompt = typeof payload.prompt === 'string' ? payload.prompt : '';
+    if (!rawPrompt.trim()) return out({ reason: 'empty prompt' });
     const root = resolveRoot(opts);
+    if (!root) return out({ reason: 'no project root found (a copy outside any project); nothing captured' });
     const mod = loadScribe(root, opts);
     if (!mod) return out({ reason: 'forge-scribe is not installed in this project' });
     const { SC, S, C } = mod;
+    //.8: leading harness blocks (<browser_instruction>, <ide_opened_file>, ...) are not owner words (header, 0)
+    let prompt = rawPrompt;
+    try {
+      const lead = typeof C.stripLeadingHarness === 'function' ? C.stripLeadingHarness(rawPrompt) : null;
+      if (lead && lead.stripped > 0 && typeof lead.text === 'string') {
+        if (!lead.text.trim()) {
+          if (typeof SC.recordSkip === 'function') SC.recordSkip('harness-only', { root, config: opts.config, now: opts.now, session_id: str(payload.session_id, 200), chars: rawPrompt.length, lockWaitMs: LOCK_WAIT_MS });
+          return out({ skipped: 'harness-only', reason: 'not an owner instruction (harness-only: ' + lead.stripped + ' leading block(s))' });
+        }
+        prompt = lead.text;
+      }
+    } catch { prompt = rawPrompt; } // fail-open: the old behaviour
     const machine = typeof C.machineSkip === 'function' ? C.machineSkip(prompt) : null;
-    if (machine) {
-      if (typeof SC.recordSkip === 'function') SC.recordSkip(machine, { root, config: opts.config, now: opts.now, session_id: str(payload.session_id, 200), chars: prompt.length, lockWaitMs: LOCK_WAIT_MS });
-      return out({ skipped: machine, reason: 'not an owner instruction (' + machine + ')' });
+    // WP 3.8 origin filter: a subagent hand-back / harness envelope is not the owner talking (see the header, 1b)
+    const origin = !machine && typeof SC.originOf === 'function' ? SC.originOf(prompt) : null;
+    const skipWhy = machine || (origin && origin.origin === 'system' ? 'system-origin' : null);
+    if (skipWhy) {
+      if (typeof SC.recordSkip === 'function') SC.recordSkip(skipWhy, { root, config: opts.config, now: opts.now, session_id: str(payload.session_id, 200), chars: prompt.length, lockWaitMs: LOCK_WAIT_MS });
+      return out({ skipped: skipWhy, reason: 'not an owner instruction (' + skipWhy + (machine ? '' : ': ' + origin.kind) + ')' });
     }
     const cfg = opts.config || C.loadConfig();
     const cap = Math.max(200, (Number(cfg.caps && cfg.caps.digest_max_chars) || DIGEST_MAX_CHARS) - DIGEST_SEPARATOR_RESERVE);
     const p = S.paths(root);
+    // WP 3.8: the digest comes from the owner view (only confirmed repeat links) when this project's scribe has it;
+    // WP I.8c: with the toggle-correction index, a tagged owner item shows its '[tc]' mark (an older scribe: no index)
+    const tagsOf = () => { try { return typeof SC.toggleTagIndex === 'function' ? SC.toggleTagIndex(p) : undefined; } catch { return undefined; } };
+    const digestOf = (st) => (typeof SC.digestOfState === 'function' ? SC.digestOfState(st, cap, cfg, tagsOf()) : S.buildDigest(st, cap));
     let pre = null;
-    if (fs.existsSync(p.ledger)) { try { pre = S.buildDigest(S.loadState(p), cap); } catch { pre = null; } }
+    if (fs.existsSync(p.ledger)) { try { pre = digestOf(S.loadState(p)); } catch { pre = null; } }
     const act = activeRunOf(root, opts);
     const captured = SC.capture(prompt, {
       root, config: cfg, source: 'hook', by: 'hook', now: opts.now, lockWaitMs: LOCK_WAIT_MS,
@@ -270,7 +317,7 @@ function runPrompt(payload, opts) {
     if (fs.existsSync(p.ledger)) {
       if (left() > 50) {
         try {
-          const post = S.buildDigest(S.loadState(p), cap);
+          const post = digestOf(S.loadState(p));
           const key = sessionKey(payload.session_id);
           const rec = sessionRecord(p, key);
           const seen = rec && typeof rec.digest_sha === 'string' ? rec.digest_sha : null;

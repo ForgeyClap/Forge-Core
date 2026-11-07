@@ -1,0 +1,127 @@
+{
+  "domain": "cli",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-cli/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-cli/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "cli-help-version",
+      "claim": "--help and --version work and exit 0; unknown flags fail cleanly with usage.",
+      "evidence_required": "The output and exit codes of --help, --version and an unknown flag.",
+      "how_to_run": "Run the tool with --help, --version and --bogus; quote each exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "--help and --version work and exit 0"
+      }
+    },
+    {
+      "id": "cli-exit-codes",
+      "claim": "Exit codes are distinct and correct; no path exits 0 on error.",
+      "evidence_required": "A failing-input test asserting a non-zero exit code, plus the documented code table.",
+      "how_to_run": "Run the failing-input test and quote the exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no path exits 0 on error (proven by a failing-input test)"
+      }
+    },
+    {
+      "id": "cli-stdio",
+      "claim": "Machine output goes to stdout and diagnostics to stderr; stdin is read when piped.",
+      "evidence_required": "A test capturing stdout and stderr separately, and one feeding stdin.",
+      "how_to_run": "Run the stream tests, or run the tool with 2>/dev/null and compare.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Machine output on stdout, diagnostics on stderr"
+      }
+    },
+    {
+      "id": "cli-pipe",
+      "claim": "A producer | tool | consumer pipeline round-trips without logs leaking into the data stream.",
+      "evidence_required": "The output of a real pipeline run.",
+      "how_to_run": "Run a pipeline such as echo <input> | tool | tool and quote the result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "a pipeline producer | tool | consumer round-trips without leaking logs into the data stream"
+      }
+    },
+    {
+      "id": "cli-no-destructive-default",
+      "claim": "No destructive default: dry-run, confirm and force are present and tested; a bare run is non-destructive.",
+      "evidence_required": "A test showing a bare run changes nothing and --dry-run previews.",
+      "how_to_run": "Run the destructive-path tests and quote them.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No destructive default: dry-run/confirm/force present and tested; a bare run is non-destructive."
+      }
+    },
+    {
+      "id": "cli-cross-platform",
+      "claim": "Paths and line endings are handled cross-platform with no unguarded POSIX-only assumption, and SIGINT exits cleanly.",
+      "evidence_required": "Test runs on each declared target OS, or a CI matrix run.",
+      "how_to_run": "Run the suite on each declared OS (or read the CI matrix result) and list which OSes really ran.",
+      "severity": "block",
+      "honesty_note": "An OS that was not actually run is NOT_RUN for that OS; never claim cross-platform from one machine.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Cross-platform path + line-ending handling"
+      }
+    },
+    {
+      "id": "cli-tests",
+      "claim": "Tests cover exit codes, stdout, stderr and pipe; core logic is unit-testable without a subprocess.",
+      "evidence_required": "The test suite output with cases for each of the four.",
+      "how_to_run": "Run the test suite and quote the exit code and case names.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Tests cover exit codes + stdout + stderr + pipe"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Irreversible actions need an explicit flag or confirmation, with --dry-run.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "irreversible actions need an explicit flag or confirmation, with --dry-run."
+      }
+    },
+    {
+      "gate": "Secrets and tokens come from env or a config file, never echoed or baked into the binary.",
+      "source": {
+        "path": ".claude/skills/forge-cli/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "never echoed or baked into the binary"
+      }
+    }
+  ],
+  "not_applicable_when": [],
+  "gaps": []
+}

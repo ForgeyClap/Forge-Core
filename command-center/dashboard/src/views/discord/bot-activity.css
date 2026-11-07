@@ -1,7 +1,7 @@
 /*
  * BotActivitySection — the "Bot activity" panel (Command Center audit finding 31). Same
  * house rules as discord.css / projects-dir.css:
- *   - no raw hex/rgb/hsl — every colour a var(--forge-*) token, no new visual language.
+ *   - no raw hex/rgb/hsl — every colour a var(--fs-*) token, no new visual language.
  *   - a fresh `.fw-botact__*` prefix (this codebase's per-component CSS convention), reusing the
  *     `.fw-discord__row*` rows directly for the summary figures instead of inventing new rows.
  *   - list rows reuse `--fw-row-h` (styles/app.css), the same rhythm as the folder picker's rows.
@@ -12,14 +12,14 @@
 .fw-botact {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-4);
+  gap: var(--fs-space-4);
   min-inline-size: 0;
 }
 
 .fw-botact__states {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -28,24 +28,24 @@
 .fw-botact__state {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-1) var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-2);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-secondary);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface-2);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
 }
 
 .fw-botact__state-count {
-  font-weight: var(--forge-weight-semibold);
+  font-weight: 600;
 }
 
 .fw-botact__section {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
@@ -56,40 +56,40 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface-2);
 }
 
 .fw-botact__item,
 .fw-botact__job {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-block-size: var(--fw-row-h);
-  padding: var(--forge-space-1) var(--forge-space-3);
+  padding: var(--fs-space-1) var(--fs-space-3);
   min-inline-size: 0;
 }
 
 .fw-botact__item + .fw-botact__item,
 .fw-botact__job + .fw-botact__job {
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-start: 1px solid var(--fs-line);
 }
 
 .fw-botact__item-name {
   flex: 1 1 auto;
   min-inline-size: 0;
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink-2);
 }
 
 .fw-botact__item-meta {
   flex: 0 1 auto;
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 .fw-botact__item-value {
@@ -102,32 +102,32 @@
 
 .fw-botact__job-dot {
   flex: none;
-  padding-block-start: var(--forge-space-1);
+  padding-block-start: var(--fs-space-1);
 }
 
 .fw-botact__job-main {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: 1 1 auto;
   min-inline-size: 0;
-  padding-block: var(--forge-space-1);
+  padding-block: var(--fs-space-1);
 }
 
 .fw-botact__job-error {
-  padding: var(--forge-space-1) var(--forge-space-2);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-md);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-secondary);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  border: 1px dashed var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
   overflow-wrap: anywhere;
 }
 
 .fw-botact__notes {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -136,10 +136,10 @@
 .fw-botact__note {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 @media (max-width: 620px) {

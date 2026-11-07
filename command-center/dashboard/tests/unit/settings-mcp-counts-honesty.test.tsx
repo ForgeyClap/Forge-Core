@@ -26,7 +26,9 @@ import { PrototypeContext } from '@/prototype/state/prototype-store';
 import type { PrototypeState, StoreValue } from '@/prototype/state/prototype-store';
 import { EMPTY_DATASET } from '@/prototype/state/store-adapter';
 
-import SettingsView from '@/views/settings/SettingsView';
+// WP B6: the shipped page is the new one-page SettingsView; these checks keep the old twelve-section
+// screen (now the developer-only LegacySettingsView) honest until its parts are rebuilt in Dutch.
+import SettingsView from '@/views/settings/LegacySettingsView';
 
 /* ========================================================================== */
 /*  Harness                                                                    */

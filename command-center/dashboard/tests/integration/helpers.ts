@@ -4,7 +4,7 @@
  * One job: bring the REAL bridge up as a child process in a fully isolated
  * sandbox, hand the test a small typed client for its HTTP + WebSocket surface,
  * and tear it all down cleanly. Nothing here imports a bridge module — the whole
- * point of this suite is to exercise the shipped `node src/bridge/main.ts`
+ * point of this suite is to exercise the shipped `node archive/bridge/main.ts`
  * exactly as the browser reaches it, over the wire.
  *
  * ISOLATION — the part that must never leak.
@@ -78,7 +78,7 @@ import type {
 /* ========================================================================== */
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const BRIDGE_MAIN = path.join(REPO_ROOT, 'src', 'bridge', 'main.ts');
+const BRIDGE_MAIN = path.join(REPO_ROOT, 'archive', 'bridge', 'main.ts');
 const BIND = '127.0.0.1';
 
 /** The preload that turns a stdin sentinel into the bridge's own SIGINT path. */

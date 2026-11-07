@@ -1,0 +1,22 @@
+/*
+ * UsageLine — one quiet line above the composer (DESIGN.md §2). Not a banner, not a colour alone: an
+ * icon plus a sentence, in the caption ink, at the composer's column width.
+ */
+
+.fw-usage-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-2);
+  margin: 0 0 var(--fs-space-2);
+  padding-inline: var(--fs-space-2);
+  color: var(--fs-ink-2);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-snug);
+}
+
+.fw-usage-line__icon {
+  flex: none;
+  margin-block-start: 1px;
+  color: var(--fs-warn);
+}

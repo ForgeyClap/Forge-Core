@@ -1,0 +1,59 @@
+/*
+ * RouteFallback (WP B3-copy) — the lazy-screen loading line and its two honest end states.
+ * Tokens only, the same quiet look as the `.fw-empty` primitive; motion is the existing
+ * `.fw-icon--spin` (already off under prefers-reduced-motion).
+ */
+
+.fw-route-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fs-space-2);
+  min-block-size: 40vh;
+  padding: var(--fs-space-6) var(--fs-space-4);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-13);
+}
+
+.fw-route-fallback__spinner {
+  color: var(--fs-ink-3);
+}
+
+.fw-route-fallback--end {
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  text-align: center;
+}
+
+.fw-route-fallback__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 36px;
+  block-size: 36px;
+  margin-block-end: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-surface);
+  color: var(--fs-ink-2);
+}
+
+.fw-route-fallback__title {
+  font-size: var(--fs-text-14);
+  font-weight: 500;
+  color: var(--fs-ink);
+}
+
+.fw-route-fallback__detail {
+  max-inline-size: 40ch;
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
+}
+
+.fw-route-fallback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--fs-space-2);
+  margin-block-start: var(--fs-space-2);
+}

@@ -1,0 +1,357 @@
+{
+  "schema": 1,
+  "catalogue": "docs/forge-systeem/PROVIDER-CATALOGUE.md section 1 (checked 2026-11-01); local server hosts use 127.0.0.1 instead of localhost (see README 'Catalogue corrections')",
+  "providers": [
+    {
+      "id": "openai", "label": "OpenAI", "adapter": "openai-compatible", "apiStyle": "responses",
+      "baseURL": "https://api.openai.com/v1", "authType": "bearer", "keyEnvName": "OPENAI_API_KEY",
+      "optionalHeaderEnv": { "OpenAI-Organization": "OPENAI_ORG_ID", "OpenAI-Project": "OPENAI_PROJECT_ID" },
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": "ChatGPT consumer plans are not API keys; use a platform API key.",
+      "quirks": { "storeFalse": true },
+      "notes": "/chat/completions also exists; Forge uses /responses. Streaming not confirmed on the page read.",
+      "docsURL": "https://developers.openai.com/api/reference/overview", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "anthropic", "label": "Anthropic API", "adapter": "anthropic", "apiStyle": null,
+      "baseURL": "https://api.anthropic.com", "authType": "bearer-or-x-api-key", "keyEnvName": "ANTHROPIC_API_KEY",
+      "optionalHeaderEnv": { "anthropic-workspace-id": "ANTHROPIC_WORKSPACE_ID" },
+      "extraHeaders": { "anthropic-version": "2026-10-21" }, "modelsMode": "endpoint", "modelsEndpoint": "/v1/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": "Claude Free/Pro/Max/Ultra subscriptions are not API credentials; use an API key from the Claude Console.",
+      "notes": "Never send temperature, top_p or top_k at anthropic-version 2026-10-21 (400). Unscoped keys need anthropic-workspace-id.",
+      "docsURL": "https://platform.claude.com/docs/en/api/overview", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "gemini-native", "label": "Google Gemini (native)", "adapter": "gemini-native", "apiStyle": null,
+      "baseURL": "https://generativelanguage.googleapis.com/v1beta", "authType": "x-goog-api-key", "keyEnvName": "GEMINI_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": "Use an AI Studio or Vertex API key; never Gemini CLI OAuth tokens.",
+      "caveat": "Native chat (generateContent / streamGenerateContent) is NOT implemented: not verified on 2026-11-01. Chat through gemini-openai.",
+      "notes": "New /v1beta/interactions endpoint exists. Gemini 4 / 3.6+ ignore a custom temperature.",
+      "docsURL": "https://ai.google.dev/api/models", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "gemini-openai", "label": "Google Gemini (OpenAI-compatible)", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai", "authType": "bearer", "keyEnvName": "GEMINI_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": "Use an AI Studio or Vertex API key; never Gemini CLI OAuth tokens.",
+      "notes": "Beta. Do not send reasoning_effort and thinking_level together; Gemini-only extras go in extra_body.",
+      "docsURL": "https://ai.google.dev/gemini-api/docs/openai", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "xai", "label": "xAI (Grok API)", "adapter": "openai-compatible", "apiStyle": "responses",
+      "baseURL": "https://api.x.ai/v1", "authType": "bearer", "keyEnvName": "XAI_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": "SuperGrok subscriptions are not API keys.",
+      "notes": "Models route unverified (Test falls back to a 1-token chat when it 404s). logprobs ignored on grok-4.20+; aliases name, name-latest, name-date.",
+      "docsURL": "https://docs.x.ai/docs/overview", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "mistral", "label": "Mistral", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.mistral.ai/v1", "authType": "bearer", "keyEnvName": "MISTRAL_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null, "quirks": { "renameParams": { "seed": "random_seed" } },
+      "notes": "tool_choice none/auto/any/required; stream ends with data: [DONE].",
+      "docsURL": "https://docs.mistral.ai/api/", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "deepseek", "label": "DeepSeek", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.deepseek.com", "authType": "bearer", "keyEnvName": "DEEPSEEK_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Models deepseek-flash, deepseek-v4-pro. An Anthropic-format route exists at /anthropic (not used).",
+      "docsURL": "https://api-docs.deepseek.com/", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "groq", "label": "Groq", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.groq.com/openai/v1", "authType": "bearer", "keyEnvName": "GROQ_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "quirks": { "dropParams": ["logprobs", "logit_bias", "top_logprobs"], "forceN1": true, "dropMessageName": true, "temperatureFloor": 1e-8 },
+      "notes": "400 on logprobs, logit_bias, top_logprobs and messages[].name; n must be 1; temperature 0 is sent as 1e-8.",
+      "docsURL": "https://console.groq.com/docs/openai", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "together", "label": "Together AI", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.together.ai/v1", "authType": "bearer", "keyEnvName": "TOGETHER_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "US-only host https://us-api.together.ai/v1 costs 1.25x. Ids are org/model; reasoning arrives in reasoning/reasoning_content (not surfaced yet); moderations 404.",
+      "docsURL": "https://docs.together.ai/docs/openai-api-compatibility", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "fireworks", "label": "Fireworks AI", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.fireworks.ai/inference/v1", "authType": "bearer", "keyEnvName": "FIREWORKS_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Models route unverified (Test falls back to a 1-token chat). Ids accounts/fireworks/models/...; silently lowers max_tokens unless context_length_exceeded_behavior is set; usage in the last chunk.",
+      "docsURL": "https://docs.fireworks.ai/tools-sdks/openai-compatibility", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "perplexity", "label": "Perplexity", "adapter": "openai-compatible", "apiStyle": "responses",
+      "baseURL": "https://api.perplexity.ai", "authType": "bearer", "keyEnvName": "PERPLEXITY_API_KEY",
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "chat-1-token",
+      "streaming": "unverified", "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "caveat": "Sonar Chat Completions support ended 2026-09-27 (requests are reformulated as the Agent API / Open Responses). The Agent API path was not verified; treat this provider as unreliable until a live key test passes.",
+      "notes": "No models route documented; enter a model id. Built-in tools web_search, fetch_url. Orchestrator preview at /orchestrator/v1.",
+      "docsURL": "https://docs.perplexity.ai/", "verifiedOn": "2026-11-01", "verification": "unverified"
+    },
+    {
+      "id": "cohere", "label": "Cohere (compatibility API)", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.cohere.ai/compatibility/v1", "authType": "bearer", "keyEnvName": "COHERE_API_KEY",
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "chat-1-token",
+      "streaming": "unverified", "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "quirks": { "dropParams": ["store", "metadata", "logit_bias", "n", "modalities", "prediction", "audio", "service_tier", "parallel_tool_calls"] },
+      "notes": "Models route not on the page read; enter a model id. Reasoning none/high only. Also served from api.cohere.com.",
+      "docsURL": "https://docs.cohere.com/docs/compatibility-api", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "openrouter", "label": "OpenRouter", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://openrouter.ai/api/v1", "authType": "bearer", "keyEnvName": "OPENROUTER_API_KEY",
+      "extraHeaders": { "X-OpenRouter-Title": "Forge Systeem" }, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "SSE comment lines (': OPENROUTER PROCESSING'); usage in the last chunk; /responses also exists; ids org/model.",
+      "docsURL": "https://openrouter.ai/docs/api-reference/overview", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "nvidia-nim", "label": "NVIDIA NIM", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://integrate.api.nvidia.com/v1", "authType": "bearer", "keyEnvName": "NVIDIA_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Bearer nvapi-... (secondary sources). Free tier about 40 RPM (forum only). Some models are container-only. The Forge tree already has nvidia-provider.cjs for Boss bulk work.",
+      "docsURL": "https://docs.api.nvidia.com/nim/reference/llm-apis", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "azure-openai", "label": "Azure OpenAI (v1)", "adapter": "openai-compatible", "apiStyle": "responses",
+      "baseURL": "https://{resource}.openai.azure.com/openai/v1",
+      "templateVars": { "resource": { "pattern": "^[a-z0-9][a-z0-9-]{1,62}$", "description": "Azure OpenAI resource name" } },
+      "authType": "api-key-header", "keyEnvName": "AZURE_OPENAI_API_KEY",
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "chat-1-token",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "model = deployment name; no api-version on v1. Also served at https://{resource}.services.ai.azure.com/openai/v1. Entra ID bearer tokens (scope https://ai.azure.com/.default) are not implemented.",
+      "docsURL": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "bedrock", "label": "Amazon Bedrock (API key)", "adapter": "openai-compatible", "apiStyle": "responses",
+      "baseURL": "https://bedrock-runtime.{region}.amazonaws.com/openai/v1",
+      "templateVars": { "region": { "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$", "default": "us-east-1", "description": "AWS region; long-term keys are region-bound" } },
+      "authType": "bearer", "keyEnvName": "AWS_BEARER_TOKEN_BEDROCK",
+      "extraHeaders": {}, "modelsMode": "controlplane", "modelsEndpoint": null, "testCall": "chat-1-token",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "caveat": "Only Bedrock API keys (Bearer) are supported. IAM credentials need SigV4, which is not implemented. Model listing needs the control plane (ListFoundationModels), not implemented: enter an inference-profile id.",
+      "notes": "Short-term keys last at most 12 h. GPT models need inference-profile ids (us.openai.gpt-5.6-sol). Mantle host https://bedrock-mantle.{region}.api.aws/v1 has /models (prefix varies).",
+      "docsURL": "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "huggingface", "label": "Hugging Face Inference Providers", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://router.huggingface.co/v1", "authType": "bearer", "keyEnvName": "HF_TOKEN",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Fine-grained token with 'Make calls to Inference Providers'. Chat completions only; id suffixes :fastest, :cheapest, :preferred, :groq.",
+      "docsURL": "https://huggingface.co/docs/inference-providers/index", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "cerebras", "label": "Cerebras", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.cerebras.ai/v1", "authType": "bearer", "keyEnvName": "CEREBRAS_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null, "quirks": { "forceN1": true },
+      "notes": "Models path unverified. n must be 1; no external image URLs; no tools together with response_format on gpt-oss-120b.",
+      "docsURL": "https://inference-docs.cerebras.ai/resources/openai", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "sambanova", "label": "SambaNova", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.sambanova.ai/v1", "authType": "bearer", "keyEnvName": "SAMBANOVA_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null, "quirks": { "forceN1": true },
+      "notes": "Models route unverified. n>1 with tools gives 400; at most 25 keys per user; tools via Responses.",
+      "docsURL": "https://docs.sambanova.ai/docs/en/features/openai-compatibility", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "moonshot", "label": "Moonshot (Kimi)", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.moonshot.ai/v1", "authType": "bearer", "keyEnvName": "MOONSHOT_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Models route unverified. Docs at platform.kimi.ai; China host not verified.",
+      "docsURL": "https://platform.kimi.ai/docs/guide/start-using-kimi-api", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "zhipu-zai", "label": "Z.ai (Zhipu GLM)", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.z.ai/api/paas/v4", "authType": "bearer", "keyEnvName": "ZAI_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Models route unverified. The GLM Coding Plan uses a separate endpoint (unverified, not added).",
+      "docsURL": "https://docs.z.ai/guides/overview/quick-start", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "qwen-dashscope", "label": "Alibaba Model Studio (Qwen)", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://{workspace}.{region}.maas.aliyuncs.com/compatible-mode/v1",
+      "templateVars": {
+        "workspace": { "pattern": "^[A-Za-z0-9-]{1,64}$", "description": "Model Studio workspace id" },
+        "region": { "pattern": "^(ap-southeast-1|us-east-1)$", "default": "ap-southeast-1", "description": "Keys are region-bound (wrong region gives 401)" }
+      },
+      "authType": "bearer", "keyEnvName": "DASHSCOPE_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null, "quirks": { "streamUsageOption": true, "noToolsWhileStreaming": true },
+      "notes": "Models route unverified. Tools are not supported together with stream=true: the adapter sends such a request without streaming.",
+      "docsURL": "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "ollama-local", "label": "Ollama (this PC)", "adapter": "ollama", "apiStyle": "chat-completions",
+      "baseURL": "http://127.0.0.1:{port}",
+      "templateVars": { "port": { "pattern": "^[0-9]{2,5}$", "default": "11434", "description": "Ollama server port" } },
+      "authType": "none", "keyEnvName": null,
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/api/tags", "healthPath": "/api/version", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": true, "subscription": false, "noticeRequired": false,
+      "tosNote": null, "quirks": { "dropParams": ["tool_choice", "logprobs", "top_logprobs", "n"], "streamUsageOption": true },
+      "notes": "Chat through /v1/chat/completions; list, pull, delete, show and the num_ctx option through the native /api. /v1/responses is stateless. Local and free.",
+      "docsURL": "https://docs.ollama.com/api/openai-compatibility", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "ollama-cloud", "label": "Ollama Cloud", "adapter": "ollama", "apiStyle": "chat-completions",
+      "baseURL": "https://ollama.com", "authType": "bearer", "keyEnvName": "OLLAMA_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/api/tags", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": true,
+      "tosNote": "Prompts leave this PC and are processed by Ollama's cloud; read Ollama's privacy terms first.",
+      "quirks": { "dropParams": ["tool_choice", "logprobs", "top_logprobs", "n"] },
+      "notes": "No stateful Responses. No pull or delete in the cloud. A signed-in local server can also call *:cloud models.",
+      "docsURL": "https://docs.ollama.com/api/introduction", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "lmstudio", "label": "LM Studio", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "http://127.0.0.1:{port}/v1",
+      "templateVars": { "port": { "pattern": "^[0-9]{2,5}$", "default": "1234", "description": "LM Studio server port" } },
+      "authType": "none", "keyEnvName": null,
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": "unverified", "local": true, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Also /responses and /embeddings.",
+      "docsURL": "https://lmstudio.ai/docs/developer/openai-compat", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "llamacpp", "label": "llama.cpp server", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "http://127.0.0.1:{port}/v1",
+      "templateVars": { "port": { "pattern": "^[0-9]{2,5}$", "default": "9931", "description": "llama-server port (README says 9931; older builds 8080)" } },
+      "authType": "bearer-optional", "keyEnvName": "LLAMA_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "healthPath": "/health", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": true, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "GET /health is public (503 while loading, 200 ready). Optional --api-key. An Anthropic-compatible route also exists.",
+      "docsURL": "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "vllm", "label": "vLLM", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "http://127.0.0.1:{port}/v1",
+      "templateVars": { "port": { "pattern": "^[0-9]{2,5}$", "default": "8000", "description": "vLLM server port (default not confirmed on the page read)" } },
+      "authType": "bearer-optional", "keyEnvName": "VLLM_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": "unverified", "local": true, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "parallel_tool_calls supported; auto-tool flags unverified. Re-fetch the online-serving page before relying on defaults.",
+      "docsURL": "https://docs.vllm.ai/en/latest/serving/online_serving/", "verifiedOn": "2026-11-01", "verification": "unverified"
+    },
+    {
+      "id": "jan", "label": "Jan", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "http://127.0.0.1:{port}/v1",
+      "templateVars": { "port": { "pattern": "^[0-9]{2,5}$", "default": "1337", "description": "Jan API server port" } },
+      "authType": "bearer-optional", "keyEnvName": "JAN_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": "unverified", "toolCalling": "unverified", "local": true, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "/chat/completions only. The model must exist in Jan (else 404). Models route not documented; catalogue section 5 lists it as the test call.",
+      "docsURL": "https://docs.jan.ai/desktop/api-server", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "cloudflare-workers-ai", "label": "Cloudflare Workers AI", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+      "templateVars": { "account_id": { "pattern": "^[a-f0-9]{32}$", "description": "Cloudflare account id" } },
+      "authType": "bearer", "keyEnvName": "CLOUDFLARE_API_TOKEN",
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "chat-1-token",
+      "streaming": true, "toolCalling": "unverified", "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Models route not on the page read; enter a model id (@cf/...). /responses only for @cf/openai/gpt-oss* and non-streaming. Free tier not on the page.",
+      "docsURL": "https://developers.cloudflare.com/workers-ai/configuration/open-ai-compatibility/", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "vercel-ai-gateway", "label": "Vercel AI Gateway", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "https://ai-gateway.vercel.sh/v1", "authType": "bearer", "keyEnvName": "AI_GATEWAY_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": false, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Ids provider/model. An API key beats a Vercel OIDC token (OIDC not implemented).",
+      "docsURL": "https://vercel.com/docs/ai-gateway/openai-compat", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "litellm-proxy", "label": "LiteLLM proxy", "adapter": "openai-compatible", "apiStyle": "chat-completions",
+      "baseURL": "http://127.0.0.1:{port}",
+      "templateVars": { "port": { "pattern": "^[0-9]{2,5}$", "default": "4000", "description": "LiteLLM proxy port" } },
+      "authType": "bearer-optional", "keyEnvName": "LITELLM_API_KEY",
+      "extraHeaders": {}, "modelsMode": "endpoint", "modelsEndpoint": "/models", "testCall": "models",
+      "streaming": true, "toolCalling": true, "local": true, "subscription": false, "noticeRequired": false,
+      "tosNote": null,
+      "notes": "Pass-through for stream and tools. Master or virtual key header unverified (Bearer assumed). Virtual keys and the UI need a database. 0.0.0.0 is the bind address; clients connect to 127.0.0.1.",
+      "docsURL": "https://docs.litellm.ai/docs/proxy/quick_start", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "claude-code-cli", "label": "Claude Code (your own sign-in)", "adapter": "cli-claude", "apiStyle": null,
+      "baseURL": null, "authType": "cli-managed", "keyEnvName": null,
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": ["sonnet", "opus", "fable", "haiku"], "testCall": "cli-version",
+      "streaming": true, "toolCalling": "internal", "local": false, "subscription": true, "noticeRequired": true,
+      "tosNote": "Forge only starts the unmodified claude program; you sign in inside Claude Code yourself. Forge never reads, copies or stores your Claude sign-in. Many agents at once use your plan limits faster.",
+      "command": "claude", "cliArgs": ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"], "forbiddenArgs": ["--bare"],
+      "notes": "Chats run through the existing gateway exec pipeline (exec-lifecycle.mjs / exec-argv.mjs), not through this module. Static models are the CLI's own aliases.",
+      "docsURL": "https://code.claude.com/docs/en/legal-and-compliance", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "codex-cli", "label": "Codex (your own sign-in)", "adapter": "cli-codex", "apiStyle": null,
+      "baseURL": null, "authType": "cli-managed", "keyEnvName": null,
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "cli-version",
+      "streaming": true, "toolCalling": "internal", "local": false, "subscription": true, "noticeRequired": true,
+      "tosNote": "Forge only starts the unmodified codex program (app-server over stdio); you sign in with codex login yourself. Forge never reads, copies or stores Codex credentials and never starts a login for you.",
+      "command": "codex", "cliArgs": ["app-server"],
+      "notes": "Wire format pinned to codex-cli 0.156.1 (codex app-server generate-json-schema). Model list via model/list once connected (not used yet).",
+      "docsURL": "https://learn.chatgpt.com/docs/app-server", "verifiedOn": "2026-11-01", "verification": "verified"
+    },
+    {
+      "id": "gemini-cli", "label": "Gemini CLI (not recommended)", "adapter": "cli-generic", "apiStyle": null,
+      "baseURL": null, "authType": "cli-managed", "keyEnvName": null,
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "cli-version",
+      "streaming": "unverified", "toolCalling": "internal", "local": false, "subscription": true, "noticeRequired": true,
+      "tosNote": "Reusing Gemini CLI OAuth tokens is forbidden; use a Gemini API key provider instead.",
+      "caveat": "Detection only (--version). Headless chat is not implemented: flags unverified.",
+      "command": "gemini",
+      "docsURL": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/resources/faq.md", "verifiedOn": "2026-11-01", "verification": "partial"
+    },
+    {
+      "id": "grok-build-cli", "label": "Grok Build CLI", "adapter": "cli-generic", "apiStyle": null,
+      "baseURL": null, "authType": "cli-managed", "keyEnvName": null,
+      "extraHeaders": {}, "modelsMode": "static", "modelsEndpoint": null, "staticModels": [], "testCall": "cli-version",
+      "streaming": "unverified", "toolCalling": "internal", "local": false, "subscription": true, "noticeRequired": true,
+      "tosNote": "SuperGrok sign-in is allowlisted by tier; xAI terms for third-party launchers were not found.",
+      "caveat": "Detection only (--version). A bare grok on PATH may be the unrelated third-party @vibe-kit/grok-cli; check the reported version text. Headless chat is not implemented (docs found by search only).",
+      "command": "grok", "cliArgs": ["-p", "--output-format", "streaming-json"],
+      "docsURL": "https://docs.x.ai/build/cli/headless-scripting", "verifiedOn": "2026-11-01", "verification": "unverified"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 ---
 name: forge-projectbrain
-description: Generates a top-tier project-specific CLAUDE.md. Use when a project has no CLAUDE.md or a thin/generic one — project brain, onboarding, project identity, hard rules, governance.
+description: "User-invoked only: /forge-projectbrain. Generates a project-specific CLAUDE.md (identity, commands, hard rules, governance); manual because CLAUDE.md is always-loaded governance."
+disable-model-invocation: true
 ---
 
 # Forge playbook — top-tier project-CLAUDE.md generation
@@ -32,7 +33,8 @@ repeatable METHOD for producing that shape for any Forge project; `forge-bin/for
 - **Emphasis discipline**: reserve IMPORTANT/YOU-MUST-style emphasis for the 1-2 truly critical rules
   (honesty, project-isolation) — emphasizing everything is the same as emphasizing nothing.
 - **A practical line budget** (guidance, not a hard gate): keep the generated document in the neighborhood of
-  ~150-200 lines for a typical project. The verbatim anti-generic guardrails block for website-flavored
+  ~150-200 lines for a typical project. Line count is a symptom that can start a review, never a goal and never
+  a reported result ("cut to N lines" is not an outcome; see the pointer doctrine below). The verbatim anti-generic guardrails block for website-flavored
   projects is a deliberate, documented exception to that budget (see step 3) — verbatim reuse there is a
   strength, not bloat, because it is the SAME trusted rule every project quotes.
 - **KEY INSIGHT — skills/docs are NOT reliably auto-invoked.** Independent evals (Vercel) measured a 56%
@@ -82,7 +84,9 @@ repeatable METHOD for producing that shape for any Forge project; `forge-bin/for
    actually detected, never an invented project-specific rule), the adapted environment ruleset from step 2,
    `## Boundaries` (universal off-limits dirs — `node_modules/`, build output, `.git/` — plus this project's
    own `.claude/` when it genuinely exists), and `## Detail docs` (real `@path` imports of the docs found in
-   step 1, or an honest "none found yet" note — never a fabricated pointer to a file that doesn't exist).
+   step 1, or an honest "none found yet" note — never a fabricated pointer to a file that doesn't exist). The
+   companion tool emits `@path` imports today; for a detail doc that is not needed in every session, a plain
+   backticked pointer with a trigger is the better carrier (see the pointer doctrine below).
 
 5. **Emit a real `## Hard Rules` section wired to `FORGE_PROJECT_HARD_RULES.json`, then `## Governance`, and
    SAFE-MERGE the write.** Start from Forge's universal non-negotiables (project isolation, honesty core,
@@ -100,6 +104,26 @@ repeatable METHOD for producing that shape for any Forge project; `forge-bin/for
    exists with NO markers, refuse to write unless the caller explicitly opts into a full overwrite (`--force`) —
    an unmarked file is presumed hand-authored by the owner and must never be silently clobbered.
 
+## Pointer and slimming doctrine (graft)
+Applies when the generated file points at detail docs, and when a re-generation would shorten or move text.
+- **Every pointer names its trigger.** Write when to read the doc (the task, error or folder that should send
+  the agent there) plus one line on what it holds. A bare "see X" gives the agent no reason to open it.
+- **No false pointers.** Before writing a pointer, open the target and confirm the content is there.
+- **`@path` saves no context.** An import is expanded in full at session start, so it organises but does not
+  slim. To take text out of the always-loaded set, use a backticked pointer with a trigger (no `@`), or turn a
+  procedure into a skill.
+- **Move verbatim, shorten separately.** Text moved out of a CLAUDE.md is copied byte for byte. Shortening is
+  a separate, declared change; diff its conditions, numbers and negations word by word.
+- **Scope.** Project names, paths, ports and deploy targets stay in the project file, never in the global
+  `~/.claude/CLAUDE.md` (editing that file needs the owner's permission).
+- **Context routing (optional, monorepos).** When a project has folder-scoped CLAUDE.md files, the root file
+  may carry a short `## Context routing` list: one line per folder file with the work that should send the
+  agent there (for example "API handlers: `src/api/CLAUDE.md`"). Emit it only for folder files that really
+  exist. Claude Code also reads a folder's CLAUDE.md when it works on files there (Claude Code memory docs;
+  not re-checked in this package), so the list is a routing aid, not a loader.
+- Auditing an existing CLAUDE.md with these rules is `claude-md-improver` (its Forge addendum); the general
+  writing craft is `forge-skill-authoring`.
+
 ## Using the companion tool
 ```
 node .claude/forge-bin/forge-projectbrain.cjs detect --dir <projectDir> [--json]
@@ -115,6 +139,7 @@ Architecture-entry-pointer check).
 - Never invent a stack, framework, version, port, directory, doc, or script the real files don't show — an
   honest "not detected" note beats a plausible-looking guess, in every one of the five core sections.
 - Never silently overwrite an owner-authored CLAUDE.md that has no Forge markers.
+- Never report a line-count reduction as the result of a generation or a re-generation.
 - Every environment-adapted rule must carry a `[<ProjectName>]` flag; unflagged text must be the verbatim
   universal guardrail/honesty-core wording, not a paraphrase.
 - Never render an excluded phrase (obvious advice, "write clean code"-style filler) or a pasted fenced code
@@ -124,3 +149,17 @@ Architecture-entry-pointer check).
 - This skill produces documentation/config only — it does not touch secrets, does not deploy, and does not
   register the `projectbrain_generated` event_type itself (the event_type is registered in log-event.cjs;
   the calling Boss/skill step owns the real log call, same doctrine as forge-scout.cjs/forge-capabilities.cjs).
+
+## Provenance (SA-W1-B4)
+The pointer and slimming doctrine is rewritten in Forge words (principles only, no sentence copied). Fetched
+read-only with `gh api`, scanned for hidden Unicode (clean), treated as untrusted data.
+
+| Source | Path | Pinned SHA | Licence | Taken | Excluded |
+|---|---|---|---|---|---|
+| daymade/claude-code-skills | `daymade-claude-code/claude-md-progressive-disclosurer/SKILL.md` | 8ebd4b540739966edd565dbdaa9b57717b93e78c | MIT | translated from Chinese: line count as symptom, pointer trigger, false-pointer gate, `@import` saves no context, move versus compress, global versus project scope | its three Python scripts and tests (they write files without a dry run), the case studies |
+| sickn33/agentic-awesome-skills (mirror of kromahlusenii-ops/ham) | `plugins/agentic-awesome-skills-claude/skills/hierarchical-agent-memory/SKILL.md` | 48de968b4615c294de601f72268aa7be88dde863 | MIT | idea only: a root "Context routing" list pointing at folder-scoped CLAUDE.md files | the `.memory/` layer, the localhost dashboard, token-savings and carbon claims, its commands; the original ham repo was not read |
+
+MIT notice: "Permission is hereby granted, free of charge, to any person obtaining a copy of this software ...
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of
+the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND." Copyright (c) 2025 daymade; the
+sickn33 mirror's holder was not read (MIT confirmed through the GitHub API only).

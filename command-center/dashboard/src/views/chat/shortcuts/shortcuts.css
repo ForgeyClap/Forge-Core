@@ -1,0 +1,60 @@
+/* Shortcut overlay (WP B3). Tokens only. Three groups; keys right-aligned in a fixed column. */
+
+.fw-shortcuts__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-5);
+}
+
+.fw-shortcuts__title {
+  margin: 0 0 var(--fs-space-2);
+  font: 600 var(--fs-text-12) / 1 var(--fs-font-body);
+  letter-spacing: 0;
+  color: var(--fs-ink-3);
+}
+
+.fw-shortcuts__list {
+  margin: 0;
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-shortcuts__row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--fs-space-4);
+  padding-block: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
+}
+
+.fw-shortcuts__keys {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--fs-space-1);
+}
+
+.fw-shortcuts__alt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+}
+
+.fw-shortcuts__or {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fw-shortcuts__label {
+  margin: 0;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
+}
+
+@media (max-width: 640px) {
+  .fw-shortcuts__row {
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: var(--fs-space-3);
+  }
+}

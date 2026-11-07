@@ -114,6 +114,8 @@ function renderComposer(state: PrototypeState, onSend: ComposerProps['onSend'] =
     }),
     state,
   );
+  // Redesign 2A: attach, mode, model and effort live in the composer's "+" tray now; open it.
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   return { ...utils, onSend };
 }
 

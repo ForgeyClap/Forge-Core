@@ -1,0 +1,3453 @@
+{
+  "jobs": {
+    "title": "Klussen & bewijs",
+    "subtitle": "Elke klus van {project}: wat er gedaan is en het bewijs dat hij af is.",
+    "noProject": {
+      "title": "Nog geen project gekozen",
+      "body": "Kies bij Mijn projecten een project. Daarna zie je hier zijn klussen."
+    },
+    "loading": "Klussen ophalen…",
+    "error": {
+      "title": "Forge is nu niet bereikbaar",
+      "body": "De klussen konden niet worden opgehaald. Je werk is niet weg; probeer het zo opnieuw.",
+      "retry": "Opnieuw proberen",
+      "details": "Technische details"
+    },
+    "empty": {
+      "title": "Nog geen klussen in dit project",
+      "action": "Naar Gesprekken"
+    },
+    "listLabel": "Klussen van dit project",
+    "truncated": "Niet alle klussen staan in deze lijst; Forge toont de nieuwste.",
+    "untitled": "Klus zonder titel",
+    "started": "Gestart {when}",
+    "lastWork": "Laatst bezig {when}",
+    "pendingAsksOne": "Er wacht 1 vraag op jou in Gesprekken.",
+    "pendingAsksMany": "Er wachten {count} vragen op jou in Gesprekken.",
+    "openAsks": "Naar Gesprekken",
+    "back": "Terug naar de lijst",
+    "idLabel": "Kenmerk",
+    "status": {
+      "busy": "Bezig",
+      "waiting": "Wacht op jou",
+      "done": "Klaar",
+      "paused": "Gepauzeerd"
+    },
+    "detail": {
+      "live": "Werkt nu",
+      "waiting": "Wacht op een antwoord van jou",
+      "stalled": "Al even stil: geen nieuwe stap in de laatste tien minuten",
+      "endedUnknown": "Nooit netjes afgesloten",
+      "failed": "Gestopt door een fout",
+      "finalized": "Afgerond en afgetekend",
+      "completed": "Afgerond",
+      "reportOnly": "Alleen een eindverslag, niet afgetekend",
+      "unknown": "Stand onbekend"
+    },
+    "sections": {
+      "tasks": "Taken",
+      "proof": "Opleverbewijs",
+      "checks": "Controles",
+      "reviews": "Beoordelingen",
+      "receipt": "Aftekening"
+    },
+    "detailLoading": "Details van deze klus ophalen…",
+    "detailError": "De details van deze klus konden niet worden opgehaald.",
+    "tasksEmpty": "Voor deze klus zijn geen taken vastgelegd.",
+    "taskUntitled": "Taak zonder omschrijving",
+    "taskBy": "door",
+    "someone": "een helper",
+    "taskState": {
+      "busy": "Bezig",
+      "done": "Klaar",
+      "failed": "Niet gelukt",
+      "open": "Nog niet begonnen"
+    },
+    "checksEmpty": "Nog geen controles vastgelegd voor deze klus.",
+    "checkPassed": "Geslaagd",
+    "checkFailed": "Niet geslaagd",
+    "checkUnnamed": "Controle zonder naam",
+    "forgeCheck": "Controle van Forge zelf: {passed} geslaagd, {failed} niet geslaagd",
+    "pointer": "Bewijs: {pointer}",
+    "reviewsEmpty": "Nog geen beoordeling vastgelegd.",
+    "reviewPending": "Uitslag nog niet bekend",
+    "receipt": {
+      "none": "Nog niet afgetekend. Een klus is pas echt klaar als hij is afgetekend.",
+      "invalid": "Er is een aftekening, maar die telt niet meer:",
+      "verified": "Afgetekend en opnieuw gecontroleerd",
+      "archival": "Afgetekend als oud verslag, niet opnieuw gecontroleerd",
+      "unverifiedArchival": "Afgetekend, maar niet meer te controleren",
+      "stale": "Verlopen: er is iets veranderd na de aftekening",
+      "unconfirmed": "Aftekening nog niet bevestigd",
+      "checking": "Aftekening wordt gecontroleerd",
+      "at": "Afgetekend {when}"
+    }
+  },
+  "automations": {
+    "title": "Automatiseringen",
+    "subtitle": "Wat Forge vanzelf mag doen. Je ziet hier de echte stand; wat nog niet vanuit de app kan, staat erbij.",
+    "notWired": "nog niet gekoppeld",
+    "notWiredWhy": "Dit kun je nog niet vanuit de app aanzetten.",
+    "loading": "Stand ophalen…",
+    "error": "Forge is nu niet bereikbaar, dus de stand is onbekend.",
+    "retry": "Opnieuw proberen",
+    "schedules": {
+      "title": "Geplande klussen",
+      "feel": "Een klus die op een vast moment vanzelf start, bijvoorbeeld elke ochtend.",
+      "empty": "Er zijn geen geplande klussen. Forge plant nooit zelf iets in.",
+      "switch": "Geplande klussen aan"
+    },
+    "discord": {
+      "title": "Discord",
+      "feel": "Forge op afstand gebruiken via je eigen Discord-bot. Staat uit tot je hem zelf aanzet.",
+      "state": {
+        "running": "Aan en verbonden",
+        "installed": "Ingesteld, maar uit",
+        "notInstalled": "Uit, nog niet ingesteld"
+      },
+      "autostartOn": "Start vanzelf mee met Forge",
+      "autostartOff": "Start niet vanzelf mee",
+      "open": "Discord-scherm openen"
+    },
+    "nightshift": {
+      "title": "Nachtdienst",
+      "feel": "Mag een onderbroken klus zelf hervatten en 's ochtends een kort verslag maken. Plant zichzelf nooit in.",
+      "on": "Aan in {project}",
+      "off": "Uit in {project}",
+      "unknown": "Stand onbekend in {project}",
+      "noProject": "Kies eerst een project om de stand te zien.",
+      "switch": "Nachtdienst aan"
+    }
+  },
+  "skillsPage": {
+    "title": "Vaardigheden & koppelingen",
+    "subtitle": "Wat het team in {project} kan, en met welke programma's het mag werken. Hier kijk je alleen; aanpassen gebeurt in de projectmap.",
+    "noProject": {
+      "title": "Nog geen project gekozen",
+      "body": "Kies bij Mijn projecten een project. Daarna zie je hier wat het team daar kan."
+    },
+    "loading": "Gegevens ophalen…",
+    "error": "Forge is nu niet bereikbaar. Probeer het zo opnieuw.",
+    "retry": "Opnieuw proberen",
+    "skills": {
+      "title": "Vaardigheden",
+      "countOne": "1 vaardigheid",
+      "countMany": "{count} vaardigheden",
+      "empty": "Dit project heeft nog geen vaardigheden.",
+      "noDescription": "Zonder beschrijving",
+      "missingFile": "Map zonder beschrijving",
+      "filterLabel": "Vaardigheden doorzoeken",
+      "filterPlaceholder": "Zoek een vaardigheid…",
+      "noMatch": "Geen vaardigheid gevonden met “{query}”."
+    },
+    "connections": {
+      "title": "Koppelingen",
+      "lead": "Forge kent deze koppelingen, maar zet er nooit zelf een aan. Hoe hoger de trede, hoe meer een koppeling mag.",
+      "countLine": "{total} bekend · {active} aangezet",
+      "registryMissing": "Dit project heeft geen lijst met koppelingen.",
+      "empty": "Geen koppelingen in deze groep.",
+      "needsKey": "Heeft een sleutel nodig",
+      "helpersOne": "1 helper mag deze gebruiken",
+      "helpersMany": "{count} helpers mogen deze gebruiken",
+      "helpersNone": "Geen helper mag deze gebruiken",
+      "tiers": {
+        "dormant": {
+          "title": "Slapend",
+          "feel": "Bekend, maar niet aangezet. Forge gebruikt ze niet."
+        },
+        "limited": {
+          "title": "Beperkt",
+          "feel": "Aangezet. Mag alleen lezen, of werken in een afgeschermde omgeving."
+        },
+        "writeGated": {
+          "title": "Schrijven alleen na toestemming",
+          "feel": "Aangezet en mag dingen veranderen of online zetten. Forge vraagt daarom altijd eerst."
+        }
+      },
+      "level": {
+        "l0": "Leest op deze pc",
+        "l1": "Leest online",
+        "l2": "Werkt afgeschermd",
+        "l3": "Schrijft",
+        "unknown": "Trede onbekend"
+      }
+    }
+  },
+  "projectsPage": {
+    "clearFilter": "Filter wissen",
+    "noMatch": {
+      "detail": "Geen project past bij “{query}”. Probeer een andere naam, beschrijving of soort."
+    },
+    "counts": {
+      "conversations": "Gesprekken",
+      "missions": "Klussen",
+      "tasks": "Taken",
+      "helpers": "Helpers"
+    },
+    "health": "Gezondheid",
+    "healthUnknown": "Gezondheid: niet gemeten",
+    "versions": {
+      "label": "Versies",
+      "app": "App {version}",
+      "appDev": "App: ontwikkelversie",
+      "project": "Forge {version} in {name}",
+      "projectNone": "Geen Forge-versie gevonden in {name}",
+      "noProject": "Kies een project om zijn Forge-versie te zien."
+    },
+    "add": {
+      "title": "Project toevoegen",
+      "close": "Sluiten",
+      "choiceLabel": "Wat wil je toevoegen?",
+      "newTab": "Nieuw project",
+      "existingTab": "Bestaande map",
+      "newLead": "Forge maakt een nieuwe projectmap en installeert Forge erin.",
+      "nameLabel": "Naam van het project",
+      "namePlaceholder": "bijvoorbeeld website-bakkerij",
+      "nameRule": "Letters, cijfers, spaties, - en _. Begin met een letter of cijfer.",
+      "create": "Maken",
+      "creating": "Bezig met maken…",
+      "createError": "Het project kon niet worden gemaakt: {reason}",
+      "install": {
+        "installing": "Forge wordt geïnstalleerd in {name}. Dit kan een paar minuten duren.",
+        "installed": "Klaar: Forge is geïnstalleerd in {name}.",
+        "failed": "Installeren is niet gelukt: {reason}",
+        "unknown": "Forge weet niet of het installeren gelukt is. Kijk over een paar minuten in de lijst."
+      },
+      "existingLead": "Kies de map van je project. Forge weigert een hele schijf, je hele gebruikersmap, de map Documenten zelf en mappen van Windows of programma's.",
+      "alreadyListed": "Deze map staat al in je lijst.",
+      "notWired": "Een bestaande map toevoegen kan nog niet vanuit de app (nog niet gekoppeld).",
+      "commandLead": "Forge in deze map installeren kan nu alleen met het commando hieronder. Staat de map in Documenten of op het Bureaublad, dan vindt Forge hem daarna vanzelf.",
+      "details": "Technische details",
+      "copy": "Kopiëren",
+      "copied": "Gekopieerd",
+      "commandUnknown": "Het commando is nu niet te tonen, want Forge is niet bereikbaar."
+    }
+  },
+  "nav": {
+    "primaryLabel": "Hoofdmenu",
+    "jobs": {
+      "label": "Klussen & bewijs",
+      "description": "Elke klus met zijn taken en het bewijs dat hij af is"
+    },
+    "automations": {
+      "label": "Automatiseringen",
+      "description": "Wat Forge vanzelf doet: geplande klussen, Discord en de nachtdienst"
+    },
+    "skills": {
+      "label": "Vaardigheden",
+      "description": "Wat het team kan en met welke programma's het mag werken"
+    },
+    "home": {
+      "label": "Start",
+      "description": "Overzicht van je werkplek en recent werk"
+    },
+    "projects": {
+      "label": "Mijn projecten",
+      "description": "Al je projecten op een rij"
+    },
+    "chat": {
+      "label": "Gesprekken",
+      "description": "Je gesprekken met Forge, per project"
+    },
+    "team": {
+      "label": "Team",
+      "description": "Wie aan een klus werkt en wat het team overlegt"
+    },
+    "mission": {
+      "label": "Klusverloop",
+      "description": "Hoe een klus loopt: wie waaraan werkt, wat gecontroleerd is en wat terugkwam"
+    },
+    "agents": {
+      "label": "Team",
+      "description": "De helpers van het team en wat ze nu doen"
+    },
+    "tasks": {
+      "label": "Taken",
+      "description": "De taken van een klus, per fase en op een bord"
+    },
+    "artifacts": {
+      "label": "Opgeleverd",
+      "description": "Verslagen, schermafdrukken, schema's en opleverbewijs"
+    },
+    "tests": {
+      "label": "Controles",
+      "description": "Alle controles en hun uitslag, per klus"
+    },
+    "activity": {
+      "label": "Activiteit",
+      "description": "Alles wat er tijdens de huidige klus gebeurt"
+    },
+    "discord": {
+      "label": "Discord",
+      "description": "Forge op afstand via Discord: aan of uit, status en gezondheid"
+    },
+    "settings": {
+      "label": "Instellingen",
+      "description": "Weergave, dichtheid en de verbinding met Claude Code"
+    },
+    "project": {
+      "label": "Projectoverzicht",
+      "description": "Het actieve project in detail"
+    },
+    "files": {
+      "label": "Bestanden & wijzigingen",
+      "description": "De bestanden van het project"
+    },
+    "mindmap": {
+      "label": "Plankaart",
+      "description": "Het plan van het actieve project als kaart (gemaakt bij grote klussen)"
+    },
+    "accounts": {
+      "label": "Accountwissel",
+      "description": "Welk Claude-account je hierna gebruikt en hoe vol elk account is"
+    },
+    "theme": {
+      "label": "Interne ontwerpreferentie",
+      "description": "Alleen voor het team dat Forge maakt: alle kleuren, statussen en bouwstenen op één pagina; geen onderdeel van het product"
+    },
+    "onboarding": {
+      "label": "Eerste start",
+      "description": "Forge instellen: controleren, pad kiezen, inloggen en een projectmap kiezen."
+    }
+  },
+  "shell": {
+    "sidebar": {
+      "brandTitle": "Forge Systeem",
+      "expandRail": "Zijbalk uitklappen",
+      "collapseRail": "Zijbalk inklappen",
+      "expandRailHint": "Zijbalk uitklappen (Ctrl + B)",
+      "collapseRailHint": "Zijbalk inklappen (Ctrl + B)",
+      "closeDrawer": "Menu sluiten",
+      "newProject": "Nieuw project",
+      "searchProjects": "Projecten zoeken",
+      "actionsFor": "Acties voor {name}",
+      "deleteConversation": "{title} verwijderen",
+      "newChatFailed": "Nieuw gesprek mislukt",
+      "newChatFailedDetail": "Forge kon geen nieuw gesprek starten.",
+      "projectCreated": "Project gemaakt",
+      "forgeInstalling": "Forge wordt geïnstalleerd…",
+      "forgeInstalled": "Forge geïnstalleerd",
+      "forgeInstalledDetail": "Forge is geïnstalleerd voor {id}.",
+      "forgeInstallFailed": "Installatie van Forge mislukt",
+      "forgeInstallFailedDetail": "De installatie van Forge is niet afgerond."
+    },
+    "connection": {
+      "connecting": "Verbinding maken met Forge",
+      "degraded": "Live-verbinding hapert; wordt hersteld",
+      "disconnected": "Geen verbinding met Forge",
+      "copy": "Kopiëren",
+      "copied": "Gekopieerd",
+      "runFrom": "Starten vanuit de projectmap · Luistert op",
+      "retryAuto": "probeert het vanzelf opnieuw",
+      "reconnecting": "opnieuw verbinden…",
+      "nextAttempt": "volgende poging over {seconds} s",
+      "working": "Bezig met de verbinding…",
+      "replaying": "Haalt {from}–{to} opnieuw op voor {stream}{tail}.",
+      "moreOne": " (+{count} andere stroom)",
+      "moreMany": " (+{count} andere stromen)",
+      "disconnectedShort": "Forge op deze pc reageert niet. Het opnieuw proberen gaat vanzelf.",
+      "disconnectedDesktop": "Forge reageert niet meer. Sluit Forge Systeem af en open het opnieuw.",
+      "retry": "Opnieuw proberen",
+      "technical": "Technische details",
+      "address": "Adres op deze pc:",
+      "disconnectedSimple": "Forge op deze pc reageert niet. Start Forge opnieuw zoals je het de eerste keer startte; daarna maakt de werkplek vanzelf weer verbinding."
+    },
+    "waiting": {
+      "label": "Wacht op jou",
+      "titleWithExcerpt": "Wacht op jou: \"{excerpt}\"",
+      "titleNoText": "Wacht op jou: er is een vraag, maar nog zonder tekst",
+      "moreOne": " (+{count} ander gesprek wacht ook)",
+      "moreMany": " (+{count} andere gesprekken wachten ook)"
+    },
+    "topbar": {
+      "openNav": "Menu openen"
+    },
+    "chip": {
+      "connecting": "Verbinden…",
+      "connectingTitle": "Verbinding maken met Forge op deze pc.",
+      "reconnecting": "Opnieuw verbinden",
+      "reconnectingTitle": "Forge is bereikbaar, maar de live-gegevens worden bijgewerkt.",
+      "disconnected": "Niet verbonden: start Forge",
+      "disconnectedTitle": "Forge op deze pc is niet bereikbaar. Zodra Forge draait, maakt de werkplek vanzelf weer verbinding.",
+      "connected": "Verbonden",
+      "connectedTitle": "Verbonden met Forge op deze pc.",
+      "notDetected": "Verbonden · Claude Code niet gevonden",
+      "notDetectedTitle": "Forge is verbonden, maar Claude Code is niet gevonden op deze pc.",
+      "notSignedIn": "Verbonden · niet ingelogd",
+      "notSignedInTitle": "Verbonden met Forge, maar Claude Code op deze pc is niet ingelogd.",
+      "readyTitleVersion": "Verbonden met Forge op deze pc · Claude Code {version}.",
+      "readyTitle": "Verbonden met Forge en met Claude Code op deze pc.",
+      "disconnectedDesktop": "Niet verbonden",
+      "disconnectedDesktopTitle": "Forge reageert niet meer. Sluit Forge Systeem af en open het opnieuw."
+    },
+    "skipToContent": "Naar de inhoud",
+    "closeDrawer": "Menu sluiten"
+  },
+  "chat": {
+    "composer": {
+      "planProposed": "Hierboven staat een voorstel voor een plan.",
+      "runPlan": "Voer dit plan uit",
+      "attachedFiles": "Bijgevoegde bestanden",
+      "removeAttachment": "{name} verwijderen",
+      "fieldLabel": "Bericht aan Forge in {title}",
+      "attach": "Bestand bijvoegen",
+      "attachHint": "Voeg een bestand toe aan dit bericht",
+      "attachDisabledHint": "Stuur eerst een bericht; daarna kun je een bestand bijvoegen",
+      "addContext": "Projectgegevens toevoegen",
+      "contextTitle": "Projectgegevens",
+      "contextFooter": "Voegt echte gegevens van dit project toe aan je bericht.",
+      "contextProject": "Dit project",
+      "contextProjectDetail": "Naam, soort en gezondheidsscore",
+      "contextRun": "Laatste klus",
+      "contextRunDetail": "De taken en hun status",
+      "contextFiles": "Gewijzigde bestanden",
+      "contextFilesDetail": "De huidige lijst met gewijzigde bestanden",
+      "contextTests": "Controles",
+      "contextTestsDetail": "De uitslagen van de controles",
+      "nothingToAdd": "Niets toe te voegen",
+      "nothingToAddDetail": "{label}: voor dit project is nog niets vastgelegd.",
+      "chooseSkill": "Kies een vaardigheid",
+      "skillsTitle": "Vaardigheden",
+      "skillsNone": "Voor dit project zijn nog geen vaardigheden vastgelegd.",
+      "skillsFooter": "Voegt een echte vaardigheid toe aan je bericht.",
+      "queue": "In de wachtrij zetten",
+      "queueHint": "Zet dit bericht in de wachtrij; het wordt echt verstuurd zodra de huidige klus klaar is",
+      "stop": "Stoppen",
+      "send": "Versturen",
+      "hintSend": "versturen",
+      "hintNewLine": "nieuwe regel",
+      "liveBefore": "Enter start een echt gesprek dat alleen bestanden mag maken of wijzigen in",
+      "liveFolderFallback": "de map van dit project",
+      "liveAfter": "; een verzoek voor een andere map wordt geweigerd, niet uitgevoerd",
+      "liveFullAccess": ". Volledige toegang staat aan: Forge vraagt niets meer vooraf en kan dan ook buiten deze map schrijven. Ga ervan uit dat deze klus overal op deze pc mag schrijven.",
+      "liveEnd": ".",
+      "scopeShort": "Forge werkt alleen in de map {folder}; andere mappen worden geweigerd.",
+      "scopeShortNoProject": "Forge werkt alleen in de map van dit project; andere mappen worden geweigerd.",
+      "exampleDetail": "Antwoorden zijn voorbeeldtekst die in dit tabblad verschijnt. Er wordt niets gemaakt en niets verstuurd.",
+      "fullAccessNote": "Volledige toegang: Forge voert alles uit zonder eerst te vragen.",
+      "planOnlyNote": "Alleen plannen: Forge leest mee en maakt een plan, maar verandert geen bestanden. Forge kan je in deze stand ook geen vragen stellen.",
+      "attachFailed": "Bijvoegen mislukt",
+      "attachFailedDetail": "Forge gaf geen bruikbare bijlage terug.",
+      "planNotStarted": "Plan niet gestart",
+      "planFollowUpRejected": "De automatische vervolgstap met het plan werd niet aangenomen.",
+      "followUpRejected": "De vervolgstap werd niet aangenomen.",
+      "messageRejected": "Het bericht werd niet aangenomen.",
+      "bypassConfirmTitle": "Volledige toegang aanzetten voor dit project?",
+      "bypassConfirmDetail": "Forge vraagt dan niets meer vooraf en kan ook buiten deze map schrijven, verwijderen en programma's starten. Dit geldt alleen voor dit project; je kunt het altijd weer uitzetten.",
+      "bypassConfirmYes": "Ja, volledige toegang",
+      "bypassConfirmNo": "Annuleren",
+      "dropHere": "Laat los om dit bij te voegen",
+      "dropNeedsConversation": "Eerst een bericht sturen"
+    },
+    "view": {
+      "label": "Chat",
+      "activeProject": "Actief project",
+      "unknownProject": "Onbekend project",
+      "newConversation": "Nieuw gesprek",
+      "noProject": "Nog geen project gekozen",
+      "noProjectDetail": "Kies links een project of maak een nieuw project. Daarna kun je hier je eerste bericht sturen.",
+      "noConversation": "Geen gesprek gekozen",
+      "noConversationDetail": "Kies links een gesprek om het hier te lezen. De gesprekken in deze weergave zijn voorbeelden op deze pc.",
+      "actions": "Acties voor dit gesprek",
+      "details": "Gegevens van dit gesprek",
+      "new": "Nieuw",
+      "delete": "Gesprek verwijderen",
+      "exampleThread": "· voorbeeldgesprek, niet live",
+      "mismatchBefore": "Dit gesprek hoort bij",
+      "mismatchMiddle": "; een bericht hier begint een nieuw gesprek in",
+      "mismatchAfter": "in plaats van dit gesprek voort te zetten.",
+      "notSent": "Bericht niet verstuurd",
+      "newFailed": "Nieuw gesprek mislukt",
+      "newFailedDetail": "Forge kon geen nieuw gesprek starten.",
+      "newPlaceholder": "In deze voorbeeldweergave kun je geen gesprek beginnen. De voorbeelden liggen vast.",
+      "deletePlaceholder": "In deze voorbeeldweergave kun je niets verwijderen. De voorbeelden liggen vast.",
+      "stopFailed": "Stoppen mislukt",
+      "revealStopped": "Voorbeeld gestopt",
+      "revealStoppedDetail": "Het voorbeeldantwoord stopte halverwege. Er is verder niets afgebroken.",
+      "bypassResetTitle": "Volledige toegang is uitgezet.",
+      "bypassResetDetail": "Forge vraagt nu eerst voordat het opdrachten uitvoert.",
+      "export": "Bewaren",
+      "exportTitle": "Gesprek bewaren als bestand",
+      "exportMd": "Als tekst (.md)",
+      "exportMdDetail": "Leesbaar, voor notities of om te delen",
+      "exportJson": "Als gegevens (.json)",
+      "exportJsonDetail": "Alles op een rij, om later in te lezen",
+      "exportFooter": "Het bestand komt op deze pc; er gaat niets naar buiten.",
+      "exportYou": "Jij",
+      "exportedOn": "Bewaard op",
+      "exported": "Gesprek bewaard",
+      "exportedDetail": "Kijk in je map Downloads."
+    },
+    "sessions": {
+      "title": "Gesprekken",
+      "show": "Gesprekken tonen",
+      "hide": "Gesprekken verbergen",
+      "searchLabel": "Zoeken in gesprekken",
+      "searchPlaceholder": "Zoek op woorden uit een gesprek",
+      "searching": "De gesprekken worden doorzocht…",
+      "truncated": "Alleen de {count} nieuwste gesprekken zijn doorzocht.",
+      "unreadable": "{count} gesprekken konden niet worden gelezen; daarin is alleen op naam gezocht.",
+      "noProject": "Kies eerst een project; dan staan zijn gesprekken hier.",
+      "empty": "Nog geen gesprekken in dit project. Je eerste bericht begint er een.",
+      "noResults": "Geen gesprek gevonden met deze woorden.",
+      "messageOne": "1 bericht",
+      "messages": "{count} berichten",
+      "justNow": "zojuist",
+      "minutesAgo": "{count} min geleden",
+      "hoursAgo": "{count} uur geleden",
+      "dayAgo": "1 dag geleden",
+      "daysAgo": "{count} dagen geleden",
+      "unknownTime": "tijd onbekend",
+      "rename": "Naam van {title} wijzigen",
+      "renameField": "Nieuwe naam",
+      "save": "Opslaan",
+      "cancel": "Annuleren",
+      "fork": "Aftakken: nieuw gesprek vanaf {title}",
+      "renamed": "Naam gewijzigd",
+      "renameFailed": "Naam wijzigen lukte niet",
+      "forked": "Nieuw gesprek gemaakt",
+      "forkedDetail": "Het nieuwe gesprek onthoudt alles tot nu toe; het oude blijft zoals het was.",
+      "forkFailed": "Aftakken lukte niet",
+      "emptyTitle": "Geef het gesprek een naam.",
+      "missingRoute": "Deze versie van Forge kan dit nog niet. Werk Forge bij en probeer het opnieuw."
+    },
+    "usage": {
+      "label": "Je limiet",
+      "fiveHours": "5 uur",
+      "week": "Week",
+      "resetsAt": "weer vol om {time}",
+      "unavailable": "Nog niet bekend: Forge heeft je limiet nog niet gemeten.",
+      "stale": "Verouderd: deze meting is niet van nu.",
+      "weekShort": "week",
+      "staleShort": "verouderd",
+      "unknownShort": "nog niet bekend",
+      "showDetails": "details tonen",
+      "hideDetails": "details verbergen",
+      "nearLimitShort": "bijna op",
+      "nearLimitAnnounce": "Let op: je limiet is bijna op ({value} gebruikt).",
+      "sessionRestarted": "5 uur: net opnieuw begonnen, nog niet opnieuw gemeten."
+    },
+    "thread": {
+      "label": "Gesprek: {title}",
+      "start": "Begin van het gesprek",
+      "example": "Voorbeeldgesprek. Hier is niets gemaakt en niets verstuurd.",
+      "latest": "Naar het nieuwste",
+      "streamStart": "Forge antwoordt.",
+      "streamEnd": "Forge is klaar met antwoorden."
+    },
+    "message": {
+      "you": "Jij",
+      "label": "Bericht {position} van {total}, van {author}, {time}",
+      "edited": "bewerkt",
+      "chipPlan": "ALLEEN PLANNEN",
+      "chipAcceptEdits": "MAG AANPASSEN",
+      "chipBypass": "VOLLEDIGE TOEGANG",
+      "chipPlanTitle": "Deze beurt liep in Alleen plannen.",
+      "chipAcceptEditsTitle": "Deze beurt mocht bestanden aanpassen.",
+      "chipBypassTitle": "Deze beurt liep met volledige toegang, zonder vragen vooraf.",
+      "effortLow": "LAAG",
+      "effortMedium": "GEMIDDELD",
+      "effortHigh": "HOOG",
+      "effortXhigh": "EXTRA HOOG",
+      "effortMax": "MAXIMAAL",
+      "effortTitle": "Hoeveel denkkracht deze beurt kreeg.",
+      "copy": "Dit bericht kopiëren",
+      "copyWhat": "Bericht",
+      "copied": "{what} gekopieerd",
+      "copiedDetail": "Gekopieerd naar het klembord van deze pc; er ging niets naar buiten.",
+      "regenerate": "Opnieuw laten antwoorden",
+      "nothingToRegenerate": "Niets om opnieuw te doen",
+      "nothingToRegenerateDetail": "Voor dit antwoord is er geen eerder bericht om opnieuw te sturen.",
+      "regenerating": "Opnieuw gevraagd",
+      "regeneratingDetail": "Je laatste bericht is opnieuw verstuurd. Het nieuwe antwoord verschijnt hieronder.",
+      "regenerateFailed": "Opnieuw vragen mislukt",
+      "codeBlock": "Codeblok ({lang})",
+      "modelMismatch": "gevraagd: {requested} · gebruikt: {used}",
+      "modelMismatchTitle": "Er is een ander model gebruikt dan gevraagd.",
+      "modelTitle": "Het model dat dit antwoord schreef.",
+      "skillsTitle": "Vaardigheden die bij dit antwoord zijn gebruikt.",
+      "steps": "{count} stappen · {completed} klaar",
+      "progress": "voortgang",
+      "filesOne": "{count} bestand aangepast",
+      "filesMany": "{count} bestanden aangepast",
+      "diff": "wijzigingen",
+      "commandsOne": "{count} opdracht uitgevoerd",
+      "commandsMany": "{count} opdrachten uitgevoerd",
+      "shell": "opdrachten",
+      "commandErrorTitle": "Deze opdracht meldde een fout.",
+      "commandOkTitle": "Deze opdracht is zonder fout afgerond.",
+      "commandError": "fout",
+      "commandOk": "gelukt",
+      "attachments": "Bijlagen"
+    },
+    "modes": {
+      "autoPlan": "Automatisch plannen",
+      "sendModeLabel": "Wat mag Forge",
+      "execute": "Eerst vragen",
+      "plan": "Alleen plannen",
+      "acceptEdits": "Mag aanpassen",
+      "fullAccess": "Volledige toegang",
+      "thinkingLabel": "Denkkracht",
+      "thinkingFooter": "Bepaalt hoe lang Forge nadenkt bij je volgende bericht. Standaard laat de keuze aan Claude Code. Meer denkkracht gebruikt je limiet sneller.",
+      "thinking": {
+        "default": "Standaard",
+        "low": "Laag",
+        "medium": "Gemiddeld",
+        "high": "Hoog",
+        "xhigh": "Extra hoog",
+        "max": "Maximaal"
+      },
+      "modelLabel": "Model",
+      "modelTitle": "Kies een model",
+      "modelFooter": "Geldt voor je volgende bericht. Automatisch laat de keuze aan Forge.",
+      "model": {
+        "defaultLabel": "Automatisch (aanbevolen)",
+        "defaultDetail": "Forge kiest per taak het passende model",
+        "opusLabel": "Opus (1M context)",
+        "opusDetail": "Opus 5.5 met 1M context · Voor grote bouwklussen en lastig werk",
+        "fableLabel": "Fable",
+        "fableDetail": "Fable 5.1 · Het slimst, voor je moeilijkste en langste klussen; gebruikt je limiet sneller",
+        "sonnetLabel": "Sonnet",
+        "sonnetDetail": "Sonnet 5.5 · Zuinig voor gewone taken",
+        "haikuLabel": "Haiku",
+        "haikuDetail": "Haiku 4.5 · Het snelst voor korte antwoorden"
+      }
+    },
+    "queue": {
+      "label": "Berichten in de wachtrij",
+      "notSent": "Niet verstuurd",
+      "waiting": "Wacht",
+      "remove": "Bericht uit de wachtrij halen"
+    },
+    "suggest": {
+      "mentionTitle": "Een bestand noemen",
+      "loadingFiles": "Bestanden van dit project laden…",
+      "selectProject": "Kies een project om de bestanden te kunnen noemen.",
+      "typeToSearch": "Typ om in de bestanden van dit project te zoeken.",
+      "noFileMatch": "Geen bestanden gevonden voor \"@{query}\".",
+      "commandsLabel": "Opdrachten",
+      "commandsTitle": "Opdrachten",
+      "noCommand": "Geen opdracht gevonden."
+    },
+    "route": {
+      "badge": "via {label}",
+      "badgeAnswers": "via {label} (alleen antwoorden)",
+      "badgeRead": "via {label} (lezen en antwoorden)",
+      "badgeTitle": "Welk account of model dit antwoord gaf",
+      "noticeLabel": "Melding over wisselen",
+      "switched": "Overgeschakeld naar {to}",
+      "backTitle": "Terug naar {to}",
+      "proactive": "{from} zat op {pct}% van de {window}.",
+      "proactiveNoPct": "{from} zat dicht bij de {window}.",
+      "limitRetried": "{from} had zijn limiet bereikt (weer vrij om {time}). Je bericht is opnieuw verstuurd.",
+      "limitBefore": "{from} had zijn limiet bereikt (weer vrij om {time}).",
+      "toModel": "Alle Claude-accounts zitten aan hun limiet (eerste weer vrij om {time}).",
+      "answersOnly": "Dit model kan alleen antwoorden: geen bestanden bewerken of opdrachten uitvoeren.",
+      "readAnswer": "Codex kan lezen en antwoorden, maar geen bestanden bewerken of opdrachten uitvoeren.",
+      "back": "De limiet is weer vrij.",
+      "backModel": "Dat model werkt weer.",
+      "login": "{from} is niet (meer) ingelogd.",
+      "down": "{from} reageerde niet.",
+      "notRetried": "{from} bereikte zijn limiet halverwege. Forge heeft het niet vanzelf opnieuw geprobeerd, omdat er al bestanden of opdrachten waren aangeraakt.",
+      "notRetriedOther": "{from} stopte halverwege. Forge heeft het niet vanzelf opnieuw geprobeerd.",
+      "continueOn": "Ga verder op {to}",
+      "continue": "Ga verder",
+      "continueText": "Ga verder waar je gebleven was.",
+      "continueFailed": "Niet verstuurd",
+      "handover": "{to} kreeg de laatste {n} berichten mee; eerdere details van dit gesprek kent het niet.",
+      "firstOnModel": "Dit gesprek loopt op {model}: dat kan alleen antwoorden.",
+      "firstOnCodex": "Dit gesprek loopt op {model}: dat kan lezen en antwoorden.",
+      "exhausted": "Alle accounts in je router hebben hun limiet bereikt. Als eerste weer vrij: {label} om {time}.",
+      "exhaustedUnknown": "Alle accounts in je router hebben hun limiet bereikt. Als eerste weer vrij: onbekend.",
+      "unknownTime": "onbekend",
+      "folded": "Onderbroken antwoord van {from} ({why})",
+      "why": {
+        "rate_limited": "limiet",
+        "logged_out": "niet ingelogd",
+        "down": "reageerde niet",
+        "error": "fout",
+        "stopped": "gestopt"
+      },
+      "settings": "Router-instellingen",
+      "failoverNothingLeft": "Forge probeerde over te stappen, maar er was niets meer vrij.",
+      "foldedEmpty": "Dit antwoord had nog geen tekst.",
+      "exhaustedOllama": "Je eigen model kan nu niet antwoorden: Ollama draait niet op deze computer.",
+      "exhaustedOllamaHint": "Start Ollama en stuur je bericht daarna opnieuw. Of kies in de router-instellingen een ander model.",
+      "exhaustedLogin": "Geen account in je router is nu ingelogd, dus Forge kon dit bericht nergens heen sturen.",
+      "loginStep1": "1. Open hieronder de router-instellingen.",
+      "loginStep2": "2. Bij een account met ‘Niet ingelogd’: volg de inlogstappen opnieuw en klik op Testen.",
+      "loginStep3": "3. Stuur je bericht daarna opnieuw.",
+      "exhaustedOther": "Forge kon dit bericht nu aan geen enkel account of model in je router geven.",
+      "exhaustedOtherHint": "Kijk in de router-instellingen wat er aan staat en probeer het daarna opnieuw.",
+      "failed": {
+        "ollamaDown": "Ollama draait niet op deze computer. Start Ollama of kies een ander model.",
+        "notPulled": "{model} staat nog niet op deze computer. Download het in Ollama of kies een ander model.",
+        "down": "{to} reageerde niet. Probeer het later opnieuw of kies een ander model.",
+        "loggedOut": "{to} is niet ingelogd. Log opnieuw in via de router-instellingen.",
+        "limit": "{to} zit aan zijn limiet (weer vrij om {time}).",
+        "error": "{to} kon dit niet afmaken door een fout. Probeer het opnieuw of kies een ander model."
+      },
+      "notStarted": "Forge kon dit bericht niet starten. Probeer het opnieuw of kijk in de router-instellingen.",
+      "retry": "Opnieuw proberen",
+      "skipped": {
+        "line": "Overgeslagen: {items}",
+        "unavailable": "{label} (Eigen API niet beschikbaar: verwijderd, uitgezet of geweigerd)",
+        "paidAck": "{label} (kosten nog niet bevestigd)",
+        "label": "Overgeslagen stappen in je router"
+      }
+    }
+  },
+  "settings": {
+    "eyebrow": "INSTELLINGEN",
+    "title": "Instellingen van je werkplek",
+    "lede": "Weergave, dichtheid, beweging, de indeling en de voorkeuren hieronder werken meteen zodra je ze aanpast. Wat nog niets echt doet, is weggelaten in plaats van te doen alsof.",
+    "actionsLabel": "Acties voor instellingen",
+    "exampleDetail": "Een voorbeeldweergave, niet verbonden met Forge of Claude Code.",
+    "reset": "Opgeslagen voorkeuren wissen",
+    "sectionsLabel": "Onderdelen van de instellingen",
+    "wiredHidden": "werkt echt in de werkplek",
+    "legend": "Gemarkeerde onderdelen veranderen echt iets aan je werkplek.",
+    "wiredEyebrow": "WERKT ECHT",
+    "presentationEyebrow": "ALLEEN WEERGAVE",
+    "sections": {
+      "appearance": {
+        "label": "Weergave",
+        "summary": "Thema, dichtheid en beweging. Dit werkt meteen."
+      },
+      "layout": {
+        "label": "Indeling",
+        "summary": "Welke delen van het scherm open staan, en hoe de drukste schermen zijn ingedeeld."
+      },
+      "chat": {
+        "label": "Chatvoorkeuren",
+        "summary": "Hoe een gesprek leest en hoe het invoerveld werkt. Opgeslagen in deze browser."
+      },
+      "connection": {
+        "label": "Verbinding met Claude Code",
+        "summary": "Of Claude Code en Forge nu verbonden zijn, rechtstreeks bij Forge nagevraagd."
+      },
+      "models": {
+        "label": "Modellen",
+        "summary": "Welke modelnamen op de kaarten van het team staan, en of je ze ziet."
+      },
+      "capabilities": {
+        "label": "Mogelijkheden",
+        "summary": "Wat Forge hier echt kan gebruiken: modellen, hulpmiddelen, koppelingen en het overzicht van wat er geïnstalleerd is."
+      },
+      "forge": {
+        "label": "Forge-instellingen",
+        "summary": "Elke Forge-instelling van het actieve project: de waarde, waar die vandaan komt en wat hij doet. Je past een instelling hier direct aan."
+      },
+      "agents": {
+        "label": "Team",
+        "summary": "Wie er in het team zit, gegroepeerd en geteld."
+      },
+      "skills": {
+        "label": "Vaardigheden",
+        "summary": "De werkwijzen die het team kent."
+      },
+      "permissions": {
+        "label": "Toestemmingen",
+        "summary": "Wat Forge per toestemmingsniveau mag doen."
+      },
+      "privacy": {
+        "label": "Gegevens en privacy",
+        "summary": "Precies wat deze werkplek bewaart, en wat hij naar Forge stuurt."
+      },
+      "shortcuts": {
+        "label": "Sneltoetsen",
+        "summary": "De sneltoetsen waar de werkplek omheen is ontworpen."
+      }
+    }
+  },
+  "team": {
+    "roles": {
+      "lead": "Projectleider",
+      "head-chef": "Planner",
+      "build-boss": "Bouwer",
+      "ui-boss": "Ontwerper",
+      "test-boss": "Tester",
+      "verify-boss": "Controleur",
+      "review-boss": "Eindkeuring",
+      "security-boss": "Beveiliging",
+      "integration-boss": "Koppelingen",
+      "search-boss": "Onderzoeker",
+      "seo-boss": "Vindbaarheid",
+      "docs-boss": "Schrijver",
+      "skill-boss": "Vaardigheden",
+      "scribe": "Notulist"
+    },
+    "roleDoes": {
+      "lead": "Verdeelt de klus en houdt het overzicht",
+      "head-chef": "Maakt de inschatting en het plan",
+      "build-boss": "Maakt en wijzigt de bestanden",
+      "ui-boss": "Zorgt dat het er goed uitziet en prettig werkt",
+      "test-boss": "Test op telefoon- en computerformaat",
+      "verify-boss": "Controleert het opleverbewijs opnieuw",
+      "review-boss": "Laatste keuring voordat iets af heet",
+      "security-boss": "Let op wachtwoorden, rechten en risico's",
+      "integration-boss": "Verbindt met andere programma’s en diensten",
+      "search-boss": "Zoekt informatie en bronnen op",
+      "seo-boss": "Zorgt dat een website goed gevonden wordt",
+      "docs-boss": "Schrijft teksten en handleidingen",
+      "skill-boss": "Onderhoudt de werkwijzen van het team",
+      "scribe": "Legt jouw wensen letterlijk vast"
+    },
+    "someone": "Een helper",
+    "and": "en",
+    "status": {
+      "busy": "Bezig",
+      "waiting": "Wacht",
+      "done": "Klaar",
+      "idle": "Niet ingezet"
+    },
+    "statusHint": {
+      "busy": "Werkt hier nu aan",
+      "waiting": "Nog niet klaar, maar er is nu geen werk van te zien",
+      "done": "Klaar met zijn taak in deze klus",
+      "idle": "Niet ingezet in deze klus"
+    },
+    "kind": {
+      "message": "Bericht",
+      "handoff": "Overdracht",
+      "blocker": "Blokkade",
+      "question": "Vraag",
+      "decision": "Besluit"
+    },
+    "handoffLine": "{from} draagt {wp} over aan {to}",
+    "handoffLineNoTask": "{from} draagt over aan {to}",
+    "viaLead": "via Lead",
+    "viaLeadHint": "De Projectleider gaf dit bericht door; de helper schreef het niet zelf.",
+    "pinned": "Vastgepind",
+    "strip": {
+      "label": "Team",
+      "busyOne": "{names} is bezig.",
+      "busyMany": "{names} zijn bezig.",
+      "waitingOne": "{names} wacht.",
+      "waitingMany": "{names} wachten.",
+      "doneOne": "{names} is klaar.",
+      "doneMany": "{names} zijn klaar.",
+      "working": "Het team werkt aan deze klus.",
+      "expand": "Overleg van het team tonen",
+      "collapse": "Overleg van het team verbergen",
+      "latest": "Laatste berichten van het team",
+      "empty": "Nog geen teamberichten in deze klus.",
+      "loadError": "Het overleg kon niet worden geladen."
+    },
+    "view": {
+      "title": "Team",
+      "subtitle": "Wie aan de klus werkt en wat de helpers met elkaar overleggen.",
+      "rolesHeading": "Rollen",
+      "channelHeading": "Overleg",
+      "runLabel": "Klus",
+      "taskLabel": "Taak",
+      "allTasks": "Alle taken",
+      "noProject": "Kies eerst een project.",
+      "noRuns": "Nog geen klussen in dit project.",
+      "empty": "Nog geen teamberichten in deze klus.",
+      "emptyDetail": "Hier verschijnt alleen wat het team echt heeft geschreven.",
+      "honesty": "Je ziet alleen wat echt in het logboek van deze klus staat. Een bericht met “via Lead” is doorgegeven door de Projectleider, omdat die helper zelf geen berichten kan sturen.",
+      "loadError": "Het overleg kon niet worden geladen: {error}",
+      "truncated": "Alleen de nieuwste {n} berichten staan hier.",
+      "malformed": "{n} regels in het logboek waren onleesbaar en zijn overgeslagen.",
+      "manageModels": "Modellen per rol aanpassen",
+      "busyCount": "{n} bezig"
+    }
+  },
+  "settingsPage": {
+    "feelPrefix": "Wat merk je ervan: ",
+    "groupsLabel": "Groepen",
+    "rows": {
+      "taal": {
+        "title": "Taal",
+        "feel": "Knoppen, meldingen en teksten in Forge staan in deze taal.",
+        "nl": "Nederlands",
+        "en": "English"
+      },
+      "thema": {
+        "title": "Thema",
+        "feel": "Bij Zoals Windows wisselt Forge vanzelf mee met licht en donker.",
+        "light": "Licht",
+        "dark": "Donker",
+        "system": "Zoals Windows"
+      },
+      "weergave": {
+        "title": "Weergave",
+        "feel": "Uitgebreid toont ook het team per klus, de modellen en extra instellingen.",
+        "simple": "Eenvoudig",
+        "advanced": "Uitgebreid"
+      },
+      "opstarten": {
+        "title": "Opstarten met Windows",
+        "feel": "Forge staat klaar zodra je pc aan is, dus geplande klussen beginnen op tijd."
+      },
+      "systeemvak": {
+        "title": "In systeemvak blijven",
+        "feel": "Sluit je het venster, dan maakt Forge lopende klussen eerst af."
+      },
+      "dichtheid": {
+        "title": "Dichtheid",
+        "feel": "Compact zet meer regels op je scherm; ruim leest rustiger.",
+        "comfortable": "Ruim",
+        "compact": "Compact"
+      },
+      "beweging": {
+        "title": "Minder beweging",
+        "feel": "Forge laat zijn eigen animaties weg. Je Windows-instelling telt altijd mee."
+      },
+      "accounts": {
+        "title": "Accounts",
+        "feel": "Forge gebruikt alleen de accounts die hier staan. Inloggen gebeurt altijd in het programma van de aanbieder zelf."
+      },
+      "sloten": {
+        "title": "Vaste veiligheidssloten",
+        "text": "Forge vraagt altijd eerst voordat het: veel bestanden tegelijk verwijdert, iets online zet, geld uitgeeft of wachtwoorden leest. Dit staat vast aan en geldt in elke map.",
+        "notTested": "Nog niet getest vanuit de app",
+        "testNow": "Nu testen",
+        "testLater": "De test vanuit de app komt in een volgende versie. Tot die tijd laat Forge hier geen groen vinkje zien dat het niet zelf heeft gecontroleerd."
+      },
+      "modus": {
+        "title": "Wat mag Forge doen",
+        "feel": "Bij Alleen plannen maakt Forge een plan, maar verandert geen bestanden. Dit geldt voor het volgende gesprek in dit project.",
+        "edit": "Mag aanpassen",
+        "plan": "Alleen plannen",
+        "project": "Geldt voor het project {name}.",
+        "noProject": "Kies eerst een project; deze keuze geldt per project.",
+        "current": "Nu gekozen in het invoerveld: {mode}.",
+        "execute": "Eerst vragen",
+        "bypass": "Volledige toegang"
+      },
+      "map": {
+        "title": "Map waarin Forge werkt",
+        "feel": "Forge maakt en wijzigt alleen bestanden in de map van het gekozen project.",
+        "none": "Nog geen project gekozen.",
+        "choose": "Ander project kiezen"
+      },
+      "waar": {
+        "title": "Wat staat waar",
+        "feel": "Gesprekken en klussen staan alleen op deze pc. Alleen het account dat je kiest leest je berichten.",
+        "dir": "Map: {dir}",
+        "copy": "Pad kopiëren",
+        "copied": "Gekopieerd"
+      },
+      "exporteren": {
+        "title": "Exporteren",
+        "feel": "Je krijgt één bestand met al je gesprekken en klussen.",
+        "button": "Alles exporteren",
+        "notYet": "Exporteren kan nog niet vanuit de app; dit komt in een volgende versie."
+      },
+      "wissen": {
+        "title": "Alles wissen",
+        "feel": "Nu wist dit je instellingen in deze app op deze pc. Gesprekken, klussen en je projectmappen blijven staan.",
+        "button": "Alles wissen",
+        "confirmTitle": "Alles wissen?",
+        "confirmText": "Taal, thema, weergave en je keuzes in het invoerveld gaan terug naar hoe ze bij de eerste start waren. Gesprekken, klussen en projectmappen blijven staan.",
+        "confirm": "Ja, alles wissen",
+        "cancel": "Annuleren",
+        "done": "Je instellingen zijn gewist."
+      },
+      "rollen": {
+        "title": "Model per rol",
+        "feel": "Bepaalt welk Claude-model elke rol gebruikt. Een slimmer model gebruikt je limiet sneller.",
+        "colRole": "Rol",
+        "colModel": "Model",
+        "colWhy": "Waarom",
+        "empty": "Forge kon de modellen nu niet lezen.",
+        "loading": "Modellen ophalen…",
+        "edit": "Per helper aanpassen",
+        "editFeel": "Per helper pas je het model aan in het teamoverzicht."
+      },
+      "limiet": {
+        "title": "Limiet",
+        "feel": "Zie hoeveel van je limiet op is en wanneer hij weer vol is.",
+        "five": "Vijf uur",
+        "week": "Week",
+        "percent": "{pct}% gebruikt",
+        "resets": "Weer vol: {time}",
+        "unknown": "Nog niet gemeten"
+      },
+      "vaardigheden": {
+        "title": "Vaardigheden & koppelingen",
+        "feel": "De werkwijzen die het team kent en de programma's waarmee het in dit project kan samenwerken.",
+        "skills": "{count} vaardigheden en hulpmiddelen",
+        "koppelingen": "{count} koppelingen, waarvan {on} aan",
+        "noProject": "Kies eerst een project om te zien wat het team daar kan.",
+        "unknown": "Nog niet bekend"
+      },
+      "paden": {
+        "title": "Paden",
+        "feel": "Waar Forge zelf staat en waar het zijn gegevens bewaart.",
+        "project": "Map van Forge",
+        "data": "Gegevens van Forge",
+        "active": "Gekozen project",
+        "unknown": "Onbekend",
+        "copy": "Kopiëren",
+        "copied": "Gekopieerd"
+      },
+      "diagnose": {
+        "title": "Controleer of alles werkt",
+        "feel": "Binnen tien seconden zie je wat werkt en wat niet, met per regel één knop om het op te lossen."
+      },
+      "versie": {
+        "title": "Versie",
+        "feel": "Noem deze versie als je hulp vraagt.",
+        "dev": "Ontwikkelversie (niet als app geïnstalleerd)"
+      },
+      "updates": {
+        "title": "Updates",
+        "feel": "Zodra Forge als app is geïnstalleerd, zoekt het zelf naar een nieuwe versie en vraagt het eerst voordat het bijwerkt.",
+        "notInstalled": "Deze versie draait niet als geïnstalleerde app, dus bijwerken gaat hier nog niet."
+      },
+      "smartscreen": {
+        "title": "Melding van Windows bij installeren",
+        "feel": "Zie je ‘Windows heeft uw pc beschermd’? Klik ‘Meer informatie’ en ‘Toch uitvoeren’. Forge is nog niet digitaal ondertekend."
+      },
+      "router": {
+        "title": "Forge-router",
+        "feel": "Kies wat Forge doet als je limiet bijna op is: wisselen naar een ander eigen account, of verder met een eigen model."
+      }
+    },
+    "accounts": {
+      "claude": {
+        "name": "Claude",
+        "pay": "Wie betaalt: jouw Claude-abonnement"
+      },
+      "chatgpt": {
+        "name": "ChatGPT",
+        "pay": "Wie betaalt: jouw ChatGPT-abonnement, via Codex"
+      },
+      "ollama": {
+        "name": "Ollama",
+        "pay": "Wie betaalt: niemand, het draait op deze pc"
+      },
+      "nvidia": {
+        "name": "NVIDIA",
+        "pay": "Wie betaalt: jij, per gebruik, met je eigen API-sleutel"
+      },
+      "status": {
+        "connected": "Verbonden",
+        "signedOut": "Uitgelogd",
+        "found": "Gevonden",
+        "missing": "Niet gevonden",
+        "running": "Draait",
+        "stopped": "Uit",
+        "unknown": "Onbekend",
+        "checking": "Controleren…",
+        "notConnected": "Niet verbonden",
+        "keySaved": "Ingesteld",
+        "noKey": "Geen sleutel",
+        "keyRejected": "Geweigerd",
+        "unreachable": "Onbereikbaar",
+        "noModel": "Geen model",
+        "limit": "Limiet bereikt",
+        "unsupported": "Nog niet",
+        "error": "Fout"
+      },
+      "names": {
+        "geminiCli": "Gemini (eigen programma)",
+        "grokCli": "Grok (eigen programma)"
+      },
+      "payer": {
+        "claudeSub": "Wie betaalt: jouw Claude-abonnement",
+        "chatgptSub": "Wie betaalt: jouw ChatGPT-abonnement, via Codex",
+        "ownSub": "Wie betaalt: jouw eigen abonnement",
+        "key": "Wie betaalt: jouw API-sleutel, per gebruik",
+        "free": "Wie betaalt: niemand, gratis en lokaal"
+      },
+      "signIn": {
+        "explainClaude": "Inloggen gebeurt in een zwart venster van Claude Code zelf. Open Terminal via het Start-menu, typ de opdracht hieronder en volg daar de stappen. Forge ziet en bewaart je inlog nooit.",
+        "explainCodex": "Inloggen gebeurt in een zwart venster van Codex zelf. Open Terminal via het Start-menu, typ de opdracht hieronder en log in met je ChatGPT-account. Forge ziet en bewaart je inlog nooit.",
+        "logoutExplain": "Uitloggen doe je ook in het programma zelf: open Terminal via het Start-menu en typ de opdracht hieronder.",
+        "after": "Klaar in het zwarte venster? Controleer het hier.",
+        "recheck": "Opnieuw controleren"
+      },
+      "test": "Testen",
+      "login": "Inloggen",
+      "logout": "Uitloggen",
+      "notYet": "Inloggen en testen doe je nog in het programma zelf.",
+      "tos": "Je logt in bij Claude Code zelf; Forge bewaart je inlog niet. Voorwaarden laatst gecontroleerd op {date}.",
+      "models": "Modellen op deze pc: {count}",
+      "loading": "Accounts ophalen…",
+      "loadError": "Forge kon de accounts nu niet ophalen. Hieronder staat wat de controle van deze pc vond.",
+      "empty": "Forge vond nog geen accounts. Gebruik Controleer of alles werkt om te zien wat er op deze pc staat.",
+      "dropped": "Van {count} accounts kwam onleesbare informatie; die staan hier niet bij.",
+      "more": "Meer accounts ({count})",
+      "moreHint": "Diensten die je met een eigen API-sleutel gebruikt, en andere programma's. Een sleutel test Forge pas als jij op Testen klikt.",
+      "notLive": "Proefweergave, niet echt verbonden",
+      "testNeedsKey": "Voeg eerst een sleutel toe; daarna kun je testen.",
+      "testing": "Bezig met testen…",
+      "testOk": "Test gelukt in {ms} ms.",
+      "testOkNoTime": "Test gelukt.",
+      "testFail": "Test niet gelukt: {status}.",
+      "testNotLive": "Dit was een proefantwoord, geen echte verbinding.",
+      "technical": "Technische details",
+      "tosCodex": "Je logt in bij Codex zelf; Forge bewaart je inlog niet. Voorwaarden laatst gecontroleerd op {date}.",
+      "tosOther": "Je logt in bij het programma zelf; Forge bewaart je inlog niet. Voorwaarden laatst gecontroleerd op {date}."
+    }
+  },
+  "accountKeys": {
+    "label": "API-sleutel voor {name}",
+    "hint": "Plak je sleutel. Forge bewaart hem versleuteld op deze pc en laat daarna alleen de laatste vier tekens zien.",
+    "save": "Opslaan",
+    "saving": "Opslaan…",
+    "replace": "Vervangen",
+    "remove": "Verwijderen",
+    "confirmRemove": "Ja, verwijderen",
+    "cancel": "Annuleren",
+    "saved": "Sleutel opgeslagen: •••• {last4}",
+    "savedNoLast4": "Sleutel opgeslagen",
+    "savedAt": "bijgewerkt op {date}",
+    "removed": "Sleutel verwijderd.",
+    "envKey": "Forge gebruikt de sleutel die al op deze pc is ingesteld.",
+    "ownKey": "Eigen sleutel opslaan",
+    "add": "Sleutel toevoegen",
+    "browserOnly": "Een sleutel bewaren kan alleen in de Forge Systeem-app. Daar wordt hij versleuteld opgeslagen; in de browser bewaart Forge nooit een sleutel.",
+    "limit": "Goed om te weten: versleuteld betekent dat andere gebruikers van deze pc er niet bij kunnen. Programma's die onder jouw eigen Windows-account draaien, kunnen dat in principe wel.",
+    "invalid": "Dit lijkt geen geldige sleutel: minstens 8 tekens, zonder spaties.",
+    "apply": {
+      "applied": "Actief",
+      "waiting": "Wordt actief zodra de lopende klus klaar is",
+      "restarting": "Even opnieuw verbinden…",
+      "failed": "De nieuwe sleutel kon niet worden geactiveerd. Start Forge opnieuw.",
+      "unknown": "Status onbekend, controleer straks opnieuw."
+    },
+    "reconnect": {
+      "label": "Nu opnieuw verbinden",
+      "TURN_RUNNING": "Er loopt nu een klus. De sleutel wordt actief zodra die klaar is.",
+      "NOTHING_PENDING": "Er is geen sleutelwijziging om toe te passen.",
+      "generic": "Opnieuw verbinden lukte niet. Probeer het straks nog eens."
+    },
+    "errors": {
+      "VAULT_UNAVAILABLE": "Versleuteld opslaan werkt niet op deze pc, dus Forge bewaart de sleutel niet.",
+      "INVALID_KEY": "Dit lijkt geen geldige sleutel: minstens 8 tekens, zonder spaties.",
+      "NO_KEY_PROVIDER": "Dit account werkt zonder sleutel.",
+      "UNKNOWN_PROVIDER": "Forge kent dit account niet.",
+      "generic": "Opslaan is niet gelukt. Probeer het opnieuw."
+    }
+  },
+  "checkup": {
+    "title": "Controleer of alles werkt",
+    "intro": "Forge kijkt alleen wat er op deze pc staat. Er wordt niets verstuurd.",
+    "run": "Controleer opnieuw",
+    "start": "Controleer of alles werkt",
+    "running": "Bezig met controleren…",
+    "lastChecked": "Gecontroleerd om {time}, in {seconds} seconden.",
+    "slow": "Niet alles antwoordde op tijd; wat ontbreekt staat als onbekend.",
+    "failed": "Controleren lukte niet, omdat Forge op de achtergrond niet antwoordt. Sluit Forge, open het opnieuw en probeer het nog eens.",
+    "state": {
+      "ok": "In orde",
+      "fail": "Niet in orde",
+      "optional": "Niet nodig voor elk pad",
+      "unknown": "Onbekend"
+    },
+    "rows": {
+      "claude": {
+        "ok": "Claude Code gevonden (versie {version})",
+        "okNoVersion": "Claude Code gevonden",
+        "fail": "Claude Code niet gevonden"
+      },
+      "signedIn": {
+        "ok": "Ingelogd bij Claude Code",
+        "fail": "Niet ingelogd bij Claude Code",
+        "unknown": "Kon niet zien of je bij Claude Code bent ingelogd"
+      },
+      "codex": {
+        "ok": "Codex gevonden (versie {version})",
+        "okNoVersion": "Codex gevonden",
+        "fail": "Codex niet gevonden; alleen nodig als je met ChatGPT werkt"
+      },
+      "ollama": {
+        "ok": "Ollama draait; modellen op deze pc: {count}",
+        "stopped": "Ollama staat op deze pc, maar is uit",
+        "fail": "Ollama niet gevonden; alleen nodig voor gratis en lokaal werken"
+      },
+      "node": {
+        "ok": "Node.js {version} werkt",
+        "unknown": "Kon de versie van Node.js niet lezen"
+      },
+      "git": {
+        "ok": "Git gevonden (versie {version})",
+        "okNoVersion": "Git gevonden",
+        "fail": "Git niet gevonden; handig om eerdere versies van je project terug te halen"
+      },
+      "disk": {
+        "ok": "{gb} GB vrij op je schijf",
+        "low": "Nog maar {gb} GB vrij op je schijf",
+        "unknown": "Kon niet zien hoeveel ruimte er vrij is"
+      },
+      "port": {
+        "ok": "Forge gebruikt poort {port} op deze pc"
+      },
+      "folder": {
+        "ok": "Forge mag schrijven in de projectmap",
+        "fail": "Forge mag niet schrijven in de projectmap"
+      }
+    },
+    "fix": {
+      "installClaude": "Claude Code installeren",
+      "login": "Inloggen",
+      "installCodex": "Codex installeren",
+      "startOllama": "Ollama starten",
+      "installOllama": "Ollama installeren",
+      "installGit": "Git installeren",
+      "freeDisk": "Ruimte vrijmaken",
+      "chooseFolder": "Andere map kiezen",
+      "recheck": "Opnieuw controleren"
+    },
+    "help": {
+      "installClaude": "Installeer Claude Code via de opdracht hieronder. Daarna klik je op Opnieuw controleren.",
+      "login": "Open Claude Code om in te loggen. Claude Code werkt in een zwart venster: open Terminal via het Start-menu, typ de opdracht hieronder en volg de stappen. Daarna klik je op Opnieuw controleren.",
+      "installCodex": "Installeer Codex via de opdracht hieronder en log daarna in bij Codex. Klik dan op Opnieuw controleren.",
+      "startOllama": "Start Ollama vanuit het Start-menu, of met de opdracht hieronder. Daarna klik je op Opnieuw controleren.",
+      "installOllama": "Installeer Ollama via de opdracht hieronder. Daarna klik je op Opnieuw controleren.",
+      "installGit": "Installeer Git via de opdracht hieronder. Daarna klik je op Opnieuw controleren.",
+      "freeDisk": "Maak ruimte vrij, bijvoorbeeld met Opslagbeheer in de Windows-instellingen. Daarna klik je op Opnieuw controleren.",
+      "chooseFolder": "Kies een map waarin je zelf mag schrijven, zoals een map in Documenten.",
+      "recheck": "Klik op Opnieuw controleren."
+    },
+    "details": "Technische details",
+    "command": "Opdracht",
+    "copyCommand": "Opdracht kopiëren",
+    "copied": "Gekopieerd",
+    "close": "Sluiten",
+    "diagnose": {
+      "button": "Diagnose kopiëren",
+      "title": "Dit wordt gekopieerd",
+      "intro": "Je gebruikersnaam, e-mailadressen en sleutels zijn weggehaald. Lees het na voordat je het deelt.",
+      "label": "Diagnose om te delen",
+      "copy": "Kopiëren naar het klembord",
+      "copied": "Gekopieerd naar het klembord.",
+      "copyFailed": "Kopiëren lukte niet. Selecteer de tekst en kopieer hem zelf."
+    }
+  },
+  "onboarding": {
+    "stepsLabel": "Stappen",
+    "privacyHintConnect": "Testen en Gebruiken maken echt verbinding met de dienst die je kiest. Je sleutel blijft op deze pc.",
+    "codexCan": "Codex kan lezen en antwoorden, maar geen bestanden bewerken of opdrachten uitvoeren.",
+    "detectie": {
+      "title": "Welkom bij Forge",
+      "lead": "Eerst kijkt Forge wat er al op deze pc staat. Dat duurt hooguit tien seconden."
+    },
+    "pad": {
+      "legend": "Kies je pad",
+      "options": {
+        "sleutel": {
+          "label": "API-sleutel"
+        }
+      }
+    },
+    "table": {
+      "title": "Wat kan elk pad?",
+      "colPath": "Pad",
+      "colChat": "Chatten",
+      "colFiles": "Bestanden aanpassen in je map",
+      "colTeam": "Het team",
+      "colOffline": "Offline",
+      "yes": "ja",
+      "no": "nee",
+      "readOnly": "(alleen lezen en antwoorden)",
+      "notYet": "(nog niet)",
+      "ifOwnServer": "(server thuis)",
+      "rows": {
+        "claude": "Claude (abonnement of sleutel)",
+        "chatgpt": "ChatGPT/Codex",
+        "lokaal": "Gratis & lokaal (Ollama)",
+        "sleutel": "Andere API-sleutel",
+        "eigen": "Eigen API"
+      },
+      "note": "Het team bestaat uit helpers die alleen met een Claude-account samenwerken. Met de andere paden chat je met één assistent.",
+      "chosen": "jouw keuze"
+    },
+    "verbinden": {
+      "titleClaude": "Open Claude Code om in te loggen",
+      "titleChatgpt": "Log in bij Codex",
+      "titleLokaal": "Ollama klaarzetten",
+      "titleSleutel": "Je API-sleutel",
+      "titleEigen": "Je eigen API",
+      "claudeReady": "Je bent al ingelogd bij Claude Code. Je kunt verder.",
+      "claudeMissing": "Claude Code staat nog niet op deze pc. Installeer het eerst; daarna log je in.",
+      "claudeLogin": "Claude Code werkt in een zwart venster. Open Terminal via het Start-menu, typ de opdracht hieronder en volg de stappen in dat venster. Forge bewaart je inlog niet: je logt in bij Claude Code zelf.",
+      "claudeAfter": "Klaar met inloggen? Klik op Opnieuw controleren.",
+      "claudeUnknown": "Forge kon niet zien of je bent ingelogd. Log voor de zekerheid in en controleer opnieuw.",
+      "chatgptMissing": "Codex staat nog niet op deze pc. Installeer het eerst; daarna log je in.",
+      "chatgptLogin": "Codex werkt in een zwart venster. Open Terminal via het Start-menu, typ de opdracht hieronder en log in met je ChatGPT-account.",
+      "chatgptUnknown": "Forge kan nog niet zien of je bij Codex bent ingelogd. Je kunt verder; ben je niet ingelogd, dan meldt Forge dat bij je eerste vraag.",
+      "lokaalReady": "Ollama draait. Modellen op deze pc: {models}.",
+      "lokaalNoModels": "Ollama draait, maar er staat nog geen model op deze pc. Dit downloadt ongeveer 2,0 GB.",
+      "lokaalStopped": "Ollama staat op deze pc, maar is uit.",
+      "lokaalMissing": "Ollama staat nog niet op deze pc.",
+      "checking": "Bezig met controleren…",
+      "sleutelLead": "Kies van welke dienst je sleutel is en plak hem hieronder.",
+      "sleutelService": "Van welke dienst is je sleutel?",
+      "sleutelNone": "Forge kent op dit moment geen dienst waarvoor een sleutel nodig is.",
+      "sleutelSkip": "Je kunt dit ook overslaan en de sleutel later toevoegen via Instellingen › Accounts.",
+      "eigenLead": "Vul het adres van je eigen server of dienst in. Daarna test Forge de verbinding en kun je dit model meteen gebruiken.",
+      "claudeAuto": "Forge kijkt ook vanzelf elke 15 seconden of het gelukt is."
+    },
+    "projectmap": {
+      "suggestion": "Tip: maak in Verkenner een map Forge Projecten in Documenten en kies die hier.",
+      "current": "Deze map:",
+      "up": "Map hoger",
+      "use": "Deze map gebruiken",
+      "chosen": "Gekozen: {path}",
+      "empty": "Hier staan geen mappen.",
+      "truncated": "Niet alle mappen worden getoond.",
+      "loading": "Mappen ophalen…",
+      "error": "Forge kon deze map niet openen.",
+      "refused": {
+        "root": "Een hele schijf is te groot. Kies een map daarin.",
+        "home": "Je hele gebruikersmap is te groot. Kies een map daarin.",
+        "documents": "Heel Documenten is te groot. Kies of maak een map daarin, zoals Forge Projecten.",
+        "system": "In mappen van Windows en geïnstalleerde programma's werkt Forge niet."
+      },
+      "writable": "Forge mag hier schrijven.",
+      "notWritable": "Forge mag hier niet schrijven. Kies een andere map.",
+      "folderList": "Mappen in deze map"
+    },
+    "klaar": {
+      "leadClaude": "Je chat met Claude, en het team bouwt bestanden in je projectmap. Elke klus eindigt met opleverbewijs.",
+      "leadChatgpt": "Codex kan lezen en antwoorden, maar geen bestanden bewerken of opdrachten uitvoeren. Het team dat bestanden voor je bouwt heeft een Claude-account nodig. Voeg het nu toe, of later via Instellingen.",
+      "leadLokaal": "Het team dat bestanden voor je bouwt heeft een Claude-account nodig. Voeg het nu toe, of later via Instellingen.",
+      "leadSleutel": "Met een andere API-sleutel kun je chatten, maar nog geen bestanden aanpassen. Het team heeft een Claude-account nodig. Voeg het nu toe, of later via Instellingen.",
+      "leadEigen": "Met je eigen API kun je chatten, maar nog geen bestanden aanpassen. Het team heeft een Claude-account nodig. Voeg het nu toe, of later via Instellingen.",
+      "noFolder": "Nog geen projectmap gekozen",
+      "addClaude": "Claude-account toevoegen"
+    },
+    "ownModel": {
+      "heading": "Meteen je eigen model gebruiken",
+      "lead": "Forge test de verbinding en zet daarna de stand Meteen eigen model aan. Nieuwe gesprekken lopen dan op dit model.",
+      "modelLabel": "Model",
+      "manualLabel": "Naam van het model",
+      "manualHint": "De dienst gaf (nog) geen lijst. Vul de naam in zoals de dienst hem noemt.",
+      "use": "Testen en meteen gebruiken",
+      "testing": "Bezig met testen…",
+      "saving": "Bezig met instellen…",
+      "done": "Ingesteld. Nieuwe gesprekken lopen nu op {label}.",
+      "testFail": "De test lukte niet ({status}). Los dit eerst op en probeer het opnieuw.",
+      "pickModel": "Kies eerst een model.",
+      "problems": "Je wisselinstellingen bevatten iets wat deze versie niet kent. Kies je model in Instellingen › Accounts.",
+      "failed": "Instellen lukte niet: {reason}",
+      "refused": "Dit venster mag nog niets opslaan. Koppel het eerst met de melding bovenaan.",
+      "tooMany": "Even te vaak geprobeerd. Wacht een minuut en probeer het opnieuw.",
+      "answersOnly": "Eerlijk gezegd: dit model kan in Forge nu alleen antwoorden. Klussen waarbij Forge bestanden aanpast en het team inzet, komen in een volgende fase.",
+      "localSlow": "Kleine modellen op je eigen pc antwoorden trager en minder goed dan Claude.",
+      "codexNote": "Forge ziet alleen dat Codex op deze pc staat. Of je bent ingelogd, merk je bij je eerste vraag.",
+      "codexLabel": "ChatGPT via Codex",
+      "customOpen": "Andere dienst of een eigen server?",
+      "customButton": "Eigen API invullen",
+      "customClose": "Toch een dienst uit de lijst",
+      "saveFirst": "Sla eerst je eigen API op; daarna kun je verder."
+    }
+  },
+  "chatCards": {
+    "permissions": {
+      "eyebrow": "Wacht op jou",
+      "askedBy": "{role} vraagt of dit mag",
+      "askedByAssistant": "Forge vraagt of dit mag",
+      "since": "sinds {time}",
+      "summary": {
+        "download": "Programmaonderdelen downloaden van internet ({tool})",
+        "runRemote": "Een programma van internet starten ({tool})",
+        "fetchWeb": "Iets van internet ophalen ({tool})",
+        "publish": "Wijzigingen online zetten ({tool})",
+        "commit": "Een versie vastleggen ({tool})",
+        "discard": "Niet-opgeslagen wijzigingen weggooien ({tool})",
+        "cleanUntracked": "Nieuwe, nog niet vastgelegde bestanden verwijderen ({tool})",
+        "deleteOne": "1 bestand verwijderen: {name}",
+        "deleteMany": "{count} bestanden verwijderen: {names}",
+        "deleteFolder": "Een map met alles erin verwijderen: {name}",
+        "projectScript": "Een opdracht uit het project uitvoeren: {name}",
+        "command": "Opdracht uitvoeren: {short}",
+        "writeFile": "1 bestand maken of vervangen: {name}",
+        "editFile": "1 bestand aanpassen: {name}",
+        "readFile": "1 bestand lezen: {name}",
+        "searchFiles": "Bestanden doorzoeken: {name}",
+        "webPage": "Een webpagina ophalen: {name}",
+        "webSearch": "Zoeken op internet: {name}",
+        "connection": "Een koppeling gebruiken: {name}",
+        "helper": "Een extra helper inschakelen: {name}",
+        "other": "Iets doen met {name}"
+      },
+      "moreOne": "Plus nog 1 andere opdracht",
+      "moreMany": "Plus nog {count} andere opdrachten",
+      "badge": {
+        "internet": "gebruikt internet",
+        "deletes": "verwijdert iets",
+        "outside": "buiten deze map"
+      },
+      "badgesLabel": "Let op",
+      "technical": "Technische details",
+      "allow": "Toestaan",
+      "allowSession": "Altijd toestaan in dit gesprek",
+      "allowSessionShort": "Altijd in dit gesprek",
+      "sessionNotRememberable": "Altijd toestaan geldt hier niet: dit soort opdracht wordt nooit onthouden, Forge vraagt het elke keer.",
+      "sessionNotForChain": "Altijd toestaan kan hier niet: dit zijn meerdere opdrachten tegelijk.",
+      "deny": "Niet doen",
+      "sending": "Je antwoord wordt doorgegeven…",
+      "failed": "Je antwoord kwam niet aan. Probeer het opnieuw.",
+      "pausedNote": "Het werk staat stil tot je kiest. Er gaat niets verloren.",
+      "groupTitle": "Het team wil {count} dingen doen",
+      "groupLead": "Kies per regel, of sta alles in één keer toe.",
+      "allowAll": "Alles toestaan",
+      "listLabel": "Verzoeken van het team",
+      "assistant": "Forge"
+    },
+    "errors": {
+      "technical": "Technische details",
+      "noDetails": "Er zijn geen extra details bewaard.",
+      "redactedNote": "Persoonlijke gegevens en sleutels zijn weggelaten.",
+      "cli_missing": {
+        "title": "Claude Code staat niet op deze pc",
+        "body": "Forge heeft Claude Code nodig om met Claude te werken. Installeer het één keer; daarna gaat dit gesprek gewoon verder.",
+        "action": "Claude Code installeren"
+      },
+      "logged_out": {
+        "title": "Je bent uitgelogd bij Claude",
+        "body": "Log opnieuw in via Claude Code. Daarna kun je verder waar je was.",
+        "action": "Open Claude Code om in te loggen"
+      },
+      "rate_limited": {
+        "title": "Je limiet is bereikt",
+        "body": "Om {time} kun je weer verder. Forge kan dan vanzelf verdergaan met deze klus.",
+        "bodyNoTime": "Over een tijdje kun je weer verder. Forge kan dan vanzelf verdergaan met deze klus.",
+        "action": "Automatisch verdergaan",
+        "actionOn": "Gaat om {time} vanzelf verder",
+        "actionOnNoTime": "Gaat vanzelf verder zodra het weer kan"
+      },
+      "offline": {
+        "title": "Geen internet",
+        "body": "Forge kan Claude nu niet bereiken. Zodra je weer verbinding hebt, kun je het opnieuw proberen.",
+        "action": "Opnieuw proberen"
+      },
+      "api_retry": {
+        "title": "Claude reageert traag",
+        "body": "Forge probeert het vanzelf opnieuw (poging {attempt} van {max}). Je hoeft niets te doen.",
+        "bodyNoCount": "Forge probeert het vanzelf opnieuw. Je hoeft niets te doen.",
+        "action": "Stoppen"
+      },
+      "ollama_down": {
+        "title": "Ollama staat uit",
+        "body": "Privé chatten op deze pc werkt pas als Ollama draait.",
+        "action": "Ollama starten"
+      },
+      "model_not_pulled": {
+        "title": "Dit model staat nog niet op deze pc",
+        "body": "{model} moet eerst gedownload worden voordat je ermee kunt chatten.",
+        "bodyNoModel": "Het gekozen model moet eerst gedownload worden voordat je ermee kunt chatten.",
+        "action": "Model downloaden"
+      },
+      "gateway_restarted": {
+        "title": "Forge is opnieuw opgestart",
+        "body": "Het antwoord werd onderbroken. Je gesprek is bewaard; stuur je vraag opnieuw om verder te gaan.",
+        "action": "Opnieuw versturen"
+      },
+      "unknown": {
+        "title": "Er ging iets mis",
+        "body": "Forge kon dit niet afmaken. Probeer het opnieuw. Lukt het dan nog niet, kies dan bij Instellingen ‘Controleer of alles werkt’.",
+        "action": "Opnieuw proberen"
+      }
+    },
+    "status": {
+      "label": "Status van dit gesprek",
+      "simple": {
+        "busy": "Bezig",
+        "waiting": "Wacht op jou",
+        "paused": "Gepauzeerd",
+        "failed": "Mislukt"
+      },
+      "detail": {
+        "QUEUED": "In de wachtrij",
+        "STARTING": "Wordt gestart",
+        "STREAMING": "Werkt aan je vraag",
+        "RETRYING": "Probeert het opnieuw",
+        "WAITING_FOR_PERMISSION": "Wacht op je toestemming",
+        "WAITING": "Wacht op je antwoord",
+        "INTERRUPTED": "Onderbroken",
+        "FAILED": "Gestopt door een fout",
+        "COMPLETED": "Afgerond"
+      }
+    },
+    "plan": {
+      "eyebrow": "Voorstel voor een klus",
+      "stepsOne": "1 stap",
+      "stepsMany": "{count} stappen",
+      "helpersOne": "1 helper",
+      "helpersMany": "{count} helpers",
+      "minutes": "ongeveer {low}–{high} minuten",
+      "limit": "ongeveer {low}–{high}% van je limiet",
+      "limitUnknown": "deel van je limiet nog onbekend",
+      "limitUnknownWhy": "Forge kan dit pas schatten na een eerdere klus van deze soort.",
+      "estimateNote": "Een inschatting, geen belofte. Je kunt het team altijd stoppen.",
+      "estimateLabel": "Inschatting",
+      "rolesLabel": "Wie helpt mee",
+      "listLabel": "Stappen van deze klus",
+      "stepBy": "door {role}",
+      "start": "Start",
+      "adjust": "Aanpassen",
+      "later": "Niet nu"
+    },
+    "shortcuts": {
+      "title": "Sneltoetsen",
+      "lead": "Zo werk je sneller in een gesprek.",
+      "groups": {
+        "write": "Schrijven",
+        "conversation": "Gesprek",
+        "everywhere": "Overal"
+      },
+      "items": {
+        "sendMessage": "Bericht versturen",
+        "newLine": "Nieuwe regel",
+        "closeSuggestions": "Suggesties sluiten",
+        "slash": "Snelopdrachten tonen (aan het begin van een regel)",
+        "mention": "Een bestand noemen",
+        "stepMessages": "Naar het vorige of volgende bericht (als een bericht gekozen is)",
+        "firstLast": "Naar het eerste of laatste bericht",
+        "palette": "Zoeken en openen",
+        "sidebar": "Zijbalk tonen of verbergen",
+        "overlay": "Dit overzicht openen of sluiten"
+      },
+      "or": "of"
+    },
+    "pairing": {
+      "title": "Koppel dit venster opnieuw",
+      "bodyBrowser": "Dit venster is niet meer gekoppeld aan Forge, dus Forge voert hier niets uit. Stop Forge eerst in het venster waar het draait (Ctrl+C) en start het daarna opnieuw met het commando hieronder. Open de koppellink die verschijnt: die werkt één keer, twee minuten lang. Gesprekken die nog bezig zijn, stoppen daarbij.",
+      "bodyDesktop": "Dit venster is niet meer gekoppeld aan Forge. Start Forge Systeem opnieuw: sluit het af via het pictogram in het systeemvak en open het daarna weer.",
+      "commandLabel": "Commando",
+      "copy": "Kopieer commando",
+      "copied": "Gekopieerd",
+      "recheck": "Opnieuw controleren",
+      "checking": "Bezig met controleren…",
+      "dismiss": "Sluit deze melding",
+      "more": "Lees verder",
+      "less": "Minder tonen"
+    }
+  },
+  "routeFallback": {
+    "loading": "Scherm wordt geladen…",
+    "stuckTitle": "Dit scherm laadt niet.",
+    "stuckDetail": "Controleer de verbinding met Forge. Het laden duurt al langer dan acht seconden.",
+    "offlineTitle": "Geen verbinding met Forge",
+    "offlineDetail": "Dit scherm kan niet laden zolang Forge op deze pc niet bereikbaar is. Forge probeert het zelf opnieuw.",
+    "retry": "Opnieuw verbinden",
+    "reload": "Pagina opnieuw laden"
+  },
+  "inspector": {
+    "region": "Zijpaneel",
+    "notFoundTitle": "Niet gevonden",
+    "notInDataTitle": "Niet in deze gegevens",
+    "notInLive": "Dit item bestaat niet (meer) in de gegevens van Forge.",
+    "notInExample": "Dit item bestaat niet in de voorbeeldgegevens.",
+    "clearSelection": "Selectie wissen",
+    "exampleNote": "Alles in dit paneel is voorbeeldgegevens op deze pc. Er is geen verbinding met Forge, Claude Code of een andere dienst.",
+    "noneRecorded": "Niets vastgelegd.",
+    "kind": {
+      "none": "DETAILS",
+      "project": "PROJECT",
+      "conversation": "GESPREK",
+      "agent": "HELPER",
+      "task": "TAAK",
+      "graphNode": "KAARTPUNT",
+      "artifact": "RESULTAAT",
+      "gate": "KWALITEITSCONTROLE",
+      "proof": "OPLEVERBEWIJS",
+      "file": "BESTAND",
+      "event": "GEBEURTENIS"
+    },
+    "empty": {
+      "title": "Niets geselecteerd",
+      "subtitle": "Kies iets in je werkplek; de details verschijnen hier.",
+      "startFrom": "BEGIN BIJ",
+      "latestEvent": "Laatste gebeurtenis"
+    },
+    "project": {
+      "type": "Soort",
+      "path": "Map",
+      "template": "Sjabloon",
+      "notSet": "Niet ingesteld",
+      "lastActivity": "Laatst actief",
+      "pinned": "Vastgezet",
+      "yes": "ja",
+      "no": "nee",
+      "health": "Gezondheid",
+      "score": "Score",
+      "tests": "Tests",
+      "testsValue": "{passed} geslaagd · {failed} mislukt · {skipped} overgeslagen",
+      "openItems": "Openstaande punten",
+      "blockers": "Blokkades",
+      "counts": "Aantallen",
+      "conversations": "Gesprekken",
+      "jobs": "Klussen",
+      "tasks": "Taken",
+      "helpers": "Helpers",
+      "skills": "Vaardigheden",
+      "skillsLabel": "Vaardigheden van dit project",
+      "latestJob": "Laatste klus",
+      "job": "Klus",
+      "started": "Gestart",
+      "duration": "Duur",
+      "notMeasured": "Nog niet gemeten",
+      "noTestsYet": "Nog geen tests gedraaid",
+      "noOpenItemsKnown": "Nog niet bijgehouden"
+    },
+    "conversation": {
+      "project": "Project",
+      "messages": "Berichten",
+      "updated": "Bijgewerkt",
+      "lastMessage": "Laatste bericht",
+      "you": "jij",
+      "forge": "Forge",
+      "models": "Modellen",
+      "modelsLabel": "Modellen in dit gesprek",
+      "modelsLive": "Namen zoals ze bij deze berichten staan. Dit paneel heeft geen model benaderd.",
+      "modelsExample": "Namen uit de voorbeeldgegevens. Er is geen model benaderd.",
+      "history": "Verloop"
+    },
+    "event": {
+      "kind": "Soort",
+      "helper": "Helper",
+      "system": "systeem",
+      "job": "Klus",
+      "recorded": "Vastgelegd",
+      "detail": "Toelichting",
+      "started": "Gestart",
+      "duration": "Duur",
+      "reportedBy": "Gemeld door"
+    },
+    "status": {
+      "running": "BEZIG",
+      "completed": "KLAAR",
+      "waiting": "WACHT OP JOU",
+      "verify": "WORDT GECONTROLEERD",
+      "review": "IN KEURING",
+      "failed": "MISLUKT",
+      "blocked": "STAAT VAST",
+      "idle": "RUSTIG"
+    },
+    "statusDetail": {
+      "running": "Er wordt nu aan gewerkt.",
+      "completed": "Dit is af.",
+      "waiting": "Forge wacht op jouw antwoord of keuze.",
+      "verify": "Het opleverbewijs wordt nog gecontroleerd.",
+      "review": "De laatste keuring loopt nog.",
+      "failed": "Dit is niet gelukt; de details staan hieronder.",
+      "blocked": "Dit kan pas verder als een eerdere stap klaar is.",
+      "idle": "Er gebeurt hier nu niets."
+    }
+  },
+  "dock": {
+    "region": "Onderpaneel",
+    "tabsLabel": "Onderdelen van het onderpaneel",
+    "collapse": "Onderpaneel inklappen",
+    "expand": "Onderpaneel uitklappen",
+    "exampleNote": "Alles in dit paneel is voorbeeldgegevens op deze pc. Er is geen logboek gelezen, geen opdracht uitgevoerd en geen klus gevolgd.",
+    "tab": {
+      "activity": "Activiteit",
+      "terminal": "Terminal",
+      "tests": "Tests",
+      "events": "Gebeurtenissen",
+      "proof": "Opleverbewijs",
+      "notices": "Meldingen"
+    },
+    "activity": {
+      "eyebrow": "ACTIVITEIT",
+      "count": "{count} gebeurtenissen",
+      "note": "Nieuwste eerst · kies een regel om hem in het zijpaneel te openen",
+      "system": "systeem",
+      "emptyTitle": "Nog geen activiteit",
+      "emptyDetail": "Zodra het team aan een klus werkt, verschijnt hier wat er gebeurt."
+    },
+    "terminal": {
+      "listLabel": "Vastgelegde uitvoer",
+      "list": "OPNAMES",
+      "eyebrow": "VASTGELEGDE UITVOER",
+      "exampleNote": "Zelf geschreven voorbeeldtekst. Er is niets gestart en niets opgevangen.",
+      "noInputLive": "Hier typ je niets. Dit paneel voert geen opdrachten uit; het toont alleen uitvoer die Forge heeft vastgelegd.",
+      "noInputExample": "Hier typ je niets. Dit voorbeeld voert geen opdrachten uit; de tekst hierboven is een opname.",
+      "emptyTitle": "Nog geen uitvoer",
+      "emptyDetail": "Uitvoer van controles verschijnt hier zodra Forge die vastlegt."
+    },
+    "tests": {
+      "eyebrow": "KWALITEITSCONTROLES",
+      "count": "{done} klaar · {open} open",
+      "note": "Een controle die stappen oversloeg, telt niet als geslaagd",
+      "items": "{count} stukken bewijs",
+      "emptyTitle": "Nog geen controles",
+      "emptyDetail": "Kwaliteitscontroles verschijnen hier zodra het team ze uitvoert."
+    },
+    "events": {
+      "eyebrow": "GEBEURTENISSEN",
+      "note": "Eén regel per vastgelegde gebeurtenis, zoals het logboek hem bewaart",
+      "emptyTitle": "Nog geen gebeurtenissen",
+      "emptyDetail": "Elke stap die Forge vastlegt, komt hier als één regel."
+    },
+    "proof": {
+      "eyebrow": "OPLEVERBEWIJS",
+      "count": "{accepted} goedgekeurd · {rejected} afgekeurd",
+      "note": "Een bewering zonder bewijs wordt afgekeurd, niet goedgerekend",
+      "emptyTitle": "Nog geen opleverbewijs",
+      "emptyDetail": "Zodra een helper laat zien dat iets af is, staat dat hier."
+    },
+    "notices": {
+      "eyebrow": "MELDINGEN",
+      "count": "{count} vaste meldingen",
+      "note": "Vaste feiten over deze werkplek, geen waarschuwingen",
+      "linkTitle": "Forge op deze pc: {state}",
+      "claudeLinkTitle": "Claude Code op deze pc: {state}",
+      "connected": "verbonden",
+      "connecting": "verbinden…",
+      "reconnecting": "opnieuw verbinden…",
+      "disconnected": "niet verbonden",
+      "connectedDetail": "Verbonden met Forge op {endpoint}. Alles hier komt uit de live gebeurtenissen.",
+      "disconnectedDetail": "De werkplek kan Forge op deze pc niet bereiken. Zodra Forge weer draait, maakt hij vanzelf verbinding.",
+      "connectingDetail": "Forge wordt bereikt op {endpoint}.",
+      "counts": "{projects} projecten, {helpers} helpers, {tasks} taken, {events} gebeurtenissen",
+      "dataLiveTitle": "Live gegevens in het geheugen",
+      "dataExampleTitle": "Voorbeeldgegevens in het geheugen",
+      "dataLiveDetail": "{counts}: opgebouwd uit het logboek van Forge op deze pc, terwijl de gebeurtenissen binnenkwamen.",
+      "dataExampleDetail": "{counts}. Lokaal samengesteld bij het openen; er is niets opgehaald, gelezen of afgewacht.",
+      "gatesTitle": "{count} kwaliteitscontroles zijn niet klaar",
+      "gatesNoneLive": "Er zijn nog geen kwaliteitscontroles gemeld voor deze werkplek.",
+      "gatesNoneExample": "Elke voorbeeldcontrole is klaar.",
+      "gatesSome": "{names}. Overgeslagen stappen en ontbrekende schermafdrukken blijven zichtbaar en tellen niet als geslaagd.",
+      "proofTitle": "{count} opleverclaims zijn afgekeurd",
+      "proofNoneLive": "Er is nog geen opleverclaim vastgelegd voor deze werkplek.",
+      "proofNoneExample": "Geen enkele voorbeeldclaim is afgekeurd.",
+      "proofSome": "{claims}: het bewijs liet niet zien wat de claim beweerde.",
+      "proofMore": "{shown}; en nog {count}",
+      "blockedTitle": "{count} taken staan vast",
+      "blockedNoneLive": "Er staat niets vast.",
+      "blockedNoneExample": "In het voorbeeld staat niets vast.",
+      "blockedSome": "{ids} kunnen pas verder als een eerdere stap klaar is.",
+      "disconnectedStart": "Start Forge met {command}; daarna maakt hij vanzelf verbinding."
+    }
+  },
+  "relativeTime": {
+    "justNow": "zojuist",
+    "minutesAgo": "{count} min geleden",
+    "hoursAgo": "{count} uur geleden",
+    "dayAgo": "1 dag geleden",
+    "daysAgo": "{count} dagen geleden",
+    "weekAgo": "1 week geleden",
+    "weeksAgo": "{count} weken geleden",
+    "unknown": "onbekend",
+    "fromEvents": "(geschat uit de stappen)"
+  },
+  "home": {
+    "toast": {
+      "created": "Project gemaakt",
+      "installing": "Forge wordt geïnstalleerd…",
+      "installed": "Forge geïnstalleerd",
+      "installFailed": "Forge installeren mislukt",
+      "installedDetail": "Forge is geïnstalleerd voor {id}.",
+      "installFailedDetail": "Het installeren van Forge is niet afgerond."
+    }
+  },
+  "projectOverview": {
+    "section": {
+      "tasks": {
+        "action": "Taken openen"
+      },
+      "files": {
+        "action": "Bestanden openen"
+      }
+    },
+    "noActiveTitle": "Er is geen project open.",
+    "openBrowser": "Naar je projecten",
+    "localPath": "Map op deze pc",
+    "sectionsLabel": "Onderdelen van het project",
+    "messageOne": "1 bericht",
+    "messages": "{count} berichten"
+  },
+  "appRouter": {
+    "loading": "Router laden…",
+    "loadError": "Forge kan de router-instellingen nu niet lezen.",
+    "retry": "Opnieuw proberen",
+    "unreadable": "Je opgeslagen router-instellingen konden niet gelezen worden. Je ziet de standaardinstellingen; opslaan schrijft ze opnieuw.",
+    "problems": "Een deel van je router-instellingen komt uit een nieuwere versie van Forge. Opslaan staat uit, zodat er niets verloren gaat.",
+    "modeLabel": "Wat doet Forge als je limiet bijna op is?",
+    "modes": {
+      "off": {
+        "text": "Geen wisselen. Bij een limiet zie je de melding dat je limiet bereikt is."
+      },
+      "claudeThenModel": {
+        "text": "Eerst je Claude-account. Is de limiet op, dan gaat Forge verder met je eigen model, bijvoorbeeld Ollama op deze computer."
+      },
+      "modelFirst": {
+        "text": "Forge gebruikt meteen je eigen model. Claude-accounts die aan staan komen daarna, bijvoorbeeld als Ollama niet draait."
+      }
+    },
+    "accounts": {
+      "heading": "Claude-accounts",
+      "mainSub": "Je gewone Claude-login",
+      "extraSub": "Eigen map: {folder}",
+      "extraSubNoFolder": "Eigen map voor dit account",
+      "test": "Testen",
+      "testLabel": "{label} testen",
+      "testHint": "Testen gebruikt een klein beetje van je limiet.",
+      "testSaveFirst": "Sla eerst op; daarna kun je dit testen.",
+      "remove": "Verwijderen",
+      "removeLabel": "{label} verwijderen",
+      "usage": "{pct}% van de {window}",
+      "usageNoPct": "Ruimte: ok (geen percentage gemeld)",
+      "usageUnknown": "Gebruik onbekend. Forge wisselt pas bij een echte limietmelding.",
+      "measured": "gemeten om {time}",
+      "measuredStale": "gemeten om {time} (verouderd)",
+      "freeAgain": "vermoedelijk weer vrij",
+      "tooSoon": "Testen kan weer over {min} min.",
+      "testFailed": "Testen lukte niet: {reason}",
+      "refused": "Dit venster mag de router niet aanpassen. Open Forge opnieuw vanuit de app.",
+      "removeTitle": "{label} verwijderen?",
+      "removeText": "Forge gebruikt dit account dan niet meer. De map {folder} blijft staan, met de inlog en geschiedenis van dit account. Die kun je zelf weggooien.",
+      "removeTextNoFolder": "Forge gebruikt dit account dan niet meer. De map van dit account blijft staan, met de inlog en geschiedenis. Die kun je zelf weggooien.",
+      "removeAfter": "Klik daarna op Opslaan.",
+      "cancel": "Annuleren",
+      "testUnusable": "Niet getest: de router slaat deze stap nu over.",
+      "testBlocked": "Testen kan nu niet: de router slaat deze stap over."
+    },
+    "add": {
+      "title": "Claude-account toevoegen",
+      "nameLabel": "Naam van het account",
+      "namePlaceholder": "Bijvoorbeeld Werk",
+      "nameHint": "Alleen een naam. Forge vraagt nooit om je wachtwoord.",
+      "create": "Volgende",
+      "creating": "Bezig…",
+      "step1": "1. Open een nieuw opdrachtvenster (PowerShell).",
+      "step2": "2. Plak deze regel en druk op Enter.",
+      "step3": "3. Log in het venster van Claude in met je andere account. Sluit het venster daarna.",
+      "step4": "4. Kom terug en klik op Testen.",
+      "otherShells": "Ander opdrachtvenster",
+      "cmdLabel": "Opdrachtprompt (cmd), in een nieuw venster",
+      "posixLabel": "macOS of Linux",
+      "note": "Een extra account gebruikt zijn eigen Claude-instellingen. Persoonlijke instellingen uit je gewone Claude (eigen agenten, je persoonlijke CLAUDE.md) gelden daar niet. De instellingen van het project zelf wel.",
+      "folderAt": "De map staat in {folder}.",
+      "done": "Klaar",
+      "exists": "Er is al een account met deze naam, of je hebt het maximum van 8 Claude-accounts bereikt.",
+      "invalidName": "Kies een naam van 1 tot 40 tekens.",
+      "failed": "Forge kon het account niet aanmaken: {reason}"
+    },
+    "multi": {
+      "title": "Wisselen tussen je eigen Claude-accounts",
+      "warning": "Let op. Anthropic schrijft dat de limieten van Pro, Max en Ultra uitgaan van ‘gewoon, individueel gebruik’. Nergens staat of je mag wisselen tussen meerdere eigen accounts om door te gaan na een limiet; het kan gezien worden als het omzeilen van een beperking, en Anthropic kan dan waarschuwen, afremmen of je toegang stoppen. Een account delen met iemand anders mag nooit. Zet dit alleen aan als alle accounts van jou zijn en je de voorwaarden zelf hebt gelezen.",
+      "ack": "Deze accounts zijn allemaal van mij en ik heb de voorwaarden gelezen.",
+      "offHint": "Zolang dit niet aangevinkt is, gebruikt Forge alleen het eerste Claude-account.",
+      "sources": "Lees zelf",
+      "linkTerms": "Gebruiksvoorwaarden",
+      "linkAup": "Gebruiksbeleid",
+      "linkLegal": "Claude Code juridisch",
+      "checkedOn": "Voorwaarden gecontroleerd op {date}. Dit is geen juridisch advies."
+    },
+    "fallback": {
+      "heading": "Je eigen model",
+      "providerLabel": "Waar draait het model?",
+      "modelLabel": "Model",
+      "choose": "Kies…",
+      "ollamaLocal": "Ollama op deze computer",
+      "codex": "Codex (je eigen ChatGPT-login)",
+      "recommend": "Aanrader: Ollama op deze computer. Gratis, en je berichten blijven hier.",
+      "ollamaDown": "Ollama draait niet op deze computer",
+      "checkAgain": "Opnieuw kijken",
+      "noModels": "Ollama heeft nog geen modellen. Download er eerst een in Ollama zelf.",
+      "notPulled": "Dit model staat nog niet op deze computer",
+      "listUnknown": "De lijst met modellen is nog niet opgehaald. Klik bij Accounts op Testen voor deze dienst.",
+      "checking": "Bezig met kijken…",
+      "capability": "Dit model kan alleen antwoorden: geen bestanden bewerken of opdrachten uitvoeren.",
+      "capabilityCodex": "Codex: kan lezen en antwoorden",
+      "paidAck": "Ik weet dat dit model per gebruik kost via mijn eigen sleutel.",
+      "noticeAck": "Ik weet dat mijn berichten naar deze dienst buiten mijn computer gaan."
+    },
+    "chain": {
+      "hint": "Forge probeert van boven naar onder. Wat uit staat, slaat Forge over.",
+      "up": "{label} omhoog",
+      "down": "{label} omlaag",
+      "use": "{label} gebruiken",
+      "threshold": "Wissel bij",
+      "thresholdLabel": "Wisselpunt voor {label} in procent",
+      "thresholdHint": "% · leeg = {pct}%",
+      "numCtx": "Contextgrootte",
+      "port": "Poort van Ollama",
+      "kindClaude": "Claude",
+      "kindCodex": "Codex",
+      "kindModel": "Eigen model",
+      "general": "Algemeen",
+      "cooldown": "Wachttijd tussen wissels (minuten)",
+      "strategy": "Nieuwe gesprekken beginnen",
+      "strategyInOrder": "Op volgorde",
+      "strategySpread": "Afwisselend",
+      "returnLabel": "Terug naar een eerder account",
+      "returnNew": "bij een nieuw gesprek",
+      "returnAsap": "zo snel het kan",
+      "handover": "Berichten meegeven bij een wissel",
+      "unavailable": "Deze eigen API is verwijderd, uitgezet of geweigerd. De router slaat deze stap over en gaat door met de volgende.",
+      "unavailableIn": "{label}: deze eigen API is verwijderd, uitgezet of geweigerd. De router slaat deze stap over."
+    },
+    "state": {
+      "unavailable": "Niet beschikbaar",
+      "testing": "Bezig met testen…",
+      "disabled": "Staat uit",
+      "gated": "Wisselen tussen accounts staat uit",
+      "loggedOut": "Niet ingelogd: volg de stappen opnieuw",
+      "notPulled": "Dit model staat nog niet op deze computer",
+      "down": "Reageert nu niet",
+      "ollamaDown": "Ollama draait niet op deze computer",
+      "limit": "Limiet bereikt, weer vrij om {time}",
+      "limitNoTime": "Limiet bereikt, onbekend wanneer weer vrij",
+      "testFailed": "Testen mislukt",
+      "signedIn": "Ingelogd (getest {time})",
+      "answers": "Antwoordt (getest {time})",
+      "nearLimit": "Bijna op: {pct}%",
+      "ready": "Klaar voor gebruik",
+      "untested": "Nog niet getest",
+      "unknown": "Gebruik onbekend"
+    },
+    "window": {
+      "five_hour": "5-uurslimiet",
+      "seven_day": "weeklimiet",
+      "seven_day_opus": "weeklimiet voor Opus",
+      "seven_day_sonnet": "weeklimiet voor Sonnet",
+      "other": "limiet"
+    },
+    "save": {
+      "save": "Opslaan",
+      "saving": "Opslaan…",
+      "discard": "Wijzigingen weggooien",
+      "dirty": "Je wijzigingen zijn nog niet opgeslagen.",
+      "saved": "Router opgeslagen",
+      "savedDetail": "Forge gebruikt de nieuwe instellingen vanaf je volgende bericht.",
+      "notSaved": "Niet opgeslagen: {reason}",
+      "stale": "Dit is net ergens anders gewijzigd; de nieuwste versie is geladen.",
+      "tooMany": "Even te vaak geprobeerd. Probeer het zo opnieuw.",
+      "issues": "Nog op te lossen voor je kunt opslaan"
+    },
+    "issues": {
+      "tooMany": "Maximaal {max} regels in je router.",
+      "tooManyClaude": "Maximaal {max} Claude-accounts.",
+      "ackNeeded": "Vink eerst aan dat alle accounts van jou zijn.",
+      "needsTwo": "Hiervoor zijn minstens twee Claude-accounts nodig die aan staan.",
+      "needsClaude": "Zet minstens één Claude-account aan.",
+      "fallbackMissing": "Kies een eigen model om mee verder te gaan.",
+      "modelFirstOrder": "Zet een eigen model bovenaan.",
+      "label": "Een naam is 1 tot 40 tekens.",
+      "threshold": "Kies een getal van {min} tot en met {max}, of laat het leeg.",
+      "numCtx": "Kies een getal van {min} tot en met {max}.",
+      "port": "Een poort is 2 tot 5 cijfers.",
+      "paidAck": "Bevestig dat dit model per gebruik kost.",
+      "noticeAck": "Bevestig dat je berichten buiten je computer gaan.",
+      "model": "Kies een geldig model.",
+      "range": "Kies een getal van {min} tot en met {max}."
+    }
+  },
+  "customApi": {
+    "feel": "Een eigen server of een dienst die hier niet tussen staat? Vul het adres in; Forge praat er dan mee zoals met je andere accounts.",
+    "add": "Eigen API toevoegen",
+    "loading": "Eigen API's laden…",
+    "missing": "Deze versie van Forge kan nog geen eigen API bewaren. Werk Forge bij om dit te gebruiken.",
+    "loadError": "Forge kan de lijst met eigen API's nu niet lezen.",
+    "retry": "Opnieuw proberen",
+    "empty": "Nog geen eigen API. Handig als je een eigen server hebt, bijvoorbeeld vLLM of LM Studio op je netwerk, of een dienst die hierboven ontbreekt.",
+    "dropped": "Forge kon {count} eigen API('s) niet lezen; die blijven ongewijzigd.",
+    "edit": "Aanpassen",
+    "off": "Uit",
+    "plain": "Niet versleuteld",
+    "local": "Op deze computer",
+    "formats": {
+      "openai-chat": "OpenAI-compatibel (chat)",
+      "openai-responses": "OpenAI Responses",
+      "anthropic": "Anthropic-compatibel"
+    },
+    "form": {
+      "titleNew": "Nieuwe eigen API",
+      "titleEdit": "{name} aanpassen",
+      "label": "Naam",
+      "labelHint": "Zo zie je hem terug in Forge, bijvoorbeeld Mijn vLLM-server.",
+      "format": "Soort API",
+      "formatHint": "De meeste servers en diensten zijn OpenAI-compatibel.",
+      "baseURL": "Adres (base URL)",
+      "baseURLPlaceholder": "https://… of http://192.168.1.20:8000/v1",
+      "key": "Sleutel",
+      "keyStore": "Sleutel bewaren en testen",
+      "noKey": "Geen sleutel nodig",
+      "noKeyHint": "Voor een server op je eigen computer of netwerk zonder wachtwoord.",
+      "keyAfterSave": "Na Opslaan vul je hier de sleutel in. Die gaat alleen naar de versleutelde kluis van de app, nooit naar een instellingenbestand.",
+      "keyEnv": "Zonder de app: zet de sleutel in de omgevingsvariabele {name} en start Forge opnieuw.",
+      "models": "Modellen",
+      "modelsEndpoint": "Automatisch ophalen bij de dienst",
+      "modelsManual": "Zelf invullen",
+      "manualLabel": "Eén model per regel",
+      "manualHint": "Gebruik de namen zoals de dienst ze noemt, bijvoorbeeld qwen2.5-coder:32b.",
+      "advanced": "Uitgebreid",
+      "authLabel": "Hoe gaat de sleutel mee?",
+      "auth": {
+        "auto": "Zoals gebruikelijk voor deze soort",
+        "bearer": "Authorization: Bearer",
+        "x-api-key": "x-api-key",
+        "api-key-header": "api-key",
+        "custom": "Eigen kopregel"
+      },
+      "header": "Naam van de kopregel",
+      "prefix": "Voorvoegsel (mag leeg)",
+      "prefixHint": "Komt vóór de sleutel, bijvoorbeeld \"Key \" met een spatie erachter.",
+      "contextLength": "Contextlengte (mag leeg)",
+      "contextHint": "Hoeveel tekst het model tegelijk kan lezen. Leeg betekent onbekend.",
+      "enabled": "Gebruiken in Forge",
+      "save": "Opslaan",
+      "saving": "Opslaan…",
+      "cancel": "Annuleren",
+      "close": "Klaar",
+      "remove": "Verwijderen",
+      "confirmRemove": "Ja, verwijderen",
+      "removeKeyToo": "De bewaarde sleutel van deze API wordt ook verwijderd.",
+      "removing": "Verwijderen…",
+      "savedLine": "Opgeslagen.",
+      "test": "Testen",
+      "testing": "Bezig met testen…",
+      "testOk": "Verbonden ({ms} ms)",
+      "testOkNoTime": "Verbonden",
+      "testFail": "Niet gelukt: {status}",
+      "foundModels": "Gevonden modellen: {models}",
+      "noModelsYet": "De lijst met modellen verschijnt na een geslaagde test.",
+      "manualModels": "Jouw modellen: {models}",
+      "technical": "Technische details",
+      "fixFirst": "Er klopt nog iets niet; kijk bij de rood gemarkeerde velden."
+    },
+    "url": {
+      "https": "Versleutelde verbinding.",
+      "local": "Op deze computer.",
+      "lan": "Dit adres is niet versleuteld (http). Gebruik het alleen op je eigen computer of eigen netwerk.",
+      "openaiV1": "Tip: een OpenAI-stijl adres eindigt meestal op /v1.",
+      "anthropicNoV1": "Tip: laat /v1 aan het eind weg; Forge vult dat zelf aan."
+    },
+    "errors": {
+      "required": "Vul dit in.",
+      "tooLong": "Dit is te lang.",
+      "control": "Gebruik gewone tekens.",
+      "secretLike": "Dit lijkt een sleutel. Een sleutel hoort alleen in het sleutelveld.",
+      "bad_url": "Dit is geen geldig adres. Begin met https:// of http:// en laat gebruikersnaam en # weg.",
+      "https_required": "Een adres buiten je eigen netwerk moet met https:// beginnen.",
+      "blocked_host": "Dit adres is niet toegestaan.",
+      "blocked_port": "Deze poort is niet voor webverkeer. Kies een andere poort.",
+      "badHeader": "Alleen letters, cijfers en streepjes, en beginnen met een letter.",
+      "reservedHeader": "Voor deze naam is er een eigen keuze in de lijst, of hij mag geen sleutel dragen.",
+      "badModel": "Een of meer namen kloppen niet. Gebruik letters, cijfers en . _ : / -",
+      "tooManyModels": "Hoogstens 50 modellen.",
+      "outOfRange": "Een heel getal tussen 1024 en 10000000.",
+      "modelsRequired": "Vul minstens één model in."
+    },
+    "outcome": {
+      "stale": "De lijst is intussen gewijzigd. Forge heeft hem opnieuw geladen; sla nog eens op.",
+      "duplicate": "Er is al een eigen API met deze naam. Kies een andere naam.",
+      "refused": "Dit venster mag nog niets opslaan. Koppel het eerst met de melding bovenaan.",
+      "tooMany": "Even te vaak geprobeerd. Wacht een minuut en probeer het opnieuw.",
+      "failed": "Opslaan lukte niet: {reason}",
+      "removeFailed": "Verwijderen lukte niet: {reason}"
+    },
+    "router": {
+      "inUse": "De router gebruikt deze eigen API in: {names}. Verwijder je hem of zet je hem uit, dan slaat de router die stap over.",
+      "removed": "{name} is verwijderd. De router noemt hem nog in: {names}. De router slaat die stap over; haal hem weg bij “Als je limiet op is”.",
+      "disabled": "{name} staat uit. De router noemt hem nog in: {names}. Zolang hij uit staat, slaat de router die stap over."
+    }
+  },
+  "rd": {
+    "start": {
+      "title": "Wat wil je maken?",
+      "placeholder": "Beschrijf het in je eigen woorden",
+      "chatPlaceholder": "Vraag iets of geef een aanpassing",
+      "suggestions": {
+        "site": "Website maken",
+        "mail": "Mails automatiseren",
+        "research": "Iets uitzoeken"
+      },
+      "siteExample": "Maak een simpele website voor mijn kapsalon, met openingstijden en een belknop.",
+      "mailExample": "Zet elke ochtend mijn nieuwe mails in een kort overzicht.",
+      "researchExample": "Zoek uit welke tools andere kapsalons gebruiken voor afspraken.",
+      "resume": "Verder met: {name}",
+      "checklist": {
+        "title": "Start hier",
+        "progress": "{done} van {total}",
+        "close": "Sluiten",
+        "account": "Account verbonden",
+        "ask": "Stel je eerste vraag",
+        "proof": "Bekijk een opleverbewijs"
+      },
+      "multilineHint": "Enter verstuurt, Shift+Enter begint een nieuwe regel.",
+      "noProject": "Geen project gekozen."
+    },
+    "tour": {
+      "skip": "Overslaan",
+      "next": "Volgende",
+      "done": "Klaar",
+      "replay": "Rondleiding opnieuw",
+      "composerTitle": "Typ hier wat je wilt",
+      "projectsTitle": "Hier staat al je werk",
+      "card": {
+        "step": "{n} van {total}",
+        "composerBody": "Gewone taal werkt.",
+        "projectsBody": "Open een project.",
+        "helpTitle": "Hulp nodig? Kijk hier",
+        "helpBody": "Korte lessen en sneltoetsen."
+      }
+    },
+    "bar": {
+      "more": "Meer opties",
+      "help": "Hulp",
+      "showDetails": "Details tonen",
+      "hideDetails": "Details verbergen",
+      "shortcuts": "Sneltoetsen",
+      "detailsTitle": "Details",
+      "detailsMore": "Meer",
+      "helpButton": "Hulp en uitleg",
+      "helpLesson": "Uitleg bij deze pagina",
+      "searchCommands": "Opdrachten zoeken",
+      "paneClose": "Paneel sluiten",
+      "detailsSelection": "Selectie",
+      "detailsLog": "Logboek",
+      "helpFallback": "Korte lessen staan in Leer Forge.",
+      "helpOpenLearn": "Naar Leer Forge",
+      "shortcutSidebar": "Zijbalk in- of uitklappen",
+      "shortcutClose": "Menu, paneel of rondleiding sluiten"
+    },
+    "nav": {
+      "newChat": "Nieuw gesprek",
+      "recent": "Recent",
+      "learn": "Leer Forge",
+      "learnDescription": "Vier korte lessen over Forge",
+      "recentLabel": "Recente gesprekken",
+      "footLabel": "Hulp en instellingen",
+      "advancedLabel": "Meer schermen",
+      "gatewayName": "Forge",
+      "gatewayTitle": "Forge op deze pc, los van je accounts. Details staan in Instellingen.",
+      "connConnected": "Staat aan",
+      "connConnecting": "Start op",
+      "connDegraded": "Herstelt",
+      "connDisconnected": "Niet bereikbaar",
+      "sidebarLabel": "Zijbalk"
+    },
+    "chat": {
+      "strip": {
+        "plan": "Plannen",
+        "build": "Bouwen",
+        "check": "Controleren",
+        "deliver": "Opleveren",
+        "done": "klaar",
+        "now": "bezig",
+        "waiting": "wacht",
+        "failed": "mislukt",
+        "helpers": "{n} helpers bezig",
+        "label": "Voortgang",
+        "todo": "nog niet begonnen"
+      },
+      "proof": {
+        "title": "Je website is klaar"
+      },
+      "composer": {
+        "add": "Toevoegen",
+        "pickFolder": "Map kiezen",
+        "newProject": "Nieuw project…",
+        "messageLabel": "Bericht aan Forge"
+      },
+      "usageLine": {
+        "near": "Je limiet is bijna op ({percent} %).",
+        "toAccount": "Forge wisselt dan naar je volgende Claude-account.",
+        "toModel": "Forge wisselt dan naar je eigen model. Dat kan alleen antwoorden.",
+        "region": "Gebruik"
+      },
+      "copyCode": "Code kopiëren ({lang})",
+      "ask": {
+        "title": "Forge vraagt iets",
+        "waiting": "Forge wacht op je antwoord en gaat daarna verder.",
+        "pager": "Vraag {n} van {total}",
+        "multiHint": "Kies alles wat past.",
+        "skippedHint": "Je koos \"Geen voorkeur\". Kies een optie of typ hieronder een antwoord om dat te veranderen.",
+        "recommended": "Aanbevolen",
+        "otherLabel": "Iets anders: typ je eigen antwoord",
+        "answerLabel": "Je antwoord",
+        "otherPlaceholder": "Iets anders…",
+        "answerPlaceholder": "Typ je antwoord…",
+        "skip": "Overslaan, geen voorkeur",
+        "noPreference": "Geen voorkeur",
+        "previous": "Vorige",
+        "next": "Volgende",
+        "review": "Antwoorden nakijken",
+        "reviewTitle": "Je antwoorden",
+        "reviewMissing": "Beantwoord elke vraag, of kies \"Geen voorkeur\", voordat je verstuurt.",
+        "back": "Terug",
+        "send": "Antwoorden versturen",
+        "sending": "Versturen…",
+        "sendFailed": "Je antwoord kon niet worden opgeslagen.",
+        "closedTitle": "Deze vraag wacht niet meer op een antwoord.",
+        "closedBody": "Het gesprek dat dit vroeg, stopte voordat je antwoordde ({reason}). Er is geen antwoord vastgelegd.",
+        "dismiss": "Begrepen",
+        "reason": {
+          "ended": "het gesprek is afgelopen",
+          "stopped": "de klus is gestopt",
+          "closed": "de klus is afgerond",
+          "timedOut": "de tijd voor de klus was op",
+          "restart": "Forge is opnieuw gestart"
+        }
+      }
+    },
+    "projects": {
+      "title": "Mijn projecten",
+      "new": "Nieuw project",
+      "waiting": "Wacht op jou",
+      "all": "Alle projecten",
+      "search": "Zoek een project",
+      "empty": "Nog geen projecten. Begin met een vraag.",
+      "emptyAction": "Nieuw gesprek",
+      "status": {
+        "busy": "Bezig",
+        "done": "Klaar",
+        "failed": "Mislukt",
+        "waiting": "Wacht",
+        "blocked": "Staat vast"
+      },
+      "tabs": {
+        "chats": "Gesprekken",
+        "delivered": "Opgeleverd",
+        "files": "Bestanden",
+        "jobs": "Klussen & bewijs",
+        "tasks": "Taken",
+        "map": "Plankaart"
+      },
+      "deliveredEmpty": "Nog niets opgeleverd.",
+      "proofLink": "Bekijk bewijs",
+      "askOne": "1 vraag voor jou",
+      "askMany": "{count} vragen voor jou",
+      "rowMenu": "Meer voor {name}",
+      "openItem": "Openen",
+      "pin": "Vastpinnen",
+      "unpin": "Losmaken",
+      "pinned": "Vastgepind",
+      "chatsEmpty": "Nog geen gesprekken in dit project.",
+      "deliveredAll": "Alles bekijken",
+      "mapAction": "Plankaart openen",
+      "folderChanged": "De map van dit project is toen voor het laatst gewijzigd."
+    },
+    "settings": {
+      "title": "Instellingen",
+      "simple": "Eenvoudig",
+      "advanced": "Uitgebreid",
+      "moreInfo": "Meer info",
+      "lessInfo": "Minder info",
+      "sections": {
+        "general": "Algemeen",
+        "accounts": "Accounts",
+        "safety": "Veiligheid",
+        "privacy": "Privacy",
+        "models": "Modellen",
+        "usage": "Gebruik",
+        "links": "Koppelingen",
+        "folders": "Mappen",
+        "diagnose": "Diagnose",
+        "about": "Over Forge"
+      },
+      "general": {
+        "light": "Licht",
+        "dark": "Donker",
+        "system": "Zoals Windows",
+        "view": "Weergave",
+        "tour": "Rondleiding opnieuw bekijken",
+        "startAgain": "Start hier opnieuw tonen"
+      },
+      "accounts": {
+        "title": "Je accounts",
+        "yours": "Jouw abonnement",
+        "viaCodex": "Via Codex",
+        "about": "Over dit account",
+        "add": "Account toevoegen",
+        "addTitle": "Welk account wil je toevoegen?"
+      },
+      "ownApi": {
+        "title": "Eigen API"
+      },
+      "router": {
+        "title": "Als je limiet op is",
+        "ask": "Wat doet Forge dan?",
+        "tellsYou": "Forge meldt het altijd in het gesprek.",
+        "how": "Hoe werkt dit?",
+        "none": "Niets doen",
+        "rotate": "Wisselen tussen mijn Claude-accounts",
+        "claudeThenOwn": "Claude eerst, dan mijn eigen model",
+        "ownNow": "Meteen mijn eigen model",
+        "order": "Volgorde",
+        "risk": "Als Forge wisselt, kan Anthropic je toegang stoppen.",
+        "covers": "Dit geldt voor:",
+        "rotateText": "Forge loopt je eigen Claude-accounts op volgorde af."
+      }
+    },
+    "onboarding": {
+      "step": "Stap {n} van {total}",
+      "back": "Terug",
+      "next": "Verder",
+      "skip": "Overslaan",
+      "steps": {
+        "welcome": "Welkom",
+        "choose": "Kies",
+        "connect": "Verbinden",
+        "ready": "Klaar"
+      },
+      "welcome": {
+        "title": "Alles klaar op deze pc",
+        "lead": "Forge heeft gekeken wat er al staat."
+      },
+      "choose": {
+        "title": "Waarmee wil je werken?",
+        "lead": "Kies wat je al hebt. Later aanpassen kan altijd.",
+        "claude": "Claude",
+        "claudeHint": "Je abonnement of sleutel",
+        "chatgpt": "ChatGPT",
+        "chatgptHint": "Via Codex, met je ChatGPT-account",
+        "free": "Gratis op deze pc",
+        "freeHint": "Met Ollama. Je gesprekken blijven op je computer.",
+        "own": "Eigen sleutel of server",
+        "ownHint": "Een API-sleutel of je eigen adres",
+        "info": "Geen Claude? Je kunt toch beginnen; bestanden laten bouwen vraagt Claude.",
+        "compare": "Wat kan elk pad?"
+      },
+      "connect": {
+        "copy": "Kopiëren",
+        "recheck": "Opnieuw controleren"
+      },
+      "ready": {
+        "title": "Klaar om te beginnen",
+        "folder": "Je werkt in: {folder}",
+        "otherFolder": "Andere map",
+        "begin": "Begin",
+        "look": "Laat me rondkijken"
+      }
+    },
+    "learn": {
+      "title": "Leer Forge",
+      "minutes": "{n} min",
+      "try": "Probeer het",
+      "done": "Klaar",
+      "next": "Volgende les",
+      "lessons": {
+        "first": {
+          "title": "Je eerste vraag",
+          "s1": "Typ wat je wilt in het vak.",
+          "s2": "Druk op Enter om te versturen.",
+          "s3": "Forge stelt een vraag als iets onduidelijk is."
+        },
+        "project": {
+          "title": "Een project starten",
+          "s1": "Kies Nieuw project.",
+          "s2": "Geef het een naam.",
+          "s3": "Je gesprekken en bestanden blijven bij elkaar."
+        },
+        "proof": {
+          "title": "Opleverbewijs lezen",
+          "s1": "Het groene stempel betekent: gecontroleerd.",
+          "s2": "Elke regel is iets wat Forge echt heeft getest.",
+          "s3": "Twijfel je? Vraag hoe het is gecontroleerd."
+        },
+        "limit": {
+          "title": "Als je limiet op is",
+          "s1": "Forge meldt het in het gesprek.",
+          "s2": "Jij kiest wat er dan gebeurt.",
+          "s3": "Je vindt dit onder Instellingen, Accounts."
+        }
+      }
+    },
+    "states": {
+      "example": "Voorbeeld",
+      "errorDetails": "Meer info"
+    },
+    "delivered": {
+      "title": "Opgeleverd",
+      "truncated": "Niet alles staat in deze lijst. Er kan meer zijn opgeleverd.",
+      "filterLabel": "Soort",
+      "kind": {
+        "all": "Alles",
+        "screenshot": "Schermafdruk",
+        "report": "Verslag",
+        "diagram": "Schema",
+        "markdown": "Tekst",
+        "log": "Logboek",
+        "receipt": "Bon",
+        "proof": "Bewijs"
+      },
+      "noneOfKind": "Niets van deze soort.",
+      "showAll": "Alles tonen",
+      "previewOf": "{name} bekijken",
+      "by": "Gemaakt door",
+      "task": "Taak",
+      "created": "Gemaakt",
+      "size": "Grootte",
+      "download": "Downloaden",
+      "noDims": "Afmetingen niet vastgelegd",
+      "frameNote": "Deze afbeelding wordt hier nog niet getoond. Download het bestand om het te bekijken.",
+      "downloadNoProject": "Kies eerst een project. Downloaden werkt per project.",
+      "downloadChat": "Dit bestand is direct in een gesprek aangepast. Er is geen losse kopie om te downloaden.",
+      "byChat": "Een gesprek"
+    },
+    "agents": {
+      "title": "Helpers",
+      "subtitle": "Wie er in het team zit, waaraan elke helper werkt en welk model hij gebruikt.",
+      "toolbar": "Weergave van de helpers",
+      "layout": {
+        "list": "Lijst",
+        "grid": "Kaarten",
+        "grouped": "Per groep",
+        "nodes": "Schema"
+      },
+      "filters": "Helpers filteren op status",
+      "filter": {
+        "all": "Alle",
+        "running": "Bezig",
+        "waiting": "Wacht",
+        "verify": "Controle",
+        "review": "Keuring",
+        "blocked": "Vast",
+        "failed": "Mislukt",
+        "completed": "Klaar"
+      },
+      "group": {
+        "control": "Leiding",
+        "context": "Onderzoek",
+        "planning": "Planning",
+        "domain": "Vakgebied",
+        "execution": "Uitvoering",
+        "review": "Keuring",
+        "memory": "Geheugen"
+      },
+      "groupNote": {
+        "control": "Bewaakt de hele klus en bepaalt wanneer iets af is.",
+        "context": "Zoekt uit wat de rest anders moet raden.",
+        "planning": "Maakt van een vraag een plan met taken.",
+        "domain": "Specialisten voor één vakgebied.",
+        "execution": "Bouwt het werk, ook de lastige randgevallen.",
+        "review": "Legt elke bewering naast het bewijs.",
+        "memory": "Onthoudt wat werkte voor de volgende klus."
+      },
+      "groupTitle": "Groep {group}",
+      "bandEmpty": "Geen helper in deze groep past bij het filter.",
+      "empty": {
+        "title": "Geen helpers met deze status",
+        "detail": "Geen helper heeft nu deze status. Toon alle helpers om het hele team te zien.",
+        "action": "Alle helpers tonen"
+      },
+      "currentTask": "Nu bezig met",
+      "noTask": "Geen taak op dit moment.",
+      "skills": "Vaardigheden",
+      "skillsList": "Gekoppelde vaardigheden",
+      "noSkills": "Geen vaardigheden gekoppeld.",
+      "model": {
+        "runtime": "Model",
+        "tool": "Hulpmodel",
+        "effort": "Denkniveau",
+        "change": "{label} wijzigen",
+        "changeHint": "{label} wijzigen (nu {value})",
+        "choose": "{label} kiezen",
+        "unset": "niet ingesteld",
+        "failed": "Het model wijzigen is mislukt",
+        "failedDetail": "Forge heeft deze wijziging niet aangenomen. Er is niets veranderd.",
+        "saving": "Opslaan…"
+      },
+      "permission": {
+        "read-only": "Alleen lezen",
+        "standard": "Standaard",
+        "elevated": "Verhoogd",
+        "lead": "Leiding"
+      },
+      "verification": {
+        "verified": "Gecontroleerd",
+        "verifiedDetail": "De controle heeft het bewijs bij de laatste melding goedgekeurd.",
+        "pending": "Wacht op controle",
+        "pendingDetail": "Een melding wacht op controle en is nog niet goedgekeurd.",
+        "rejected": "Afgekeurd",
+        "rejectedDetail": "De controle keurde de laatste melding af en zette het werk terug.",
+        "not-required": "Niet nodig",
+        "not-requiredDetail": "Deze rol levert niets op dat gecontroleerd moet worden.",
+        "unknown": "Nog geen controle",
+        "unknownDetail": "Er is nog geen controle vastgelegd voor deze helper in deze klus."
+      },
+      "effort": {
+        "low": "Laag",
+        "medium": "Middel",
+        "high": "Hoog",
+        "max": "Maximaal"
+      },
+      "live": {
+        "title": "Nu bezig",
+        "noRegistry": "Dit project heeft geen lijst met helpers.",
+        "none": "Nog geen helper ingezet in de gesprekken van dit project.",
+        "noteRunning": "Een helper staat alleen op bezig als hij nu echt werkt. De rest is eerder werk.",
+        "noteIdle": "Geen van deze helpers werkt nu.",
+        "noteStalled": " Stil betekent: al een tijd niets gehoord. Niet bewezen klaar en niet bewezen bezig.",
+        "noteSelfDispatched": " Dit zijn helpers die Claude Code zelf inzette.",
+        "chipRunning": "{label}: nu {running} bezig ({count} in totaal)",
+        "chipStalled": "{label}: {stalled} van {count} al een tijd stil",
+        "chipDoneOne": "{label}: 1 keer ingezet, nu niet bezig",
+        "chipDoneMany": "{label}: {count} keer ingezet, nu niet bezig"
+      },
+      "graph": {
+        "label": "Schema van wie aan wie rapporteert"
+      },
+      "access": {
+        "read-only": "Alleen lezen",
+        "standard": "Standaard",
+        "elevated": "Verhoogd",
+        "lead": "Alle rechten"
+      },
+      "accessTitle": "Rechten: {level}",
+      "layoutLabel": "Weergave",
+      "effortTitle": "Denkniveau: {level}"
+    },
+    "mission": {
+      "noneTitle": "Overzicht",
+      "noneEmpty": "Er loopt nu geen klus",
+      "noneDetail": "Start een klus in een project. Dan zie je hier wie waaraan werkt.",
+      "chatTitle": "Gesprek",
+      "chatRun": "Gesprek",
+      "chatEmpty": "Er loopt geen klus met meerdere helpers",
+      "chatDetail": "Het laatste werk kwam uit een gesprek (hierboven). Dat staat niet in dit schema.",
+      "run": "Klus",
+      "elapsed": "Duur",
+      "started": "Gestart",
+      "graph": "Schema",
+      "stalled": "Al een tijd niets gehoord: niet bewezen klaar, niet bewezen bezig.",
+      "endedUnknown": "Nooit afgesloten: de klus stopte zonder uitkomst.",
+      "controls": "Bediening van het schema",
+      "zoomOut": "Uitzoomen",
+      "zoomIn": "Inzoomen",
+      "fit": "Passend maken",
+      "hintFit": "passend",
+      "hintZoom": "zoomen",
+      "hintPan": "schuiven",
+      "legend": {
+        "flow": "Volgorde",
+        "dependency": "Hangt af van",
+        "feedback": "Terug voor herstel"
+      },
+      "approvals": "Goedkeuringen",
+      "approvalsLabel": "Goedkeuringen voor deze klus",
+      "approvalsNotRequested": "niet gevraagd",
+      "approvalsNone": "niets vastgelegd",
+      "gate": "Slot",
+      "agentPrefix": "Helper: ",
+      "recordedPrefix": "Vastgelegd om: ",
+      "subtitle": "Wie in de lopende klus waaraan werkt, stap voor stap.",
+      "stepsOne": "{n} stap",
+      "stepsMany": "{n} stappen",
+      "lanesOne": "{n} baan",
+      "lanesMany": "{n} banen",
+      "edgesOne": "{n} lijn",
+      "edgesMany": "{n} lijnen",
+      "approvalsUnknown": "nog niet bekend"
+    },
+    "files": {
+      "notTracked": "Wijzigingen worden hier nog niet bijgehouden.",
+      "change": {
+        "added": "Nieuw",
+        "modified": "Gewijzigd",
+        "deleted": "Verwijderd"
+      },
+      "changeInfo": {
+        "added": "Nieuw: dit bestand bestond voor deze wijziging nog niet.",
+        "modified": "Gewijzigd: dit bestand is aangepast.",
+        "deleted": "Verwijderd: dit bestand is weggehaald."
+      },
+      "recent": "Recent",
+      "recentLabel": "Recente bestanden",
+      "changedOnly": "Alleen gewijzigd",
+      "noSelection": {
+        "title": "Geen bestand gekozen",
+        "detail": "Kies een bestand in de boom of bij Recent om de details te zien."
+      },
+      "filter": "Zoek op naam of pad",
+      "clearFilter": "Zoekterm wissen",
+      "openAll": "Alle mappen openen",
+      "closeAll": "Alle mappen sluiten",
+      "preview": {
+        "loading": "Bestand lezen…",
+        "loadingDetail": "De inhoud komt uit de map van het project.",
+        "blocked": "Niet getoond",
+        "blockedDetail": "Forge leest dit bestand niet: het lijkt op {reason}. Er is niets gelezen.",
+        "binary": "Geen tekstbestand",
+        "binaryDetail": "Dit bestand bevat geen tekst, dus het kan hier niet getoond worden.",
+        "failed": "Tonen mislukt",
+        "failedDetail": "Forge gaf als antwoord: {reason}.",
+        "failedUnknown": "Forge kon dit bestand niet lezen.",
+        "title": "Inhoud",
+        "label": "Inhoud van het bestand",
+        "content": "Inhoud van het bestand. Alleen lezen.",
+        "truncated": "Ingekort",
+        "linesOne": "1 regel",
+        "linesMany": "{count} regels"
+      },
+      "reason": {
+        "env-file": "een bestand met instellingen (.env)",
+        "key-or-pem-file": "een sleutelbestand",
+        "ssh-private-key": "een geheime SSH-sleutel",
+        "git-config": "het eigen instellingenbestand van git",
+        "node-modules-content": "een onderdeel in node_modules",
+        "secret-pattern-detected": "iets wat op een wachtwoord of sleutel lijkt",
+        "policy": "de regels van dit project voor het tonen van bestanden"
+      },
+      "diff": {
+        "label": "Wijziging",
+        "title": "Wijzigingen",
+        "example": "Voorbeeldwijziging. Er is geen map gelezen en geen bestand geopend.",
+        "scroll": "Wijziging in {path}. Alleen lezen.",
+        "added": "Regel erbij: ",
+        "removed": "Regel weg: ",
+        "none": "Geen wijziging vastgelegd",
+        "noneDetail": "Hier staan alleen de gegevens. Een wijziging zie je bij slots.ts, booking.css of README.md."
+      },
+      "toolbar": "Knoppen voor de bestanden",
+      "trackingHint": "Forge houdt hier nog geen wijzigingen bij.",
+      "updatedAt": "Bijgewerkt {when}",
+      "unknown": "onbekend",
+      "tree": "Bestandenboom",
+      "treeLabel": "Bestanden van het project",
+      "noMatch": "Geen bestand gevonden",
+      "noMatchDetail": "Geen bestand past bij deze zoekterm. Wis hem om alles weer te zien.",
+      "none": "Nog geen bestanden",
+      "noneDetail": "Dit project heeft nog geen bestanden om te tonen.",
+      "pane": "Bestand bekijken",
+      "clearSelection": "Selectie wissen",
+      "meta": {
+        "path": "Pad",
+        "size": "Grootte",
+        "updated": "Bijgewerkt",
+        "change": "Wijziging",
+        "notTracked": "Niet bijgehouden",
+        "unchanged": "Ongewijzigd"
+      }
+    },
+    "map": {
+      "maps": "Kaarten · {count}",
+      "mapsLabel": "Plankaarten",
+      "noProject": {
+        "title": "Er is geen project actief.",
+        "detail": "Kies eerst een project; de plankaarten openen dan hier.",
+        "action": "Projecten openen"
+      },
+      "empty": {
+        "title": "Nog geen plankaart gemaakt",
+        "detail": "Een plankaart komt er bij grotere klussen. Zodra er een is, staat hij hier."
+      },
+      "loading": "Plankaarten laden…",
+      "error": {
+        "title": "De plankaarten konden niet worden geladen",
+        "detail": "Forge gaf als antwoord: {reason}. Kijk of Forge aan staat en probeer het opnieuw."
+      },
+      "retry": "Opnieuw proberen",
+      "nodesOne": "1 punt",
+      "nodesMany": "{count} punten",
+      "branchesOne": "1 tak",
+      "branchesMany": "{count} takken",
+      "levelsOne": "1 niveau",
+      "levelsMany": "{count} niveaus",
+      "unreadableOne": "1 kaartbestand kon niet worden gelezen en staat er niet bij.",
+      "unreadableMany": "{count} kaartbestanden konden niet worden gelezen en staan er niet bij.",
+      "node": {
+        "region": "Gekozen punt",
+        "heading": "Gekozen punt · {kind}",
+        "kindRoot": "hoofdpunt",
+        "kindBranch": "tak",
+        "kindLeaf": "eindpunt",
+        "close": "Details van dit punt sluiten",
+        "orphan": "Dit punt hangt in dit kaartbestand niet aan het hoofdpunt.",
+        "path": "Pad vanaf het hoofdpunt",
+        "children": "Onder dit punt · {count}",
+        "noChildren": "Niets onder dit punt"
+      },
+      "open": {
+        "loading": "Kaart laden…",
+        "error": "Deze kaart kon niet worden geopend",
+        "errorDetail": "Forge gaf als antwoord: {reason}. Probeer het opnieuw.",
+        "noUsable": "Het bestand heeft geen bruikbare punten.",
+        "noNodes": "Deze kaart heeft geen punten"
+      },
+      "refused": {
+        "title": "De map met plankaarten wordt niet gelezen",
+        "detail": "Die map is een snelkoppeling of geen echte map."
+      },
+      "canvas": "Plankaart: {title}",
+      "canvasHelp": "{label}. Pijltjes schuiven, plus en min zoomen, 0 toont alles. Tab gaat langs de punten.",
+      "zoom": "Zoomen",
+      "zoomOut": "Uitzoomen",
+      "zoomIn": "Inzoomen",
+      "zoomFit": "Hele kaart tonen"
+    },
+    "tasks": {
+      "tasksOne": "1 taak",
+      "tasksMany": "{count} taken",
+      "packagesOne": "1 werkpakket",
+      "packagesMany": "{count} werkpakketten",
+      "view": {
+        "kanban": "Kanban",
+        "table": "Tabel",
+        "work-packages": "Werkpakketten",
+        "phases": "Fasen"
+      },
+      "viewLabel": "Weergave van de taken",
+      "toolbarLabel": "Knoppen voor de weergave",
+      "note": "Dit bord toont de echte stand. Kies een kaart voor de details; verslepen kan hier niet.",
+      "empty": {
+        "title": "Nog geen taken",
+        "detail": "Voor dit project zijn nog geen taken vastgelegd."
+      },
+      "board": "Takenbord",
+      "columnLabel": "{column}: {count} taken",
+      "columnEmpty": "Niets in deze kolom.",
+      "column": {
+        "backlog": "Nog te doen",
+        "planned": "Gepland",
+        "running": "Bezig",
+        "self-review": "Eigen controle",
+        "verify": "Controle",
+        "review": "Nakijken",
+        "blocked": "Vastgelopen",
+        "completed": "Klaar"
+      },
+      "phase": {
+        "intake": "Intake",
+        "plan": "Plan",
+        "build": "Bouwen",
+        "verify": "Controleren",
+        "review": "Nakijken",
+        "handoff": "Overdracht"
+      },
+      "phaseNote": {
+        "intake": "Eerst de vraag begrijpen, dan pas iets schrijven.",
+        "plan": "Het werk in pakketten delen, met een eigenaar en een eis.",
+        "build": "Het werk zelf maken, ook de randgevallen.",
+        "verify": "Kijken of het bewijs de bewering echt laat zien.",
+        "review": "De laatste blik voordat jij het krijgt.",
+        "handoff": "Zo opleveren dat jij het zelf kunt draaien en aanpassen."
+      },
+      "phaseEmpty": "Geen taak in deze fase.",
+      "th": {
+        "id": "Nummer",
+        "title": "Taak",
+        "status": "Status",
+        "column": "Kolom",
+        "phase": "Fase",
+        "agent": "Helper",
+        "wp": "Pakket",
+        "progress": "Voortgang",
+        "proof": "Bewijs",
+        "repairs": "Herstel",
+        "deps": "Hangt af van",
+        "created": "Gemaakt",
+        "updated": "Bijgewerkt",
+        "detail": "Uitleg"
+      },
+      "sortBy": "Sorteren op",
+      "ascending": "Oplopend",
+      "descending": "Aflopend",
+      "stat": {
+        "proof": "bewijs",
+        "repairs": "herstel"
+      },
+      "pkg": {
+        "owner": "Eigenaar",
+        "phase": "Fase",
+        "tasks": "Taken",
+        "id": "Nummer",
+        "acceptance": "Eisen",
+        "noTasks": "Dit pakket heeft nog geen taken."
+      }
+    },
+    "team": {
+      "noProjectAction": "Naar Mijn projecten",
+      "noRunsAction": "Nieuw gesprek"
+    },
+    "tests": {
+      "expand": "Uitvoer openen",
+      "collapse": "Alles sluiten",
+      "toolbarLabel": "Knoppen voor de controles",
+      "expandNone": "Nog geen controles om te openen.",
+      "expandAll": "Alle controles staan al open.",
+      "collapseNone": "Nog niets om te sluiten.",
+      "collapseAll": "Alle controles zijn al gesloten.",
+      "gates": {
+        "title": "Kwaliteitscontroles",
+        "subtitle": "Open een controle om de uitvoer te lezen.",
+        "passed": "{passed} van {total} geslaagd",
+        "failed": "{count} mislukt",
+        "blocked": "{count} vastgelopen",
+        "open": "{count} nog open",
+        "proofOne": "1 bewijsstuk",
+        "proofMany": "{count} bewijsstukken",
+        "empty": "Nog geen controles vastgelegd.",
+        "output": "Uitvoer"
+      },
+      "th": {
+        "status": "Status",
+        "gate": "Controle",
+        "duration": "Duur",
+        "lastRun": "Laatst gedaan",
+        "proof": "Bewijs"
+      },
+      "ledger": {
+        "title": "Bewijslijst",
+        "subtitle": "{count} beweringen: {accepted} goedgekeurd, {rejected} afgewezen, {pending} open. Open een regel voor de reden.",
+        "verdict": "Oordeel",
+        "verdictFilter": "Filter op oordeel",
+        "agent": "Helper",
+        "allAgents": "Alle helpers",
+        "all": "Alle",
+        "shown": "getoond",
+        "clear": "Filters wissen",
+        "noMatch": "Geen regels bij deze filters",
+        "noClaims": "Nog geen beweringen vastgelegd.",
+        "widenOne": "De lijst heeft 1 bewering. Maak de filters ruimer om hem te zien.",
+        "widenMany": "De lijst heeft {count} beweringen. Maak de filters ruimer om ze te zien.",
+        "real": "Elke regel is een bewering die tegen echt bewijs is gecontroleerd.",
+        "sample": "Dit zijn voorbeeldregels. Geen helper gaf dit oordeel en er staat niets op schijf.",
+        "th": {
+          "time": "Tijd",
+          "claim": "Bewering",
+          "agent": "Helper",
+          "task": "Taak",
+          "command": "Opdracht",
+          "artifact": "Resultaat",
+          "verdict": "Oordeel"
+        }
+      },
+      "verdict": {
+        "accepted": "Goedgekeurd",
+        "rejected": "Afgewezen",
+        "pending": "Open"
+      },
+      "verdictInfo": {
+        "accepted": "Goedgekeurd: het bewijs laat de bewering zien.",
+        "rejected": "Afgewezen: het bewijs laat de bewering niet zien.",
+        "pending": "Open: de controle loopt nog, er is nog geen oordeel."
+      },
+      "reason": {
+        "accepted": "Waarom goedgekeurd",
+        "rejected": "Waarom afgewezen",
+        "pending": "Waarom nog open"
+      },
+      "runs": {
+        "title": "Recente klussen",
+        "subtitleOne": "{count} klus, {receipts} met een afrondbon. Kies een klus om hieronder te bekijken.",
+        "subtitleMany": "{count} klussen, {receipts} met een afrondbon. Kies een klus om hieronder te bekijken.",
+        "receiptOnly": "Alleen met afrondbon",
+        "sortedDesc": "Nieuwste eerst. Sorteer op oudste eerst",
+        "sortedAsc": "Oudste eerst. Sorteer op nieuwste eerst",
+        "newest": "Nieuwste eerst",
+        "oldest": "Oudste eerst",
+        "shown": "getoond",
+        "emptyNone": "Nog geen klussen in dit project",
+        "emptyNoneDetail": "Een klus verschijnt hier zodra Forge de eerste stap vastlegt.",
+        "emptyNoReceipt": "Nog geen klus met een afrondbon",
+        "emptyNoReceiptDetail": "Zet \"Alleen met afrondbon\" uit om elke klus te zien.",
+        "caption": "Klussen van dit project met status en afrondbon. Kies een klus voor de gezondheid.",
+        "th": {
+          "run": "Klus",
+          "started": "Begonnen",
+          "status": "Status",
+          "proof": "Bewijs",
+          "packages": "Werkpakketten"
+        },
+        "pick": "Gezondheid van {id} tonen",
+        "notRecorded": "niet vastgelegd",
+        "packagesDone": "{done} van {total} klaar"
+      },
+      "health": {
+        "title": "Gezondheid van de klus",
+        "subtitleFor": "Controles, afrondbon, afspraken en beoordelingen van {id}.",
+        "subtitle": "Controles, afrondbon, afspraken en beoordelingen van deze klus.",
+        "gates": {
+          "title": "Controles",
+          "empty": "Voor deze klus zijn nog geen controles gelezen.",
+          "total": "Controles gedaan",
+          "failed": "Controles mislukt",
+          "allGreen": "Alles geslaagd",
+          "generated": "Gemaakt",
+          "unnamed": "controle zonder naam",
+          "exit": "code {code}",
+          "timedOut": "Tijd verlopen"
+        },
+        "answer": {
+          "yes": "Ja",
+          "no": "Nee",
+          "unknown": "Onbekend"
+        },
+        "finalize": {
+          "title": "Afrondbon",
+          "written": "Bon geschreven",
+          "digest": "Vingerafdruk",
+          "invalid": "Er is een afrondbon, maar die telt niet meer: {reason}.",
+          "none": "Deze klus is nog niet afgerond. Er is geen afrondbon.",
+          "infoShow": "Wat deze bon bewijst",
+          "infoHide": "Verberg wat deze bon bewijst",
+          "checkResult": "Uitkomst van de controle: {note}"
+        },
+        "contract": {
+          "title": "Afspraken van de klus",
+          "green": "In orde",
+          "red": "Niet in orde",
+          "unknown": "Onbekend",
+          "missingOne": "Ontbrekende stap ({count}):",
+          "missingMany": "Ontbrekende stappen ({count}):",
+          "empty": "Voor deze klus zijn de afspraken nog niet gecontroleerd."
+        },
+        "reviews": {
+          "title": "Beoordelingen",
+          "empty": "Voor deze klus is nog geen beoordeling vastgelegd.",
+          "unknownReviewer": "Onbekende beoordelaar",
+          "pass": "Goedgekeurd",
+          "passWithNotes": "Goedgekeurd met opmerkingen",
+          "fail": "Afgekeurd",
+          "unknown": "Onbekend"
+        }
+      },
+      "proof": {
+        "verified": {
+          "label": "Afgerond (gecontroleerd)",
+          "short": "gecontroleerd",
+          "detail": "Opnieuw gecontroleerd: logboek, resultaten en code kloppen nog met de bon."
+        },
+        "archival": {
+          "label": "Oud verslag (niet opnieuw gecontroleerd)",
+          "short": "oud, niet opnieuw gecontroleerd",
+          "detail": "Het logboek klopt nog precies met de bon, maar is niet opnieuw gecontroleerd."
+        },
+        "unverifiedArchival": {
+          "label": "Oud verslag, niet bevestigd",
+          "short": "oud, niet bevestigd",
+          "detail": "Het verslag is heel, maar niets bevestigt dat de klus echt af was."
+        },
+        "stale": {
+          "label": "Verouderd",
+          "short": "verouderd",
+          "detail": "Logboek, resultaten of code zijn na de bon veranderd. De bon bewijst niets meer."
+        },
+        "unconfirmed": {
+          "label": "Bewijs niet bevestigd",
+          "short": "bewijs niet bevestigd",
+          "detail": "De bon kon niet worden gecontroleerd, dus deze klus telt niet als afgerond."
+        },
+        "checking": {
+          "label": "Bewijs wordt gecontroleerd",
+          "short": "wordt gecontroleerd",
+          "detail": "De bon wordt vergeleken met logboek, resultaten en code. Dat duurt even."
+        },
+        "invalid": {
+          "label": "Bon telt niet meer",
+          "short": "bon telt niet meer",
+          "detail": "Er is een afrondbon, maar die telt niet meer: {reason}."
+        },
+        "none": {
+          "label": "Niet afgerond",
+          "short": "niet afgerond",
+          "detail": "Voor deze klus bestaat geen afrondbon."
+        }
+      }
+    },
+    "discord": {
+      "wizard": {
+        "title": "Discord koppelen",
+        "subtitle": "Twee klikken doe je op de site van Discord; de rest gebeurt hier.",
+        "step": "Stap {number}",
+        "server": {
+          "title": "Maak je eigen Discord-server",
+          "copy": "Open Discord en maak een eigen server. Daar komt de bot in; een naam is genoeg.",
+          "open": "Discord openen"
+        },
+        "bot": {
+          "title": "Maak de bot",
+          "copy": "Klik in het Developer Portal op {newApp}, geef een naam, open {bot} en klik {reset}.",
+          "copy2": "Kopieer de waarde en zet op dezelfde pagina {intent} aan; anders leest de bot niets.",
+          "open": "Developer Portal openen"
+        },
+        "key": {
+          "title": "Plak de sleutel",
+          "label": "Sleutel van de bot",
+          "hint": "Gaat alleen naar Forge op deze pc. Daarna zie je hem nooit meer.",
+          "paste": "Plak de sleutel uit stap 2",
+          "connect": "Koppelen",
+          "connecting": "Bezig met koppelen…",
+          "saveFailed": "Forge kon deze sleutel niet bewaren.",
+          "installing": "De software van de Discord-bot wordt geïnstalleerd. Dit gebeurt één keer en duurt ongeveer een minuut…",
+          "installFailed": "De software van de Discord-bot kon niet vanzelf worden geïnstalleerd."
+        },
+        "invite": {
+          "title": "Zet de bot in je server",
+          "pick": "Deze bot zit al in {count} servers. Kies de server die je net hebt gemaakt:",
+          "pickFailed": "Forge kon deze keuze niet bewaren.",
+          "copy": "Klik hieronder, kies je server uit stap 1 en klik zelf op {authorise}.",
+          "open": "Uitnodigen in mijn server",
+          "waitLogin": "Wachten tot de bot inlogt…",
+          "waitServer": "Wachten tot de bot meldt in welke server hij zit…"
+        },
+        "done": {
+          "title": "Klaar",
+          "connected": "Verbonden met {server}.",
+          "yourServer": "je server",
+          "ownerFound": "Eigenaar vanzelf gevonden.",
+          "ownerMissing": "Eigenaar nog niet gevonden.",
+          "channels": "De kanalen staan onder {category}. Bij de eerste koppeling komt er een welkomstbericht in {channel}.",
+          "waitSetup": "Wachten tot de bot meldt dat alles klaar is…",
+          "finishFirst": "Doe eerst de stappen hierboven."
+        },
+        "limit": {
+          "server": "Forge maakt de server niet voor je: een bot die hem maakt, wordt de eigenaar.",
+          "bot": "De bot zelf maak je op de site van Discord; daar is geen andere weg voor."
+        }
+      },
+      "unreachable": "Forge is niet bereikbaar: {error}",
+      "notReported": "Forge meldt dit niet.",
+      "loading": "Status van de Discord-dienst lezen…",
+      "notInstalled": "De Discord-dienst is niet geïnstalleerd in dit project",
+      "notInstalledDetail": "Er is geen Discord-bot gevonden. Er draait niets en er kan nog niets starten.",
+      "actionFailed": "Forge kon dit verzoek niet afmaken.",
+      "transport": {
+        "mock": "Testverbinding: er is geen echte verbinding met Discord.",
+        "live": "Echte verbinding met Discord."
+      },
+      "auto": {
+        "unsure": "Onzeker",
+        "no": "Nee",
+        "notYet": "Nog niet",
+        "blocked": "Geblokkeerd",
+        "failed": "Mislukt",
+        "yes": "Ja",
+        "last": "Laatste start: {detail}.",
+        "saveError": "Niet bewaard ({error}): na een herstart geldt je vorige keuze. Zet de schakelaar opnieuw.",
+        "settingOff": "Uitgezet in Instellingen (\"discord-autostart\"). Zet het daar aan om de bot vanzelf te starten.",
+        "desiredStopped": "Je hebt de bot uitgezet, dus hij blijft uit na een herstart.",
+        "settingUnknown": "De instellingen zijn nu niet leesbaar, dus de bot start niet vanzelf. Dat is veilig.",
+        "envOptOut": "Vanzelf starten staat uit voor dit proces (CC_DISCORD_AUTOSTART=off), meestal een testkopie.",
+        "desiredInvalid": "Je laatste aan- of uitkeuze is onleesbaar{note}, dus de bot start niet vanzelf.",
+        "notReady": "Hij start vanzelf zodra het kan: {reason}. Maak eerst de koppeling met Discord af.",
+        "notReadyReason": "Discord is nog niet ingesteld",
+        "conflict": "Een ander programma gebruikt de poort van de bot: {conflict}. Er start geen tweede bot.",
+        "notEffective": "Forge meldt dat de bot niet vanzelf start.",
+        "lastFailed": "De laatste automatische start is mislukt: {detail}. Bij de volgende start probeert hij opnieuw.",
+        "noReason": "geen reden gegeven",
+        "on": "De bot start vanzelf als het Command Center start, ook na een herstart."
+      },
+      "service": {
+        "title": "Dienst",
+        "subtitle": "Een echte aan- en uitknop. Hij springt pas om als de volgende meting het bevestigt.",
+        "switchOn": "Discord-dienst draait",
+        "switchOff": "Discord-dienst staat uit",
+        "starting": "Bezig met starten…",
+        "stopping": "Bezig met stoppen…",
+        "status": "Status",
+        "statusHint": "Wat Forge nu ziet.",
+        "running": "Draait",
+        "stopped": "Staat uit",
+        "autostart": "Start vanzelf",
+        "pid": "Proces-ID",
+        "startedAt": "Gestart op",
+        "transport": "Verbinding",
+        "botPort": "Poort van de bot",
+        "stateDir": "Map met gegevens",
+        "logFile": "Logbestand"
+      },
+      "env": {
+        "title": "Omgevingsvariabelen",
+        "subtitle": "Alleen namen en of ze bestaan. Een waarde staat hier nooit.",
+        "empty": "Geen omgevingsvariabelen gemeld",
+        "present": "Aanwezig",
+        "missing": "Ontbreekt"
+      },
+      "health": {
+        "title": "Gezondheid van de bot",
+        "subtitle": "Wat de bot zelf over zijn gezondheid meldt. Wijs een naam aan voor het echte veld.",
+        "unreachable": "De bot is niet bereikbaar. Hij staat misschien uit of start nog.",
+        "emptyReport": "De bot gaf een leeg gezondheidsrapport.",
+        "field": {
+          "live": "Actief",
+          "phase": "Fase",
+          "pid": "Proces-ID",
+          "startedAt": "Gestart",
+          "uptimeSec": "Draait al",
+          "transport": "Verbinding",
+          "connected": "Verbonden met Discord",
+          "busy": "Bezig",
+          "activeRuns": "Klussen bezig",
+          "queueDepth": "Taken per status",
+          "runner": "Uitvoerder",
+          "guildId": "Server-ID",
+          "loginError": "Fout bij inloggen",
+          "botUsername": "Naam van de bot",
+          "applicationId": "App-ID",
+          "guilds": "Servers",
+          "inviteUrl": "Uitnodigingslink",
+          "projects": "Projectkanalen",
+          "ts": "Gemeld op"
+        },
+        "value": {
+          "yes": "ja",
+          "no": "nee",
+          "none": "geen",
+          "itemsOne": "{count} item",
+          "itemsMany": "{count} items",
+          "fieldsOne": "{count} veld",
+          "fieldsMany": "{count} velden",
+          "listMore": "{total}: {list} en nog {count}",
+          "objectMore": "{shown} · en nog {count}"
+        }
+      },
+      "bot": {
+        "title": "Wat de bot deed",
+        "subtitle": "Wat de Discord-bot op deze computer deed: zijn taken en de kosten volgens Claude Code.",
+        "costHint": "De kosten per taak volgens Claude Code. Bij een abonnement is het een schatting.",
+        "unknownProject": "Onbekend project",
+        "tokensAcross": "Over alle vastgelegde taken.",
+        "tokensCache": "{amount} van de invoer kwam uit de cache.",
+        "noCost": "{jobs} zonder kosten.",
+        "openNone": "Geen taak meer open.",
+        "openOne": "{count} nog open.",
+        "openMany": "{count} nog open.",
+        "jobsOne": "{count} taak",
+        "jobsMany": "{count} taken",
+        "byState": "Taken per status",
+        "perProject": "Per project",
+        "costPerProject": "Kosten per project",
+        "recent": "Laatste taken",
+        "notes": "Opmerkingen",
+        "loading": "Taken van de bot lezen…",
+        "empty": "De bot heeft nog niets gedaan",
+        "emptyDetail": "Na de eerste taak zie je hier wat de bot deed en wat het kostte.",
+        "jobs": "Taken",
+        "cost": "Kosten",
+        "last7": "Laatste 7 dagen",
+        "last24": "Laatste 24 uur",
+        "tokens": "Verbruik",
+        "tokensValue": "{in} in / {out} uit"
+      },
+      "job": {
+        "completed": "Klaar",
+        "failed": "Mislukt",
+        "deadLetter": "Opgegeven na pogingen",
+        "running": "Bezig",
+        "starting": "Start",
+        "received": "Ontvangen",
+        "validated": "Gecontroleerd",
+        "queued": "In de rij",
+        "waitingForProject": "Wacht op een project",
+        "waitingForConfirmation": "Wacht op bevestiging",
+        "cancelled": "Geannuleerd",
+        "expired": "Verlopen",
+        "unknown": "Onbekende status"
+      },
+      "dir": {
+        "title": "Projectenmap",
+        "subtitle": "Elke submap hier wordt vanzelf een Discord-kanaal. De bot bewaart in elke map een kort geheugen.",
+        "sourceSetting": "Door jou gekozen.",
+        "sourceDefault": "De standaardplek. Je hebt nog niets gekozen.",
+        "sourceValueSetting": "eigen keuze",
+        "sourceValueDefault": "standaard",
+        "notExists": "Deze map bestaat nog niet.",
+        "unreadable": "Deze map is nu niet leesbaar.",
+        "truncated": "{count}+ projectmappen gevonden. Er kunnen er meer zijn, de map is erg groot.",
+        "none": "Hier staan nog geen projectmappen.",
+        "countOne": "{count} projectmap gevonden.",
+        "countMany": "{count} projectmappen gevonden.",
+        "looksIn": "Discord kijkt in",
+        "source": "Bron",
+        "loading": "Projectenmap lezen…",
+        "restarted": "Bewaard. De bot is herstart en maakt nu een kanaal per projectmap.",
+        "restartFailed": "Bewaard, maar de bot kon niet vanzelf herstarten: {error}",
+        "savedLater": "Bewaard. De bot gebruikt deze map bij de volgende start.",
+        "saveFailed": "Forge kon deze map niet bewaren.",
+        "saving": "Bewaren…",
+        "change": "Andere map kiezen",
+        "modalTitle": "Kies een projectenmap",
+        "modalDetail": "Kies een bestaande map, of typ een pad.",
+        "cancel": "Annuleren",
+        "readError": "Deze map is niet leesbaar.",
+        "up": ".. (een map omhoog)",
+        "reading": "Mappen lezen…",
+        "noSubfolders": "Hier staan geen submappen",
+        "partial": "Deze map is erg groot. Je ziet een deel van de lijst.",
+        "useFolder": "Deze map gebruiken",
+        "typed": "Of typ een pad",
+        "typedHint": "Voor gevorderden. Forge kan de map voor je maken als hij nog niet bestaat.",
+        "typedPlaceholder": "C:\\Users\\jij\\Documents\\ForgeProjects",
+        "create": "Maak deze map als hij nog niet bestaat",
+        "usePath": "Dit pad gebruiken"
+      }
+    },
+    "activity": {
+      "toolbar": "Weergave van de activiteit",
+      "bodyLabel": "Stappen van de klus",
+      "countWordOne": "stap",
+      "countWordMany": "stappen",
+      "groupByRun": "Per klus groeperen",
+      "run": "Klus",
+      "runsTruncated": "Niet elke klus van dit project staat in deze lijst.",
+      "currentRun": "Huidige klus",
+      "search": "Zoeken",
+      "searchPlaceholder": "Tekst en uitleg",
+      "agent": "Helper",
+      "allAgents": "Alle helpers",
+      "system": "systeem",
+      "statusLabel": "Status",
+      "allStatuses": "Alle statussen",
+      "kindLabel": "Soort",
+      "allKinds": "Alle soorten",
+      "kinds": {
+        "mission": "Missie",
+        "workPackage": "Werkpakket",
+        "agent": "Helper",
+        "task": "Taak",
+        "artifact": "Resultaat",
+        "test": "Test",
+        "verify": "Controle",
+        "review": "Beoordeling",
+        "system": "Systeem"
+      },
+      "statuses": {
+        "running": "Bezig",
+        "completed": "Klaar",
+        "waiting": "Wacht",
+        "verify": "Controle",
+        "review": "Keuring",
+        "failed": "Mislukt",
+        "blocked": "Staat vast",
+        "idle": "Rustig"
+      },
+      "filteringOn": "Gefilterd op",
+      "clearFilter": "Filter {name} wissen",
+      "clearAll": "Alles wissen",
+      "empty": {
+        "none": "Nog geen stappen vastgelegd.",
+        "filtered": "Geen stappen bij deze filters",
+        "widenOne": "Er is {count} stap vastgelegd. Maak een filter ruimer of wis de zoektekst.",
+        "widenMany": "Er zijn {count} stappen vastgelegd. Maak een filter ruimer of wis de zoektekst.",
+        "clearAll": "Alle filters wissen"
+      },
+      "planned": "Gepland",
+      "plannedDetail": "Gepland: aangemaakt, nog niet begonnen.",
+      "noRunRecord": "Voor deze stap is geen klus geladen.",
+      "truncated": "Eerdere stappen zijn niet meer beschikbaar.",
+      "unreadableOne": "onleesbare regel overgeslagen",
+      "unreadableMany": "onleesbare regels overgeslagen",
+      "scanError": "Het logboek is deels onleesbaar. Er kunnen meer stappen zijn.",
+      "feedLive": "Deze lijst werkt vanzelf bij als er nieuwe stappen binnenkomen.",
+      "feedSample": "Dit zijn voorbeeldregels. Er is niets verbonden, dus de lijst verandert niet.",
+      "sampleDetail": "Voorbeeldstappen. Er is geen logboek gelezen en geen helper schreef deze regels.",
+      "recovery": {
+        "title": "Herstel en controlepunten",
+        "attempt": "Herstelpoging",
+        "attemptShort": "Herstel",
+        "noFinal": "Bij deze poging is geen eindstatus vastgelegd.",
+        "finding": "Afwijking in de documentatie",
+        "findingShort": "Documentatie",
+        "manifest": "Overzicht van de klus",
+        "manifestShort": "Overzicht",
+        "manifestPresent": "overzicht aanwezig",
+        "noData": "Nog geen herstelgegevens",
+        "noDataDetail": "Er is geen project gekozen, of Forge heeft nog niet geantwoord.",
+        "notConfigured": "Geen lijst van herstelpogingen",
+        "notConfiguredDetail": "Dit project houdt nog geen lijst van herstelpogingen bij.",
+        "empty": "Nog geen herstelpogingen vastgelegd",
+        "emptyDetail": "De lijst van herstelpogingen bestaat, maar is nu leeg.",
+        "docdrift": "Documentatie",
+        "rulesOne": "{count} regel gecontroleerd",
+        "rulesMany": "{count} regels gecontroleerd",
+        "driftedNone": "geen afwijkingen",
+        "driftedOne": "{count} wijkt af",
+        "driftedMany": "{count} wijken af",
+        "checkpoints": "Controlepunten",
+        "resumeAvailable": "verder gaan kan",
+        "noResume": "niets om mee verder te gaan",
+        "unknown": "nog niet bekend",
+        "noManifests": "Nog geen overzichten van klussen",
+        "noManifestsDetail": "Geen klus in dit project heeft al een overzicht vastgelegd."
+      }
+    },
+    "theme": {
+      "title": "Thema",
+      "lede": "De stijl van v1.0, live. Blauw staal en één vonk: Pauw is het enige accent.",
+      "themeLabel": "Thema",
+      "light": "Licht",
+      "dark": "Donker",
+      "system": "Systeem",
+      "densityLabel": "Dichtheid",
+      "comfortable": "Ruim",
+      "compact": "Compact",
+      "mark": "Merkteken",
+      "markNote": "Onder 20 px wordt het teken één kleur: de gloed is dan te klein.",
+      "colour": "Kleur",
+      "colourNote": "Neutrale kleuren dragen bijna elk scherm. Pauw toont waar je iets kunt doen.",
+      "statusNote": "Statuskleuren betekenen alleen status.",
+      "group": {
+        "surfaces": "Vlakken",
+        "ink": "Inkt",
+        "accent": "Accent",
+        "status": "Status"
+      },
+      "use": {
+        "bg": "Achtergrond",
+        "bgSide": "Zijbalk",
+        "surface": "Invoervak, lijsten, menu’s",
+        "surface2": "Regel onder de muis",
+        "sunken": "Jouw tekstballon, sporen",
+        "line": "Scheidingslijnen, kaartranden",
+        "lineStrong": "Invoervelden, tweede knoppen",
+        "ink": "Tekst",
+        "ink2": "Tweede tekst",
+        "ink3": "Bijschriften, tijden",
+        "accent": "Hoofdknop, versturen, focus",
+        "accentHover": "Knop onder de muis",
+        "accentText": "Koppelingen",
+        "accentSoft": "Gekozen regel of optie",
+        "ok": "Klaar, Verbonden",
+        "warn": "Wacht op jou",
+        "danger": "Mislukt, Verwijderen",
+        "info": "Tips"
+      },
+      "name": {
+        "accentHover": "Pauw, aangewezen"
+      },
+      "type": "Letters",
+      "typeNote": "Bahnschrift voor koppen, Segoe UI Variable voor de rest. Mono alleen voor paden en codes.",
+      "shape": "Ruimte, rondingen en diepte",
+      "space": "Ruimte",
+      "radius": "Ronding",
+      "depth": "Diepte",
+      "struckNote": "De afgeknipte hoek is voor vier dingen: het teken, het invoervak, versturen en het bewijsstempel.",
+      "shadow": {
+        "raised": "Verhoogd",
+        "floating": "Zwevend",
+        "dialogs": "Vensters, rondleiding"
+      },
+      "controls": "Knoppen en status",
+      "tabBefore": "Druk op",
+      "tabAfter": "om langs de knoppen te gaan: overal één focusring, met een kier en een Pauw-lijn.",
+      "motion": "Beweging",
+      "motionNote": "Alleen transform en opacity bewegen. Met minder beweging is elke duur 0.",
+      "notSet": "niet ingesteld"
+    },
+    "details": {
+      "field": {
+        "owner": "Eigenaar",
+        "package": "Pakket",
+        "phase": "Fase",
+        "column": "Kolom",
+        "created": "Gemaakt",
+        "updated": "Bijgewerkt",
+        "repairs": "Herstelpogingen",
+        "title": "Titel",
+        "kind": "Soort",
+        "size": "Grootte",
+        "change": "Wijziging",
+        "producedBy": "Gemaakt door",
+        "group": "Groep",
+        "permission": "Rechten",
+        "effort": "Denkniveau",
+        "runtime": "Model",
+        "toolModel": "Model voor hulpmiddelen",
+        "verification": "Controle",
+        "lastActivity": "Laatst actief",
+        "lane": "Baan",
+        "agent": "Helper",
+        "duration": "Duur",
+        "model": "Model",
+        "position": "Plek",
+        "lastRun": "Laatst gedaan",
+        "evidence": "Bewijsstukken",
+        "task": "Taak",
+        "recorded": "Vastgelegd",
+        "artifact": "Resultaat"
+      },
+      "progress": "Voortgang",
+      "section": {
+        "detail": "Toelichting",
+        "dependencies": "Hangt af van",
+        "proof": "Bewijs",
+        "workPackage": "Werkpakket",
+        "currentTask": "Huidige taak",
+        "summary": "Samenvatting",
+        "skills": "Vaardigheden",
+        "tasks": "Taken",
+        "preview": "Inhoud",
+        "change": "Wijziging",
+        "producedFor": "Gemaakt voor",
+        "exampleChange": "Voorbeeldwijziging",
+        "contents": "In deze map",
+        "whatHappened": "Wat hier gebeurde",
+        "edges": "Verbindingen",
+        "output": "Vastgelegde uitvoer",
+        "reason": "Reden van het oordeel",
+        "command": "Opdracht",
+        "linked": "Gekoppeld"
+      },
+      "noDependencies": "Niets houdt deze taak tegen.",
+      "noProof": "Voor deze taak is nog geen bewijs vastgelegd.",
+      "proofNotInExample": "{count} vastgelegd, geen ervan in de voorbeeldlijst.",
+      "noTask": "Geen taak toegewezen.",
+      "noTaskExample": "Geen taak toegewezen in de voorbeeldgegevens.",
+      "agentSkills": "Vaardigheden van deze helper",
+      "nodeSkills": "Vaardigheden bij dit punt",
+      "spine": "hoofdlijn",
+      "position": "kolom {col} · rij {row}",
+      "notTracked": "niet bijgehouden",
+      "unchanged": "ongewijzigd",
+      "none": "geen",
+      "kindFile": "bestand",
+      "kindDir": "map",
+      "exampleDiff": "Voorbeeldwijziging",
+      "exampleDiffHint": "Met de hand geschreven voorbeeld. Er is niets van schijf gelezen.",
+      "recordedChange": "Vastgelegde wijziging in {name}",
+      "changeHint": "Precies de tekst die bij deze wijziging is gemeld. Er is niets van schijf gelezen.",
+      "changeOmitted": "Deze wijziging is echt, maar de tekst is weggelaten: de ruimte voor wijzigingen was op.",
+      "changeOmittedChars": "Deze wijziging is echt, maar de tekst is weggelaten: de ruimte van {chars} tekens was op.",
+      "changeNone": "Voor deze wijziging is geen tekst vastgelegd. Dat zegt niet dat er niets veranderde.",
+      "previewLive": "Een samenvatting die bij dit resultaat is vastgelegd. Er is geen bestand gelezen.",
+      "previewExample": "Voorbeeldtekst. Er is geen bestand gemaakt.",
+      "commandLive": "Als tekst vastgelegd. Dit paneel voert het nooit uit.",
+      "commandExample": "Als tekst vastgelegd in de voorbeeldlijst. Het is hier nooit uitgevoerd."
+    },
+    "statusWord": {
+      "running": "Bezig",
+      "completed": "Klaar",
+      "waiting": "Wacht",
+      "verify": "Controle",
+      "review": "Keuring",
+      "failed": "Mislukt",
+      "idle": "Rustig",
+      "blocked": "Staat vast"
+    },
+    "statusInfo": {
+      "running": "Bezig: er wordt nu aan gewerkt.",
+      "completed": "Klaar: af en goedgekeurd.",
+      "waiting": "Wacht: staat in de rij achter een eerdere stap.",
+      "verify": "Controle: het bewijs wordt naast de bewering gelegd.",
+      "review": "Keuring: wacht op een laatste keuring voordat het af is.",
+      "failed": "Mislukt: gestopt met een fout, dit vraagt aandacht.",
+      "idle": "Rustig: hier loopt nu niets en er is niets vastgelegd.",
+      "blocked": "Staat vast: kan pas verder als iets anders klaar is."
+    },
+    "deleteChat": {
+      "title": "Gesprek verwijderen",
+      "body": "Je verwijdert \"{title}\" voorgoed. Dit kun je niet terugdraaien.",
+      "cancel": "Annuleren",
+      "confirm": "Verwijderen",
+      "busy": "Verwijderen…",
+      "failed": "Verwijderen mislukt",
+      "failedDetail": "Forge kon dit gesprek niet verwijderen."
+    },
+    "palette": {
+      "label": "Opdrachten",
+      "placeholder": "Zoek een opdracht, project of scherm",
+      "list": "Gevonden opdrachten",
+      "empty": "Geen opdracht gevonden voor",
+      "groupProjects": "Projecten",
+      "groupGo": "Naar",
+      "groupAppearance": "Weergave",
+      "groupLayout": "Indeling",
+      "openProject": "{name} openen",
+      "searchProjectsDetail": "Mijn projecten, zonder filter",
+      "newChatDetail": "In het gekozen project",
+      "theme": "Thema: {name}",
+      "themeSaved": "Alleen op deze pc bewaard.",
+      "hintMove": "kiezen",
+      "hintRun": "uitvoeren",
+      "hintClose": "sluiten",
+      "honesty": "Alleen Nieuw gesprek stuurt iets naar Forge."
+    }
+  }
+}

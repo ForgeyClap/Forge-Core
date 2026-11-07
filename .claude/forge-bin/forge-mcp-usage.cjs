@@ -30,7 +30,15 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1 (opt-in .forge layout): the tool ledger (<runs>/_toollog) and the run logs are read from EVERY run folder
+// that exists (forge-paths.cjs existingStateDirs); a project without .forge reads exactly .claude/forge-runs as before.
+// Guarded: an older or missing forge-paths.cjs keeps the legacy literals. A plugin copy outside any project has no
+// default root (null): check() then reports UNKNOWN instead of reading beside its own script.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.existingStateDirs === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const DEFAULT_ROOT = viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+function runsDirsOf(root) { return viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => [path.join(root, '.claude', 'forge-runs')]); }
+function activeRunsRel(root) { return path.relative(root, viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(root, '.claude', 'forge-runs'))).split(path.sep).join('/'); }
 const MCP_TOOL_RE = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/; // mcp__<server>__<tool>
 
 function readJsonl(file) {
@@ -47,11 +55,14 @@ function readJsonl(file) {
 
 /** collectMcpToolUse — every mcp__ tool call recorded by the PostToolUse ledger. */
 function collectMcpToolUse(root) {
-  const dir = path.join(root, '.claude', 'forge-runs', '_toollog');
   const byTool = new Map();
-  let files = [];
-  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return { tools: [], ledgerPresent: false }; }
-  for (const f of files) {
+  const ledgers = []; // [{dir, files}] — one per run folder whose _toollog is readable
+  for (const runsDir of runsDirsOf(root)) {
+    const dir = path.join(runsDir, '_toollog');
+    try { ledgers.push({ dir, files: fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')) }); } catch { /* no ledger in this run folder */ }
+  }
+  if (!ledgers.length) return { tools: [], ledgerPresent: false };
+  for (const { dir, files } of ledgers) for (const f of files) {
     for (const rec of readJsonl(path.join(dir, f))) {
       const name = rec && typeof rec.tool === 'string' ? rec.tool : '';
       if (!MCP_TOOL_RE.test(name)) continue;
@@ -68,16 +79,17 @@ function collectMcpToolUse(root) {
 
 /** collectGateEvents — mcp_grant_validated / mcp_grant_denied across every run's events.jsonl. */
 function collectGateEvents(root) {
-  const runsDir = path.join(root, '.claude', 'forge-runs');
   let validated = 0, denied = 0;
-  let entries = [];
-  try { entries = fs.readdirSync(runsDir, { withFileTypes: true }); } catch { return { validated, denied }; }
-  for (const e of entries) {
-    if (!e.isDirectory()) continue;
-    for (const rec of readJsonl(path.join(runsDir, e.name, 'events.jsonl'))) {
-      if (!rec || typeof rec.event_type !== 'string') continue;
-      if (rec.event_type === 'mcp_grant_validated') validated++;
-      else if (rec.event_type === 'mcp_grant_denied') denied++;
+  for (const runsDir of runsDirsOf(root)) {
+    let entries = [];
+    try { entries = fs.readdirSync(runsDir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      for (const rec of readJsonl(path.join(runsDir, e.name, 'events.jsonl'))) {
+        if (!rec || typeof rec.event_type !== 'string') continue;
+        if (rec.event_type === 'mcp_grant_validated') validated++;
+        else if (rec.event_type === 'mcp_grant_denied') denied++;
+      }
     }
   }
   return { validated, denied };
@@ -86,6 +98,10 @@ function collectGateEvents(root) {
 function check(opts) {
   opts = opts || {};
   const root = opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
+  if (!root) {
+    return { ok: true, unknown: true, usedTools: [], validations: { validated: 0, denied: 0 }, reason:
+      'no project root found (this copy is not inside a project) — MCP tool use cannot be observed; reported as UNKNOWN, not as "the gate is fine"' };
+  }
   const use = collectMcpToolUse(root);
   const gate = collectGateEvents(root);
   const totalUses = use.tools.reduce((n, t) => n + t.count, 0);
@@ -94,7 +110,7 @@ function check(opts) {
   if (!use.ledgerPresent) {
     return {
       ok: true, unknown: true, usedTools: [], validations: gate, reason:
-        'no PostToolUse tool ledger on this machine (.claude/forge-runs/_toollog/), so MCP tool use cannot be observed — reported as UNKNOWN, not as "the gate is fine"',
+        'no PostToolUse tool ledger on this machine (' + activeRunsRel(root) + '/_toollog/), so MCP tool use cannot be observed — reported as UNKNOWN, not as "the gate is fine"',
     };
   }
   if (totalUses === 0) {

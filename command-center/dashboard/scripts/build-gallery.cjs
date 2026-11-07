@@ -35,35 +35,43 @@ const files = fs
 
 if (files.length === 0) fail('screenshots directory is empty. Run: npm run shots');
 
-/** "03-dark-project-overview-desktop.png" -> { n, theme, title, viewport } */
+/**
+ * "03-dark-project-overview-desktop.png"            -> { n, theme, mode: 'eenvoudig', viewport: 'desktop' }
+ * "24-light-start-360-mobile-uitgebreid.png"        -> { n, theme, mode: 'uitgebreid', viewport: 'mobile' }
+ * A `-uitgebreid` suffix marks the separate Uitgebreid pass; everything else is Eenvoudig, the app
+ * default a beginner sees (tests/e2e/screenshots.spec.ts, POL-C).
+ */
 function describe(file) {
   const base = file.replace(/\.png$/, '');
-  const [n, theme, ...rest] = base.split('-');
+  const advanced = /-uitgebreid$/.test(base);
+  const [n, theme, ...rest] = base.replace(/-uitgebreid$/, '').split('-');
   const slug = rest.join('-');
   const viewport = /mobile$/.test(slug) ? 'mobile' : /desktop$/.test(slug) ? 'desktop' : 'full page';
   const title = slug
     .replace(/-(desktop|mobile)$/, '')
     .replace(/-/g, ' ')
     .replace(/^./, (c) => c.toUpperCase());
-  return { n, theme, title, viewport, file };
+  return { n, theme, mode: advanced ? 'uitgebreid' : 'eenvoudig', title, viewport, file };
 }
 
 const shots = files.map(describe);
 const groups = [
-  { key: 'dark', label: 'Dark theme' },
-  { key: 'light', label: 'Light theme' },
+  { theme: 'dark', mode: 'eenvoudig', label: 'Dark theme, Eenvoudig (default)' },
+  { theme: 'light', mode: 'eenvoudig', label: 'Light theme, Eenvoudig (default)' },
+  { theme: 'dark', mode: 'uitgebreid', label: 'Dark theme, Uitgebreid' },
+  { theme: 'light', mode: 'uitgebreid', label: 'Light theme, Uitgebreid' },
 ];
 
-const stamp = fs.statSync(path.join(SHOTS_DIR, files[0])).mtime.toISOString().slice(0, 16).replace('T', ' ');
+const stamp = fs.statSync(path.join(SHOTS_DIR, files[files.length - 1])).mtime.toISOString().slice(0, 16).replace('T', ' ');
 
 const sections = groups
   .map((g) => {
-    const items = shots.filter((s) => s.theme === g.key);
+    const items = shots.filter((s) => s.theme === g.theme && s.mode === g.mode);
     if (items.length === 0) return '';
     const cards = items
       .map(
         (s) => `
-        <figure class="shot" id="shot-${s.n}">
+        <figure class="shot" id="shot-${s.file.replace(/\.png$/, '')}">
           <figcaption>
             <span class="idx fg-machine">${s.n}</span>
             <span class="title">${s.title}</span>
@@ -91,36 +99,36 @@ const html = `<!doctype html>
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: var(--forge-space-8) var(--forge-space-6) var(--forge-space-20);
-    background: var(--forge-color-canvas);
-    color: var(--forge-color-text);
-    font-family: var(--forge-font-sans);
-    font-size: var(--forge-text-base);
-    line-height: var(--forge-leading-normal);
+    padding: var(--fs-space-7) var(--fs-space-6) 5rem;
+    background: var(--fs-bg-side);
+    color: var(--fs-ink);
+    font-family: var(--fs-font-body);
+    font-size: var(--fs-text-14);
+    line-height: var(--fs-leading-body);
   }
-  .fg-machine { font-family: var(--forge-font-mono); font-size: var(--forge-text-xs); }
-  header { max-width: 1400px; margin: 0 auto var(--forge-space-10); }
-  h1 { font-size: var(--forge-text-2xl); font-weight: var(--forge-weight-semibold); margin: 0 0 var(--forge-space-2); letter-spacing: var(--forge-tracking-tight); }
-  .lede { color: var(--forge-color-text-secondary); margin: 0 0 var(--forge-space-4); max-width: 62ch; }
-  .flags { display: flex; flex-wrap: wrap; gap: var(--forge-space-2); }
-  .flag { border: var(--forge-border-hair) solid var(--forge-color-line); border-radius: var(--forge-radius-full);
-          padding: 2px var(--forge-space-3); color: var(--forge-color-text-muted); }
-  section { max-width: 1400px; margin: 0 auto var(--forge-space-12); }
-  h2 { font-size: var(--forge-text-lg); font-weight: var(--forge-weight-semibold); margin: 0 0 var(--forge-space-5);
-       padding-bottom: var(--forge-space-3); border-bottom: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-       display: flex; align-items: baseline; gap: var(--forge-space-3); }
-  .count { color: var(--forge-color-text-faint); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: var(--forge-space-6); }
-  .shot { margin: 0; border: var(--forge-border-hair) solid var(--forge-color-line);
-          border-radius: var(--forge-radius-lg); overflow: hidden; background: var(--forge-color-surface-1); }
-  figcaption { display: flex; align-items: baseline; gap: var(--forge-space-3);
-               padding: var(--forge-space-3) var(--forge-space-4);
-               border-bottom: var(--forge-border-hair) solid var(--forge-color-line-subtle); }
-  .idx { color: var(--forge-color-text-faint); }
-  .title { font-weight: var(--forge-weight-medium); }
-  .meta { margin-left: auto; color: var(--forge-color-text-muted); }
-  img { display: block; width: 100%; height: auto; background: var(--forge-color-bg); }
-  a:focus-visible { outline: 2px solid var(--forge-color-focus); outline-offset: 2px; }
+  .fg-machine { font-family: var(--fs-font-mono); font-size: var(--fs-text-12); }
+  header { max-width: 1400px; margin: 0 auto var(--fs-space-8); }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 var(--fs-space-2); letter-spacing: 0; }
+  .lede { color: var(--fs-ink-2); margin: 0 0 var(--fs-space-4); max-width: 62ch; }
+  .flags { display: flex; flex-wrap: wrap; gap: var(--fs-space-2); }
+  .flag { border: 1px solid var(--fs-line); border-radius: var(--fs-radius-pill);
+          padding: 2px var(--fs-space-3); color: var(--fs-ink-3); }
+  section { max-width: 1400px; margin: 0 auto 3rem; }
+  h2 { font-size: var(--fs-text-18); font-weight: 600; margin: 0 0 var(--fs-space-5);
+       padding-bottom: var(--fs-space-3); border-bottom: 1px solid var(--fs-line);
+       display: flex; align-items: baseline; gap: var(--fs-space-3); }
+  .count { color: var(--fs-ink-3); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: var(--fs-space-6); }
+  .shot { margin: 0; border: 1px solid var(--fs-line);
+          border-radius: var(--fs-radius-md); overflow: hidden; background: var(--fs-surface); }
+  figcaption { display: flex; align-items: baseline; gap: var(--fs-space-3);
+               padding: var(--fs-space-3) var(--fs-space-4);
+               border-bottom: 1px solid var(--fs-line); }
+  .idx { color: var(--fs-ink-3); }
+  .title { font-weight: 500; }
+  .meta { margin-left: auto; color: var(--fs-ink-3); }
+  img { display: block; width: 100%; height: auto; background: var(--fs-bg); }
+  a:focus-visible { outline: 2px solid var(--fs-accent); outline-offset: 2px; }
   @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -129,7 +137,8 @@ const html = `<!doctype html>
     <h1>Forge Workspace — visual review</h1>
     <p class="lede">
       ${shots.length} real captures of the running prototype, dark and light, desktop and mobile.
-      Every screen is rendered from local example data.
+      The first two sections show Eenvoudig, the mode a beginner opens in; Uitgebreid has its own
+      sections. Every screen is rendered from local example data with the gateway stubbed.
     </p>
     <div class="flags">
       <span class="flag fg-machine">CONNECTED_TO_FORGE=false</span>

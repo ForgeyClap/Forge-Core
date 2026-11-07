@@ -1,6 +1,7 @@
 ---
 name: forge-council
-description: LLM Council (FULL) — 5 independent advisors via the Agent tool, anonymous peer review, chairman synthesis with minority report, validated record. Only via councilTrigger; never proof.
+description: "Use only on a councilTrigger FULL verdict: 5 independent advisors."
+# A10 original description (listing budget): "Use only on a councilTrigger FULL verdict: 5 independent advisors, peer review, minority report."
 ---
 
 # forge-council — LLM Council (FULL protocol)
@@ -40,6 +41,11 @@ minority_report, status. Validate with `validateCouncilRecord` and persist via
 `node .claude/forge-bin/forge-quality.cjs council-save <run_id> <record.json>` — an invalid
 record is NOT written (the refusal with a reason is the honest result), and a council_id is
 never overwritten.
+
+## LIGHT candidate (recorded, NOT active)
+The four-voice council of the pinned ECC toolkit (`council` skill, commit e2b8a51cea22) is recorded as the
+candidate LIGHT protocol. It stays inactive until a benchmark shows it changes decisions; until then LIGHT
+falls back to one targeted second opinion, as above. No step list is kept here on purpose.
 
 ## Limits (permanent)
 - Validation is **shape_only**: runtime/dispatch_id are not cryptographically bound; real

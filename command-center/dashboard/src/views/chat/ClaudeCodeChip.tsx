@@ -21,6 +21,9 @@ import { usePrototype } from '@/prototype/state/prototype-store';
 // intentionally-unused bridge ones — see `gateway-adapter.ts`'s header.
 import { useGatewayClaudeCodeHealth, useGatewayConnection as useConnection } from '@/prototype/state/gateway-adapter';
 import type { ConnectionState } from '@/prototype/state/bridge-client';
+import type { GatewayConnectionState } from '@/prototype/state/adapter/connection';
+import { t } from '@/i18n';
+import { useUiMode } from '@/state/ui-mode';
 import type { ClaudeCodeStatus } from '@/shared/protocol';
 import type { ClaudeCodeLinkState } from '@/prototype/types/prototype-types';
 
@@ -123,20 +126,30 @@ function claudeHint(claude: ClaudeCodeStatus | null): string {
     : 'The local Claude Code session is signed in on this machine.';
 }
 
-/** The connected copy: the real gateway connection and Claude Code health. */
-function liveCopy(connection: ConnectionState, claude: ClaudeCodeStatus | null): ChipCopy {
+/**
+ * The connected copy: the real gateway connection and Claude Code health. WP B3-ui: inside the
+ * desktop app `startCommand` is null — the app starts its own gateway and has no restart policy
+ * yet — so the disconnected copy never names a developer command nor promises a reconnect.
+ * FU (review medium): the chip also shows in Eenvoudig, so there the browser's disconnected detail
+ * is a Dutch beginner sentence; only Uitgebreid names the developer command.
+ */
+function liveCopy(connection: GatewayConnectionState, claude: ClaudeCodeStatus | null, advanced: boolean): ChipCopy {
   const status = connection.status;
-  const detail =
-    status === 'DISCONNECTED'
-      ? `Start the local gateway with ${connection.startCommand} and the workspace reconnects on its own.`
-      : status === 'CONNECTED'
-        ? `Reading the live event stream from ${connection.endpoint}.`
-        : connection.detail ?? `Reaching the gateway at ${connection.endpoint}.`;
+  const desktopDown = status === 'DISCONNECTED' && connection.startCommand === null;
+  const detail = desktopDown
+    ? t('shell.connection.disconnectedDesktop')
+    : status === 'DISCONNECTED' && !advanced
+      ? t('shell.connection.disconnectedSimple')
+      : status === 'DISCONNECTED'
+        ? `Start the local gateway with ${connection.startCommand} and the workspace reconnects on its own.`
+        : status === 'CONNECTED'
+          ? `Reading the live event stream from ${connection.endpoint}.`
+          : connection.detail ?? `Reaching the gateway at ${connection.endpoint}.`;
 
   return {
-    chipText: `Claude Code · ${connectionLabel(status)}`,
+    chipText: `Claude Code · ${desktopDown ? t('shell.chip.disconnectedDesktop') : connectionLabel(status)}`,
     eyebrow: 'Local session',
-    lead: connectionLead(status),
+    lead: desktopDown ? t('shell.chip.disconnectedDesktopTitle') : connectionLead(status),
     stateCode: status,
     stateTitle: connectionTitle(status),
     detail,
@@ -152,6 +165,7 @@ function liveCopy(connection: ConnectionState, claude: ClaudeCodeStatus | null):
 export function ClaudeCodeChip() {
   const { state } = usePrototype();
   const connection = useConnection();
+  const { isAdvanced } = useUiMode();
   const health = useGatewayClaudeCodeHealth();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -159,7 +173,7 @@ export function ClaudeCodeChip() {
 
   const copy = isFixtureMode()
     ? fixtureCopy(state.claudeCodeState)
-    : liveCopy(connection, health?.claudeCode ?? null);
+    : liveCopy(connection, health?.claudeCode ?? null, isAdvanced);
 
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false);

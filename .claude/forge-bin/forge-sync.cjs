@@ -351,13 +351,13 @@
  *   isSymlinkPath, containmentSafe, projectId, receiptPath, readReceipt, writeReceipt,
  *   receiptLastTemplateHashMap, readOverrideAllowlist, migrateOwnerStandingRules, preflight, buildPlan, fullFileManifest,
  *   aggregateManifestHash, backupDirFor, centralBackupDir, takeBackup, applyPlanSafely, runValidation,
- *   decideValidationOutcome, decidePreBaseline, workspaceFingerprint, seedCanaryRun, verifyBackupIntegrity, loadTrustedManifest, findNewerOverlappingBatches,
+ *   decideValidationOutcome, decidePreBaseline, preBaselineManifestHash, manifestForRels, workspaceFingerprint, seedCanaryRun, verifyBackupIntegrity, loadTrustedManifest, findNewerOverlappingBatches,
  *   restoreFromManifest, rollbackProject, rollbackBatch, acquireLock, releaseLock, safeSyncProject,
  *   adoptProject, rawInstall, status, findForgeProjects, dedicatedCanaryDir, canaryInit, runSyncAll,
  *   parseArgs, CANARY_DIR_NAME, pruneRetiredFiles, restoreRetiredPruneLedger, RETIRED_TEMPLATE_FILES,
  *   RETIRED_STATE_FILES;: listSeedFiles, shipPlan, loadShipManifest, isNeverTouch, isNeverTouchDir,
  *   isSafeBatchId, migrateScoutVerdicts, findOrphans, retireOrphans, restoreRetiredOrphansLedger;
- *   quiesceCheck, buildProtectManifest, verifyProtect, diffProtectManifests, protectExpectationsFromRun/FromBatch,
+ *   quiesceCheck, isUntouchedFreshInstall, buildProtectManifest, verifyProtect, diffProtectManifests, protectExpectationsFromRun/FromBatch,
  *   mergeSettingsForBatch, restoreSettingsLedger, coupledDeliveryCheck, templateProvenance, provenanceFor,
  *   previewProjectScaffold, settingsDelta, installPlanJson, buildSyncReport, writeSyncReport;
  *   planPublishTemplate, applyPublishTemplate, verifyPublishTemplate, publishSourceSet, proveTemplateOrphan,
@@ -411,14 +411,26 @@ const NEVER_TOUCH_DIRS = new Set([
   'forge-audit', 'forge-mindmaps', 'forge-index', 'forge-backups', 'forge-backups-central', 'forge-adopt-snapshots',
   'forge-genesis-staging', 'forge-scribe', 'forge-beads', 'forge-codemodel', 'graphify-out', 'forge-accounts', 'worktrees',
   'forge-adoption', // WP-SYNC-R7: the post-sync adoption record (forge-adopt-post-sync) — per-project, never shipped/overwritten/retired
+  '.forge', // WP 2.1: a stray .claude/.forge folder (the state root belongs at the project root, see NEVER_TOUCH_ROOT_DIRS)
 ]);
+// WP 2.1 (opt-in per project): the STATE ROOT at the PROJECT root (forge-canon paths.state_root, `.forge/`; forge-paths.cjs)
+// holds the same runs, research, scribe store, memory and backups as the legacy .claude/forge-* folders above, so it is on
+// the floor as well — a second key. forge-sync's world is the project's .claude/ folder: every shipped, seeded, retired or
+// rolled-back path is .claude-relative (a `..` path is never-touch), and the only writes outside .claude/ are the scaffold's
+// root .gitignore / CLAUDE.md (SCAFFOLD_ALLOWED), so <project>/.forge/ is unreachable by construction. On top of that the
+// protect manifest inventories it (stateRootOf / walkStateRoot below; .forge/backups not walked, like .claude/forge-backups),
+// so a change in it during an install is a VIOLATION, and `status` names it as protected.
+const NEVER_TOUCH_ROOT_DIRS = new Set(['.forge']);
+const STATE_ROOT_NOT_WALKED = new Set(['backups']); // inside the state root: other tools' backups, like PROTECT_NOT_WALKED
+let forgePathsMod = null; // optional (guarded): an older install without forge-paths.cjs keeps the plain .forge default
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDirFor === 'function' && typeof fp.stateDir === 'function') forgePathsMod = fp; } catch { forgePathsMod = null; }
 const NEVER_TOUCH_FILES = new Set([
   'CLAUDE.md', 'settings.json', 'settings.local.json', '.credentials.json', 'goat-gate.json',
   'forge-sync-receipt.json', 'scheduled_tasks.lock', 'ECC_TEST_MODE.md',
   'FORGE_MEMORY.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md', 'FORGE_DECISIONS.md', 'FORGE_PROJECT_PROFILE.md',
   'FORGE_SNAPSHOT.md', 'FORGE_SESSION_STATE.json', 'FORGE_VERSION.json', 'FORGE_CONFIG.json', 'FORGE_USAGE_GUARD_ACK.json',
   'FORGE_USAGE_GUARD_STATE.json', 'FORGE_ACCOUNT_ROTATION.json', 'FORGE_PAPERCLIP_BINDING.json', 'FORGE_RESUME_STATE.json',
-  'FORGE_PROJECT_HARD_RULES.json',
+  'FORGE_PROJECT_HARD_RULES.json', 'LESSONS.md', // LESSONS.md: per-project distilled lessons (forge-memory-consolidate), never shipped/overwritten/retired
   'FORGE-SYNC-BRIEFING.md', // WP-SYNC-R7: the per-project post-sync briefing written for the next session — never shipped/overwritten/retired
   'template-provenance.json', 'template-publish-receipt.json', // the TEMPLATE's own publish bookkeeping, never shipped to a project
   'config/forge-overrides.json', 'config/forge-usage-guard-override-grant.json', 'config/forge-genesis-approval.txt',
@@ -2028,10 +2040,12 @@ function missingInTemplateReason(plan) {
 
 /** fullFileManifest — the FULL relevant-file hash manifest (rel -> {exists,hash,mode}), used for real
  *  before/after byte-exactness proof (not just "rollback exited 0"). */
-function fullFileManifest(templateDir, projectDir) {
+function fullFileManifest(templateDir, projectDir) { return manifestForRels(projectDir, listSystemFiles(templateDir)); }
+/** manifestForRels(projectDir, rels) — the same manifest shape over an explicit file set (F11: the set a receipt recorded). */
+function manifestForRels(projectDir, rels) {
   const dst = claudeDirOf(projectDir);
   const out = {};
-  for (const rel of listSystemFiles(templateDir)) {
+  for (const rel of rels) {
     const p = safeJoin(dst, rel) || path.join(dst, rel);
     let exists = false, hash = null, mode = null;
     try { const st = fs.lstatSync(p); exists = true; mode = st.mode; if (st.isFile()) hash = sha256(p); } catch { exists = false; }
@@ -2044,6 +2058,22 @@ function aggregateManifestHash(manifestObj) {
   const h = crypto.createHash('sha256');
   for (const k of keys) h.update(k + ':' + (manifestObj[k].hash || '-') + ':' + manifestObj[k].exists);
   return h.digest('hex');
+}
+/** preBaselineManifestHash(templateDir, projectDir, receipt) -> the manifest hash --reuse-pre-baseline compares with
+ *  receipt.postSyncManifestHash. Category tests F11: that hash used to be computed over the system-file list of the
+ *  CURRENT template, so a file that is new (or gone) in a newer template changed it although no project file had changed, and
+ *  every update right after an install ran the doctor twice. A receipt that records its file set (postSyncManifestRels) is now
+ *  re-hashed over exactly that set. A system file of the current template outside that set that EXISTS in the project (the
+ *  doctor never judged it) makes the hash unmatchable, and so does a malformed recorded set. A receipt without the record (older
+ *  forge-sync) is judged over the current template list, as before. */
+function preBaselineManifestHash(templateDir, projectDir, receipt) {
+  const rels = receipt && receipt.postSyncManifestRels;
+  if (rels === undefined) return aggregateManifestHash(fullFileManifest(templateDir, projectDir));
+  if (!Array.isArray(rels) || !rels.every(isPlainRel)) return 'unusable:the receipt\'s postSyncManifestRels is malformed';
+  const recorded = new Set(rels);
+  const unjudged = listSystemFiles(templateDir).filter((rel) => !recorded.has(rel) && manifestForRels(projectDir, [rel])[rel].exists);
+  if (unjudged.length) return 'unusable:system file(s) the last validation never judged exist now: ' + unjudged.slice(0, 5).join(', ');
+  return aggregateManifestHash(manifestForRels(projectDir, rels));
 }
 
 function versionFilePath(projectDir) { return path.join(claudeDirOf(projectDir), 'FORGE_VERSION.json'); }
@@ -2403,6 +2433,19 @@ function cmdArrToString(execPath, argsArr) { return [execPath].concat(argsArr).m
 /** evidenceOk — H4: a forge-doctor --json report is only trusted when it shows POSITIVE evidence of having
  *  actually run real checks: node_check covered at least as many files as we just synced, AND at least one
  *  test suite ran with at least one passing assertion. A 0-files/0-suites "pass" is rejected outright. */
+/** evidenceGap(parsed, minCjsCount) -> null when evidenceOk, else the one plain reason the report is not trusted
+ *  (category tests F5d, 2026-11-07: every fresh install was refused with "--json missing/unparsable/0-count" while
+ *  the real reason was node_check 444 < 461 files written, which cost an hour to find). */
+function evidenceGap(parsed, minCjsCount) {
+  if (!parsed || typeof parsed !== 'object') return 'the doctor gave no --json report (missing or unparsable)';
+  if (!parsed.checks) return 'the doctor --json report has no checks';
+  const nc = parsed.checks.node_check, ts = parsed.checks.tests;
+  if (!nc || typeof nc.total !== 'number') return 'the doctor report has no node_check count';
+  if (nc.total < minCjsCount) return 'node_check covered ' + nc.total + ' file(s) but this sync wrote ' + minCjsCount + ' .cjs file(s)';
+  if (!ts || typeof ts.suites !== 'number' || ts.suites <= 0) return 'the doctor ran no test suite';
+  if (typeof ts.passed !== 'number' || ts.passed <= 0) return 'the doctor recorded no passing test';
+  return null;
+}
 function evidenceOk(parsed, minCjsCount) {
   if (!parsed || typeof parsed !== 'object' || !parsed.checks) return false;
   const nc = parsed.checks.node_check, ts = parsed.checks.tests;
@@ -2705,6 +2748,26 @@ function runDoctorJson(projectDir, doctorPath, timeoutMs) {
  *  approve every future sync into itself, forever, and the receipt would read "validated". The gate would
  *  be authored by the thing it is gating. We hash the doctor that is about to run against the template's
  *  and say plainly which one it is; only a byte-identical template doctor counts as the trusted gate. */
+/** doctorTreeHash — WP A11 part 2 (Lead, Review Boss HIGH): since the split, almost every check lives in
+ *  forge-bin/doctor/*.cjs. A gate that hashed only forge-doctor.cjs would accept a project whose doctor/checks-core.cjs
+ *  was edited to always pass. So the trusted-gate hash covers the ROOT plus every module, sorted by name, each with
+ *  sha256Normalized (EOL-insensitive), and the module NAMES are part of the digest: a module present on one side only
+ *  can never hash equal. Returns { hash, modules, missing } — missing names a file that exists but cannot be read. */
+function doctorTreeHash(doctorFile) {
+  const modDir = path.join(path.dirname(doctorFile), 'doctor');
+  let names = [];
+  try { names = fs.readdirSync(modDir).filter((n) => /\.cjs$/.test(n) && !/\.test\.cjs$/.test(n)).sort(); } catch { names = []; }
+  const root = sha256Normalized(doctorFile);
+  if (!root) return { hash: null, modules: names, missing: ['forge-doctor.cjs'] };
+  const h = crypto.createHash('sha256');
+  h.update('forge-doctor.cjs:' + root);
+  for (const n of names) {
+    const m = sha256Normalized(path.join(modDir, n));
+    if (!m) return { hash: null, modules: names, missing: ['doctor/' + n] };
+    h.update('|doctor/' + n + ':' + m);
+  }
+  return { hash: h.digest('hex'), modules: names, missing: [] };
+}
 function doctorProvenance(projectDir, templateDir) {
   const rel = path.join('forge-bin', 'forge-doctor.cjs');
   const projectDoctor = path.join(claudeDirOf(projectDir), rel);
@@ -2712,9 +2775,13 @@ function doctorProvenance(projectDir, templateDir) {
   if (!templateDir) return { kind: 'unknown', reason: 'no template directory was given, so the doctor could not be compared with the canonical one' };
   const templateDoctor = path.join(templateDir, rel);
   if (!fs.existsSync(templateDoctor)) return { kind: 'unknown', reason: 'the template ships no forge-doctor.cjs to compare against' };
-  const a = sha256Normalized(projectDoctor), b = sha256Normalized(templateDoctor);
-  if (a && b && a === b) return { kind: 'template', hash: a };
-  return { kind: 'project-local', projectHash: a, templateHash: b, reason: 'the doctor in this project is NOT the template doctor (it was overridden, drifted or skipped) — an install may not be approved by a gate the project itself authored' };
+  const a = doctorTreeHash(projectDoctor), b = doctorTreeHash(templateDoctor);
+  const onlyProject = a.modules.filter((n) => !b.modules.includes(n)), onlyTemplate = b.modules.filter((n) => !a.modules.includes(n));
+  if (onlyProject.length || onlyTemplate.length) {
+    return { kind: 'project-local', projectHash: a.hash, templateHash: b.hash, reason: 'the doctor module set differs from the template (only in project: ' + (onlyProject.join(', ') || '-') + '; only in template: ' + (onlyTemplate.join(', ') || '-') + ') — an install may not be approved by a gate the project itself authored' };
+  }
+  if (a.hash && b.hash && a.hash === b.hash) return { kind: 'template', hash: a.hash, modules: a.modules.length };
+  return { kind: 'project-local', projectHash: a.hash, templateHash: b.hash, reason: 'the doctor in this project (forge-doctor.cjs or one of its doctor/*.cjs modules' + (a.missing.length ? '; unreadable: ' + a.missing.join(', ') : '') + ') is NOT the template doctor (it was overridden, drifted or skipped) — an install may not be approved by a gate the project itself authored' };
 }
 /** installerSyntaxGate — the one check the doctor cannot fake, because the INSTALLER runs it: every .cjs
  *  this sync wrote must parse under this Node runtime. It is a floor, not a substitute for the doctor —
@@ -2797,7 +2864,7 @@ function runValidation(projectDir, plan, opts) {
     }
     return {
       ...base, exitCode, ok: false, noEvidence: true, commands: [commandStr], summary: condenseDoctorSummary(parsed),
-      reason: 'forge-doctor gave no positive evidence (--json missing/unparsable/0-count) — refusing to trust a bare exit code',
+      reason: 'forge-doctor gave no positive evidence (' + (evidenceGap(parsed, cjsRels.length) || '--json missing/unparsable/0-count') + ') — refusing to trust a bare exit code',
     };
   }
   // DEGRADED fallback: no forge-doctor present -> the installer syntax gate is all we have, and it passed.
@@ -3644,6 +3711,7 @@ function decidePreBaseline(receipt, currentManifestHash, currentWorkspace, nowMs
   const schemaProblem = preBaselineSummaryProblem(v.summary);
   if (schemaProblem) return { reuse: false, reason: 'the last receipt\'s validation summary is not a usable baseline (' + schemaProblem + ') — re-measured' };
   if (!receipt.postSyncManifestHash) return { reuse: false, reason: 'the last receipt has no post-sync manifest hash' };
+  if (typeof currentManifestHash === 'string' && currentManifestHash.startsWith('unusable:')) return { reuse: false, reason: 'system files cannot be compared with the last sync (' + currentManifestHash.slice(9) + ')' };
   if (receipt.postSyncManifestHash !== currentManifestHash) return { reuse: false, reason: 'system files changed since the last sync (manifest hash differs)' };
   const syncedMs = Date.parse(receipt.syncedAt || '');
   const ageMs = Number.isFinite(syncedMs) ? nowMs - syncedMs : null;
@@ -4645,7 +4713,8 @@ function safeSyncProject(templateDir, projectDir, opts) {
   let preValidation = null, baselineSource;
   if (opts.reusePreBaseline) {
     const nowMs = Date.parse(nowIso);
-    const decision = decidePreBaseline(readReceipt(projectDir), aggregateManifestHash(preManifest), fingerprintImpl(projectDir), Number.isFinite(nowMs) ? nowMs : Date.now(), settingsSnapshot(projectDir, false));
+    const priorForReuse = readReceipt(projectDir); // re-hashed over the file set that receipt recorded
+    const decision = decidePreBaseline(priorForReuse, preBaselineManifestHash(templateDir, projectDir, priorForReuse), fingerprintImpl(projectDir), Number.isFinite(nowMs) ? nowMs : Date.now(), settingsSnapshot(projectDir, false));
     if (decision.reuse) {
       preValidation = decision.preValidation;
       baselineSource = { mode: 'reused', batchId: decision.source.batchId, syncedAt: decision.source.syncedAt, ageMs: decision.source.ageMs, workspaceProven: decision.workspaceProven, note: decision.note };
@@ -4912,6 +4981,7 @@ function safeSyncProject(templateDir, projectDir, opts) {
     backupRef: { project: backup.backupDir, central: backup.centralDir || null },
     preSyncManifestHash: aggregateManifestHash(preManifest),
     postSyncManifestHash: aggregateManifestHash(postManifest),
+    postSyncManifestRels: Object.keys(postManifest).sort(), // the exact file set the hash above covers (preBaselineManifestHash)
     filesChanged: plan.toChange.map((e) => ({ rel: e.rel, oldHash: e.oldHash, newHash: e.newHash, overrideClass: e.overrideClass || null })),
     knownHashes,
     overridesPreserved: { expectedOverride: plan.expectedOverrides, unknownDriftSkipped: plan.unknownDrift, conflictSkipped: plan.conflicts },
@@ -5219,7 +5289,7 @@ function rawInstall(templateDir, projectDir, opts) {
     templateVersionFrom: priorReceipt ? (priorReceipt.templateVersionTo || priorReceipt.forge_version || null) : null,
     templateVersionTo: templateVer,
     backupRef: { project: backup.backupDir, central: backup.centralDir || null },
-    preSyncManifestHash: aggregateManifestHash(preManifest), postSyncManifestHash: aggregateManifestHash(postManifest),
+    preSyncManifestHash: aggregateManifestHash(preManifest), postSyncManifestHash: aggregateManifestHash(postManifest), postSyncManifestRels: Object.keys(postManifest).sort(),
     filesChanged: plan.toChange.map((e) => ({ rel: e.rel, oldHash: e.oldHash, newHash: e.newHash, overrideClass: e.overrideClass || null })),
     knownHashes: rebuildKnownHashes(priorReceipt, plan, postManifest),
     overridesPreserved: { expectedOverride: plan.expectedOverrides, unknownDriftSkipped: [], conflictSkipped: [] },
@@ -5277,6 +5347,65 @@ function rawInstall(templateDir, projectDir, opts) {
   };
 }
 
+/** gitBlobIds(buf, idLen) -> Set of git blob ids for the bytes as-is and with CRLF folded to LF (what a checkout with
+ *  core.autocrlf would have committed), in the repository's object format (40 hex = sha1, 64 hex = sha256). */
+function gitBlobIds(buf, idLen) {
+  const algo = idLen === 64 ? 'sha256' : 'sha1';
+  const id = (b) => crypto.createHash(algo).update(Buffer.concat([Buffer.from('blob ' + b.length + '\0'), b])).digest('hex');
+  const out = new Set([id(buf)]);
+  if (buf.includes(13)) out.add(id(Buffer.from(buf.toString('latin1').replace(/\r\n/g, '\n'), 'latin1')));
+  return out;
+}
+/** devHistoryBlobIndex(devClaudeDir) -> {available:true, top, byPath:Map<repoRel, Set<blobId>>, idLen} | {available:false, reason}.
+ *  ONE `git log --all --raw` over the tree's .claude folder: every blob each path has ever had. */
+function devHistoryBlobIndex(devClaudeDir) {
+  const ctx = devTreeGitContext(devClaudeDir);
+  if (!ctx) return { available: false, reason: 'not a git work tree with a development-tree marker' };
+  const prefix = path.relative(ctx.top, ctx.devDir).split(path.sep).join('/');
+  const log = gitIn(ctx.top, ['-c', 'core.quotePath=false', 'log', '--all', '--format=', '--raw', '--no-abbrev', '--no-renames', '--', prefix || '.']);
+  if (!log.ok) return { available: false, reason: 'git log failed: ' + log.err };
+  const byPath = new Map();
+  let idLen = 40;
+  for (const line of log.out.split('\n')) {
+    const m = /^:\d+ \d+ ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) \S+\t(.+)$/.exec(line);
+    if (!m) continue;
+    idLen = m[2].length;
+    if (!byPath.has(m[3])) byPath.set(m[3], new Set());
+    byPath.get(m[3]).add(m[1]).add(m[2]);
+  }
+  return { available: true, prefix, byPath, idLen };
+}
+/** devTreeStatus — WP A0: status on a Forge DEVELOPMENT TREE. The tree is the SOURCE the template is published
+ *  from, and install refuses it, so "N files behind — run: forge-sync install" was the wrong direction. Every differing file
+ *  is classified by the tree's git history: template bytes that are an earlier version of the same path = the template lags
+ *  (publish fixes it); template bytes that never existed in the tree = TEMPLATE AHEAD (edited in the template itself; a
+ *  publish would overwrite them). Returns 1 when the template is ahead or the direction cannot be proven, else 0. */
+function devTreeStatus(templateDir, projectDir, s) {
+  const dst = claudeDirOf(projectDir), name = path.basename(projectDir);
+  const idx = devHistoryBlobIndex(dst);
+  const lagging = [], ahead = [];
+  for (const rel of s.drift.concat(s.seedsAbsent)) {
+    let buf; try { buf = fs.readFileSync(path.join(templateDir, rel)); } catch { continue; }
+    const known = idx.available && idx.byPath.get(idx.prefix ? idx.prefix + '/' + rel : rel);
+    const fromTree = !!known && [...gitBlobIds(buf, idx.idLen)].some((id) => known.has(id));
+    (fromTree ? lagging : ahead).push(rel);
+  }
+  let unpublished = [];
+  try { const dp = shipPlan(dst); unpublished = dp.system.concat(dp.seed).filter((rel) => !fs.existsSync(path.join(templateDir, rel))); }
+  catch (e) { console.error('  ' + name + ': could not read this tree\'s own shipping manifest — ' + e.message); }
+  const behind = lagging.length + unpublished.length;
+  console.log(name + ': DEVELOPMENT TREE (the source the template is published from) · tree=' + (s.vf.forge_version || 'none') + ' · template=' + s.tv + ' · '
+    + (behind ? 'the template is ' + behind + ' file(s) behind this tree (' + lagging.length + ' changed, ' + unpublished.length + ' not published yet) — publish: forge-sync publish-template --plan' : 'the template matches this tree ✓'));
+  if (s.verbose) lagging.forEach((f) => console.log('    template lags: ' + f));
+  if (s.verbose) unpublished.forEach((f) => console.log('    not published yet: ' + f));
+  if (!idx.available) {
+    console.error('  ' + name + ': direction NOT proven for ' + ahead.length + ' differing file(s) — ' + idx.reason);
+    return 1;
+  }
+  if (ahead.length) console.error('  ' + name + ': TEMPLATE AHEAD: ' + ahead.length + ' file(s) whose template bytes are no version in this tree\'s git history (edited in the template itself) — a publish would overwrite them; port them into this tree or get the owner\'s ok first: ' + ahead.join(', '));
+  return ahead.length ? 1 : 0;
+}
+
 /** status — read-only.: it no longer filters template-missing files away silently: every ship-sync /
  *  seed-only entry the template lacks is listed, an incomplete template (missingBlocking) is never "up to date",
  *  seed files the project still lacks count as behind, and the orphan report says which files the template no
@@ -5290,6 +5419,7 @@ function status(templateDir, projectDir, verbose) {
   const drift = sp.system.filter((rel) => sha256(path.join(templateDir, rel)) !== sha256(path.join(dst, rel)));
   const seedsAbsent = sp.seed.filter((rel) => !fs.existsSync(path.join(dst, rel)));
   const behind = drift.length + seedsAbsent.length;
+  if (readDevTreeMarker(dst)) return devTreeStatus(templateDir, projectDir, { tv, vf, drift, seedsAbsent, verbose });
   const head = sp.missingBlocking.length ? 'TEMPLATE INCOMPLETE (' + sp.missingBlocking.length + ' shipped file(s) missing from it) — install would refuse; fix: forge-sync publish-template --plan (from the development tree)'
     : (behind ? ('DRIFT (' + behind + ' files behind) — run: forge-sync install') : 'up to date ✓');
   console.log(path.basename(projectDir) + ': installed=' + (vf.forge_version || 'none') + ' · template=' + tv + ' · ' + head);
@@ -5302,6 +5432,8 @@ function status(templateDir, projectDir, verbose) {
   if (rp.removable.length) console.log('  ' + rp.removable.length + ' retired dashboard file(s) present and unmodified — `forge-sync install` will remove them: ' + rp.removable.map((e) => e.rel).join(', '));
   if (rp.kept.length) console.log('  ' + rp.kept.length + ' retired dashboard file(s) present but kept (see reasons): ' + rp.kept.map((k) => k.rel + ' (' + k.reason + ')').join('; '));
   printOrphanReport(projectDir, findOrphans(projectDir, sp), null);
+  const sr = stateRootOf(projectDir); // WP 2.1
+  if (sr.present) console.log('  ' + sr.rel + '/ (per-project state root: runs, memory, scribe store, ...) — protected: forge-sync never ships, writes, seeds or retires anything in it');
   return (behind || sp.missingBlocking.length) ? 1 : 0;
 }
 /** printMissingInTemplate — F3: say which shipped entries the template lacks, never a silent skip. Blocking ones are
@@ -5375,7 +5507,12 @@ function canaryInit(templateDir, rootDir, opts) {
     canary: true, createdAt: opts.nowIso || new Date().toISOString(),
     purpose: 'disposable dedicated sync canary — never a real project, never counted by findForgeProjects, wiped fresh on every canary-init',
   }, null, 2) + '\n', 'utf8');
-  if (opts.doctorSource && fs.existsSync(opts.doctorSource)) fs.copyFileSync(opts.doctorSource, path.join(dir, '.claude', 'forge-bin', 'forge-doctor.cjs'));
+  if (opts.doctorSource && fs.existsSync(opts.doctorSource)) {
+    fs.copyFileSync(opts.doctorSource, path.join(dir, '.claude', 'forge-bin', 'forge-doctor.cjs'));
+    // WP A11-2: a real doctor needs its check modules next to it (a single-file stub doctor has none)
+    const modules = path.join(path.dirname(opts.doctorSource), 'doctor');
+    if (fs.existsSync(modules)) fs.cpSync(modules, path.join(dir, '.claude', 'forge-bin', 'doctor'), { recursive: true });
+  }
   return { dir, refreshed: true };
 }
 
@@ -5843,6 +5980,18 @@ function printSettingsMergeResult(projectDir, r) {
   // from every printer — the ONLY status this function never printed anything for.
   else if (r.status === 'usage-error') console.error(name + ': settings.json merge could not run (' + r.message + ')');
 }
+/** WP 3.1 (modernization): forge-sync stays the route for updating and adopting existing (legacy) installs;
+ *  a NEW project uses the two-step install (add the Forge plugin, then `/forge init`, see docs/INSTALL.md). These two
+ *  notices only point there: one extra line when `install` refuses a folder without .claude/, and one line after a
+ *  successful real install whose project now carries forge-init.cjs (never in --json or dry-run output). Output only;
+ *  nothing about the install itself changes, and a notice can never fail it. */
+const INIT_NOTICE_NEW = 'forge-sync: a new project can also use the two-step install: add the Forge plugin, then run `/forge init` in the project (docs/INSTALL.md).';
+function printInitNotice(projectDir) {
+  try {
+    if (!fs.existsSync(path.join(claudeDirOf(projectDir), 'forge-bin', 'forge-init.cjs'))) return;
+    console.log('  next: run `/forge init` in this project (or `node .claude/forge-bin/forge-init.cjs check`) for its memory files and CLAUDE.md pointer; forge-sync stays for updates and existing installs');
+  } catch { /* a notice never fails an install */ }
+}
 
 // =====================================================================================================================
 // part 1 (2026-10-10,; audit SYNC-02, SYNC-06, SYNC-07, SYNC-11, SYNC-12
@@ -6136,12 +6285,97 @@ function quiesceCheck(projectDir, opts) {
         ? { state: 'unknown', detail: unknowns.length + ' interpreter/tool process(es) whose command line cannot be read could be working in this project — unknown counts as NOT idle: ' + unknowns.slice(0, 6).map((u) => 'pid ' + u.pid + ' (' + u.exe + ')').join(', ') + ' (run elevated, or stop them, or pass --quiesce-override)', unknowns }
         : { state: 'ok', detail: list.length + ' process(es) listed, none names this project' + (noCmd ? ' (' + noCmd + ' without a readable command line — service/system images, counted, not inspected)' : '') + cwdNote, excluded: [...skip] });
   }
+  // Category tests F9: ONLY-unknown processes (no command line readable, nothing naming this folder) do not
+  // block a FIRST install into a bare dashboard scaffold: there is no app file and no Forge install in it that a running
+  // process could be writing. A process that names the folder, a recent transcript or run, or a lock still blocks.
+  // Only the "unreadable command line" kind of unknown (it carries `unknowns`); an unavailable process listing stays blocking.
+  // the same holds for an UPDATE of an untouched fresh install (every file under .claude is one the receipt says
+  // the installer wrote, with those bytes; no app file, no run file, no session file) — see isUntouchedFreshInstall.
+  const onlyUnreadableElsewhere = checks.processes && checks.processes.state === 'unknown' && Array.isArray(checks.processes.unknowns) && Object.keys(checks).every((k) => k === 'processes' || checks[k].state === 'ok');
+  if (onlyUnreadableElsewhere && isBareScaffold(abs)) {
+    checks.processes = { state: 'ok', detail: 'fresh scaffold (only CLAUDE.md / .gitignore and an empty .claude, no Forge install yet): ' + checks.processes.unknowns.length + ' unreadable interpreter process(es) elsewhere cannot be writing into it', unknowns: checks.processes.unknowns };
+  } else if (onlyUnreadableElsewhere && isUntouchedFreshInstall(abs)) {
+    checks.processes = { state: 'ok', detail: 'untouched fresh install (only CLAUDE.md / .gitignore and the files the last install wrote, unchanged; no run, no app file): ' + checks.processes.unknowns.length + ' unreadable interpreter process(es) elsewhere cannot be writing into it', unknowns: checks.processes.unknowns };
+  }
   const states = Object.keys(checks).map((k) => checks[k].state);
   return {
     schema: 'forge-sync-quiesce/v1', idle: states.every((s) => s === 'ok'), unknown: states.includes('unknown'), idleMin,
     projectPath: abs, checkedAt: iso(nowMs), checks, checkedUnderLock,
     reasons: Object.keys(checks).filter((k) => checks[k].state !== 'ok').map((k) => k + ' ' + checks[k].state.toUpperCase() + ': ' + checks[k].detail),
   };
+}
+/** isBareScaffold(dir) -> true when dir holds nothing but what the dashboard's New project scaffold writes (CLAUDE.md,
+ *  .gitignore) plus a .claude folder with no Forge install (no forge-bin/forge-sync.cjs) and only scaffold or earlier
+ *  rolled-back sync leftovers (empty folders, forge-sync-report-*.md, backup folders). */
+function isBareScaffold(dir) {
+  let top;
+  try { top = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+  for (const e of top) {
+    if (e.isFile() && (e.name === 'CLAUDE.md' || e.name === '.gitignore')) continue;
+    if (e.isDirectory() && e.name === '.claude') continue;
+    return false;
+  }
+  const cd = path.join(dir, '.claude');
+  if (fs.existsSync(path.join(cd, 'forge-bin', 'forge-sync.cjs')) || fs.existsSync(path.join(cd, 'forge-sync-receipt.json'))) return false;
+  // .forge-sync.lock: the installer takes its own lock BEFORE the quiesce check (check-after-lock), so it is always there
+  const okFile = (rel) => rel === '.forge-sync.lock' || /^forge-sync-report-[^/]+\.md$/.test(rel) || /^forge-backups(-central)?\//.test(rel);
+  const walk = (d, rel) => {
+    let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
+    for (const e of es) {
+      const r = rel ? rel + '/' + e.name : e.name;
+      if (e.isSymbolicLink()) return false;
+      if (e.isDirectory()) { if (!walk(path.join(d, e.name), r)) return false; } else if (!okFile(r)) return false;
+    }
+    return true;
+  };
+  return walk(cd, '');
+}
+/** isUntouchedFreshInstall(dir) -> true when dir holds a Forge install nobody has used yet (category tests F10): the top
+ *  level has only CLAUDE.md / .gitignore / .claude, and every file under .claude is one the installer itself wrote, judged by the
+ *  receipt and not by name guessing: a file the receipt records (knownHashes, or filesChanged.newHash) with exactly those bytes,
+ *  the settings.json its doctor judged (settingsJudged.sha256), or the sync's own bookkeeping (the receipt, FORGE_VERSION.json, the
+ *  lock, forge-sync-report-*.md, forge-backups/ and forge-backups-central/). So any app file, any run folder file (an events.jsonl),
+ *  any changed Forge file and any file a session wrote makes it false. Without a readable receipt it is false. Stated limit: a seed
+ *  file is recognised only through the latest receipt's filesChanged, so after a later update that did not rewrite it the folder
+ *  no longer counts as fresh (fail-safe: it then blocks as before). */
+function isUntouchedFreshInstall(dir) {
+  let top;
+  try { top = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+  for (const e of top) {
+    if (e.isFile() && (e.name === 'CLAUDE.md' || e.name === '.gitignore')) continue;
+    if (e.isDirectory() && e.name === '.claude') continue;
+    return false;
+  }
+  const cd = path.join(dir, '.claude');
+  if (lstatKind(receiptPath(dir)) !== 'other' || lstatKind(versionFilePath(dir)) !== 'other') return false; // a real entry, never a link
+  const receipt = readReceipt(dir);
+  if (!receipt || typeof receipt !== 'object' || !receipt.knownHashes || typeof receipt.knownHashes !== 'object') return false;
+  const expected = new Map();
+  for (const rel of Object.keys(receipt.knownHashes)) if (typeof receipt.knownHashes[rel] === 'string') expected.set(rel, new Set([receipt.knownHashes[rel]]));
+  for (const f of Array.isArray(receipt.filesChanged) ? receipt.filesChanged : []) {
+    if (!f || typeof f.rel !== 'string' || typeof f.newHash !== 'string') continue;
+    if (!expected.has(f.rel)) expected.set(f.rel, new Set());
+    expected.get(f.rel).add(f.newHash);
+  }
+  const sj = receipt.settingsJudged;
+  if (sj && sj.kind === 'ok' && typeof sj.sha256 === 'string') expected.set('settings.json', new Set([sj.sha256]));
+  const bookkeeping = (rel) => rel === 'forge-sync-receipt.json' || rel === 'FORGE_VERSION.json' || rel === '.forge-sync.lock'
+    || /^forge-sync-report-[^/]+\.md$/.test(rel) || /^forge-backups(-central)?\//.test(rel);
+  const walk = (d, rel) => {
+    let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return false; }
+    for (const e of es) {
+      const r = rel ? rel + '/' + e.name : e.name;
+      if (e.isSymbolicLink()) return false;
+      if (e.isDirectory()) { if (!walk(path.join(d, e.name), r)) return false; continue; }
+      if (bookkeeping(r)) continue;
+      const want = expected.get(r);
+      if (!want || !e.isFile()) return false;
+      const h = sha256(path.join(d, e.name));
+      if (!h || !want.has(h)) return false;
+    }
+    return true;
+  };
+  return walk(cd, '');
 }
 /** quiesceRecord(quiesce, override) — the compact form that goes into the receipt and the report. */
 function quiesceRecord(quiesce, override) {
@@ -6427,6 +6661,11 @@ function buildProtectManifest(templateDir, projectDir, opts) {
     }
   };
   walk(dst, '');
+  // WP 2.1: the project's .forge/ state root (only when it exists and sits inside the project, outside .claude/ — a state
+  // root inside .claude/ is already covered by the walk above). Every entry is keyed '.forge/...'; nothing is followed.
+  const stateRoot = stateRootOf(abs);
+  const stateRootRel = stateRoot.present && isPlainRel(stateRoot.rel) && foldCase(stateRoot.rel.split('/')[0]) !== '.claude' ? stateRoot.rel : null;
+  if (stateRootRel) walkStateRoot(stateRoot.abs, stateRootRel, entries);
   const sorted = {};
   const counts = { total: 0 };
   for (const k of Object.keys(entries).sort()) { sorted[k] = entries[k]; counts.total++; counts[entries[k].kind] = (counts[entries[k].kind] || 0) + 1; }
@@ -6445,12 +6684,46 @@ function buildProtectManifest(templateDir, projectDir, opts) {
     schema: PROTECT_SCHEMA, createdAt: opts.nowIso || new Date().toISOString(), projectPath: abs,
     templateDir: templateDir ? path.resolve(templateDir) : null, selfPath: selfAbs,
     shippedRels: [...shipped].sort(), overrides: [...overrides].sort(),
-    notWalked: [...PROTECT_NOT_WALKED].map((n) => '.claude/' + n + '/'),
+    notWalked: [...PROTECT_NOT_WALKED].map((n) => '.claude/' + n + '/').concat(stateRootRel ? [...STATE_ROOT_NOT_WALKED].map((n) => stateRootRel + '/' + n + '/') : []),
+    ...(stateRootRel ? { stateRoot: stateRootRel } : {}), // WP 2.1: present only when the project has a .forge/ state root
     summarizedDirs: [...summarize].sort().map((n) => '.claude/' + n + '/'), // WP-SYNC-R8 legacy mode: one entry each, child list only
     checkoutDirs: [...checkoutParents].sort().map((n) => '.claude/' + n + '/'), // WP-SYNC-R10: their CHECKOUT children are one entry each
     counts, entries: sorted,
     git: gitState, gitExclude,
   };
+}
+/** stateRootOf(projectDir) -> {rel, abs, present, layout} — the project's opt-in state root (WP 2.1): forge-paths' answer
+ *  (FORGE_STATE_DIR honoured) when forge-paths.cjs is there, else <project>/.forge. present = it is a real folder. */
+function stateRootOf(projectDir) {
+  const root = path.resolve(projectDir);
+  let abs = path.join(root, '.forge'), layout = null;
+  if (forgePathsMod) { try { const d = forgePathsMod.stateDirFor(root, 'state_root'); abs = d.forge; layout = d.layout; } catch { /* the plain default */ } }
+  const present = isDirectory(abs) && !isSymlinkPath(abs);
+  return { rel: path.relative(root, abs).split(path.sep).join('/'), abs, present: present || isSymlinkPath(abs), layout: layout || (present ? 'forge' : 'legacy') };
+}
+/** walkStateRoot(rootAbs, relBase, entries) — records every file and folder below the state root as protect entries keyed
+ *  relBase/...; a link is recorded by its target, never followed; node_modules/.git folders as present only; its backups
+ *  folder is not walked. */
+function walkStateRoot(rootAbs, relBase, entries) {
+  if (isSymlinkPath(rootAbs)) { entries[relBase] = protectEntryFor(rootAbs, relBase); return; }
+  entries[relBase] = { kind: 'dir' };
+  const walk = (dirAbs, rel) => {
+    let list;
+    try { list = fs.readdirSync(dirAbs, { withFileTypes: true }); } catch (e) { entries[rel] = protectUnreadableEntry(e, dirAbs); return; }
+    for (const e of list) {
+      const r = rel + '/' + e.name;
+      const p = path.join(dirAbs, e.name);
+      if (rel === relBase && STATE_ROOT_NOT_WALKED.has(foldCase(e.name))) continue;
+      if (e.isDirectory() && !e.isSymbolicLink()) {
+        if (PROTECT_SKIP_DIR_NAMES.has(foldCase(e.name))) { entries[r] = { kind: 'skipped-dir' }; continue; }
+        entries[r] = { kind: 'dir' };
+        walk(p, r);
+        continue;
+      }
+      entries[r] = protectEntryFor(p, r);
+    }
+  };
+  walk(rootAbs, relBase);
 }
 function writeProtectManifest(manifest, outFile) {
   const out = path.resolve(outFile);
@@ -7057,7 +7330,16 @@ function protectExpectationsFromRun(run) {
   for (const rel of (run.retiredPrune && run.retiredPrune.removed) || []) out.removedOk.push('.claude/' + rel);
   for (const rel of (run.retiredOrphans && run.retiredOrphans.moved) || []) out.removedOk.push('.claude/' + rel);
   for (const w of run.migrationWrites || []) { const k = '.claude/' + w.rel; out.changedOk[k] = w.postHash; if (!w.existed) out.addedOk.push(k); }
-  if (run.canarySeed && run.canarySeed.runId) out.addedPrefixes.push('.claude/forge-runs/' + run.canarySeed.runId);
+  if (run.canarySeed && run.canarySeed.runId) {
+    out.addedPrefixes.push('.claude/forge-runs/' + run.canarySeed.runId);
+    // WP 2.1: in a .forge/ project log-event.cjs writes the canary run into the active runs folder instead
+    if (forgePathsMod && run.projectDir) {
+      try {
+        const rel = path.relative(path.resolve(run.projectDir), forgePathsMod.stateDir(run.projectDir, 'runs')).split(path.sep).join('/');
+        if (isPlainRel(rel) && rel !== '.claude/forge-runs') out.addedPrefixes.push(rel + '/' + run.canarySeed.runId);
+      } catch { /* legacy prefix only */ }
+    }
+  }
   return out;
 }
 /** protectExpectationsFromBatch(projectDir, batchId) — the same expectations, read back from the batch's own on-disk
@@ -8299,6 +8581,19 @@ function planPublishTemplate(opts) {
   return plan;
 }
 
+/** devCheckTheChecks(devDir, injected) -> the dev tree's check_the_checks result, or null when it cannot be run (no
+ *  forge-doctor.cjs next to it, a load error): never a blocker by itself. `injected` replaces it in tests. */
+function devCheckTheChecks(devDir, injected) {
+  try {
+    if (typeof injected === 'function') return injected(devDir);
+    if (typeof devDir !== 'string' || !devDir) return null;
+    const doctor = path.join(devDir, 'forge-bin', 'forge-doctor.cjs');
+    if (!fs.existsSync(doctor)) return null;
+    const D = require(doctor);
+    if (typeof D.checkTheChecks !== 'function') return null;
+    return D.checkTheChecks(path.basename(devDir).toLowerCase() === '.claude' ? path.dirname(devDir) : devDir);
+  } catch { return null; }
+}
 /** publishApplyBlockers(plan, o) -> [reason] that make --apply refuse (exit 4) before anything is written. */
 function publishApplyBlockers(plan, o) {
   const reasons = [];
@@ -8311,6 +8606,13 @@ function publishApplyBlockers(plan, o) {
   }
   if (plan.blocked.length) reasons.push(plan.blocked.length + ' published path(s) cannot be written safely: ' + plan.blocked.slice(0, 6).map((b) => b.rel + ' (' + b.reason + ')').join('; '));
   if (plan.devMissingBlocking.length) reasons.push('the development tree itself lacks ' + plan.devMissingBlocking.length + ' file(s) its manifest ships (' + plan.devMissingBlocking.slice(0, 6).map((x) => x.rel).join(', ') + ') — publishing would leave the template incomplete');
+  // Category tests I1: a test the doctor's check_the_checks reads as a no-op reached the template and every
+  // fresh install ran a 30-minute doctor and rolled back. The scan is static (~0.2 s), so it runs before anything ships.
+  const ctc = devCheckTheChecks(plan.devDir, o.checkTheChecks);
+  if (ctc && ctc.ok === false) {
+    const sites = (ctc.noOp || []).slice(0, 6).map((x) => (x.suite || '?') + (x.line ? ':' + x.line : '')).join(', ');
+    reasons.push('the development tree\'s own check_the_checks is red (' + (ctc.noOp || []).length + ' no-op assertion site(s): ' + sites + ') — every install would roll back on it; fix the tests first');
+  }
   for (const name of [TEMPLATE_PROVENANCE_NAME, TEMPLATE_PUBLISH_RECEIPT_NAME]) {
     const p = path.join(plan.templateDir, name);
     if (isSymlinkPath(p) || (fs.existsSync(p) && !fs.lstatSync(p).isFile())) reasons.push(name + ' in the template is a symlink or not a regular file — never written through');
@@ -8800,13 +9102,13 @@ function publishTemplateCli(argv, env) {
 }
 
 module.exports = {
-  listSystemFiles, sha256, sha256Normalized, normalizeEolBuffer, fileStatus, templateVersion, claudeDirOf, safeJoin, isSymlinkPath,
+  publishApplyBlockers, listSystemFiles, sha256, sha256Normalized, normalizeEolBuffer, fileStatus, templateVersion, claudeDirOf, safeJoin, isSymlinkPath,
   containmentSafe, projectId, receiptPath, readReceipt, writeReceipt, writeAtomic, receiptLastTemplateHashMap,
   overridesAllowlistPath, readOverrideAllowlist, migrateOwnerStandingRules,
   preflight, buildPlan, fullFileManifest, aggregateManifestHash,
   versionFilePath, readVersionFile, backupDirFor, centralBackupDir, takeBackup, applyPlanSafely, runValidation,
-  decideValidationOutcome, decidePreBaseline, workspaceFingerprint, evidenceOk, condenseDoctorSummary, regressionCheck, seedCanaryRun, seedProjectScaffold, undoScaffold,
-  doctorProvenance, installerSyntaxGate, copyNoFollow,
+  decideValidationOutcome, decidePreBaseline, preBaselineManifestHash, manifestForRels, workspaceFingerprint, evidenceOk, evidenceGap, condenseDoctorSummary, regressionCheck, seedCanaryRun, seedProjectScaffold, undoScaffold,
+  doctorProvenance, doctorTreeHash, installerSyntaxGate, copyNoFollow,
   verifyBackupIntegrity, loadTrustedManifest, findNewerOverlappingBatches, restoreFromManifest, subsetManifest,
   journalPath, latestBatchId, batchRecency, acquireLock, releaseLock, lockPathFor, readLockStatus, pidAlive, LOCK_STALE_MS, DEFAULT_DOCTOR_TIMEOUT_MS,
   rollbackProject, rollbackBatch, safeSyncProject, adoptProject, rawInstall, status, findForgeProjects,
@@ -8818,11 +9120,11 @@ module.exports = {
   // retired per-project Control Center cleanup; see pruneRetiredFiles's own doc comment.
   pruneRetiredFiles, restoreRetiredPruneLedger, RETIRED_TEMPLATE_FILES, RETIRED_STATE_FILES, printRetiredPruneResult,
   // the shipping manifest drives delivery; seed-only; never-touch floor; orphans; batch ids
-  listSeedFiles, shipPlan, loadShipManifest, literalDirPrefixes, isNeverTouch, isNeverTouchDir, NEVER_TOUCH_DIRS, NEVER_TOUCH_FILES,
+  listSeedFiles, shipPlan, loadShipManifest, literalDirPrefixes, isNeverTouch, isNeverTouchDir, NEVER_TOUCH_DIRS, NEVER_TOUCH_FILES, NEVER_TOUCH_ROOT_DIRS, stateRootOf, walkStateRoot,
   SHIP_MANIFEST_REL, OWN_SHIP_MANIFEST, isSafeBatchId, migrateScoutVerdicts, SCOUT_VETTING_REL, SCOUT_VETTING_USER_REL,
   findOrphans, retireOrphans, restoreRetiredOrphansLedger, RETIRED_ORPHANS_SUBDIR, RETIRED_ORPHANS_MANIFEST_NAME,
   // part 1 — quiesce, protect manifest, settings ledger, dry-run JSON, provenance + report, coupled trio
-  quiesceCheck, claudeProjectSlug, transcriptFoldersFor, listProcessesStructured, pathVariantsForMatch, commandLineMentions, QUIESCE_DEFAULT_IDLE_MIN,
+  quiesceCheck, isBareScaffold, isUntouchedFreshInstall, claudeProjectSlug, transcriptFoldersFor, listProcessesStructured, pathVariantsForMatch, commandLineMentions, QUIESCE_DEFAULT_IDLE_MIN,
   buildProtectManifest, writeProtectManifest, readProtectManifest, verifyProtect, diffProtectManifests, protectExpectationsFromRun,
   protectExpectationsFromBatch, protectAllowance, isSecretLikeRel, protectViolationLines, PROTECT_SCHEMA,
   // WP-SYNC-R8 — .claude/worktrees is one summary entry, never descended; git does not enumerate .claude/
@@ -8943,7 +9245,13 @@ if (require.main === module) {
 
   if (argError) exitUsage('forge-sync: ' + argError); // M1
 
-  const defaultProject = pos[0] || path.resolve(__dirname, '..', '..'); // status/doctor only: read-only, low risk
+  // status/doctor only: read-only, low risk. WP 2.1: forge-paths scriptRoot when it is there (an installed copy keeps the
+  // old own-folder answer); without forge-paths the old expression.
+  let ownProject0 = null;
+  if (!forgePathsMod || typeof forgePathsMod.scriptRoot !== 'function') ownProject0 = path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  else { try { ownProject0 = forgePathsMod.scriptRoot(__dirname); } catch { ownProject0 = null; } }
+  const defaultProject = pos[0] || ownProject0;
+  if (!defaultProject && (cmd === 'status' || cmd === 'doctor')) exitUsage('forge-sync: no project root found (no .claude, .forge or .git above the current folder) — pass the project folder: forge-sync ' + cmd + ' <projectDir>');
   const batchId = flags.batchId || ('sync-' + Date.now());
 
   if (cmd === 'status' || cmd === 'doctor') {
@@ -8972,6 +9280,7 @@ if (require.main === module) {
      *  actionable diagnosis goes first. */
     if (fs.existsSync(pos[0]) && !fs.existsSync(claudeDirOf(pos[0]))) {
       console.error('forge-sync: not a project (.claude missing): ' + path.resolve(pos[0]) + ' — forge-sync updates an EXISTING Forge project and never creates .claude/ itself. For a FIRST install run the installer: `bash install.sh --project "' + path.resolve(pos[0]) + '"` (or install.ps1 on Windows).');
+      console.error(INIT_NOTICE_NEW);
       process.exit(2);
     }
     refuseForeignTargetOnFallback(pos[0]); // audit #23: never seed another project from this one
@@ -9035,6 +9344,7 @@ if (require.main === module) {
         exitCode = r.dryRun ? ((r.wouldRefuse || r.refused) ? 1 : 0) : (r.ok ? 0 : 1);
       }
     } finally { releaseLock(lock); }
+    if (exitCode === 0 && !flags.dryRun && !flags.json) printInitNotice(pos[0]);
     process.exit(exitCode);
   } else if (cmd === 'adopt') {
     if (!pos[0]) exitUsage('usage: forge-sync adopt <projectDir> [--dry-run] [--force]');

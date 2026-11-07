@@ -41,6 +41,16 @@
  *      console — only the supervisor's OWN meta-log lines reach the terminal — so relying on the child to
  *      announce itself would silently say nothing when the supervisor path is used.
  *
+ *   6. FU-STEP2 (Security Boss decision Step 2, option A-prime): the dashboard's
+ *      credential is an HttpOnly, SameSite=Strict cookie that a plain page load never sets. Before spawning,
+ *      this tool makes the UI session secret and a one-time pairing code (makePairing), hands both to the
+ *      gateway through its ENVIRONMENT only (gatewayEnv; the gateway reads and deletes them at start), and
+ *      prints http://127.0.0.1:<port>/?pair=<code>. Opening that link once, within 2 minutes, pairs the
+ *      browser. A gateway that is ALREADY running cannot be given a new code (no HTTP route mints one: any
+ *      local process could call it), so that case says how to get a fresh link instead.
+ *      The gateway trusts the Vite dev page (:5173) only with its dev switch FORGE_DEV_ORIGINS=1. This tool
+ *      never sets that switch; one the developer set is passed on, and devOriginsLines says so out loud.
+ *
  * Exit codes: 0 = a real dashboard is reachable (already running, or started here and later exited
  * cleanly, e.g. Ctrl+C) ; 1 = the Command Center is not installed anywhere reachable, the on-demand build
  * failed, or the gateway/supervisor process itself failed to spawn — an honest non-zero so a caller can
@@ -50,11 +60,21 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 // forge-bin -> .claude -> project root (the same two-levels-up relationship forge.ps1/forge.cmd/forge.sh
 // each already use for their own paths, e.g. "$PSScriptRoot\..\forge-dashboard").
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1: through forge-paths scriptRoot when it is there (optional require): an installed copy keeps exactly this
+// answer; a plugin copy (no .claude/<folder> of its own) finds the project from CLAUDE_PROJECT_DIR / the cwd instead
+// of the plugin's parent folder, and null (no project found) means "no project-local Command Center, no default".
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+const PROJECT_ROOT = defaultRoot();
 const HEALTH_TIMEOUT_MS = 1500;
 
 /** resolvePort(env) -> number. Same rule as command-center/gateway/bin.mjs's own
@@ -126,8 +146,8 @@ function isAlreadyRunning(port, timeoutMs) {
  *  project-local first, then the installer's central copy — the exact lookup order forge.ps1/forge.cmd/
  *  forge.sh document in their own comments, so this function is the single source of truth for it. */
 function findCommandCenter(projectRoot, homeDir) {
-  const projectLocalRoot = path.join(projectRoot, 'command-center');
-  if (fs.existsSync(path.join(projectLocalRoot, 'gateway', 'bin.mjs'))) {
+  const projectLocalRoot = projectRoot ? path.join(projectRoot, 'command-center') : null; // WP 2.1: null = no project found
+  if (projectLocalRoot && fs.existsSync(path.join(projectLocalRoot, 'gateway', 'bin.mjs'))) {
     return { root: projectLocalRoot, origin: 'project-local' };
   }
   const centralRoot = path.join(homeDir, '.claude', 'forge', 'template', 'command-center');
@@ -209,6 +229,75 @@ function ensureBuilt(ccRoot, opts) {
   return { ok: true, built: true };
 }
 
+// FU-STEP2: the gateway's contract (command-center/gateway/src/security.mjs parseUiSessionEnv): the secret in
+// FORGE_UI_SESSION_SECRET, the code as `<code>.<expiresAtMs>` in FORGE_UI_PAIRING_CODE (clamped there to 120 s).
+// Neither name starts with cc_/claude_, so the gateway never forwards them to a `claude` child.
+const UI_SESSION_SECRET_ENV = 'FORGE_UI_SESSION_SECRET';
+const UI_PAIRING_ENV = 'FORGE_UI_PAIRING_CODE';
+const PAIRING_TTL_MS = 120000;
+
+/** makePairing({now, randomBytes}) -> {secret, code, expiresAt, env}. A new 32-byte secret and a 24-byte one-time
+ *  code (hex) per start; `env` is exactly what the gateway reads. Both options are test seams. The secret stays the
+ *  same for every restart the supervisor makes, so a paired browser stays paired after a gateway crash. */
+function makePairing(opts) {
+  const o = opts || {};
+  const randomBytes = o.randomBytes || crypto.randomBytes;
+  const now = typeof o.now === 'number' ? o.now : Date.now();
+  const secret = Buffer.from(randomBytes(32)).toString('hex');
+  const code = Buffer.from(randomBytes(24)).toString('hex');
+  const expiresAt = now + PAIRING_TTL_MS;
+  return { secret, code, expiresAt, env: { [UI_SESSION_SECRET_ENV]: secret, [UI_PAIRING_ENV]: code + '.' + expiresAt } };
+}
+
+/** pairingLink(url, code) -> the one link to open: the gateway root with only the code as query. */
+function pairingLink(url, code) {
+  return url + '/?pair=' + code;
+}
+
+/** gatewayEnv(baseEnv, projectRoot, pairing) -> a NEW env object for the gateway: the inherited env minus any stale
+ *  FORGE_UI_* value (any case; Windows env is case-insensitive), plus the default project and the pairing env. */
+function gatewayEnv(baseEnv, projectRoot, pairing) {
+  const env = {};
+  for (const [key, value] of Object.entries(baseEnv || {})) {
+    if (key.toUpperCase().startsWith('FORGE_UI_')) continue;
+    env[key] = value;
+  }
+  if (projectRoot) env.FORGE_CC_DEFAULT_PROJECT = projectRoot;
+  return Object.assign(env, pairing ? pairing.env : {});
+}
+
+/** The lines printed before the gateway starts. The link is a one-time bearer code (2 minutes); the secret itself
+ *  is never printed. */
+function pairingLines(url, pairing) {
+  return [
+    'Pair this browser: open this link once, within 2 minutes (it works one time):',
+    '  ' + pairingLink(url, pairing.code),
+    'Missed it, or a new browser window? Stop the Command Center (Ctrl+C) and run "forge dashboard" again for a new link.',
+  ];
+}
+
+/** The lines for a Command Center that was started earlier: it cannot take a new code. */
+function alreadyRunningPairingLines() {
+  return [
+    'A browser window that is not paired yet cannot be paired with a running Command Center: stop it (Ctrl+C in its',
+    'window) and run "forge dashboard" again; it then prints a new one-time pairing link.',
+  ];
+}
+
+/** devOriginsLines(env) -> a warning when `env` carries the gateway's dev switch (FORGE_DEV_ORIGINS=1, any key case:
+ *  Windows env is case-insensitive), else []. In dev mode the gateway trusts the Vite dev page on :5173 with the
+ *  session cookie, so any page on that port in a paired browser acts as the dashboard. Never silent. */
+function devOriginsLines(env) {
+  const on = Object.entries(env || {}).some(([key, value]) => key.toUpperCase() === 'FORGE_DEV_ORIGINS'
+    && typeof value === 'string' && value.trim() === '1');
+  if (!on) return [];
+  return [
+    'WARNING: FORGE_DEV_ORIGINS=1 is set, so this Command Center also trusts pages on port 5173 (the Vite dev server).',
+    'Use this for dashboard development only: any page on port 5173 in a paired browser can act as the dashboard.',
+    'Unset FORGE_DEV_ORIGINS and start again for normal use.',
+  ];
+}
+
 /** pickEntry(ccRoot) -> absolute path to the script to run: gateway/supervisor.mjs (auto-restart on
  *  crash) when present, else gateway/bin.mjs directly. */
 function pickEntry(ccRoot) {
@@ -224,6 +313,7 @@ async function main() {
   const probe = await isAlreadyRunning(port, HEALTH_TIMEOUT_MS);
   if (probe.state === 'running') {
     console.log('Forge Command Center is already running at ' + url);
+    for (const line of alreadyRunningPairingLines()) console.log(line);
     process.exitCode = 0;
     return;
   }
@@ -257,10 +347,13 @@ async function main() {
   }
 
   const entry = pickEntry(found.root);
+  const pairing = makePairing();
   console.log('Forge Command Center (' + found.origin + '): ' + url);
+  for (const line of pairingLines(url, pairing)) console.log(line);
+  for (const line of devOriginsLines(process.env)) console.log(line);
   const result = spawnSync(process.execPath, [entry], {
     stdio: 'inherit',
-    env: Object.assign({}, process.env, { FORGE_CC_DEFAULT_PROJECT: PROJECT_ROOT }),
+    env: gatewayEnv(process.env, PROJECT_ROOT, pairing),
   });
   if (result.error) {
     console.error('Forge Command Center failed to start: ' + result.error.message);
@@ -281,4 +374,5 @@ module.exports = {
   PROJECT_ROOT, HEALTH_TIMEOUT_MS,
   resolvePort, isAlreadyRunning, looksLikeCommandCenterHealth, findCommandCenter, installerHint, ensureBuilt, pickEntry,
   npmAvailable, runNpm, useShellForNpm,
+  makePairing, pairingLink, gatewayEnv, pairingLines, alreadyRunningPairingLines, devOriginsLines, PAIRING_TTL_MS,
 };

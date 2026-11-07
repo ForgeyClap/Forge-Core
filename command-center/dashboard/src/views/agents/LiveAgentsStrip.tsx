@@ -17,9 +17,10 @@
  * `data-live` attribute selector in `agents.css` (no new color, no new component).
  */
 
-import { Eyebrow, Icon, Machine } from '@/components/primitives';
+import { Icon } from '@/components/primitives';
 import { dispatchGroupKey, dispatchLabel, useGatewayAgentDispatches } from '@/prototype/state/gateway-agent-dispatches';
 import type { AgentDispatchRow } from '@/prototype/state/gateway-agent-dispatches';
+import { useLocale } from '@/i18n/use-locale';
 
 interface DispatchGroup {
   /** The real display label — a run-log row's own agent name (a Forge Boss), or the pre-existing
@@ -57,21 +58,28 @@ function groupByDispatchIdentity(rows: readonly AgentDispatchRow[]): readonly Di
 }
 
 function DispatchChip({ group }: { group: DispatchGroup }) {
+  const { t, n } = useLocale();
   const isRunning = group.runningCount > 0;
   // WP-CCD (item 3): stalled is a real, distinct state — never shown as "running" (it is
   // explicitly not proven alive) and never silently folded into "dispatched" (a plain finished
   // dispatch), which would hide a genuinely silent agent.
   const isStalled = !isRunning && group.stalledCount > 0;
   const liveState = isRunning ? 'running' : isStalled ? 'stalled' : 'dispatched';
+  const vars = {
+    label: group.label,
+    running: group.runningCount,
+    stalled: group.stalledCount,
+    count: group.count,
+  };
   const title = isRunning
-    ? `${group.label}: ${group.runningCount} dispatch${group.runningCount === 1 ? '' : 'es'} running right now (${group.count} recorded in total)`
+    ? t('rd.agents.live.chipRunning', vars)
     : isStalled
-      ? `${group.label}: ${group.stalledCount} of ${group.count} recorded dispatch${group.count === 1 ? '' : 'es'} went silent past the stale window — not proven finished, not proven still running`
-      : `${group.label}: ${group.count} dispatch${group.count === 1 ? '' : 'es'} recorded — none currently running`;
+      ? t('rd.agents.live.chipStalled', vars)
+      : n(group.count, 'rd.agents.live.chipDoneOne', 'rd.agents.live.chipDoneMany', vars);
   return (
     <span className="fw-agents-chip" data-live={liveState} title={title}>
       <Icon name={isRunning ? 'Loader' : isStalled ? 'CircleAlert' : 'Clock'} size="xs" spin={isRunning} />
-      <Machine>{group.label}</Machine>
+      <span className="fw-agents-chip__label">{group.label}</span>
       <span className="fw-agents-chip__count">{group.count}</span>
     </span>
   );
@@ -88,6 +96,7 @@ export interface LiveAgentsStripProps {
 }
 
 export function LiveAgentsStrip({ agentCount, projectId }: LiveAgentsStripProps) {
+  const { t } = useLocale();
   const dispatches = useGatewayAgentDispatches(projectId);
 
   /* REAL DISPATCHES ALWAYS WIN over either empty state (coordinator finding 2026-07-30, measured in a
@@ -98,28 +107,17 @@ export function LiveAgentsStrip({ agentCount, projectId }: LiveAgentsStripProps)
    * complaint ("ik zie ook niks als agents die runnen") reproduced by the very strip meant to fix it.
    * The registry line is about the ROSTER below, not about live activity — so it is now a note
    * alongside the real dispatches rather than a gate in front of them. */
-  if (dispatches.length === 0 && agentCount === 0) {
-    return (
-      <div className="fw-agents__live" role="status">
-        <span className="fw-agents__live-head">
-          <Icon name="Activity" size="xs" />
-          <Eyebrow>Live now</Eyebrow>
-        </span>
-        <p className="fw-agents__live-empty">No Forge agent registry found for this project.</p>
-      </div>
-    );
-  }
+  // No registry and nothing dispatched: AgentsView's own empty state says it once, centred.
+  if (dispatches.length === 0 && agentCount === 0) return null;
 
   if (dispatches.length === 0) {
     return (
       <div className="fw-agents__live" role="status">
         <span className="fw-agents__live-head">
           <Icon name="Activity" size="xs" />
-          <Eyebrow>Live now</Eyebrow>
+          <span className="fw-agents__live-title">{t('rd.agents.live.title')}</span>
         </span>
-        <p className="fw-agents__live-empty">
-          No subagent dispatch recorded yet for this project&rsquo;s conversations.
-        </p>
+        <p className="fw-agents__live-empty">{t('rd.agents.live.none')}</p>
       </div>
     );
   }
@@ -132,7 +130,7 @@ export function LiveAgentsStrip({ agentCount, projectId }: LiveAgentsStripProps)
     <div className="fw-agents__live" role="status">
       <span className="fw-agents__live-head">
         <Icon name="Activity" size="xs" />
-        <Eyebrow>Live now</Eyebrow>
+        <span className="fw-agents__live-title">{t('rd.agents.live.title')}</span>
       </span>
       <ul className="fw-agents__live-chips">
         {groups.map((group) => (
@@ -142,15 +140,9 @@ export function LiveAgentsStrip({ agentCount, projectId }: LiveAgentsStripProps)
         ))}
       </ul>
       <p className="fw-agents__live-note">
-        {anyRunning
-          ? 'A running count is only ever shown when the conversation that dispatched it is genuinely still executing right now — everything else recorded here is a past dispatch.'
-          : 'None of these are currently running — every dispatch above already finished (or its conversation is no longer executing).'}
-        {anyStalled
-          ? ' A stalled mark means the run went silent past the stale window — not proven finished, and not shown as still running.'
-          : ''}
-        {agentCount === 0
-          ? ' This project has no Forge agent registry, so the roster below is empty — these are subagents the Claude Code session dispatched on its own.'
-          : ''}
+        {anyRunning ? t('rd.agents.live.noteRunning') : t('rd.agents.live.noteIdle')}
+        {anyStalled ? t('rd.agents.live.noteStalled') : ''}
+        {agentCount === 0 ? t('rd.agents.live.noteSelfDispatched') : ''}
       </p>
     </div>
   );

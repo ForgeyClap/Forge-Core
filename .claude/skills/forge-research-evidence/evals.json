@@ -1,0 +1,27 @@
+{
+  "skill": "forge-research-evidence",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-research-evidence/SKILL.md",
+      "why": "the skill file itself must exist for forge-research-evidence to be usable at all" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
+      "why": "every description stays <=200 chars (skill-load budget); W2-WIRE keeps this one near 90 for the listing" },
+    { "id": "ledger-tool-exists", "type": "file_exists", "path": ".claude/forge-bin/forge-citations.cjs",
+      "why": "the discipline is built on the citation ledger; a removed tool must turn this eval red" },
+    { "id": "as-of-date", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "--as-of YYYY-MM-DD",
+      "why": "every logged claim carries the date the source said it" },
+    { "id": "check-and-report-gate", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "report --run <run_id> --min-verified <pct>",
+      "why": "the coverage gate must run before a research result is reported" },
+    { "id": "reopen-originals", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "Reopen the original, never cite a summary",
+      "why": "a summary is a pointer to a source, not the source" },
+    { "id": "counter-review", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "looks for the strongest source that says otherwise",
+      "why": "the counter-review pass must look for disconfirming sources, not re-read the same ones" },
+    { "id": "vibe-citing", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "Anti-pattern: vibe-citing",
+      "why": "the named anti-pattern is part of the discipline" },
+    { "id": "search-first-matrix", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "| Compose | two or more existing tools cover it together",
+      "why": "the Adopt/Extend/Compose/Build matrix with its evidence column must stay in the skill" },
+    { "id": "scout-pointer", "type": "contains", "path": ".claude/skills/forge-research-evidence/SKILL.md", "needle": "forge-scout/references/search-first.md",
+      "why": "an outside-capability search must lead to forge-scout's preflight table and the adopt-step security audit" },
+    { "id": "doctor-guard", "type": "file_exists", "path": ".claude/forge-bin/doctor/checks-tools.cjs",
+      "why": "the citations doctor check that turns red when the matcher breaks must exist" }
+  ]
+}

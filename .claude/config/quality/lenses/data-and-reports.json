@@ -1,0 +1,161 @@
+{
+  "type": "data-and-reports",
+  "version": 1,
+  "title": "Data and reports",
+  "covers": "Analyses, KPI reports, the numbers in dashboards, datasets, pipeline outputs and predictions someone acts on.",
+  "domains": ["data", "prediction", "mlops", "scraping"],
+  "stakeholders": [
+    {
+      "id": "decision-maker",
+      "who": "The person who acts on the numbers (owner, manager or client)",
+      "cares_about": ["the answer first", "numbers they can trust", "knowing how sure the result is"],
+      "would_notice": ["a bar chart whose axis does not start at zero", "a headline number with no period or 'as of' date", "a 0 where there simply was no data", "a prediction stated as certain"]
+    },
+    {
+      "id": "analyst",
+      "who": "A second analyst who checks the method",
+      "cares_about": ["recomputing one figure and getting the same result", "the assumptions written down", "real data, not samples"],
+      "would_notice": ["a join that counts rows twice", "rows dropped silently because of empty values", "a different number on a rerun"]
+    },
+    {
+      "id": "data-subject",
+      "who": "The people whose data is in the dataset",
+      "cares_about": ["their personal data kept out of view"],
+      "would_notice": ["names, e-mail addresses or phone numbers in a chart, export, log or browser bundle"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Read the top of the report: is the main finding stated in one plain sentence?",
+    "Does the headline number say its period, its unit and how fresh the data is?",
+    "Look at the first chart: does its axis start where it should, with units and a legend?"
+  ],
+  "checks": [
+    {
+      "id": "real-data",
+      "stakeholder": "analyst",
+      "claim": "Figures come from the real data source, not sample or synthetic data, and one headline figure was recomputed independently.",
+      "how_to_inspect": "Name the source table or file and its extraction time; recompute one headline figure with a separate query or by hand.",
+      "evidence_required": "The source, the recompute query and both results.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/config/orchestration/FORGE_HARD_RULES.json", "rule_id": "correctness-critical-fixtures", "quote": "must prove real fixtures were used" }
+    },
+    {
+      "id": "aggregation-correct",
+      "stakeholder": "analyst",
+      "claim": "Aggregations are correct: no rows dropped by empty values, no double counting from joins, and every filter stated.",
+      "how_to_inspect": "Compare row counts before and after each join and filter, and count empty values in the grouped columns.",
+      "evidence_required": "The row counts per step.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Dashboard / data viz", "quote": "correct aggregation (no silent NULL drops)" }
+    },
+    {
+      "id": "time-correct",
+      "stakeholder": "decision-maker",
+      "claim": "Every figure states its period and timezone, and period boundaries are right (week start, month end, daylight-saving change).",
+      "how_to_inspect": "Check that a record near midnight and one near a month boundary land in the right bucket.",
+      "evidence_required": "The boundary records and where they landed.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Dashboard / data viz", "quote": "timezone correctness" }
+    },
+    {
+      "id": "uncertainty-shown",
+      "stakeholder": "decision-maker",
+      "claim": "Estimates and predictions carry a confidence, range or risk label and the sample size; nothing is stated as certain.",
+      "how_to_inspect": "Read every predicted or estimated number in the output and check it has its label and its sample size.",
+      "evidence_required": "A sample of outputs with their labels (N/A when nothing is estimated).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-prediction/SKILL.md", "section": "Hard rules", "quote": "Every output carries a confidence/risk label." }
+    },
+    {
+      "id": "honest-charts",
+      "stakeholder": "decision-maker",
+      "claim": "Charts do not mislead: bar axes start at zero, axes and units are labelled, the legend matches the colours, and text is readable at the size shown.",
+      "how_to_inspect": "Look at each chart at its real display size and check axis start, labels, units and legend.",
+      "evidence_required": "A screenshot of each chart with notes.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A truncated axis or an unlabeled unit changes the decision of the person who acts on the chart." }
+    },
+    {
+      "id": "missing-not-zero",
+      "stakeholder": "decision-maker",
+      "claim": "Missing or failed data shows an empty or error state, never a zero or a flat line that looks like a real value.",
+      "how_to_inspect": "Point the view or report at an empty period and at a failing source and screenshot both.",
+      "evidence_required": "The two screenshots or outputs.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Dashboard / data viz", "quote": "Empty/loading/error states" }
+    },
+    {
+      "id": "freshness",
+      "stakeholder": "decision-maker",
+      "claim": "The report says how fresh its data is ('as of' time) and flags data that is late or suspiciously small.",
+      "how_to_inspect": "Find the 'as of' line and check what happens when the latest load is missing or has far fewer rows than usual.",
+      "evidence_required": "The 'as of' line and the late or low-volume behaviour.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-data/SKILL.md", "section": "Domain gates", "quote": "freshness + volume/row-count check present" }
+    },
+    {
+      "id": "answer-first",
+      "stakeholder": "decision-maker",
+      "claim": "The main finding and what it means come first, in one or two plain sentences, before tables and charts.",
+      "how_to_inspect": "Read only the first paragraph and check that it states the finding and its consequence.",
+      "evidence_required": "The first paragraph as delivered.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Decision makers read the top of a report; a finding buried further down is a finding they miss." }
+    },
+    {
+      "id": "reproducible",
+      "stakeholder": "analyst",
+      "claim": "Running the pipeline or report again gives the same numbers and no duplicate rows.",
+      "how_to_inspect": "Run it twice on the same input and compare totals and row counts.",
+      "evidence_required": "Both runs' totals and row counts.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-data/SKILL.md", "section": "Domain gates", "quote": "a rerun proven to produce no duplicates (idempotency evidence)" }
+    },
+    {
+      "id": "assumptions-written",
+      "stakeholder": "analyst",
+      "claim": "Data-source quality and every assumption (exclusions, imputations, definitions) are written down where the reader can find them.",
+      "how_to_inspect": "List the choices made while preparing the data and check each one appears in the report or its notes.",
+      "evidence_required": "The assumptions section.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-prediction/SKILL.md", "section": "Hard rules", "quote": "Verify data-source quality; track all assumptions." }
+    },
+    {
+      "id": "no-pii",
+      "stakeholder": "data-subject",
+      "claim": "No personal data appears in charts, exports, logs, git or the browser bundle unless the purpose needs it, and then masked or scoped.",
+      "how_to_inspect": "Search outputs, logs and the built bundle for e-mail addresses, phone numbers and name columns.",
+      "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-data/SKILL.md", "section": "Domain gates", "quote": "PII classified, masked/scoped, and absent from logs and git" }
+    },
+    {
+      "id": "number-format",
+      "stakeholder": "decision-maker",
+      "claim": "Numbers are formatted for reading: thousands separators, consistent decimals, units and currency, and percent kept apart from percentage points.",
+      "how_to_inspect": "Scan every table and label for separators, decimals, units and the percent wording.",
+      "evidence_required": "The values or labels fixed.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "naming, units" }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Missing data shown as zero", "symptom": "a dip to 0 on the day the import failed" },
+    { "defect": "Truncated axis", "symptom": "a bar chart starting at 90 that makes a 2 percent change look like a doubling" },
+    { "defect": "No period or freshness", "symptom": "'Revenue: 12,400' with no month, currency or 'as of' time" },
+    { "defect": "Join double counting", "symptom": "order totals higher than the shop's own figure after joining line items" },
+    { "defect": "False certainty", "symptom": "'Team A will win' with no probability or sample size" }
+  ]
+}

@@ -1,0 +1,7 @@
+# forge-migration — team, skills, commands, MCP
+
+## Team
+Lead: `build-boss` with `head-chef` sequencing the slices (the phasing IS the work). Specialists: `test-boss` (characterization + regression + parity harness — the backbone of this domain), `database-reviewer` (data migration, dual-write, reconciliation), `python-reviewer` / `typescript-reviewer` (by stack, for the ported code), `silent-failure-hunter` (behavior that diverged quietly — the new path returns a subtly different value and nothing screams), `security-boss` / `security-reviewer` (auth/authz and secrets must carry across the cutover intact). `review-boss` is the final QA gate on each slice. Defer the actual rebuild target to its domain playbook (`forge-fullstack` / `forge-website` / `forge-integration`) — this playbook governs *how* you cut over, not what you build.
+
+## Skills / commands / MCP
+`learn-codebase` / `forge-deeplearn` first (prime the legacy system — never guess its layout), then `test-driven-development`, `systematic-debugging`, `forge-worktrees` (one slice per branch/worktree so parallel slices don't collide), and `/test-coverage`. **Opt-in / owner-provided (honest):** a *runnable* legacy system + test harness is required to run characterization tests green and to shadow/diff for parity — if the legacy app can't be stood up in this environment, characterization and parity are **designed but not executed**, and that must be stated. Use Context7 / vendor docs for the target framework/runtime. No special MCP required.

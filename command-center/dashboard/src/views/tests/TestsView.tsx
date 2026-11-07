@@ -15,7 +15,6 @@ import { useMemo, useState } from 'react';
 import {
   Button,
   EmptyState,
-  Eyebrow,
   ExampleTag,
   Field,
   Icon,
@@ -29,6 +28,7 @@ import {
   ToolbarGroup,
 } from '@/components/primitives';
 import { usePrototype } from '@/prototype/state/prototype-store';
+import { useLocale } from '@/i18n/use-locale';
 import { useGatewayProofExtras } from '@/prototype/state/gateway-adapter';
 import { isProductionMode } from '@/config/mode';
 import type { ProofEntry, QualityGate } from '@/prototype/types/prototype-types';
@@ -42,37 +42,19 @@ type Verdict = ProofEntry['verdict'];
 type VerdictFilter = 'all' | Verdict;
 
 interface VerdictPresentation {
-  readonly label: string;
   readonly icon: string;
-  readonly description: string;
-  /** Heading above the reason, phrased for the verdict it belongs to. */
-  readonly reasonLabel: string;
 }
 
 /*
  * A verdict is a third axis next to status and agent group, so it gets its own
- * presentation map. There is no --forge-verdict-* token trio, so the stylesheet
+ * presentation map. There is no verdict token trio, so the stylesheet
  * borrows the closest status treatments: completed / failed / waiting.
+ * W3FX-BC: the words live in the pending copy (`rd.tests.verdict|verdictInfo|reason.<verdict>`).
  */
 const VERDICT: Readonly<Record<Verdict, VerdictPresentation>> = {
-  accepted: {
-    label: 'ACCEPTED',
-    icon: 'CircleCheck',
-    description: 'Accepted — the attached evidence shows the claim.',
-    reasonLabel: 'Why it was accepted',
-  },
-  rejected: {
-    label: 'REJECTED',
-    icon: 'CircleX',
-    description: 'Rejected — the attached evidence does not show the claim.',
-    reasonLabel: 'Why it was rejected',
-  },
-  pending: {
-    label: 'PENDING',
-    icon: 'CircleDashed',
-    description: 'Pending — the check is still open, so there is no verdict yet.',
-    reasonLabel: 'Why it is still open',
-  },
+  accepted: { icon: 'CircleCheck' },
+  rejected: { icon: 'CircleX' },
+  pending: { icon: 'CircleDashed' },
 };
 
 const VERDICT_FILTERS: readonly VerdictFilter[] = ['all', 'accepted', 'rejected', 'pending'];
@@ -82,14 +64,16 @@ function toVerdictFilter(value: string): VerdictFilter {
 }
 
 function VerdictMark({ verdict }: { verdict: Verdict }) {
+  const { t } = useLocale();
   const presentation = VERDICT[verdict];
+  const description = t(`rd.tests.verdictInfo.${verdict}`);
   return (
-    <span className="fw-verdict" data-verdict={verdict} title={presentation.description}>
+    <span className="fw-verdict" data-verdict={verdict} title={description}>
       <Icon name={presentation.icon} size="sm" className="fw-verdict__icon" />
-      <span className="fw-verdict__label fg-machine" aria-hidden="true">
-        {presentation.label}
+      <span className="fw-verdict__label" aria-hidden="true">
+        {t(`rd.tests.verdict.${verdict}`)}
       </span>
-      <span className="fw-visually-hidden">{presentation.description}</span>
+      <span className="fw-visually-hidden">{description}</span>
     </span>
   );
 }
@@ -114,6 +98,7 @@ interface GateRowProps {
 }
 
 function GateRow({ gate, expanded, selected, onActivate }: GateRowProps) {
+  const { t } = useLocale();
   const headId = `fw-gate-head--${gate.id}`;
   const outputId = `fw-gate-output--${gate.id}`;
 
@@ -137,21 +122,21 @@ function GateRow({ gate, expanded, selected, onActivate }: GateRowProps) {
         <span className="fw-gate__name fw-truncate">{gate.name}</span>
         <span className="fw-gate__meta">
           <span className="fw-gate__cell">
-            <span className="fw-visually-hidden">Duration </span>
+            <span className="fw-visually-hidden">{`${t('rd.tests.th.duration')} `}</span>
             {/* cc-fix-events-honesty (P2-11): '' is not measured-as-empty here — no per-check
                 start/end timestamp pair exists anywhere in this gateway (see this view's own
                 module header / gateway-adapter.ts's header). An em dash reads as absence; an
                 empty cell reads as a rendering bug. */}
-            <Machine muted>{gate.duration.trim() !== '' ? gate.duration : '—'}</Machine>
+            <span className="fw-tests-num">{gate.duration.trim() !== '' ? gate.duration : '—'}</span>
           </span>
           <span className="fw-gate__cell">
-            <span className="fw-visually-hidden">Last run </span>
+            <span className="fw-visually-hidden">{`${t('rd.tests.th.lastRun')} `}</span>
             <Timestamp value={gate.lastRun} />
           </span>
           <span className="fw-gate__cell">
             <Icon name="Paperclip" size="xs" className="fw-gate__cell-icon" />
-            <Machine muted>{gate.evidenceCount}</Machine>
-            <span className="fw-visually-hidden"> evidence items</span>
+            <span className="fw-tests-num">{gate.evidenceCount}</span>
+            <span className="fw-visually-hidden">{` ${t('rd.tests.th.proof')}`}</span>
           </span>
         </span>
         <Icon name="ChevronDown" size="sm" className="fw-gate__chev" />
@@ -165,10 +150,9 @@ function GateRow({ gate, expanded, selected, onActivate }: GateRowProps) {
         hidden={!expanded}
       >
         <div className="fw-gate__output-head">
-          <Eyebrow>Console output</Eyebrow>
+          <span className="fw-tests-label">{t('rd.tests.gates.output')}</span>
           <Spacer />
           <ExampleTag
-            text="EXAMPLE · NOT CONNECTED"
             detail="Hand-written example output. This prototype never ran a command, drove a browser or measured a duration."
           />
         </div>
@@ -189,8 +173,8 @@ interface ProofRowProps {
 }
 
 function ProofRow({ entry, expanded, selected, onActivate, onSelect }: ProofRowProps) {
+  const { t } = useLocale();
   const detailId = `fw-proof-detail--${entry.id}`;
-  const presentation = VERDICT[entry.verdict];
 
   return (
     <tbody
@@ -199,10 +183,10 @@ function ProofRow({ entry, expanded, selected, onActivate, onSelect }: ProofRowP
       data-selected={selected ? 'true' : undefined}
     >
       <tr className="fw-proof__row" onClick={() => onSelect(entry.id)}>
-        <td className="fw-proof__cell fw-proof__cell--time" data-label="Timestamp">
+        <td className="fw-proof__cell fw-proof__cell--time" data-label={t('rd.tests.ledger.th.time')}>
           <Timestamp value={entry.timestamp} />
         </td>
-        <td className="fw-proof__cell fw-proof__cell--claim" data-label="Claim">
+        <td className="fw-proof__cell fw-proof__cell--claim" data-label={t('rd.tests.ledger.th.claim')}>
           <button
             type="button"
             className="fw-proof__claim"
@@ -214,19 +198,19 @@ function ProofRow({ entry, expanded, selected, onActivate, onSelect }: ProofRowP
             <span className="fw-proof__claim-text">{entry.claim}</span>
           </button>
         </td>
-        <td className="fw-proof__cell" data-label="Agent">
-          <Machine>{entry.agent}</Machine>
+        <td className="fw-proof__cell" data-label={t('rd.tests.ledger.th.agent')}>
+          <span>{entry.agent}</span>
         </td>
-        <td className="fw-proof__cell" data-label="Task">
+        <td className="fw-proof__cell" data-label={t('rd.tests.ledger.th.task')}>
           {/* cc-fix-events-honesty (P2-11): no task-id source exists on this proof row yet
               (gateway-adapter.ts's toGatewayProof always sets ''); an em dash reads as absence,
               never indistinguishable from "measured as empty". */}
           <Machine muted>{entry.taskId.trim() !== '' ? entry.taskId : '—'}</Machine>
         </td>
-        <td className="fw-proof__cell fw-proof__cell--command" data-label="Command">
+        <td className="fw-proof__cell fw-proof__cell--command" data-label={t('rd.tests.ledger.th.command')}>
           <Machine muted>{entry.command}</Machine>
         </td>
-        <td className="fw-proof__cell" data-label="Artifact">
+        <td className="fw-proof__cell" data-label={t('rd.tests.ledger.th.artifact')}>
           {entry.artifact ? (
             <Machine muted>{entry.artifact}</Machine>
           ) : (
@@ -236,7 +220,7 @@ function ProofRow({ entry, expanded, selected, onActivate, onSelect }: ProofRowP
             </span>
           )}
         </td>
-        <td className="fw-proof__cell fw-proof__cell--verdict" data-label="Verdict">
+        <td className="fw-proof__cell fw-proof__cell--verdict" data-label={t('rd.tests.ledger.th.verdict')}>
           <VerdictMark verdict={entry.verdict} />
         </td>
       </tr>
@@ -244,12 +228,11 @@ function ProofRow({ entry, expanded, selected, onActivate, onSelect }: ProofRowP
       <tr className="fw-proof__detail-row" id={detailId} hidden={!expanded}>
         <td className="fw-proof__detail" colSpan={7}>
           <div className="fw-proof__detail-inner">
-            <Eyebrow>{presentation.reasonLabel}</Eyebrow>
+            <span className="fw-tests-label">{t(`rd.tests.reason.${entry.verdict}`)}</span>
             <p className="fw-proof__reason">{entry.reason}</p>
             <p className="fw-proof__detail-foot">
               <Machine muted>{entry.command}</Machine>
               <ExampleTag
-                text="SIMULATED"
                 detail="Example ledger line. No command was executed and no verify agent produced this verdict."
               />
             </p>
@@ -264,6 +247,7 @@ function ProofRow({ entry, expanded, selected, onActivate, onSelect }: ProofRowP
 
 export default function TestsView() {
   const { state, dispatch } = usePrototype();
+  const { t } = useLocale();
   const gates = state.data.gates;
   const proof = state.data.proof;
 
@@ -327,13 +311,13 @@ export default function TestsView() {
   const verdictOptions = useMemo(() => {
     const seen = new Set(proof.map((entry) => entry.verdict));
     const options: { value: VerdictFilter; label: string; icon?: string }[] = [
-      { value: 'all', label: 'All' },
+      { value: 'all', label: t('rd.tests.ledger.all') },
     ];
-    if (seen.has('accepted')) options.push({ value: 'accepted', label: 'Accepted', icon: 'CircleCheck' });
-    if (seen.has('rejected')) options.push({ value: 'rejected', label: 'Rejected', icon: 'CircleX' });
-    if (seen.has('pending')) options.push({ value: 'pending', label: 'Pending', icon: 'CircleDashed' });
+    for (const verdict of ['accepted', 'rejected', 'pending'] as const) {
+      if (seen.has(verdict)) options.push({ value: verdict, label: t(`rd.tests.verdict.${verdict}`), icon: VERDICT[verdict].icon });
+    }
     return options;
-  }, [proof]);
+  }, [proof, t]);
 
   const proofRows = useMemo(
     () =>
@@ -351,8 +335,17 @@ export default function TestsView() {
   const noGates = gates.length === 0;
   const expandUnavailable = noGates || allGatesOpen;
   const collapseUnavailable = noGates || openGates.size === 0;
-  const expandReason = noGates ? 'No gate output to expand: no gates are recorded for this run yet.' : allGatesOpen ? 'Every gate is already expanded.' : undefined;
-  const collapseReason = noGates ? 'Nothing to collapse: no gates are recorded for this run yet.' : openGates.size === 0 ? 'Every gate is already collapsed.' : undefined;
+  const expandReason = noGates ? t('rd.tests.expandNone') : allGatesOpen ? t('rd.tests.expandAll') : undefined;
+  const collapseReason = noGates ? t('rd.tests.collapseNone') : openGates.size === 0 ? t('rd.tests.collapseAll') : undefined;
+  const gateSummaryLine = [
+    t('rd.tests.gates.passed', { passed: gateSummary.passed, total: gates.length }),
+    gateSummary.failed > 0 ? t('rd.tests.gates.failed', { count: gateSummary.failed }) : null,
+    gateSummary.blocked > 0 ? t('rd.tests.gates.blocked', { count: gateSummary.blocked }) : null,
+    gateSummary.open > 0 ? t('rd.tests.gates.open', { count: gateSummary.open }) : null,
+    gateSummary.evidence === 1 ? t('rd.tests.gates.proofOne') : t('rd.tests.gates.proofMany', { count: gateSummary.evidence }),
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ');
 
   function activateGate(id: string) {
     setOpenGates((current) => toggleId(current, id));
@@ -379,16 +372,11 @@ export default function TestsView() {
     <div className="fw-tests">
       <header className="fw-tests__header">
         <div className="fw-tests__title">
-          <Eyebrow>Quality</Eyebrow>
-          <h1 className="fw-tests__h1">Tests &amp; proof</h1>
-          <p className="fw-tests__lede">
-            {gates.length} quality gate{gates.length === 1 ? '' : 's'}{' '}
-            {gates.length === 1 ? 'stands' : 'stand'} between a mission and a close, and every
-            completion claim lands in the ledger with the evidence it was accepted or rejected on.
-          </p>
+          <h1 className="fw-tests__h1">{t('nav.tests.label')}</h1>
+          <p className="fw-tests__lede">{t('nav.tests.description')}</p>
         </div>
 
-        <Toolbar label="Gate board controls" className="fw-tests__toolbar">
+        <Toolbar label={t('rd.tests.toolbarLabel')} className="fw-tests__toolbar">
           <ToolbarGroup>
             <Button
               size="sm"
@@ -399,7 +387,7 @@ export default function TestsView() {
               aria-disabled={expandUnavailable ? 'true' : undefined}
               title={expandReason}
             >
-              Expand output
+              {t('rd.tests.expand')}
             </Button>
             <Button
               size="sm"
@@ -410,7 +398,7 @@ export default function TestsView() {
               aria-disabled={collapseUnavailable ? 'true' : undefined}
               title={collapseReason}
             >
-              Collapse all
+              {t('rd.tests.collapse')}
             </Button>
           </ToolbarGroup>
         </Toolbar>
@@ -419,61 +407,33 @@ export default function TestsView() {
       <div className="fw-tests__body fw-scroll">
         {/* ------------------------------------------------------ gate board */}
         <Panel
-          title="Quality gates"
-          subtitle="Each gate reveals the console output it recorded. Expand a gate to read it."
+          title={t('rd.tests.gates.title')}
+          subtitle={t('rd.tests.gates.subtitle')}
           padded={false}
           className="fw-tests__panel"
         >
           <div className="fw-gates">
-            {/*
-              DOM order is dt then dd, which is what the spec wants. The value
-              reads above the label because the row is column-reverse, not
-              because the markup is upside down.
-            */}
-            <dl className="fw-tests__summary">
-              <div className="fw-tests__stat">
-                <dt className="fw-tests__stat-label fg-eyebrow">Gates</dt>
-                <dd className="fw-tests__stat-value fg-machine">{gates.length}</dd>
-              </div>
-              <div className="fw-tests__stat">
-                <dt className="fw-tests__stat-label fg-eyebrow">Passed</dt>
-                <dd className="fw-tests__stat-value fg-machine">{gateSummary.passed}</dd>
-              </div>
-              <div className="fw-tests__stat">
-                <dt className="fw-tests__stat-label fg-eyebrow">Failed</dt>
-                <dd className="fw-tests__stat-value fg-machine">{gateSummary.failed}</dd>
-              </div>
-              <div className="fw-tests__stat">
-                <dt className="fw-tests__stat-label fg-eyebrow">Blocked</dt>
-                <dd className="fw-tests__stat-value fg-machine">{gateSummary.blocked}</dd>
-              </div>
-              <div className="fw-tests__stat">
-                <dt className="fw-tests__stat-label fg-eyebrow">Still open</dt>
-                <dd className="fw-tests__stat-value fg-machine">{gateSummary.open}</dd>
-              </div>
-              <div className="fw-tests__stat fw-tests__stat--quiet">
-                <dt className="fw-tests__stat-label fg-eyebrow">Evidence items</dt>
-                <dd className="fw-tests__stat-value fg-machine">{gateSummary.evidence}</dd>
-              </div>
-            </dl>
+            {noGates ? null : (
+              <p className="fw-tests__summary">{gateSummaryLine}</p>
+            )}
 
             {noGates ? null : (
               <div className="fw-gates__legend" aria-hidden="true">
                 <span>
-                  <Eyebrow>Status</Eyebrow>
+                  <span className="fw-tests-label">{t('rd.tests.th.status')}</span>
                 </span>
                 <span>
-                  <Eyebrow>Gate</Eyebrow>
+                  <span className="fw-tests-label">{t('rd.tests.th.gate')}</span>
                 </span>
                 <span className="fw-gate__meta">
                   <span>
-                    <Eyebrow>Duration</Eyebrow>
+                    <span className="fw-tests-label">{t('rd.tests.th.duration')}</span>
                   </span>
                   <span>
-                    <Eyebrow>Last run</Eyebrow>
+                    <span className="fw-tests-label">{t('rd.tests.th.lastRun')}</span>
                   </span>
                   <span>
-                    <Eyebrow>Evidence</Eyebrow>
+                    <span className="fw-tests-label">{t('rd.tests.th.proof')}</span>
                   </span>
                 </span>
                 <span />
@@ -481,7 +441,7 @@ export default function TestsView() {
             )}
 
             {noGates ? (
-              <p className="fw-gates__empty">No gates recorded for this run yet.</p>
+              <p className="fw-gates__empty">{t('rd.tests.gates.empty')}</p>
             ) : null}
 
             <ul className="fw-gates__list">
@@ -506,16 +466,21 @@ export default function TestsView() {
 
         {/* ----------------------------------------------------- proof ledger */}
         <Panel
-          title="Proof ledger"
-          subtitle={`${proof.length} claims — ${verdictCounts.accepted} accepted, ${verdictCounts.rejected} rejected, ${verdictCounts.pending} pending. Open a claim to read the reason.`}
+          title={t('rd.tests.ledger.title')}
+          subtitle={t('rd.tests.ledger.subtitle', {
+            count: proof.length,
+            accepted: verdictCounts.accepted,
+            rejected: verdictCounts.rejected,
+            pending: verdictCounts.pending,
+          })}
           padded={false}
           className="fw-tests__panel"
         >
           <div className="fw-proof">
             <div className="fw-proof__filters">
-              <Field label="Verdict" className="fw-proof__filter">
+              <Field label={t('rd.tests.ledger.verdict')} className="fw-proof__filter">
                 <SegmentedControl
-                  label="Filter the ledger by verdict"
+                  label={t('rd.tests.ledger.verdictFilter')}
                   size="sm"
                   value={verdictFilter}
                   onChange={(value) => setVerdictFilter(toVerdictFilter(value))}
@@ -523,14 +488,14 @@ export default function TestsView() {
                 />
               </Field>
 
-              <Field label="Agent" htmlFor="fw-proof-agent" className="fw-proof__filter">
+              <Field label={t('rd.tests.ledger.agent')} htmlFor="fw-proof-agent" className="fw-proof__filter">
                 <select
                   id="fw-proof-agent"
-                  className="fw-proof__select fg-machine"
+                  className="fw-proof__select"
                   value={agentFilter}
                   onChange={(event) => setAgentFilter(event.target.value)}
                 >
-                  <option value="all">All agents</option>
+                  <option value="all">{t('rd.tests.ledger.allAgents')}</option>
                   {proofAgents.map((agent) => (
                     <option key={agent} value={agent}>
                       {agent}
@@ -542,13 +507,13 @@ export default function TestsView() {
               <Spacer />
 
               <p className="fw-proof__count">
-                <Machine muted>
+                <span className="fw-tests-num">
                   {proofRows.length}/{proof.length}
-                </Machine>{' '}
-                shown
+                </span>{' '}
+                {t('rd.tests.ledger.shown')}
                 {filtersActive ? (
                   <Button size="sm" variant="quiet" icon="X" onClick={clearProofFilters}>
-                    Clear filters
+                    {t('rd.tests.ledger.clear')}
                   </Button>
                 ) : null}
               </p>
@@ -557,15 +522,17 @@ export default function TestsView() {
             {proofRows.length === 0 ? (
               <EmptyState
                 icon="SearchX"
-                title="No ledger lines match these filters"
+                title={t('rd.tests.ledger.noMatch')}
                 detail={
                   proof.length === 0
-                    ? 'No claims have been ledgered yet.'
-                    : `The ledger holds ${proof.length} claim${proof.length === 1 ? '' : 's'}. Widen the verdict or agent filter to see them.`
+                    ? t('rd.tests.ledger.noClaims')
+                    : proof.length === 1
+                      ? t('rd.tests.ledger.widenOne')
+                      : t('rd.tests.ledger.widenMany', { count: proof.length })
                 }
                 action={
                   <Button size="sm" icon="X" onClick={clearProofFilters}>
-                    Clear filters
+                    {t('rd.tests.ledger.clear')}
                   </Button>
                 }
               />
@@ -578,13 +545,13 @@ export default function TestsView() {
                   </caption>
                   <thead className="fw-proof__thead">
                     <tr>
-                      <th scope="col">Timestamp</th>
-                      <th scope="col">Claim</th>
-                      <th scope="col">Agent</th>
-                      <th scope="col">Task</th>
-                      <th scope="col">Command</th>
-                      <th scope="col">Artifact</th>
-                      <th scope="col">Verdict</th>
+                      <th scope="col">{t('rd.tests.ledger.th.time')}</th>
+                      <th scope="col">{t('rd.tests.ledger.th.claim')}</th>
+                      <th scope="col">{t('rd.tests.ledger.th.agent')}</th>
+                      <th scope="col">{t('rd.tests.ledger.th.task')}</th>
+                      <th scope="col">{t('rd.tests.ledger.th.command')}</th>
+                      <th scope="col">{t('rd.tests.ledger.th.artifact')}</th>
+                      <th scope="col">{t('rd.tests.ledger.th.verdict')}</th>
                     </tr>
                   </thead>
                   {proofRows.map((entry) => (
@@ -604,12 +571,9 @@ export default function TestsView() {
             <p className="fw-proof__note">
               <Icon name="Info" size="xs" className="fw-proof__note-icon" />
               {isProductionMode() ? (
-                <span>Each line is a completion claim the verify agent checked against real evidence.</span>
+                <span>{t('rd.tests.ledger.real')}</span>
               ) : (
-                <span>
-                  Ledger lines are local example records. No verify agent produced these verdicts and
-                  no artifact exists on disk.
-                </span>
+                <span>{t('rd.tests.ledger.sample')}</span>
               )}
             </p>
           </div>

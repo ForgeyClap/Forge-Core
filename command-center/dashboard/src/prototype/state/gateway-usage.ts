@@ -81,8 +81,8 @@
  * `UNAVAILABLE`, never a plausible-looking number standing in for one that was never recorded.
  *
  * BRIDGE-DEPENDENCY DECISION: this file, `UsageBar.tsx` and `UsageDetails.tsx` import nothing —
- * neither types nor runtime calls — from `@/bridge/**` or `live-store.ts`'s `useLatency()`/
- * `getSharedLiveStore()`. All 35 `src/bridge/**` files stay on disk untouched (owner rule: nothing
+ * neither types nor runtime calls — from `@archive/bridge/**` or `live-store.ts`'s `useLatency()`/
+ * `getSharedLiveStore()`. All 35 former `src/bridge/**` files stay on disk (34 archived under `archive/bridge/**`, `latency.ts` moved to `src/shared/`) (owner rule: nothing
  * is deleted); this is purely about what the usage strip DEPENDS ON to render.
  */
 

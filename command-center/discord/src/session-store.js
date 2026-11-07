@@ -1,26 +1,30 @@
 import path from 'node:path';
-import { JsonStore } from './store.js';
+import { SessionStore as SharedSessionStore } from '../../gateway/src/sessions/session-store.mjs';
 
 // conversationId → Claude session-ID (plan §1: thread-ID → Claude session-ID).
 // Hierdoor heeft elk kanaal/thread een doorlopend gesprek met geheugen.
+//
+// WP A4: thin adapter over the shared session module in
+// gateway/src/sessions/session-store.mjs, so the gateway chat and this bot keep sessions in one
+// format. The bot's interface is unchanged: get() still returns the bare session id (or null),
+// set(conversationId, sessionId) and clear(conversationId) behave as before, and the file stays
+// <stateDir>/sessions.json. An existing file with bare session-id strings is read as-is; the next
+// write stores full records ({ sessionId, createdAt, lastUsedAt, ... }).
 export class SessionStore {
   constructor(stateDir) {
-    this.store = new JsonStore(path.join(stateDir, 'sessions.json'));
-    this.data = this.store.load({ sessions: {} });
+    this.shared = new SharedSessionStore(path.join(stateDir, 'sessions.json'));
   }
 
   get(conversationId) {
-    return this.data.sessions[conversationId] ?? null;
+    return this.shared.getSessionId(conversationId);
   }
 
   set(conversationId, sessionId) {
     if (!conversationId || !sessionId) return;
-    this.data.sessions[conversationId] = sessionId;
-    this.store.save(this.data);
+    this.shared.set(conversationId, { sessionId });
   }
 
   clear(conversationId) {
-    delete this.data.sessions[conversationId];
-    this.store.save(this.data);
+    this.shared.clear(conversationId);
   }
 }

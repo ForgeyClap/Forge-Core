@@ -1,42 +1,23 @@
 /**
  * Mission Control — the minimap.
  *
- * The whole world at a glance plus a draggable viewport rectangle. Sized from
- * --forge-layout-minimap-w / -h; hidden under 860px by the stylesheet, where
+ * The whole world at a glance plus a draggable viewport rectangle. 168 x 112 px,
+ * the same box as mission.css .fw-graph__minimap; hidden under 860px by the stylesheet, where
  * the graph region is small enough that an overview of the overview is noise.
  *
  * Node marks are status-toned through the shared .fw-status carrier, so they
  * use the same greyscale steps as every badge on the screen.
  */
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { GraphLayout, Viewport, ViewportSize } from './useGraphViewport';
 
 /** Inset so a mark on the world's edge is not clipped by the frame. */
 const INSET = 6;
-const BOX_FALLBACK = { w: 168, h: 112 };
+/** The svg viewBox agrees with the CSS box (mission.css sets the same 168 x 112). */
+const BOX = { w: 168, h: 112 } as const;
 
-/**
- * The svg viewBox has to agree with the CSS box, which is set from the tokens.
- * Read once per mount rather than duplicating the numbers in two places.
- */
-function readMinimapBox(): { w: number; h: number } {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return BOX_FALLBACK;
-  try {
-    const style = window.getComputedStyle(document.documentElement);
-    const read = (name: string, fallback: number): number => {
-      const value = Number.parseFloat(style.getPropertyValue(name));
-      return Number.isFinite(value) && value > 0 ? value : fallback;
-    };
-    return {
-      w: read('--forge-layout-minimap-w', BOX_FALLBACK.w),
-      h: read('--forge-layout-minimap-h', BOX_FALLBACK.h),
-    };
-  } catch {
-    return BOX_FALLBACK;
-  }
-}
 
 export interface MinimapProps {
   layout: GraphLayout;
@@ -52,7 +33,7 @@ export function Minimap({ layout, viewport, size, selectedId, onNavigate }: Mini
   const dragRef = useRef<number | null>(null);
   /** Offset from the viewport centre to the point that was grabbed. */
   const grabRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const box = useMemo(() => readMinimapBox(), []);
+  const box = BOX;
 
   const scale = Math.min((box.w - INSET * 2) / layout.width, (box.h - INSET * 2) / layout.height);
   const offsetX = (box.w - layout.width * scale) / 2;
@@ -138,6 +119,16 @@ export function Minimap({ layout, viewport, size, selectedId, onNavigate }: Mini
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        {/* The viewport rectangle is drawn FIRST, under the nodes: at fit zoom it covers the whole
+            world, and on top it hid every node (wave-3 gate, blank minimap). */}
+        <rect
+          className="fw-graph__minimap-view"
+          x={offsetX + viewX * scale}
+          y={offsetY + viewY * scale}
+          width={Math.max(6, viewW * scale)}
+          height={Math.max(6, viewH * scale)}
+          rx={2}
+        />
         <g transform={`translate(${offsetX} ${offsetY}) scale(${scale})`}>
           {layout.bands.map((band) => (
             <rect
@@ -166,14 +157,6 @@ export function Minimap({ layout, viewport, size, selectedId, onNavigate }: Mini
             />
           ))}
         </g>
-        <rect
-          className="fw-graph__minimap-view"
-          x={offsetX + viewX * scale}
-          y={offsetY + viewY * scale}
-          width={Math.max(6, viewW * scale)}
-          height={Math.max(6, viewH * scale)}
-          rx={2}
-        />
       </svg>
     </div>
   );

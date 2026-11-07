@@ -45,15 +45,29 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const LOCK_DIR = path.join(PROJECT_ROOT, '.claude', 'forge-runs', '.hotspot-locks');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
+// null = no project root (a plugin copy outside any project): every lock call then needs an explicit opts.dir
+const LOCK_DIR = PROJECT_ROOT ? path.join(statePath(PROJECT_ROOT, 'runs'), '.hotspot-locks') : null;
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min — long enough for a real Boss task, short enough to auto-heal a crash
 
 function normHotspot(h) {
   return String(h || '').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '').replace(/\/{2,}/g, '/').toLowerCase().trim();
 }
 function keyOf(h) { return crypto.createHash('sha1').update(normHotspot(h)).digest('hex').slice(0, 16); }
-function dirOf(opts) { return (opts && opts.dir) || LOCK_DIR; }
+function dirOf(opts) {
+  const d = (opts && opts.dir) || LOCK_DIR;
+  if (!d) throw new Error('no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)');
+  return d;
+}
 function clock(opts) { return (opts && typeof opts.now === 'number') ? opts.now : Date.now(); }
 function lockFile(dir, h) { return path.join(dir, keyOf(h) + '.json'); }
 function readLock(file) { try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null; } catch { return null; } }

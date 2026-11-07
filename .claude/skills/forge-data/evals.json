@@ -1,0 +1,19 @@
+{
+  "skill": "forge-data",
+  "assertions": [
+    {
+      "id": "polars-pointer",
+      "type": "contains",
+      "path": ".claude/skills/forge-data/SKILL.md",
+      "needle": "references/polars.md",
+      "why": "SKILL.md points to the Polars reference (W2-GRAFTS)"
+    },
+    {
+      "id": "polars-lazy-first",
+      "type": "contains",
+      "path": ".claude/skills/forge-data/references/polars.md",
+      "needle": "scan_csv",
+      "why": "the lazy-first rule (scan_* then collect) is present"
+    }
+  ]
+}

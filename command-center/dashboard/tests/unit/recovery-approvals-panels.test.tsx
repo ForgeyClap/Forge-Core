@@ -100,9 +100,9 @@ describe('ApprovalsMeta', () => {
     expect(scanForbidden(container)).toEqual([]);
   });
 
-  it('never fabricates a value: no data yet renders a dash, not a guess', () => {
+  it('never fabricates a value: no data yet says so in words, not a guess or a bare dash', () => {
     const { container, getByText } = render(<ApprovalsMeta approvals={EMPTY_GATEWAY_APPROVALS} />);
-    expect(getByText('—')).toBeTruthy();
+    expect(getByText('not known yet')).toBeTruthy();
     expect(scanForbidden(container)).toEqual([]);
   });
 });

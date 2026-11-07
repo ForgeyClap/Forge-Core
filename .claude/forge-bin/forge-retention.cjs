@@ -36,6 +36,16 @@ const path = require('path');
 const DEFAULT_KEEP = 5;
 const DEFAULT_DAYS = 14;
 
+// WP 2.1 (opt-in .forge layout): the backups folder and the run folder's _toollog come from forge-paths.cjs stateDir
+// — .forge/backups and .forge/runs/_toollog only in a project with a .forge folder (or FORGE_STATE_DIR), otherwise
+// exactly .claude/forge-backups and .claude/forge-runs/_toollog. DESTRUCTIVE tool: it prunes ONLY the active folders;
+// leftovers in the other layout's folders are never touched (moving them is the owner-gated migration step).
+// Guarded: an older or missing forge-paths.cjs keeps the legacy literals.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+function backupsDirOf(root) { return viaForgePaths((P) => P.stateDir(root, 'backups'), () => path.join(root, '.claude', 'forge-backups')); }
+function toollogDirOf(root) { return path.join(viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(root, '.claude', 'forge-runs')), '_toollog'); }
+
 // ---- eigenaarsinstelling `cleanup` (forge-config.cjs) — soft-required, zie de header ----
 const CLEANUP_REFUSAL = 'opruimen staat op "report" (alleen rapporteren), dus er is niets verwijderd. Automatisch opruimen aanzetten: /forge config set cleanup auto (of eenmalig: apply --force). Eerst zien wat er weg zou gaan: scan';
 let cfg = null;
@@ -102,7 +112,7 @@ function within(root, p) {
 /** backupCandidates — batch-mappen in <root>/.claude/forge-backups, gesorteerd nieuw→oud op mtime.
  *  Kandidaat voor prune = voorbij keep-N EN ouder dan days-D. */
 function backupCandidates(root, keep, days) {
-  const bdir = path.join(root, '.claude', 'forge-backups');
+  const bdir = backupsDirOf(root);
   let entries = [];
   try { entries = fs.readdirSync(bdir, { withFileTypes: true }).filter((e) => e.isDirectory()); } catch { return { dir: bdir, batches: [], candidates: [] }; }
   const batches = entries.map((e) => {
@@ -117,7 +127,7 @@ function backupCandidates(root, keep, days) {
 
 /** toollogCandidates — jsonl-bestanden in <root>/.claude/forge-runs/_toollog ouder dan days. */
 function toollogCandidates(root, days) {
-  const tdir = path.join(root, '.claude', 'forge-runs', '_toollog');
+  const tdir = toollogDirOf(root);
   let files = [];
   try { files = fs.readdirSync(tdir).filter((f) => f.endsWith('.jsonl')); } catch { return { dir: tdir, candidates: [] }; }
   const cutoff = Date.now() - days * 86400000;
@@ -168,8 +178,9 @@ function safeDelete(root, p, recursive, failed) {
 function apply(root, keep, days) {
   const plan = scan(root, keep, days); // BEVROREN plan: dit is exact wat verwijderd wordt
   const removed = [], failed = [];
-  const bdir = path.join(root, '.claude', 'forge-backups');
-  const tdir = path.join(root, '.claude', 'forge-runs', '_toollog');
+  // WP 2.1: exactly the folders the frozen plan named (no second resolution that could differ)
+  const bdir = plan.backups.dir;
+  const tdir = plan.toollog.dir;
   for (const c of plan.backups.prune_candidates) {
     if (safeDelete(root, path.join(bdir, c.name), true, failed)) removed.push(c.name);
   }
@@ -185,7 +196,11 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   const cmd = args[0];
   const get = (n) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : null; };
-  const root = get('root') ? path.resolve(get('root')) : path.resolve(__dirname, '..', '..');
+  const root = get('root') ? path.resolve(get('root')) : viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+  if (!root) {
+    console.error('forge-retention: geen projectmap gevonden (deze kopie staat niet in een project) — geef --root <projectRoot>; er is niets verwijderd');
+    process.exit(2);
+  }
   const keep = Number(get('keep')) > 0 ? Number(get('keep')) : DEFAULT_KEEP;
   const days = get('days') !== null && Number(get('days')) >= 0 ? Number(get('days')) : DEFAULT_DAYS; // Number(null)===0 zou de default stil overrulen
   const asJson = args.includes('--json');

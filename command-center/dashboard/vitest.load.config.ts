@@ -45,6 +45,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(here, 'src'),
+      '@archive': path.resolve(here, 'archive'),
       '@brand': path.resolve(here, 'brand'),
     },
   },

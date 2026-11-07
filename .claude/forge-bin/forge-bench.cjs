@@ -26,10 +26,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const BASELINE = path.join(PROJECT_ROOT, '.claude', 'config', 'forge-bench', 'baseline.json');
+// WP 2.1: the project root comes from forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers the project from the cwd, null when there is none -> the CLI refuses).
+// Guarded: a missing or older forge-paths.cjs keeps the old two-folders-up answer.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
+const BASELINE = PROJECT_ROOT ? path.join(PROJECT_ROOT, '.claude', 'config', 'forge-bench', 'baseline.json') : null;
 // USER_BASELINE — project-local, never shipped/synced. See the file header's BASELINE SPLIT note.
-const USER_BASELINE = path.join(PROJECT_ROOT, '.claude', 'config', 'forge-bench', 'baseline.user.json');
+const USER_BASELINE = PROJECT_ROOT ? path.join(PROJECT_ROOT, '.claude', 'config', 'forge-bench', 'baseline.user.json') : null;
 
 const otel = require('./forge-otel.cjs');
 const mcp = require('./forge-mcp.cjs');
@@ -80,9 +84,8 @@ const CASES = [
   // Cost capture (scout #2): forge-cost `capture` parses the claude JSON envelope into a
   // cost_sampled event with real numbers, and NEVER fabricates a cost (missing total_cost_usd → no cost field).
   { id: 'learning.cost-capture-parse', cap: 'learning', fn: () => { const os = require('os'); const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-cost-capture-')); try { const cd = path.join(tmp, '.claude', 'forge-dashboard'); fs.mkdirSync(cd, { recursive: true }); fs.copyFileSync(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'), path.join(cd, 'log-event.cjs')); const envOk = path.join(tmp, 'envelope-ok.json'); fs.writeFileSync(envOk, JSON.stringify({ total_cost_usd: 0.0456, usage: { input_tokens: 1200, output_tokens: 340 }, modelUsage: { 'claude-sonnet-4-5-20250929': { costUSD: 0.0456 } } })); const envNoCost = path.join(tmp, 'envelope-no-cost.json'); fs.writeFileSync(envNoCost, JSON.stringify({ usage: { input_tokens: 500, output_tokens: 100 } })); const env = Object.assign({}, process.env, { FORGE_PROJECT_ROOT: tmp }); const runCap = (from, runId) => require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'forge-cost.cjs'), 'capture', '--from', from, '--run', runId, '--agent', 'orchestrator'], { encoding: 'utf8', env }); const readEvts = (runId) => { const f = path.join(tmp, '.claude', 'forge-runs', runId, 'events.jsonl'); if (!fs.existsSync(f)) return []; return fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); }; const r1 = runCap(envOk, 'bench-cost-ok'); const evs1 = readEvts('bench-cost-ok').filter((e) => e.event_type === 'cost_sampled'); let ok = r1.status === 0 && evs1.length === 1 && evs1[0].cost === 0.0456 && evs1[0].tokens === 1540 && /estimated/.test(evs1[0].note || ''); const r2 = runCap(envNoCost, 'bench-cost-no-cost'); const evs2 = readEvts('bench-cost-no-cost').filter((e) => e.event_type === 'cost_sampled'); ok = ok && r2.status === 0 && evs2.length === 1 && !('cost' in evs2[0]) && /unavailable/.test(evs2[0].note || ''); return ok; } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} } } },
-  // Federated learning store (scout #6): forge-learn is opt-in (no manifest → no provenance),
-  // isolation-safe (traversal rejected, store bytes never mutated on recall).
-  { id: 'learning.federated-readonly-isolation', cap: 'learning', fn: () => { const os = require('os'); const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-learn-')); try { const learn = require('./forge-learn.cjs'); const src = path.join(tmp, 'store'); fs.mkdirSync(path.join(src, 'build-boss'), { recursive: true }); if (learn.safeResolve(src, '..', '..', 'etc') !== null) return false; const root = path.join(tmp, 'proj'); fs.mkdirSync(path.join(root, '.claude', 'config'), { recursive: true }); const off = learn.recall('build-boss', 'x', 5, root); let ok = Array.isArray(off) && off.every((l) => !l.provenance); fs.writeFileSync(path.join(src, 'build-boss', 'lessons.jsonl'), JSON.stringify({ type: 'semantic', text: 'FED lesson about testing', tags: ['testing'], evidence: 'x', ts: '2026-07-13T00:00:00Z' }) + '\n'); fs.writeFileSync(path.join(root, '.claude', 'config', 'forge-stores.json'), JSON.stringify({ stores: [{ name: 'shared', source: src, mode: 'read-only', priority: 0.8 }] })); const before = fs.readFileSync(path.join(src, 'build-boss', 'lessons.jsonl')); const fed = learn.recall('build-boss', 'testing', 5, root); const after = fs.readFileSync(path.join(src, 'build-boss', 'lessons.jsonl')); ok = ok && Buffer.compare(before, after) === 0 && Array.isArray(fed) && fed.some((l) => l.provenance && l.provenance.store === 'shared'); return ok; } catch { return false; } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} } } },
+  // (A6 2026-11-02: the learning.federated-readonly-isolation case left with forge-learn.cjs, which was archived;
+  //  its own test was archived with it in the development tree and still proves that behaviour there.)
   { id: 'learning.stats-readonly-projector', cap: 'learning', fn: () => { const os = require('os'); const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-stats-')); try { const rd = path.join(tmp, '.claude', 'forge-runs', 'bench-run'); fs.mkdirSync(rd, { recursive: true }); const evPath = path.join(rd, 'events.jsonl'); fs.writeFileSync(evPath, JSON.stringify({ event_type: 'subagent_completed', agent: 'build-boss', task: 't', note: 'done', timestamp: '2026-07-12T00:00:00Z' }) + '\n'); const before = fs.readFileSync(evPath); const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'forge-stats.cjs')], { encoding: 'utf8', env: Object.assign({}, process.env, { FORGE_PROJECT_ROOT: tmp }) }); const statsPath = path.join(tmp, '.claude', 'forge-runs', 'STATS.json'); let ok = r.status === 0 && fs.existsSync(statsPath); try { const st = JSON.parse(fs.readFileSync(statsPath, 'utf8')); ok = ok && st.perBoss && st.perBoss['build-boss'] && st.perBoss['build-boss'].completed === 1; } catch { ok = false; } ok = ok && Buffer.compare(before, fs.readFileSync(evPath)) === 0; return ok; } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} } } },
   // Sync safety (2026-07-14 hardening): forge-sync writes into 12 real projects. The one invariant that must
   // never rot: after a sync, rollback restores the project BYTE-EXACTLY — changed files back to their old
@@ -137,6 +140,7 @@ if (require.main === module) {
     console.log('  --json      print the report as JSON');
     process.exit(0);
   }
+  if (!PROJECT_ROOT) { console.error('forge-bench: no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)'); process.exit(1); }
   const rep = run();
   if (args.includes('--baseline')) {
     fs.mkdirSync(path.dirname(USER_BASELINE), { recursive: true });

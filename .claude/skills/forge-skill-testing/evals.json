@@ -1,25 +1,170 @@
 {
   "skill": "forge-skill-testing",
   "assertions": [
-    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-skill-testing/SKILL.md",
-      "why": "the skill file itself must exist for forge-skill-testing to be usable at all" },
-    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
-      "why": "wp-disclosure-ab: this skill must obey the same wp3b description-length budget it documents for every other skill" },
-    { "id": "learnings-wiring", "type": "contains", "path": ".claude/skills/forge-skill-testing/SKILL.md", "needle": "learnings.md",
-      "why": "the skill must instruct reading its own learnings.md before use and appending corrections after (same substrate as forge-code-review/forge-intake)" },
-    { "id": "activation-test-section", "type": "contains", "path": ".claude/skills/forge-skill-testing/SKILL.md", "needle": "## Part 1 — Activation test",
-      "why": "the activation-test protocol (trigger vs near-miss phrases, >=95% target) is the core deliverable and must stay documented" },
-    { "id": "ab-benchmark-section", "type": "contains", "path": ".claude/skills/forge-skill-testing/SKILL.md", "needle": "## Part 2 — Fresh-session A/B benchmark",
-      "why": "the fresh-session A/B benchmark protocol must stay documented and clearly separated from the cheaper activation test" },
-    { "id": "opt-in-honesty", "type": "contains", "path": ".claude/skills/forge-skill-testing/SKILL.md", "needle": "never a gate",
-      "why": "the A/B benchmark must stay explicitly opt-in (costs real runs) — never a merge/ship gate, per the work package" },
-    { "id": "registry-wiring", "type": "contains", "path": ".claude/skills/forge-skill-testing/SKILL.md", "needle": "FORGE_SKILL_REGISTRY.md",
-      "why": "activation-test results must be logged in the project's real skill registry, not a throwaway note nobody reads" },
-    { "id": "evals-relationship-section", "type": "contains", "path": ".claude/skills/forge-skill-testing/SKILL.md", "needle": "## Relationship to forge-skill-evals.cjs",
-      "why": "this protocol must stay explicitly positioned as step 2 after forge-skill-evals.cjs's binary evals, not a replacement for them" },
-    { "id": "template-exists", "type": "file_exists", "path": ".claude/skills/forge-skill-testing/references/activation-test-template.md",
-      "why": "the copy/paste worksheet (tier-3 reference material) must exist alongside the protocol doc" },
-    { "id": "body-under-budget", "type": "max_lines", "path": ".claude/skills/forge-skill-testing/SKILL.md", "n": 500,
-      "why": "this skill must obey the same 500-line body guidance the new skill_hygiene doctor check enforces project-wide" }
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "why": "the skill file itself must exist for forge-skill-testing to be usable at all"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "wp-disclosure-ab: this skill must obey the same wp3b description-length budget it documents for every other skill"
+    },
+    {
+      "id": "learnings-wiring",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "learnings.md",
+      "why": "the skill must instruct reading its own learnings.md before use and appending corrections after (same substrate as forge-code-review/forge-intake)"
+    },
+    {
+      "id": "activation-test-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "## Part 1 — Activation test",
+      "why": "the activation-test protocol (trigger vs near-miss phrases, >=95% target) is the core deliverable and must stay documented"
+    },
+    {
+      "id": "ab-benchmark-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "## Part 2 — Fresh-session A/B benchmark",
+      "why": "the fresh-session A/B benchmark protocol must stay documented and clearly separated from the cheaper activation test"
+    },
+    {
+      "id": "opt-in-honesty",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "never a gate",
+      "why": "the A/B benchmark must stay explicitly opt-in (costs real runs) — never a merge/ship gate, per the work package"
+    },
+    {
+      "id": "registry-wiring",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "FORGE_SKILL_REGISTRY.md",
+      "why": "activation-test results must be logged in the project's real skill registry, not a throwaway note nobody reads"
+    },
+    {
+      "id": "evals-relationship-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "## Relationship to forge-skill-evals.cjs",
+      "why": "this protocol must stay explicitly positioned as step 2 after forge-skill-evals.cjs's binary evals, not a replacement for them"
+    },
+    {
+      "id": "template-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-skill-testing/references/activation-test-template.md",
+      "why": "the copy/paste worksheet (tier-3 reference material) must exist alongside the protocol doc"
+    },
+    {
+      "id": "body-under-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "n": 500,
+      "why": "this skill must obey the same 500-line body guidance the new skill_hygiene doctor check enforces project-wide"
+    },
+    {
+      "id": "quality-review-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "## Part 3 — Quality review: rubric and paired keep/revert judging",
+      "why": "SA-W1-B4 graft: the rubric plus paired keep/revert judging is the qualitative step the binary evals lack"
+    },
+    {
+      "id": "paired-not-absolute",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "A single absolute score that\n   dropped is not a revert signal",
+      "why": "darwin v2.1 lesson: absolute LLM-judge totals swing about 8 points between judges, so keep/revert must be paired"
+    },
+    {
+      "id": "author-never-judges",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "The author of the edit is\n   never a judge",
+      "why": "independent scoring: the agent that edits never scores its own edit"
+    },
+    {
+      "id": "revert-not-reset",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "reset --hard",
+      "why": "rollback is git revert of the experiment commit; reset --hard is a gate-hook hard gate and must not be advised"
+    },
+    {
+      "id": "architecture-metrics-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "## Part 4 — Architecture metrics",
+      "why": "samber load-rate rules decide whether each reference earns its file"
+    },
+    {
+      "id": "load-rate-thresholds",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "| Loaded in under 20% of runs | Inline into SKILL.md or delete |",
+      "why": "the decision table is the deliverable of Part 4"
+    },
+    {
+      "id": "coverage-set-scored-by-recall",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "- **recall**: on how many of the queries meant for it it was read (target: all of them);",
+      "why": "on a coverage set a well-routed reference loads in about 1 of N runs; it must be scored by recall and false loads, not by load share (Review finding SA-W1-B4 rework)"
+    },
+    {
+      "id": "coverage-set-share-is-not-a-verdict",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "Load share over the whole set means nothing here.",
+      "why": "applying the 20/80 thresholds to a coverage set tells authors to undo correct variant-branch splits"
+    },
+    {
+      "id": "thresholds-need-realistic-sample",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "Only a sample drawn from real use counts",
+      "why": "the 20/80/70 thresholds are valid only on a realistic task distribution"
+    },
+    {
+      "id": "rubric-reference-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-skill-testing/references/quality-rubric.md",
+      "why": "Part 3 points at the rubric file; the pointer must not be false"
+    },
+    {
+      "id": "rubric-has-120",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/references/quality-rubric.md",
+      "needle": "8 dimensions, 120 points",
+      "why": "the skill-judge rubric shape is what was grafted"
+    },
+    {
+      "id": "activation-8-8",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "Write **8+ near-miss phrases** (Dutch included)",
+      "why": "activation test lane standard: at least 8 triggers and 8 near misses including Dutch"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "| alchaincyf/darwin-skill |",
+      "why": "adapted text needs a provenance table (repo, path, SHA, licence, taken, excluded)"
+    },
+    {
+      "id": "darwin-scripts-excluded",
+      "type": "contains",
+      "path": ".claude/skills/forge-skill-testing/SKILL.md",
+      "needle": "the upstream scripts/screenshot.mjs",
+      "why": "darwin scripts are excluded and named as excluded"
+    }
   ]
 }

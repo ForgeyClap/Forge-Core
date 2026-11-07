@@ -1,6 +1,8 @@
 ---
 name: forge-scout
-description: "Forge doctrine for researching and vetting external skills, plugins, MCP servers, and CLIs: find a skill for X, check if there's a plugin/MCP for Y — approve/hard-pass gate."
+description: "Use when asked to find a tool (zoek een skill, plugin, MCP)."
+# A10 original description (listing budget): "Use when asked to find a tool (zoek een skill, plugin, MCP): ranks + vets candidates, approve or hard-pass."
+# W2-BUDGET original description (listing budget): "Use when asked to find a tool (zoek een skill, plugin, MCP): ranks + vets candidates."
 ---
 
 # Forge playbook — Scout (external-capability research + vetting)
@@ -17,6 +19,12 @@ an MCP server, or a standalone CLI) would genuinely help the *current* project �
 Claude skills" sweep. A slides project searches for slide/PowerPoint-shaped capabilities; an Astro site
 searches for Astro/static-site-shaped capabilities. Scout never installs anything itself; it produces a
 researched, evidenced verdict that the owner opts into afterward.
+
+## Step 0 — search first: tool preflight and the Adopt / Extend / Compose / Build matrix
+Before Step 1, check that every search channel you will rely on actually works here (project search, installed
+skills, the skill corpus, `gh`, the package registry, MCP/docs tools, `watch`); a missing channel is named in the
+result, never skipped in silence. After the search each need gets one verdict, Adopt, Extend, Compose or Build, with
+its evidence logged. The channel table and the matrix: `references/search-first.md`.
 
 ## Step 1 — generate TAILORED search terms, not generic ones
 Call `forge-bin/forge-scout.cjs terms --domain <domain> [--keywords <k1,k2,...>]` first. This returns a
@@ -39,6 +47,18 @@ thumbnail alone. The exact invocation, verbatim (Dutch, matching the owner's own
 "als je een video wilt bekijken, doe ./watch {link}" — substitute the real URL found during search. A
 candidate with a video that was never watched cannot be APPROVED; log it as unverified and either watch it
 or HARD-PASS it with that reason.
+
+## Step 2b — rank the results before vetting them
+Put every candidate found into a JSON list (`name`, `description`, `url`, optional `source_kind`
+official|curated|repo|listing|web, `updated` date, `web_only`) and run
+`forge-bin/forge-scout.cjs rank --query "<term>" --candidates <file.json>`. The order is fixed:
+1. candidates with an inspectable source first; **web-only mentions** (no url, or only a blog or web page) after them;
+2. inside each group: **name match** (generic words such as claude, skill, plugin and mcp never count), then
+   **description match**, then **source** (official > curated > repo > listing > web), then **maintenance**
+   (updated within 90 days > within a year > unknown > older); a full tie goes by name.
+At most **10** results come back; the rest is listed as `dropped`, never silently lost. A capability with a
+prior HARD-PASS is skipped and listed as `skipped_hard_pass`; a prior APPROVE is marked as already vetted.
+Vet the ranked list top-down in Step 3.
 
 ## Step 3 — evaluate and record a verdict
 Every candidate found gets exactly one of two verdicts, recorded via
@@ -64,6 +84,16 @@ reported as already-vetted rather than re-run from scratch.
 ## Hard rules (non-negotiable)
 - **Nothing is auto-installed, ever.** Scout's job ends at a recorded, evidenced verdict — no skill/plugin/
   MCP file is copied, no dependency is added, no config is edited as a result of an APPROVE.
+- **Adoption happens on a fresh branch with a reviewed diff.** Once the owner opts in to an
+  APPROVED capability, `forge-bin/forge-scout.cjs adopt-plan --capability <name>` prints the plan: a new
+  `scout/adopt-<name>-<date>` branch from a clean tree, the copy on that branch only, a static security audit of the
+  copied folder (`node .claude/forge-bin/forge-skill-audit.cjs scan <folder> [--json]`: shell execution, network calls,
+  credential access, writes outside the folder, persistence, obfuscation, hook/settings/plugin/MCP writes, prompt
+  injection, supply chain, binaries and links; any non-zero exit stops the adopt: 1 = a high finding, until Security Boss
+  has read every flagged line; 3 = part of the folder was not scanned, so fix the copy and rescan; 2 = the folder was refused), the diff reviewed with
+  `forge-code-review` by Review Boss (plus Security Boss for credentials, network or hooks), and a merge only
+  after the owner approves that diff. It refuses (exit 3) a hard-passed or never-vetted capability. The tool
+  runs no git command itself.
 - **APPROVE still requires explicit owner opt-in.** This ties directly into the `forge-mcp-clients` dormant/
   opt-in doctrine and `forge-mcp-clients`' registry (`config/orchestration/mcp-registry.json` +
   `mcp-grants.json`) for anything MCP-shaped: an APPROVE verdict here is the research half only; the owner
@@ -76,9 +106,12 @@ reported as already-vetted rather than re-run from scratch.
   rather than optimistically approved.
 - **Every verdict carries a real reason and, where available, a real source (URL/repo).** No blank or
   templated reason field — `forge-scout.cjs record()` requires a non-empty reason.
+- **The global `find-skills` skill is a search aid only.** Its candidate list may feed Step 1, but its
+  install step (an `npx` skills install) is never run from a Forge task: every hit goes through this vetting
+  and the adopt-plan above, and a skill corpus search (`.claude/forge-research/skills-corpus/`) comes first.
 
 ## Skills / commands / MCP
-`forge-bin/forge-scout.cjs` (`terms`, `record`, `list`, `isVetted` — the persistent ledger is split
+`forge-bin/forge-skill-audit.cjs` (`scan <dir> [--json]`, the adopt-step threat scan), `forge-bin/forge-scout.cjs` (`terms`, `rank`, `record`, `list`, `isVetted`, `adopt-plan` — the persistent ledger is split
 template/user (2026-09-26 external audit N4/): the SHIPPED, curated baseline at
 `config/orchestration/FORGE_SCOUT_VETTING.json` plus the separate, never-shipped
 `config/orchestration/FORGE_SCOUT_VETTING.user.json` that `record()` actually writes new verdicts to —
@@ -104,7 +137,10 @@ being logged.
 No fan-out beyond these two; Scout never spawns a larger swarm for a research pass.
 
 ## Ship-readiness (unique)
-Every term list actually came from `forge-scout.cjs terms` (not hand-invented); every video candidate was
+The preflight named every channel that did not run and each need got an Adopt/Extend/Compose/Build verdict with
+evidence; every adopted folder was scanned with `forge-skill-audit.cjs`, its high findings were read, and nothing was adopted on a non-zero exit (1 FAIL, 2 refused, 3 INCOMPLETE); every term list actually came from `forge-scout.cjs terms` (not hand-invented); the results were ordered
+with `forge-scout.cjs rank` (top 10, web-only last); anything adopted went through its own `adopt-plan` branch
+and a reviewed diff; every video candidate was
 actually watched via `./watch` before a verdict, or was HARD-PASSed as unverifiable; every verdict is
 recorded in the real ledger with a non-empty reason; a prior HARD-PASS was checked and honored (never
 re-approved); nothing was installed, activated, or opted in as a side effect of this skill running; the

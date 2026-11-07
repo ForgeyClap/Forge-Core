@@ -17,7 +17,6 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   Button,
   EmptyState,
-  Eyebrow,
   IconButton,
   KeyHint,
   Machine,
@@ -25,15 +24,18 @@ import {
   Toolbar,
   ToolbarGroup,
 } from '@/components/primitives';
+import { useLocale } from '@/i18n/use-locale';
 import { usePrototype } from '@/prototype/state/prototype-store';
 import { useGatewayApprovals } from '@/prototype/state/gateway-recovery';
 import { chatRunStatusToStatusKey, useGatewayChatRuns } from '@/prototype/state/gateway-adapter';
 import { ApprovalsMeta } from './ApprovalsMeta';
 import { GraphCanvas } from './GraphCanvas';
+import { formatStartedAt } from './mission-format';
 import { useGraphLayout, useGraphViewport } from './useGraphViewport';
 import './mission.css';
 
 export default function MissionControlView() {
+  const { t, locale } = useLocale();
   const { state, dispatch } = usePrototype();
   const graph = state.data.graph;
 
@@ -90,7 +92,13 @@ export default function MissionControlView() {
     [dispatch, selectedId],
   );
 
-  const counts = `${graph.nodes.length} steps · ${graph.lanes.length} lanes · ${graph.edges.length} links`;
+  // Singular for one ("1 lijn"), plural otherwise; a part with none of them is left out.
+  const countParts = [
+    t(graph.nodes.length === 1 ? 'rd.mission.stepsOne' : 'rd.mission.stepsMany', { n: graph.nodes.length }),
+    graph.lanes.length > 0 ? t(graph.lanes.length === 1 ? 'rd.mission.lanesOne' : 'rd.mission.lanesMany', { n: graph.lanes.length }) : null,
+    graph.edges.length > 0 ? t(graph.edges.length === 1 ? 'rd.mission.edgesOne' : 'rd.mission.edgesMany', { n: graph.edges.length }) : null,
+  ];
+  const counts = countParts.filter((part): part is string => part !== null).join(' · ');
 
   // WP-CCD (Lead correction): the StatusBadge alone already renders 'stalled' as a
   // visible warning (blocked) and 'ended_unknown' quietly (idle) — see `toRunStatusKey`'s own doc
@@ -100,9 +108,9 @@ export default function MissionControlView() {
   // visual language.
   const runNote =
     run?.rawStatus === 'stalled'
-      ? 'no real activity for a while — not proven finished, not proven still running'
+      ? t('rd.mission.stalled')
       : run?.rawStatus === 'ended_unknown'
-        ? 'never closed — the run ended without reporting a real outcome'
+        ? t('rd.mission.endedUnknown')
         : null;
 
   // No active Forge mission: the graph is genuinely empty (production) or unresolved (a stale
@@ -113,112 +121,124 @@ export default function MissionControlView() {
   if (!run || graph.nodes.length === 0) {
     if (latestChatRun !== null) {
       const chatStatus = chatRunStatusToStatusKey(latestChatRun.status);
+      const chatStarted = formatStartedAt(locale, latestChatRun.startedAt);
       return (
         <div className="fw-mission">
-          <header className="fw-mission__header">
+          <header className="fw-mission__header fw-mission__header--page">
             <div className="fw-mission__ident">
-              <Eyebrow>MISSION CONTROL</Eyebrow>
-              <h1 className="fw-mission__title">{latestChatRun.title ?? 'Chat activity'}</h1>
+              <h1 className="fw-mission__title">{latestChatRun.title ?? t('rd.mission.chatTitle')}</h1>
+              <p className="fw-mission__subtitle">{t('rd.mission.subtitle')}</p>
               <div className="fw-mission__meta">
                 <StatusBadge status={chatStatus} size="sm" />
                 <span className="fw-mission__meta-item">
-                  <span className="fw-mission__meta-key">CHAT RUN</span>
+                  <span className="fw-mission__meta-key">{t('rd.mission.chatRun')}</span>
                   <Machine>{latestChatRun.runId}</Machine>
                 </span>
-                <span className="fw-mission__meta-item fw-mission__meta-item--wide">
-                  <span className="fw-mission__meta-key">STARTED</span>
-                  <Machine muted>{latestChatRun.startedAt ?? '—'}</Machine>
-                </span>
+                {chatStarted !== null ? (
+                  <span className="fw-mission__meta-item fw-mission__meta-item--wide">
+                    <span className="fw-mission__meta-key">{t('rd.mission.started')}</span>
+                    <time className="fw-mission__value" dateTime={latestChatRun.startedAt ?? undefined}>
+                      {chatStarted}
+                    </time>
+                  </span>
+                ) : null}
               </div>
             </div>
           </header>
           <EmptyState
             icon="MessagesSquare"
-            title="No multi-agent Forge mission is running"
-            detail="This project's most recent recorded activity came from a dashboard chat session, shown above — it does not drive the multi-agent mission graph below."
+            title={t('rd.mission.chatEmpty')}
+            detail={t('rd.mission.chatDetail')}
           />
         </div>
       );
     }
     return (
       <div className="fw-mission">
-        <header className="fw-mission__header">
+        <header className="fw-mission__header fw-mission__header--page">
           <div className="fw-mission__ident">
-            <Eyebrow>MISSION CONTROL</Eyebrow>
-            <h1 className="fw-mission__title">No mission running</h1>
+            <h1 className="fw-mission__title">{t('rd.mission.noneTitle')}</h1>
+            <p className="fw-mission__subtitle">{t('rd.mission.subtitle')}</p>
           </div>
         </header>
         <EmptyState
           icon="Workflow"
-          title="No mission is running"
-          detail="Start a run in a project to see its live multi-agent graph here."
+          title={t('rd.mission.noneEmpty')}
+          detail={t('rd.mission.noneDetail')}
         />
       </div>
     );
   }
 
+  const started = formatStartedAt(locale, run.startedAt);
+
   return (
     <div className="fw-mission" onKeyDown={onKeyDown}>
       <header className="fw-mission__header">
         <div className="fw-mission__ident">
-          <Eyebrow>MISSION CONTROL</Eyebrow>
           <h1 className="fw-mission__title fw-mission__title--clamped" title={run.goal}>{run.goal}</h1>
           <div className="fw-mission__meta">
             <StatusBadge status={run.status} size="sm" />
             {runNote !== null ? (
               <span className="fw-mission__meta-item fw-mission__meta-item--wide">
-                <Machine muted>{runNote}</Machine>
+                <span className="fw-mission__note">{runNote}</span>
               </span>
             ) : null}
             <span className="fw-mission__meta-item">
-              <span className="fw-mission__meta-key">RUN</span>
+              <span className="fw-mission__meta-key">{t('rd.mission.run')}</span>
               <Machine>{graph.runId}</Machine>
             </span>
-            <span className="fw-mission__meta-item">
-              <span className="fw-mission__meta-key">ELAPSED</span>
-              <Machine>{run.duration}</Machine>
-            </span>
+            {run.duration && run.duration !== '—' ? (
+              <span className="fw-mission__meta-item">
+                <span className="fw-mission__meta-key">{t('rd.mission.elapsed')}</span>
+                <span className="fw-mission__value">{run.duration}</span>
+              </span>
+            ) : null}
+            {started !== null ? (
+              <span className="fw-mission__meta-item fw-mission__meta-item--wide">
+                <span className="fw-mission__meta-key">{t('rd.mission.started')}</span>
+                <time className="fw-mission__value" dateTime={run.startedAt}>
+                  {started}
+                </time>
+              </span>
+            ) : null}
             <span className="fw-mission__meta-item fw-mission__meta-item--wide">
-              <span className="fw-mission__meta-key">STARTED</span>
-              <Machine muted>{run.startedAt}</Machine>
-            </span>
-            <span className="fw-mission__meta-item fw-mission__meta-item--wide">
-              <span className="fw-mission__meta-key">GRAPH</span>
-              <Machine muted>{counts}</Machine>
+              <span className="fw-mission__meta-key">{t('rd.mission.graph')}</span>
+              <span className="fw-mission__value">{counts}</span>
             </span>
           </div>
 
           <ApprovalsMeta approvals={approvals} />
         </div>
 
-        <Toolbar label="Graph controls" className="fw-mission__controls">
+        <Toolbar label={t('rd.mission.controls')} className="fw-mission__controls">
           <ToolbarGroup>
             <IconButton
               icon="Minus"
-              label="Zoom out"
+              label={t('rd.mission.zoomOut')}
               size="sm"
               disabled={view.atMinZoom}
               onClick={view.zoomOut}
             />
-            <span className="fw-mission__zoom fg-machine" aria-live="polite">
+            <span className="fw-mission__zoom" aria-live="polite">
               {view.zoomPercent}%
             </span>
-            <IconButton icon="Plus" label="Zoom in" size="sm" disabled={view.atMaxZoom} onClick={view.zoomIn} />
+            <IconButton icon="Plus" label={t('rd.mission.zoomIn')} size="sm" disabled={view.atMaxZoom} onClick={view.zoomIn} />
           </ToolbarGroup>
 
           <ToolbarGroup divided>
             <Button size="sm" icon="Maximize" onClick={view.fit}>
-              Fit view
+              {t('rd.mission.fit')}
             </Button>
           </ToolbarGroup>
 
           <ToolbarGroup divided className="fw-mission__controls-hint">
             <KeyHint keys={['0']} />
-            <span className="fw-mission__hint-text">fit</span>
+            <span className="fw-mission__hint-text">{t('rd.mission.hintFit')}</span>
             <KeyHint keys={['+', '−']} />
-            <span className="fw-mission__hint-text">zoom</span>
+            <span className="fw-mission__hint-text">{t('rd.mission.hintZoom')}</span>
             <KeyHint keys={['↑', '↓', '←', '→']} />
-            <span className="fw-mission__hint-text">pan</span>
+            <span className="fw-mission__hint-text">{t('rd.mission.hintPan')}</span>
           </ToolbarGroup>
         </Toolbar>
       </header>

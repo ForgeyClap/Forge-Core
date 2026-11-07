@@ -13,11 +13,28 @@
  */
 
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+
+import { SHOTS_ORIGIN, stubGateway } from './live-gateway-helpers';
+
+/**
+ * Redesign (4A): every route is opened in Dutch with onboarding done, and the 960 px Electron
+ * minimum joins the sizes. With `FORGE_SHOTS_ORIGIN` the gateway is stubbed in the browser (never 4100).
+ */
+async function prepare(page: Page): Promise<void> {
+  if (SHOTS_ORIGIN !== '') await stubGateway(page.context());
+  await page.addInitScript(() => {
+    localStorage.setItem('forge.locale', 'nl');
+    localStorage.setItem('forge.uiMode', 'uitgebreid');
+    localStorage.setItem('forge.onboarding.done', '1');
+  });
+}
 
 const SIZES = [
   { name: '1440x900', width: 1440, height: 900 },
   { name: '1280x800', width: 1280, height: 800 },
   { name: '1024x768', width: 1024, height: 768 },
+  { name: '960x700', width: 960, height: 700 },
   { name: '768x1024', width: 768, height: 1024 },
   { name: '430x932', width: 430, height: 932 },
   { name: '390x844', width: 390, height: 844 },
@@ -33,6 +50,14 @@ const ROUTES = [
   '/agents',
   '/tasks',
   '/files',
+  '/team',
+  '/jobs',
+  '/automations',
+  '/skills',
+  '/mindmap',
+  '/discord',
+  '/learn',
+  '/onboarding',
   '/artifacts',
   '/tests',
   '/activity',
@@ -45,10 +70,11 @@ for (const size of SIZES) {
     test.use({ viewport: { width: size.width, height: size.height } });
 
     test('no route overflows the page horizontally', async ({ page }) => {
+      await prepare(page);
       const overflowing: string[] = [];
 
       for (const route of ROUTES) {
-        await page.goto(`/#${route}`);
+        await page.goto(`${SHOTS_ORIGIN}/#${route}`);
         await page.waitForLoadState('domcontentloaded');
         await page.waitForTimeout(120);
 
@@ -70,8 +96,9 @@ for (const size of SIZES) {
     });
 
     test('the shell renders something on every route', async ({ page }) => {
+      await prepare(page);
       for (const route of ROUTES) {
-        await page.goto(`/#${route}`);
+        await page.goto(`${SHOTS_ORIGIN}/#${route}`);
         await page.waitForLoadState('domcontentloaded');
         await expect(page.locator('#root')).not.toBeEmpty();
         const text = await page.locator('#root').innerText();
@@ -85,18 +112,32 @@ test.describe('mobile navigation', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
   test('the sidebar is reachable as a drawer', async ({ page }) => {
-    await page.goto('/#/');
+    await prepare(page);
+    await page.goto(`${SHOTS_ORIGIN}/#/`);
     await page.waitForLoadState('domcontentloaded');
 
     // Some control must open navigation on mobile; find it by accessible name.
     const opener = page
-      .getByRole('button', { name: /menu|navigation|sidebar|open nav/i })
+      .getByRole('button', { name: /menu|navigatie|zijbalk|navigation|sidebar|open nav/i })
       .first();
     await expect(opener).toBeVisible();
     await opener.click();
     await page.waitForTimeout(250);
 
     // Once open, the primary destinations must be reachable.
-    await expect(page.getByRole('link', { name: /mission control/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Mijn projecten' }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /^Leer Forge/ }).first()).toBeVisible();
+  });
+
+  test('the drawer closes with Escape and returns focus to the opener', async ({ page }) => {
+    await prepare(page);
+    await page.goto(`${SHOTS_ORIGIN}/#/`);
+    await page.waitForLoadState('domcontentloaded');
+    const opener = page.locator('.fw-bar__drawer');
+    await opener.click();
+    await expect(page.locator('.fw-shell')).toHaveAttribute('data-drawer', 'open');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.fw-shell')).toHaveAttribute('data-drawer', 'closed');
+    await expect(opener).toBeFocused();
   });
 });

@@ -1,0 +1,191 @@
+/*
+ * Bar — 56 px, no background (DESIGN.md §2). Tokens only (redesign v1.0 `--fs-*`); motion only on
+ * transform and opacity; every control restates the two-layer focus ring.
+ */
+
+.fw-bar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  min-block-size: 56px;
+  min-inline-size: 0;
+  padding-block: 0;
+  padding-inline: var(--fs-space-6) var(--fs-space-4);
+  background: transparent;
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+}
+
+.fw-bar__drawer {
+  display: none;
+}
+
+.fw-bar__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  min-inline-size: 0;
+}
+
+.fw-bar__title {
+  margin: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-bar__chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  block-size: var(--fs-control-sm);
+  max-inline-size: 220px;
+  padding-inline: 10px;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-pill);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  text-decoration: none;
+  transition: transform var(--fs-dur-1) var(--fs-ease-spring);
+}
+
+.fw-bar__chip:hover {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+}
+
+.fw-bar__chip:active {
+  transform: scale(0.97);
+}
+
+.fw-bar__chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fw-bar__chip-icon {
+  flex: none;
+  color: var(--fs-ink-3);
+}
+
+.fw-bar__end {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+  margin-inline-start: auto;
+}
+
+/* ------------------------------------------------------------- menus */
+
+.fw-bar__menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.fw-bar__icon-btn {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--fs-control-md);
+  block-size: var(--fs-control-md);
+  border: 0;
+  border-radius: var(--fs-radius-sm);
+  background: transparent;
+  color: var(--fs-ink-2);
+  cursor: pointer;
+  transition: transform var(--fs-dur-1) var(--fs-ease-spring);
+}
+
+.fw-bar__icon-btn:hover,
+.fw-bar__icon-btn[aria-expanded='true'] {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+}
+
+.fw-bar__icon-btn:active {
+  transform: scale(0.94);
+}
+
+.fw-bar__popover {
+  position: absolute;
+  inset-block-start: calc(100% + var(--fs-space-1));
+  inset-inline-end: 0;
+  z-index: 40;
+  display: grid;
+  gap: 2px;
+  min-inline-size: 232px;
+  padding: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-2);
+  transform-origin: top right;
+  animation: fw-bar-pop var(--fs-dur-2) var(--fs-ease) both;
+}
+
+@keyframes fw-bar-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+.fw-bar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  min-block-size: var(--fs-control-md);
+  padding-inline: var(--fs-space-3);
+  border: 0;
+  border-radius: var(--fs-radius-sm);
+  background: transparent;
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-14);
+  text-align: start;
+  cursor: pointer;
+}
+
+.fw-bar__item:hover {
+  background: var(--fs-sunken);
+}
+
+.fw-bar__item-icon {
+  flex: none;
+  color: var(--fs-ink-3);
+}
+
+.fw-bar__item-label {
+  flex: 1;
+}
+
+.fw-bar__item-hint {
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
+}
+
+/* Focus: components with their own background restate the ring (DESIGN.md §7). */
+.fw-bar__icon-btn:focus-visible,
+.fw-bar__chip:focus-visible,
+.fw-bar__item:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+/* The drawer button appears where the sidebar becomes a drawer (app-shell.css, 860 px). */
+@media (max-width: 860px) {
+  .fw-bar {
+    padding-inline-start: var(--fs-space-3);
+  }
+
+  .fw-bar__drawer {
+    display: inline-grid;
+  }
+}

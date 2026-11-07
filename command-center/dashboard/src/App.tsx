@@ -5,8 +5,8 @@
  * dist/index.html from any folder, on any machine, with no server rewriting
  * paths. That rules out BrowserRouter.
  *
- * Every route renders inside <AppShell>, which owns the chrome: sidebar, topbar,
- * inspector, dock, command palette and toasts. A view only ever renders its own
+ * Every route renders inside <AppShell>, which owns the chrome: sidebar, bar,
+ * side pane, command palette and toasts. A view only ever renders its own
  * content area.
  *
  * WP11 — every view is `React.lazy` + `import()`, one chunk per route. This is
@@ -28,36 +28,47 @@ import { lazy, Suspense } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import AppShell from '@/components/shell/AppShell';
-import { EmptyState } from '@/components/primitives';
+import { FirstRunRedirect } from '@/views/onboarding/FirstRunRedirect';
+import { RouteFallback } from '@/components/shell/RouteFallback';
 import { PrototypeProvider } from '@/prototype/PrototypeProvider';
+import { IS_DIST_BUILD } from '@/build-flags';
 
-const AccountRotationView = lazy(() => import('@/views/accounts/AccountRotationView'));
+// WP B5: the account-rotation screen is development-only; the distributed build never loads it
+// (src/build-flags.ts, scripts/dist-strip.mjs). The literal flag lets Rollup drop the import.
+const AccountRotationView = IS_DIST_BUILD ? null : lazy(() => import('@/views/accounts/AccountRotationView'));
 const ActivityView = lazy(() => import('@/views/activity/ActivityView'));
 const AgentsView = lazy(() => import('@/views/agents/AgentsView'));
+const AutomationsView = lazy(() => import('@/views/automations/AutomationsView'));
 const ArtifactsView = lazy(() => import('@/views/artifacts/ArtifactsView'));
 const ChatView = lazy(() => import('@/views/chat/ChatView'));
 const DiscordView = lazy(() => import('@/views/discord/DiscordView'));
 const FilesView = lazy(() => import('@/views/files/FilesView'));
 const HomeView = lazy(() => import('@/views/home/HomeView'));
+const JobsView = lazy(() => import('@/views/jobs/JobsView'));
+// Redesign 1C: Leer Forge (DESIGN.md §3.6). A stub until part 2D fills it.
+const LearnView = lazy(() => import('@/views/learn/LearnView'));
 const MindMapView = lazy(() => import('@/views/mindmap/MindMapView'));
 const MissionControlView = lazy(() => import('@/views/mission/MissionControlView'));
 const ProjectOverviewView = lazy(() => import('@/views/projects/ProjectOverviewView'));
+const OnboardingView = lazy(() => import('@/views/onboarding/OnboardingView'));
 const ProjectsView = lazy(() => import('@/views/projects/ProjectsView'));
 const SettingsView = lazy(() => import('@/views/settings/SettingsView'));
+const SkillsView = lazy(() => import('@/views/skills/SkillsView'));
 const TasksView = lazy(() => import('@/views/tasks/TasksView'));
+const TeamView = lazy(() => import('@/views/team/TeamView'));
 const TestsView = lazy(() => import('@/views/tests/TestsView'));
 const ThemeShowcaseView = lazy(() => import('@/views/theme/ThemeShowcaseView'));
 
-/** Same EmptyState primitive every other quiet region uses — no new visual. */
-function RouteFallback() {
-  return <EmptyState icon="Loader" title="Loading view…" compact />;
-}
+// WP B3-copy: the Suspense fallback is `RouteFallback` (Dutch via t(), an honest end state after
+// 8 s and an immediate one when the gateway link is down) instead of the old "Loading view…" line.
 
 export default function App() {
   return (
     <PrototypeProvider>
       <HashRouter>
         <AppShell>
+          {/* WP B6: sends a first start without a working Claude Code to /onboarding (never when the gateway is silent). */}
+          <FirstRunRedirect />
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/" element={<HomeView />} />
@@ -66,15 +77,21 @@ export default function App() {
               <Route path="/chat" element={<ChatView />} />
               <Route path="/mission" element={<MissionControlView />} />
               <Route path="/agents" element={<AgentsView />} />
+              <Route path="/team" element={<TeamView />} />
+              <Route path="/jobs" element={<JobsView />} />
+              <Route path="/automations" element={<AutomationsView />} />
+              <Route path="/skills" element={<SkillsView />} />
               <Route path="/tasks" element={<TasksView />} />
               <Route path="/files" element={<FilesView />} />
               <Route path="/mindmap" element={<MindMapView />} />
-              <Route path="/accounts" element={<AccountRotationView />} />
+              {AccountRotationView && <Route path="/accounts" element={<AccountRotationView />} />}
               <Route path="/artifacts" element={<ArtifactsView />} />
               <Route path="/tests" element={<TestsView />} />
               <Route path="/activity" element={<ActivityView />} />
               <Route path="/discord" element={<DiscordView />} />
               <Route path="/settings" element={<SettingsView />} />
+              <Route path="/learn" element={<LearnView />} />
+              <Route path="/onboarding" element={<OnboardingView />} />
               <Route path="/theme" element={<ThemeShowcaseView />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

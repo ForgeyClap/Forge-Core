@@ -1,0 +1,319 @@
+/*
+ * Chat route notice, badge and folded attempt (APP-ROUTER-DESIGN.md §5.1). Information, not alarm.
+ * Eenvoudig (`data-layout='line'`, DESIGN.md §3.2): one quiet line between turns — icon, headline, the
+ * capability words that never shrink, and "Meer info" opening the rest underneath. Uitgebreid
+ * (`data-layout='card'`): a sunken card with a hairline and a quiet leading rule. Only the "nothing could
+ * answer" variants (exhausted, not retried, failed) take the warm status edge / icon colour; a failed
+ * attempt also gets one emphasised line that says what to do. Motion: the chevron turn only.
+ */
+
+/* ------------------------------------------------------------ one line (Eenvoudig) */
+
+.fw-route-notice[data-layout='line'] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--fs-space-2);
+  row-gap: 2px;
+  margin: 0 0 var(--fs-space-3);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+}
+
+.fw-route-notice__line-icon {
+  flex: none;
+  align-self: center;
+  color: var(--fs-ink-3);
+}
+
+.fw-route-notice[data-layout='line'][data-variant='exhausted'] .fw-route-notice__line-icon,
+.fw-route-notice[data-layout='line'][data-variant='not-retried'] .fw-route-notice__line-icon,
+.fw-route-notice[data-layout='line'][data-variant='failed'] .fw-route-notice__line-icon {
+  color: var(--fs-accent);
+}
+
+.fw-route-notice__headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.3em;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  /* Never wider than the row minus the icon: a long headline wraps inside itself on a phone instead of
+     dropping below the icon and leaving the icon alone on its own line. */
+  max-inline-size: calc(100% - 16px - var(--fs-space-2));
+  margin: 0;
+  color: var(--fs-ink);
+}
+
+.fw-route-notice__head-text {
+  min-inline-size: 0;
+}
+
+/* The honesty suffix ("(alleen antwoorden)"): never shrinks, never ellipsed (DESIGN.md §3.2). */
+.fw-route-notice__cap {
+  flex: none;
+  white-space: nowrap;
+  color: var(--fs-ink);
+  font-weight: 600;
+}
+
+.fw-route-notice[data-layout='line'][data-variant='failed'] .fw-route-notice__headline,
+.fw-route-notice[data-layout='line'][data-variant='exhausted'] .fw-route-notice__headline {
+  font-weight: 600;
+}
+
+/* The disclosure's trigger sits on the line; its panel wraps to a full-width row underneath. */
+.fw-route-notice__more {
+  display: contents;
+}
+
+.fw-route-notice__more > .fw-disclosure__trigger {
+  flex: none;
+}
+
+.fw-route-notice__more > .fw-disclosure__panel {
+  flex: 1 0 100%;
+  padding-inline-start: calc(16px + var(--fs-space-2));
+}
+
+.fw-route-notice__more > .fw-disclosure__panel[hidden] {
+  display: none;
+}
+
+.fw-route-notice[data-layout='line'] .fw-route-notice__actions {
+  flex: 1 0 100%;
+  align-items: center;
+  margin-top: 2px;
+  padding-inline-start: calc(16px + var(--fs-space-2));
+}
+
+/* ------------------------------------------------------------------ card (Uitgebreid) */
+
+.fw-route-notice[data-layout='card'] {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: var(--fs-space-3);
+  align-items: start;
+  margin: 0 0 var(--fs-space-3);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  border: 1px solid var(--fs-line);
+  border-inline-start: 3px solid var(--fs-ink-3);
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+  max-inline-size: 72ch;
+}
+
+.fw-route-notice[data-variant='exhausted'],
+.fw-route-notice[data-variant='not-retried'],
+.fw-route-notice[data-variant='failed'] {
+  border-inline-start-color: var(--fs-accent);
+}
+
+.fw-route-notice[data-variant='failed'] .fw-route-notice__icon {
+  color: var(--fs-ink);
+}
+
+/* A failed attempt: the failure line is the news; the "switched to" title becomes its quiet context. */
+.fw-route-notice[data-variant='failed'] .fw-route-notice__title {
+  font-weight: 500;
+  color: var(--fs-ink-2);
+}
+
+.fw-route-notice__icon {
+  inline-size: 28px;
+  block-size: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface);
+  color: var(--fs-ink-2);
+}
+
+.fw-route-notice__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.fw-route-notice__title {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--fs-text-13);
+  line-height: 1.45;
+}
+
+.fw-route-notice__failure {
+  margin: 0 0 2px;
+  font-weight: 600;
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink);
+}
+
+.fw-route-notice__line {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+  color: var(--fs-ink-2);
+}
+
+.fw-route-notice__actions {
+  display: flex;
+  gap: var(--fs-space-2);
+  margin-top: var(--fs-space-2);
+}
+
+.fw-route-notice__link {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--fs-ink-3);
+  text-underline-offset: 3px;
+  border-radius: 2px;
+}
+
+.fw-route-notice__link:hover {
+  text-decoration-color: currentColor;
+}
+
+.fw-route-notice__link:active {
+  color: var(--fs-ink-2);
+}
+
+.fw-route-notice__link:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ badge */
+
+.fw-route-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* Only the label shortens: the capability words sit in their own span and are never cut. */
+  max-inline-size: min(56ch, 100%);
+  min-inline-size: 0;
+  padding: 1px 8px;
+  border-radius: var(--fs-radius-pill);
+  border: 1px solid var(--fs-line);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
+  white-space: nowrap;
+}
+
+.fw-route-badge > svg {
+  flex: none;
+}
+
+.fw-route-badge__label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fw-route-badge__cap {
+  flex: none;
+}
+
+.fw-route-badge[data-capability='answers-only'],
+.fw-route-badge[data-capability='read-answer'] {
+  border-style: dashed;
+  border-color: var(--fs-ink-3);
+  color: var(--fs-ink);
+}
+
+/* ---------------------------------------------------------- folded attempt */
+
+.fw-route-folded {
+  margin: 0 0 var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  border: 1px dashed var(--fs-line);
+  max-inline-size: 72ch;
+}
+
+.fw-route-folded__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+  border-radius: var(--fs-radius-sm);
+}
+
+.fw-route-folded__summary::-webkit-details-marker {
+  display: none;
+}
+
+.fw-route-folded__summary:hover {
+  color: var(--fs-ink);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+}
+
+.fw-route-folded__summary:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+.fw-route-folded__chevron {
+  transition: transform var(--fs-dur-1) var(--fs-ease);
+}
+
+.fw-route-folded[open] .fw-route-folded__chevron {
+  transform: rotate(90deg);
+}
+
+.fw-route-folded__body {
+  padding: 0 var(--fs-space-4) var(--fs-space-3);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fw-route-folded__empty {
+  margin: 0;
+  color: var(--fs-ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-route-folded__chevron {
+    transition: none;
+  }
+}
+
+/* Q6-UI: which router steps were skipped for this reply, and why. One quiet line under the notice (or alone
+   above the header when there is no notice): secondary ink, the small size, the route icon in tertiary ink. */
+.fw-route-skip {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fs-space-2);
+  margin: 0 0 var(--fs-space-3);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  /* The same reading measure as the notice card and the folded attempt: never wider than the reply column. */
+  max-inline-size: 72ch;
+}
+
+/* Q6-SHOTS round 1: the icon sits on the FIRST line of a wrapped skip line (centred it floated between two lines),
+   and its 14px glyph is centred in the notice icon's 16px column, so the skip text starts exactly under the route
+   header text above it. */
+.fw-route-skip__icon {
+  flex: none;
+  align-self: flex-start;
+  margin-block-start: calc((1.5em - 14px) / 2);
+  margin-inline: 1px;
+  color: var(--fs-ink-3);
+}
+
+/* A skip line that belongs to the notice right above it sits closer to it than to the next reply header. */
+.fw-route-notice:has(+ .fw-route-skip) {
+  margin-block-end: var(--fs-space-2);
+}

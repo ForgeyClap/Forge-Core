@@ -399,8 +399,10 @@ const NEW_IDS = ['preview-preconditions', 'wp-closure', 'subagent-closure', 'wp-
 const V1_IDS = ['memory-read', 'owner-prefs-loaded', 'research-done', 'plan-or-prd-present', 'prd-required-for-heavy-work', 'dispatch-logged', 'evidence-satisfied', 'verify-checked', 'independent-verification', 'report-present', 'web-responsive-evidence', 'correctness-critical-fixtures'];
 {
   const meta = RC.loadRulesMeta(PROD_RULES);
-  // 21 part ii added owner-requests-reconciled (event-present, warn)
-  t('production rules load with this checker: 21 rules, nothing degraded', meta.data.rules.length === 21 && !meta.unknownCheckTypes.length && !meta.unknownTriggers.length);
+  // 21 part ii added owner-requests-reconciled (event-present, warn);
+  // 25 since I.6 added the four run-shape rules plan-card-recorded, anticipation-recorded,
+  // parallelism-considered and craft-review-recorded (verified against FORGE_HARD_RULES.json in WP 2.9c)
+  t('production rules load with this checker: 31 rules (E.1 end-self-review and S3b craft-evidence-recorded added 2026-10-24, A2 dispatch-harness-match 2026-11-01, skill-map-recorded, skill-delivered and F14 run-shape-declared 2026-11-07), nothing degraded', meta.data.rules.length === 31 && !meta.unknownCheckTypes.length && !meta.unknownTriggers.length);
   const orr = PROD.rules.find((r) => r.id === 'owner-requests-reconciled');
   t('WP-7b-ii: owner-requests-reconciled is an event-present warn rule since 2026-10-10, gated by applies_if_exists on the scribe ledger', !!orr && orr.check.type === 'event-present' && orr.severity === 'warn' && orr.since === '2026-10-10' && orr.phase === 'complete' && orr.applies_if_exists === '.claude/forge-scribe/ledger.jsonl');
   t('registry version is 2', PROD.version === 2);
@@ -446,7 +448,7 @@ const V1_IDS = ['memory-read', 'owner-prefs-loaded', 'research-done', 'plan-or-p
   t('PRODUCTION rules: 10 work packages and 0 wp_completed -> wp-closure WARNING', r.warnings.includes('wp-closure') && !r.missing.includes('wp-closure'), JSON.stringify({ warnings: r.warnings, missing: r.missing }));
   t('... the detail lists all 10 as unclosed', (r.rule_details['wp-closure'] || {}).unclosed_count === 10 && (r.rule_details['wp-closure'] || {}).opened === 10);
   t('... and the warning never appears in missing (warn stays warn)', !r.missing.some((m) => NEW_IDS.includes(m)));
-  t('... a run started after ' + SINCE + ' is judged by every version-2 rule (none exempt)', r.historical_exempt.length === 0 && r.run_started_at === '2026-10-10T08:00:00.000Z');
+  t('... a run started after ' + SINCE + ' is judged by every version-2 rule (none exempt; a later rule such as E.1 end-self-review, since 2026-10-24, may be)', r.historical_exempt.filter((x) => NEW_IDS.includes(x.id)).length === 0 && r.run_started_at === '2026-10-10T08:00:00.000Z');
   const old = 'prod-old';
   writeRun(TMP, old, [{ event_type: 'run_started', agent: 'orchestrator' }].concat(wps), { start: '2026-10-06T09:55:22Z' });
   const ro = RC.check({ run_id: old }, { root: TMP });

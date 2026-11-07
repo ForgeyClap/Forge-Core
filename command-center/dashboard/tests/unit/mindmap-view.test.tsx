@@ -8,6 +8,7 @@ import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { EMPTY_DETAIL, EMPTY_TITLE, MindMapWorkspace } from '@/views/mindmap/MindMapView';
+import { headingSkips } from './heading-order';
 
 afterEach(() => {
   cleanup();
@@ -92,6 +93,9 @@ describe('MindMapWorkspace with a map', () => {
 
     const detail = screen.getByRole('region', { name: 'Selected node' });
     expect(within(detail).getByRole('heading', { name: 'Enforcement' })).toBeInTheDocument();
+    // fix (axe heading-order): the node heading follows the page h1 directly, so it is an h2.
+    expect(within(detail).getByRole('heading', { name: 'Enforcement', level: 2 })).toBeInTheDocument();
+    expect(headingSkips(document.body)).toEqual([]);
     expect(within(detail).getByText('Children · 1')).toBeInTheDocument();
     // Clicking a child chip in the detail panel selects that child.
     fireEvent.click(within(detail).getByRole('button', { name: 'Run contract' }));

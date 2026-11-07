@@ -15,7 +15,8 @@
 
 import { useNavigate } from 'react-router-dom';
 
-import { Icon, Machine } from '@/components/primitives';
+import { Icon } from '@/components/primitives';
+import { useLocale } from '@/i18n/use-locale';
 import { usePrototype } from '@/prototype/state/prototype-store';
 import { useGatewayPendingAsks } from '@/prototype/state/gateway-pending-asks';
 
@@ -24,6 +25,7 @@ import './waiting-chip.css';
 export function WaitingChip() {
   const { state, dispatch } = usePrototype();
   const navigate = useNavigate();
+  const { t } = useLocale();
   const pending = useGatewayPendingAsks(state.activeProjectId);
 
   if (pending.length === 0) return null;
@@ -32,8 +34,8 @@ export function WaitingChip() {
   const more = pending.length - 1;
   const excerpt = first.conversationFirstMessage;
   const title =
-    (excerpt !== null ? `Waiting on you: "${excerpt}"` : 'Waiting on you for a question with no message text yet') +
-    (more > 0 ? ` (+${more} more conversation${more === 1 ? '' : 's'} also waiting)` : '');
+    (excerpt !== null ? t('shell.waiting.titleWithExcerpt', { excerpt }) : t('shell.waiting.titleNoText')) +
+    (more > 0 ? t(more === 1 ? 'shell.waiting.moreOne' : 'shell.waiting.moreMany', { count: more }) : '');
 
   function jumpToConversation() {
     dispatch({ type: 'conversation/activate', id: first.conversationId });
@@ -43,10 +45,11 @@ export function WaitingChip() {
   return (
     <button type="button" className="fw-waiting" onClick={jumpToConversation} title={title}>
       <Icon name="MessageSquare" size="xs" className="fw-waiting__icon" />
-      <Machine className="fw-waiting__text">
-        <span className="fw-waiting__part">Waiting on you</span>
+      {/* Plain body text: "Wacht op jou" is a sentence for the owner, not machine text (DESIGN.md §2). */}
+      <span className="fw-waiting__text">
+        <span className="fw-waiting__part">{t('shell.waiting.label')}</span>
         {pending.length > 1 ? <span className="fw-waiting__count">{pending.length}</span> : null}
-      </Machine>
+      </span>
     </button>
   );
 }

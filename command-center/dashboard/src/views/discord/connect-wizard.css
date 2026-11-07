@@ -1,7 +1,7 @@
 /*
  * ConnectWizard — the "Connect Discord" onboarding flow (WP-v290-B, beginner Discord onboarding).
  *
- * Same house rules as discord.css: no raw hex/rgb/hsl, every colour a var(--forge-*) token; a
+ * Same house rules as discord.css: no raw hex/rgb/hsl, every colour a var(--fs-*) token; a
  * fresh `.fw-wizard*` prefix rather than reusing `.fw-discord__*` (this is its own component, not
  * a variant of the panels it sits above) matching this codebase's per-component CSS convention.
  * Status (done/current/upcoming) is never colour-only — the marker also changes shape/border
@@ -10,13 +10,13 @@
  */
 
 .fw-wizard {
-  border-color: var(--forge-color-accent-line, var(--forge-color-line-strong));
+  border-color: var(--fs-accent-line);
 }
 
 .fw-wizard__list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-4);
+  gap: var(--fs-space-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -25,17 +25,17 @@
 .fw-wizard__step {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-2);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface-2);
   min-inline-size: 0;
 }
 
 .fw-wizard__step--current {
-  border-color: var(--forge-color-line-strong);
-  background: var(--forge-color-surface-3, var(--forge-color-surface-2));
+  border-color: var(--fs-line-strong);
+  background: var(--fs-sunken);
 }
 
 .fw-wizard__step--upcoming {
@@ -45,7 +45,7 @@
 .fw-wizard__step-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
@@ -54,22 +54,22 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  inline-size: var(--forge-control-xs);
-  block-size: var(--forge-control-xs);
-  border-radius: var(--forge-radius-full, 999px);
-  border: var(--forge-border-hair) solid var(--forge-color-line-strong);
-  color: var(--forge-color-text-muted);
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: var(--fs-radius-pill);
+  border: 1px solid var(--fs-line-strong);
+  color: var(--fs-ink-3);
 }
 
 .fw-wizard__marker--done {
   border-style: solid;
-  background: var(--forge-color-text);
-  color: var(--forge-color-bg);
+  background: var(--fs-ink);
+  color: var(--fs-bg);
 }
 
 .fw-wizard__marker--current {
   border-style: solid;
-  border-color: var(--forge-color-text);
+  border-color: var(--fs-ink);
 }
 
 .fw-wizard__marker--upcoming {
@@ -77,43 +77,41 @@
 }
 
 .fw-wizard__step-eyebrow {
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
+  color: var(--fs-ink-3);
   white-space: nowrap;
 }
 
 .fw-wizard__step-title {
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
   min-inline-size: 0;
 }
 
 .fw-wizard__step-body {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
-  padding-inline-start: calc(var(--forge-control-xs) + var(--forge-space-2));
+  gap: var(--fs-space-2);
+  padding-inline-start: calc(22px + var(--fs-space-2));
   min-inline-size: 0;
 }
 
 .fw-wizard__copy {
-  max-inline-size: var(--forge-layout-reading);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  max-inline-size: 46rem;
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
 }
 
 .fw-wizard__copy--muted {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 .fw-wizard__ui-label {
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  font-weight: 600;
+  color: var(--fs-ink);
 }
 
 .fw-wizard__link {
@@ -121,44 +119,65 @@
 }
 
 .fw-wizard__form {
+  max-inline-size: 40rem;
+}
+
+/* W3FX-BC: the field and its button share one row; the hint sits under both. */
+.fw-wizard__row {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--forge-space-2);
+  align-items: center;
+  gap: var(--fs-space-2);
+  min-inline-size: 0;
 }
 
 .fw-wizard__input {
-  min-inline-size: min(100%, 22rem);
+  flex: 1 1 18rem;
+  min-inline-size: min(100%, 18rem);
+  justify-content: flex-start;
+  border: 1px solid var(--fs-line-strong);
+  background: var(--fs-surface);
+  font-weight: 400;
+  text-align: start;
+  cursor: text;
+}
+
+.fw-wizard__input::placeholder {
+  color: var(--fs-ink-3);
+}
+
+.fw-wizard__input:hover {
+  border-color: var(--fs-ink-3);
 }
 
 .fw-wizard__alert {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-md);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-secondary);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px dashed var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
 }
 
 .fw-wizard__guild-picker {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
 }
 
 .fw-wizard__guild-options {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
 }
 
 .fw-wizard__done-list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -167,29 +186,29 @@
 .fw-wizard__done-list li {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
-  max-inline-size: var(--forge-layout-reading);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  gap: var(--fs-space-2);
+  max-inline-size: 46rem;
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
 }
 
 .fw-wizard__limits {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
-  margin-block-start: var(--forge-space-4);
-  padding-block-start: var(--forge-space-3);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  gap: var(--fs-space-2);
+  margin-block-start: var(--fs-space-4);
+  padding-block-start: var(--fs-space-3);
+  border-block-start: 1px solid var(--fs-line);
 }
 
 .fw-wizard__limit {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 @media (max-width: 620px) {
@@ -197,7 +216,7 @@
     padding-inline-start: 0;
   }
 
-  .fw-wizard__form {
+  .fw-wizard__row {
     flex-direction: column;
     align-items: stretch;
   }

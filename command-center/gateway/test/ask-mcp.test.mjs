@@ -95,8 +95,9 @@ after(async () => {
   await gateway.close();
 });
 
-test('HANDSHAKE: initialize -> tools/list returns exactly one tool, "ask_owner"', async () => {
-  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_EXEC_TOKEN: 'tok' });
+// WP B3 (plan 4.4): the server now exposes a SECOND tool, the --permission-prompt-tool target.
+test('HANDSHAKE: initialize -> tools/list returns exactly two tools, "ask_owner" and "permission_prompt"', async () => {
+  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_AGENT_TOKEN: 'tok' });
   try {
     mcp.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     const initResult = await mcp.nextMessage();
@@ -106,9 +107,11 @@ test('HANDSHAKE: initialize -> tools/list returns exactly one tool, "ask_owner"'
     mcp.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const toolsResult = await mcp.nextMessage();
     assert.equal(toolsResult.id, 2);
-    assert.equal(toolsResult.result.tools.length, 1);
+    assert.equal(toolsResult.result.tools.length, 2);
     assert.equal(toolsResult.result.tools[0].name, 'ask_owner');
     assert.equal(toolsResult.result.tools[0].inputSchema.required[0], 'questions');
+    assert.equal(toolsResult.result.tools[1].name, 'permission_prompt');
+    assert.deepEqual(toolsResult.result.tools[1].inputSchema.required, ['tool_name', 'input']);
   } finally {
     mcp.stop();
   }
@@ -127,7 +130,7 @@ test('TOOLS/CALL: blocks on the real HTTP call to the (fake) gateway and resolve
     CC_ASK_GATEWAY_ORIGIN: gateway.origin,
     CC_ASK_CONV_ID: 'c-42',
     CC_ASK_TURN_ID: 't-9',
-    CC_ASK_EXEC_TOKEN: 'real-token-value',
+    CC_ASK_AGENT_TOKEN: 'real-token-value',
   });
   try {
     mcp.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
@@ -157,7 +160,7 @@ test('TOOLS/CALL: blocks on the real HTTP call to the (fake) gateway and resolve
 test('TIMEOUT: a gateway response reporting timed_out:true is surfaced as an honest text result, never fabricating an answer', async () => {
   gateway.setResponder(() => ({ status: 200, body: { ok: true, timed_out: true, note: 'the owner did not answer within the time limit' } }));
 
-  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_EXEC_TOKEN: 'tok' });
+  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_AGENT_TOKEN: 'tok' });
   try {
     mcp.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     await mcp.nextMessage();
@@ -174,7 +177,7 @@ test('TIMEOUT: a gateway response reporting timed_out:true is surfaced as an hon
 test('GATEWAY FAILURE: a non-200/non-ok gateway response is surfaced as an honest error, never a silent hang or a fabricated answer', async () => {
   gateway.setResponder(() => ({ status: 500, body: { ok: false, error: 'internal gateway error' } }));
 
-  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_EXEC_TOKEN: 'tok' });
+  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_AGENT_TOKEN: 'tok' });
   try {
     mcp.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     await mcp.nextMessage();
@@ -189,7 +192,7 @@ test('GATEWAY FAILURE: a non-200/non-ok gateway response is surfaced as an hones
 
 test('VALIDATION: tools/call with no questions at all is an honest error, never a network call to the gateway', async () => {
   gateway.received.length = 0;
-  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_EXEC_TOKEN: 'tok' });
+  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: gateway.origin, CC_ASK_CONV_ID: 'c-1', CC_ASK_AGENT_TOKEN: 'tok' });
   try {
     mcp.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     await mcp.nextMessage();
@@ -204,7 +207,7 @@ test('VALIDATION: tools/call with no questions at all is an honest error, never 
 });
 
 test('UNREACHABLE GATEWAY: a connection failure (wrong port) is surfaced as an honest error, never a hang', async () => {
-  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: 'http://127.0.0.1:1', CC_ASK_CONV_ID: 'c-1', CC_ASK_EXEC_TOKEN: 'tok' });
+  const mcp = spawnAskMcp({ CC_ASK_GATEWAY_ORIGIN: 'http://127.0.0.1:1', CC_ASK_CONV_ID: 'c-1', CC_ASK_AGENT_TOKEN: 'tok' });
   try {
     mcp.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     await mcp.nextMessage();

@@ -36,7 +36,7 @@ import type {
   RuntimeDeclarations,
 } from '@/shared/protocol';
 import type { StatusKey } from '@/prototype/types/prototype-types';
-import type { LatencyReport } from '@/bridge/usage/latency';
+import type { LatencyReport } from '@/shared/latency';
 
 import { BridgeClient, BridgeOperationError } from '@/prototype/state/bridge-client';
 import type {
@@ -52,7 +52,7 @@ import type {
 /* ========================================================================== */
 
 /**
- * Mirrors `BRIDGE_PROJECT_ID` in `src/bridge/storage/store.ts`. Declared locally
+ * Mirrors `BRIDGE_PROJECT_ID` in `archive/bridge/storage/store.ts`. Declared locally
  * rather than value-imported, because that module reaches the filesystem and
  * must never be pulled into the browser bundle. Bridge-scoped control events use
  * this id and must not appear as a user project.
@@ -705,7 +705,7 @@ let sharedStore: LiveStore | null = null;
  * The one shared store. Created (never connected) on first use.
  *
  * WP7b: this project's gateway (`command-center/gateway`, REST + SSE on
- * `127.0.0.1:4100`) is the sole real-data layer this phase — `src/bridge/**`
+ * `127.0.0.1:4100`) is the sole real-data layer this phase — `archive/bridge/**`
  * stays on disk, unedited, as a documented future-phase reference, but is
  * deliberately never started (see `T7-integration-plan.md` §b). Auto-connecting
  * here would only ever open a real WebSocket to a bridge on `127.0.0.1:4517`

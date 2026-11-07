@@ -21,11 +21,26 @@ import {
   activeConversationsDir,
 } from './conversation-store.mjs';
 import { TAIL_CACHE } from './conversation-stream.mjs';
+import { readConversationSession, clearConversationSession, markConversationForkedFrom } from './sessions/gateway-sessions.mjs';
+
+// WP A4: the conversation's stored Claude session, in this API's snake_case shape, or null when the
+// conversation has none yet (no turn has run, or its session was dropped after a failed resume).
+function sessionView(convId) {
+  const record = readConversationSession(convId);
+  if (!record) return null;
+  return {
+    session_id: record.sessionId,
+    model: record.model,
+    created_at: record.createdAt,
+    last_used_at: record.lastUsedAt,
+    fork_pending: record.pendingFork,
+  };
+}
 
 // Creates a new conversation: writes exactly one `meta` line and returns its summary. `project`
 // must already have been validated against the real project allowlist by the caller (server.mjs)
 // — this module has no opinion on which projects exist, only how the store is shaped.
-export function createConversation({ project, title }) {
+export function createConversation({ project, title, forkedFrom = null }) {
   ensureDir();
   let id = generateConversationId();
   // Astronomically unlikely id collision — regenerate once rather than silently overwrite.
@@ -37,6 +52,8 @@ export function createConversation({ project, title }) {
     project,
     title: typeof title === 'string' && title.length > 0 ? title : null,
     created_at: createdAt,
+    // WP A4: only present on a fork, so every ordinary meta line stays byte-identical.
+    ...(forkedFrom && safeConvIdOk(forkedFrom) ? { forked_from: forkedFrom } : {}),
   };
   appendRecord(id, meta);
   return { id, project, title: meta.title, created_at: createdAt };
@@ -95,7 +112,30 @@ export function readConversation(convId) {
   meta = backfillTitleIfNeeded(convId, turns, meta);
   let updatedAt = meta ? meta.created_at : new Date(0).toISOString();
   try { updatedAt = fs.statSync(p).mtime.toISOString(); } catch { /* keep the meta-derived fallback */ }
-  return { ok: true, id: convId, meta, turns, events, turn_count: turns.length, updated_at: updatedAt };
+  const session = sessionView(convId);
+  return { ok: true, id: convId, meta, turns, events, turn_count: turns.length, updated_at: updatedAt, session_id: session ? session.session_id : null, session };
+}
+
+// WP A4: a fork is a NEW conversation (same project, `forked_from` on its meta line) whose first turn
+// continues the source conversation's Claude session under a new session id
+// (`--resume <id> --fork-session`), so the model remembers everything up to the fork while the
+// source conversation's own session stays untouched. The source's transcript is not copied; the new
+// conversation's file starts empty. When the source has no session yet, the fork simply starts
+// fresh (`session` is then null). The HTTP route (POST /api/conversations/:id/fork) belongs in
+// server.mjs and is left to WP A11.
+export function forkConversation(sourceConvId) {
+  const source = readConversation(sourceConvId);
+  if (!source.ok || !source.meta) return { ok: false, error: 'conversation not found' };
+  const sourceTitle = source.meta.title;
+  const title = sourceTitle ? deriveTitleFromText('Fork: ' + sourceTitle) : null;
+  const created = createConversation({ project: source.meta.project, title, forkedFrom: sourceConvId });
+  let session = null;
+  try {
+    session = markConversationForkedFrom(created.id, sourceConvId, { title });
+  } catch (err) {
+    return { ok: false, error: 'fork created but its session could not be stored: ' + (err && err.message ? err.message : String(err)), id: created.id };
+  }
+  return { ok: true, ...created, forked_from: sourceConvId, session_fork_pending: session !== null };
 }
 
 // P2-12 fix (cc-fix-gateway-perf): listConversations() used to fully
@@ -273,6 +313,9 @@ export function deleteConversation(convId) {
   // stale cached summary for an id that no longer has a backing file on disk.
   SUMMARY_CACHE.delete(p);
   TAIL_CACHE.delete(p);
+  // WP A4: the conversation's stored Claude session goes with it (best-effort; a store that cannot
+  // be written leaves only an orphan mapping that nothing reads any more).
+  clearConversationSession(convId);
   return { ok: true };
 }
 

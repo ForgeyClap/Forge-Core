@@ -94,9 +94,9 @@ test('kanaal-indicator: korte run verspilt geen hernoem-budget (hysterese)', asy
 });
 
 test('stripIndicator haalt emoji-prefix weg (voorkomt duplicaat-kanalen)', () => {
-  assert.equal(stripIndicator('🔴littlebazzar'), 'littlebazzar');
-  assert.equal(stripIndicator('🟢 littlebazzar'), 'littlebazzar');
-  assert.equal(stripIndicator('littlebazzar'), 'littlebazzar');
+  assert.equal(stripIndicator('🔴demo-shop'), 'demo-shop');
+  assert.equal(stripIndicator('🟢 demo-shop'), 'demo-shop');
+  assert.equal(stripIndicator('demo-shop'), 'demo-shop');
 });
 
 test('mobiel profiel: huisregels alleen bij verse sessie, niet bij --resume', () => {

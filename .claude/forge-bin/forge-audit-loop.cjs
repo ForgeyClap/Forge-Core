@@ -98,7 +98,29 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** memoryReadPath(root, name) -> where a FORGE_* memory file is read: .claude/<name> in the legacy layout (as
+ *  before); .forge/memory/<name> in the forge layout, falling back to .claude/<name> until it exists. */
+function memoryReadPath(root, name) {
+  const legacy = path.join(root, '.claude', name);
+  if (!forgePaths || typeof forgePaths.memoryFile !== 'function') return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : forgePaths.memoryFile(root, name, { read: true }); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> pass --root
+const PROJECT_ROOT_DEFAULT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
+function rootOrFail(root) {
+  if (!root) throw new Error('no project root found (no .claude, .forge or .git above the current folder; pass --root)');
+  return path.resolve(root);
+}
 function claudeDir(root) { return path.join(root, '.claude'); }
 function relFromRoot(root, p) { return path.relative(root, p).split(path.sep).join('/'); }
 
@@ -124,7 +146,7 @@ function memoryIntegrityFindings(root) {
   if (!prefsMod) {
     findings.push({ category: 'MEMORY-INTEGRITY', severity: 'medium', detail: 'forge-prefs.cjs module not available — owner-profile check skipped', evidence: null });
   } else {
-    const profilePath = path.join(cd, 'FORGE_OWNER_PROFILE.json');
+    const profilePath = memoryReadPath(root, 'FORGE_OWNER_PROFILE.json');
     try {
       const layer = prefsMod.loadProfileLayer(profilePath, 'project');
       if (!layer.present) {
@@ -410,7 +432,12 @@ function maybeBriefing(root, opts) {
 // ---------------------------------------------------------------------------
 // Ledger — append-only, never overwrites (see file header)
 // ---------------------------------------------------------------------------
-function ledgerDir(root) { return path.join(claudeDir(root), 'forge-audit'); }
+/** ledgerDir(root) -> the audit state folder (WP 2.1): the active one, or the legacy .claude/forge-audit while it
+ *  still holds the ledger and the active one does not exist yet, so one append-only ledger never splits in two. */
+function ledgerDir(root) {
+  const active = statePath(root, 'audit'), legacy = path.join(claudeDir(root), 'forge-audit');
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
 function ledgerPath(root) { return path.join(ledgerDir(root), 'ledger.jsonl'); }
 /** readLedger(root) -> [entry, ...]. A missing ledger degrades to [] (a fresh project has never iterated
  *  yet — normal, not an error). A malformed line is silently skipped (never crashes the reader), same
@@ -485,7 +512,7 @@ function tally(findings, field) {
 function iterate(input, opts) {
   input = input || {};
   opts = opts || {};
-  const root = path.resolve(input.root || opts.root || PROJECT_ROOT_DEFAULT);
+  const root = rootOrFail(input.root || opts.root || PROJECT_ROOT_DEFAULT);
   const now = opts.now instanceof Date ? opts.now : new Date();
   // (laptop-audit Part VI): `forge-audit-loop iterate` runs forge-doctor's FULL suite (every
   // *.test.cjs under forge-bin) as its DOCTOR-DELTA check, which the audit measured at 45s-150s with nothing
@@ -578,7 +605,7 @@ if (require.main === module) {
   if (args.usageError) { console.error('forge-audit-loop: ' + args.usageError); printUsage(); process.exitCode = 2; }
   else if (args.cmd === 'iterate') {
     try {
-      const root = args.root ? path.resolve(args.root) : PROJECT_ROOT_DEFAULT;
+      const root = rootOrFail(args.root ? path.resolve(args.root) : PROJECT_ROOT_DEFAULT);
       // progress goes to stderr, never stdout, so `--json` output stays exactly one clean JSON object.
       const onProgress = args.json ? undefined : (stage) => console.error('forge-audit-loop: ' + stage + '…');
       const result = iterate({ root }, { runId: args.run, onProgress });
@@ -588,7 +615,7 @@ if (require.main === module) {
     } catch (e) { console.error('forge-audit-loop: ' + e.message); process.exitCode = 1; }
   } else if (args.cmd === 'ledger') {
     try {
-      const root = args.root ? path.resolve(args.root) : PROJECT_ROOT_DEFAULT;
+      const root = rootOrFail(args.root ? path.resolve(args.root) : PROJECT_ROOT_DEFAULT);
       let entries = readLedger(root);
       if (Number.isFinite(args.limit) && args.limit > 0) entries = entries.slice(-args.limit);
       if (args.json) console.log(JSON.stringify(entries));

@@ -3,7 +3,7 @@
  * (mission section D).
  *
  * Every assertion here is against the SHIPPED bridge, started as a child process
- * (`node src/bridge/main.ts`) in a throwaway sandbox and spoken to only over the
+ * (`node archive/bridge/main.ts`) in a throwaway sandbox and spoken to only over the
  * wire — POST /api/operation, GET /api/health, and the `ws://…/ws` transport.
  * Nothing imports a bridge module, so nothing can accidentally test the code
  * instead of the running program. See `helpers.ts` for how the sandbox isolates

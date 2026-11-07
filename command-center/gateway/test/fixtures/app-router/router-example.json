@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "revision": 7,
+  "mode": "claude-then-model",
+  "multi_account": { "enabled": false, "acknowledged_at": null },
+  "defaults": {
+    "threshold_pct": 92,
+    "cooldown_min": 10,
+    "strategy": "in-order",
+    "return": "new-conversation",
+    "handover_turns": 12
+  },
+  "entries": [
+    { "id": "main", "kind": "claude-account", "label": "Hoofdaccount", "profile": null, "enabled": true, "threshold_pct": null },
+    { "id": "werk", "kind": "claude-account", "label": "Werk", "profile": "werk", "enabled": true, "threshold_pct": 90 },
+    { "id": "codex", "kind": "codex-account", "label": "Codex", "profile": null, "enabled": false },
+    { "id": "ollama-llama31", "kind": "provider-model", "label": "Ollama · llama3.1", "provider": "ollama-local",
+      "model": "llama3.1:8b", "enabled": true, "num_ctx": 8192, "vars": { "port": "11434" },
+      "paid_ack": false, "notice_ack": false }
+  ],
+  "updated_at": "2026-11-02T14:00:00.000Z"
+}

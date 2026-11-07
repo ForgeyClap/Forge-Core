@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "mode": "claude-accounts",
+  "entries": [
+    {
+      "id": "main",
+      "kind": "claude-account",
+      "label": "Hoofdaccount",
+      "enabled": true,
+      "eligible": false,
+      "ineligible_reason": "exhausted",
+      "state": "exhausted",
+      "max_pct": 100,
+      "windows": [{ "type": "five_hour", "pct": 100, "resets_at": "2026-11-02T16:40:00.000Z", "status": "rejected" }],
+      "measured_at": "2026-11-02T14:10:00.000Z",
+      "source": "turn",
+      "resume_at": "2026-11-02T16:40:00.000Z",
+      "capability": "full"
+    },
+    {
+      "id": "werk",
+      "kind": "claude-account",
+      "label": "Werk",
+      "enabled": true,
+      "eligible": false,
+      "ineligible_reason": "needs-login",
+      "state": "needs-login",
+      "max_pct": null,
+      "windows": [],
+      "measured_at": "2026-11-02T14:05:00.000Z",
+      "source": "test",
+      "resume_at": null,
+      "capability": "full"
+    }
+  ],
+  "next": {
+    "kind": "exhausted",
+    "resume_at": "2026-11-02T16:40:00.000Z",
+    "first_free": { "target_id": "main", "label": "Hoofdaccount", "resume_at": "2026-11-02T16:40:00.000Z" }
+  },
+  "last_switch": { "conv_id": "c-1", "turn_id": "t3", "from": "main", "to": "werk", "reason": "switch-limit", "at": "2026-11-02T14:10:02.000Z" },
+  "captured_at": "2026-11-02T14:11:00.000Z"
+}

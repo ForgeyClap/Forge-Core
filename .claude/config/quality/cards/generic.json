@@ -1,0 +1,199 @@
+{
+  "domain": "generic",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/docs/forge-reference/playbook-template.md",
+      "section": "Shared gates"
+    },
+    {
+      "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+      "section": "rules"
+    },
+    {
+      "path": ".claude/skills/forge-intake/SKILL.md",
+      "section": "1. INTAKE"
+    },
+    {
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "section": "Universal"
+    },
+    {
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "section": "Business automation"
+    },
+    {
+      "path": ".claude/agents/docs-boss.md",
+      "section": "Clarity & usability"
+    },
+    {
+      "path": ".claude/agents/docs-boss.md",
+      "section": "Handoff completeness"
+    },
+    {
+      "path": ".claude/skills/forge-router/references/unknown-project-types.md",
+      "section": "Stakeholder question"
+    }
+  ],
+  "checks": [
+    {
+      "id": "gen-audience",
+      "claim": "The deliverable names who it is for and says whether that was confirmed by the owner or assumed; every assumption is listed.",
+      "evidence_required": "The plan card or PRD line naming the audience, marked confirmed or assumed, plus the assumption list.",
+      "how_to_run": "Read the run's plan card and PRD assumptions section and quote the audience line.",
+      "severity": "block",
+      "honesty_note": "An audience nobody named is NOT_RUN, not PASS; never present an assumed audience as confirmed.",
+      "source": {
+        "path": ".claude/skills/forge-intake/SKILL.md",
+        "section": "1. INTAKE",
+        "quote": "if the owner skips a *required* question, state the assumption you're proceeding with"
+      }
+    },
+    {
+      "id": "gen-end-to-end",
+      "claim": "It does what was asked, end to end, shown by running, opening or reading the real result rather than by a description.",
+      "evidence_required": "For every part of the request: the command and its output, the opened artefact (screenshot path) or the file that was read.",
+      "how_to_run": "Run it, open it or read it, then compare the result with the original request line by line.",
+      "severity": "block",
+      "honesty_note": "A part that could not be run or opened is NOT_RUN with the reason; never PASS on a description.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "verify-checked",
+        "quote": "a check must actually pass, not just be claimed"
+      }
+    },
+    {
+      "id": "gen-honest-status",
+      "claim": "The status report claims nothing that did not run; a missing runtime, account, device or sandbox is reported as not-run with the reason.",
+      "evidence_required": "The report next to the run's real events: every claimed check, build or test matches a command that ran.",
+      "how_to_run": "Compare each claim in the report with the commands and exit codes in the run log.",
+      "severity": "block",
+      "honesty_note": "A claim without a matching command is FAIL, not a wording issue.",
+      "source": {
+        "path": ".claude/docs/forge-reference/playbook-template.md",
+        "section": "Shared gates",
+        "quote": "Never claim a check, test, build, eval, live call, charge, install or deploy that did not run."
+      }
+    },
+    {
+      "id": "gen-owner-gates",
+      "claim": "No owner-gated action (outbound message, publish, spend, live key, production deploy, live workflow, DNS) was taken without explicit owner approval.",
+      "evidence_required": "The list of owner-gated actions in the run, each with its approval, or the statement that none was taken.",
+      "how_to_run": "Read the run's gate and approval events and the report's owner queue.",
+      "severity": "block",
+      "honesty_note": "An approval that cannot be shown counts as missing.",
+      "source": {
+        "path": ".claude/docs/forge-reference/playbook-template.md",
+        "section": "Shared gates",
+        "quote": "stay drafted until the owner approves"
+      }
+    },
+    {
+      "id": "gen-secrets",
+      "claim": "No secret is in code, output, logs, error messages or git; secrets live in env with .env.example placeholders.",
+      "evidence_required": "A search of the changed files, the output and the run artefacts for key patterns with no hits.",
+      "how_to_run": "git diff plus a search for key patterns; node .claude/forge-bin/forge-secret-scrub.cjs for run artefacts.",
+      "severity": "block",
+      "honesty_note": "Report where a secret was found, never its value.",
+      "source": {
+        "path": ".claude/docs/forge-reference/playbook-template.md",
+        "section": "Shared gates",
+        "quote": "Secrets live in env with `.env.example` placeholders; never in code, client bundles, logs, error messages or git."
+      }
+    },
+    {
+      "id": "gen-edge-states",
+      "claim": "Failure, empty and edge inputs are handled: every input and I/O path has a clear error or empty state instead of a crash or a silent wrong result.",
+      "evidence_required": "A run with bad input, empty input and a failing dependency, showing what the user sees each time.",
+      "how_to_run": "Feed invalid, empty and boundary input, and make one dependency fail; quote or screenshot each result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/ship-readiness/SKILL.md",
+        "section": "Universal",
+        "quote": "error handling present on all I/O"
+      }
+    },
+    {
+      "id": "gen-reproducible",
+      "claim": "Someone else can run or rebuild it: the handoff gives the exact commands and file paths.",
+      "evidence_required": "A re-run of the documented commands in a fresh shell or clean checkout, with its output.",
+      "how_to_run": "Follow the documented steps exactly as written, in a fresh shell, and quote the result.",
+      "severity": "warn",
+      "honesty_note": "A step that only works on the builder's machine is reported, not hidden.",
+      "source": {
+        "path": ".claude/agents/docs-boss.md",
+        "section": "Clarity & usability",
+        "quote": "Setup instructions give exact commands and exact file paths"
+      }
+    },
+    {
+      "id": "gen-handoff",
+      "claim": "The handoff can be followed by someone who did not watch the work: what was verified and what was assumed is stated, and any remaining owner action is called out.",
+      "evidence_required": "The handoff note or README section, with the verified-vs-assumed lines and the owner actions.",
+      "how_to_run": "Read the handoff as a newcomer would; list every term or step that is unexplained.",
+      "severity": "warn",
+      "honesty_note": "Judgement, not a test; say who the reader is assumed to be.",
+      "source": {
+        "path": ".claude/agents/docs-boss.md",
+        "section": "Handoff completeness",
+        "quote": "What was verified vs. assumed is stated explicitly."
+      }
+    },
+    {
+      "id": "gen-rollback",
+      "claim": "The change is easy to undo: what was changed is listed and a way back exists (revert, backup, reversible migration, dead-letter).",
+      "evidence_required": "The changed-files list plus the rollback step, tried or described with what it restores.",
+      "how_to_run": "Name the rollback step; where it is safe and local, try it on a copy.",
+      "severity": "warn",
+      "honesty_note": "A rollback that was described but not tried is reported as untried.",
+      "source": {
+        "path": ".claude/skills/ship-readiness/SKILL.md",
+        "section": "Business automation",
+        "quote": "rollback/dead-letter for failed calls"
+      }
+    },
+    {
+      "id": "gen-stakeholder",
+      "claim": "The person who will look at this or work with it is named, and the visible details were checked from that person's point of view.",
+      "evidence_required": "The named stakeholder, what was looked at from their view (screens, files, outputs, the first ten seconds) and what was fixed or is still weak.",
+      "how_to_run": "Open the deliverable as that person would and write down what they would notice: naming, units, copy, empty and error states, layout.",
+      "severity": "block",
+      "honesty_note": "Judgement, not a test; say what was looked at and who the person is.",
+      "source": {
+        "path": ".claude/skills/forge-router/references/unknown-project-types.md",
+        "section": "Stakeholder question",
+        "quote": "who will look at this or work with it, and what would they notice?"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "A run shows real evidence proof before it is called done; without a domain playbook that is a generic evidence-fact event.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "evidence-satisfied",
+        "quote": "either a generic evidence-fact event"
+      }
+    },
+    {
+      "gate": "A real final report exists in the run's own folder before the run is called done.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "report-present",
+        "quote": "A real final-report artifact must actually exist in the run's own directory"
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "gen-edge-states covers only the inputs and I/O the deliverable has; a static document has no failure states beyond its own content.",
+    "gen-rollback does not apply to a read-only deliverable (an answer, an audit, a report) that changed nothing."
+  ],
+  "gaps": [
+    "No universal reproducibility rule exists outside the domain playbooks (forge-data and forge-mlops name it); gen-reproducible uses docs-boss's 'exact commands and exact file paths' line and is warn.",
+    "The handoff text in the repo is written for 'a competent teammate'; the owner's wish for docs a non-expert can follow has no repo rule beyond the BEGINNER PROMISE (plain words), so gen-handoff is warn.",
+    "Rollback is only named per domain (ship-readiness Business automation, reversible migrations in Full-stack); gen-rollback generalizes it and is warn.",
+    "Empty states are named only in ship-readiness Dashboard / data viz; gen-edge-states generalizes 'error handling present on all I/O'.",
+    "The stakeholder question's canonical source is the owner's intelligence bar (a local-only doc and the global CLAUDE.md, neither shipped); the card cites its restatement in the router reference. Re-cite it to the craft lens once that lane is integrated."
+  ]
+}

@@ -1,0 +1,238 @@
+/*
+ * "Controleer of alles werkt" (WP B6). v1.0 tokens only (--fs-*), so it follows light and
+ * dark. Motion: opacity/transform only, and none under prefers-reduced-motion.
+ */
+
+/*
+ * Status colours (--fs-ok, --fs-warn, --fs-danger and their soft variants) come from the v1.0 tokens and
+ * the alias bridge in brand/forge-tokens.css, light and dark. No local override: the theme alone decides.
+ */
+
+.fs-checkup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+}
+
+.fs-checkup__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--fs-space-1) var(--fs-space-4);
+  align-items: center;
+}
+
+.fs-checkup__title {
+  margin: 0;
+  font-size: var(--fs-text-18);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.fs-checkup__intro {
+  grid-column: 1;
+  margin: 0;
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-13);
+}
+
+.fs-checkup__actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: var(--fs-space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.fs-checkup__status:empty {
+  display: none;
+}
+
+.fs-checkup__meta,
+.fs-checkup__failed {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-checkup__failed {
+  color: var(--fs-danger);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-danger-soft);
+}
+
+.fs-checkup__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  box-shadow: var(--fs-shadow-1);
+}
+
+.fs-checkup__row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: var(--fs-space-2) var(--fs-space-3);
+  align-items: center;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  animation: fs-checkup-in var(--fs-dur-2) var(--fs-ease) both;
+}
+
+.fs-checkup__row + .fs-checkup__row {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-checkup__mark {
+  display: grid;
+  place-items: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: var(--fs-radius-xs);
+}
+
+.fs-checkup__row[data-state='ok'] .fs-checkup__mark {
+  color: var(--fs-ok);
+  background: var(--fs-ok-soft);
+}
+
+.fs-checkup__row[data-state='fail'] .fs-checkup__mark {
+  color: var(--fs-danger);
+  background: var(--fs-danger-soft);
+}
+
+.fs-checkup__row[data-state='optional'] .fs-checkup__mark {
+  color: var(--fs-ink-3);
+  background: var(--fs-sunken);
+}
+
+.fs-checkup__row[data-state='unknown'] .fs-checkup__mark {
+  color: var(--fs-warn);
+  background: var(--fs-warn-soft);
+}
+
+.fs-checkup__row[data-state='optional'] .fs-checkup__text {
+  color: var(--fs-ink-3);
+}
+
+.fs-checkup__text {
+  min-width: 0;
+  font-size: var(--fs-text-14);
+}
+
+.fs-checkup__help {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  animation: fs-checkup-in var(--fs-dur-1) var(--fs-ease) both;
+}
+
+.fs-checkup__help p {
+  margin: 0;
+  max-inline-size: 64ch;
+}
+
+.fs-checkup__details summary {
+  cursor: pointer;
+  color: var(--fs-ink-3);
+  border-radius: var(--fs-radius-xs);
+}
+
+.fs-checkup__details summary:hover {
+  color: var(--fs-ink);
+}
+
+.fs-checkup__details summary:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-checkup__command {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--fs-space-2);
+}
+
+.fs-checkup__command code {
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  user-select: all;
+}
+
+.fs-checkup__diagnosis {
+  inline-size: 100%;
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-body);
+  padding: var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  border: 1px solid var(--fs-line);
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+  resize: vertical;
+}
+
+.fs-checkup__diagnosis:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+@keyframes fs-checkup-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-checkup__row,
+  .fs-checkup__help {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .fs-checkup__head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fs-checkup__actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
+}
+
+/* Round-2 fix: with the heading hidden, the intro was squeezed beside the buttons. The
+   buttons now sit on their own line first, the intro full width under them. */
+.fs-checkup--noheading .fs-checkup__head {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.fs-checkup--noheading .fs-checkup__actions {
+  grid-column: 1;
+  grid-row: 1;
+  justify-content: flex-start;
+}
+
+.fs-checkup--noheading .fs-checkup__intro {
+  grid-row: 2;
+}

@@ -25,7 +25,10 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { EmptyState, Eyebrow, Icon, Machine, Panel, Switch } from '@/components/primitives';
+import { EmptyState, Icon, Machine, Panel, Switch } from '@/components/primitives';
+import type { Locale, Translate } from '@/i18n';
+import { useLocale } from '@/i18n/use-locale';
+import { LocalTime } from '@/views/activity/LocalTime';
 import {
   requestDiscordStart,
   requestDiscordStop,
@@ -53,83 +56,51 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-function transportHint(transport: string | null): string {
-  if (transport === 'mock') return 'Test transport — no real Discord connection is made.';
-  if (transport === 'discord') return 'Live transport — genuinely connected to Discord.';
-  return 'Not reported by the gateway.';
+type C = Translate;
+
+function transportHint(transport: string | null, t: C): string {
+  if (transport === 'mock') return t('rd.discord.transport.mock');
+  if (transport === 'discord') return t('rd.discord.transport.live');
+  return t('rd.discord.notReported');
 }
 
 /** WP-DA: "will the bot come back by itself when the Command Center starts?", in plain words.
  *  Codex DA-1: "YES" only when the gateway says it will really try (`effective`: setting on, not switched
  *  off, installed AND connected) and the last automatic start did not fail; every other case names the
  *  reason. Codex DA-2: a failed save of the owner's choice comes first, because it makes the rest unsure. */
-function autostartText(autostart: DiscordService['autostart']): { value: string; hint: string } {
-  if (autostart === null) return { value: '—', hint: 'Not reported by the gateway.' };
+function autostartText(autostart: DiscordService['autostart'], t: C): { value: string; hint: string } {
+  if (autostart === null) return { value: '—', hint: t('rd.discord.notReported') };
   const last =
-    autostart.lastOutcome !== null && autostart.lastDetail !== null
-      ? ` Last Command Center start: ${autostart.lastDetail}.`
-      : '';
+    autostart.lastOutcome !== null && autostart.lastDetail !== null ? t('rd.discord.auto.last', { detail: autostart.lastDetail }) : '';
+  const withLast = (main: string) => (last === '' ? main : `${main} ${last}`);
   if (autostart.saveError !== null) {
-    return {
-      value: 'UNSURE',
-      hint: `Forge ${autostart.saveError}, so after a restart the bot follows your previous choice. Use the switch once more to save it.${last}`,
-    };
+    return { value: t('rd.discord.auto.unsure'), hint: withLast(t('rd.discord.auto.saveError', { error: autostart.saveError })) };
   }
-  if (autostart.setting === false) {
-    return {
-      value: 'NO',
-      hint: `Turned off in Settings ("discord-autostart"). Turn it on there to have the bot start by itself.${last}`,
-    };
-  }
-  if (autostart.desired === 'stopped') {
-    return {
-      value: 'NO',
-      hint: `You switched the bot off, so it stays off after a restart. Switch it on and it comes back by itself.${last}`,
-    };
-  }
-  if (autostart.setting === null) {
-    return {
-      value: 'NO',
-      hint: `Forge's settings could not be read right now, so the bot does not start by itself (the safe choice). This clears up as soon as the settings can be read again.${last}`,
-    };
-  }
-  if (autostart.envOptOut) {
-    return {
-      value: 'NO',
-      hint: `Automatic start is turned off for this Command Center process (CC_DISCORD_AUTOSTART=off), usually a test or temporary copy.${last}`,
-    };
-  }
+  if (autostart.setting === false) return { value: t('rd.discord.auto.no'), hint: withLast(t('rd.discord.auto.settingOff')) };
+  if (autostart.desired === 'stopped') return { value: t('rd.discord.auto.no'), hint: withLast(t('rd.discord.auto.desiredStopped')) };
+  if (autostart.setting === null) return { value: t('rd.discord.auto.no'), hint: withLast(t('rd.discord.auto.settingUnknown')) };
+  if (autostart.envOptOut) return { value: t('rd.discord.auto.no'), hint: withLast(t('rd.discord.auto.envOptOut')) };
   if (autostart.desiredInvalid) {
-    return {
-      value: 'NO',
-      hint: `Your last on/off choice could not be read${autostart.desiredNote !== null ? ` (${autostart.desiredNote})` : ''}, so the bot does not start by itself. Switch it on here to start it and save your choice again.${last}`,
-    };
+    const note = autostart.desiredNote !== null ? ` (${autostart.desiredNote})` : '';
+    return { value: t('rd.discord.auto.no'), hint: withLast(t('rd.discord.auto.desiredInvalid', { note })) };
   }
   if (!autostart.ready) {
     return {
-      value: 'NOT YET',
-      hint: `It will start by itself once it can: ${autostart.readyReason ?? 'Discord is not set up yet'}. Finish connecting Discord first.`,
+      value: t('rd.discord.auto.notYet'),
+      hint: t('rd.discord.auto.notReady', { reason: autostart.readyReason ?? t('rd.discord.auto.notReadyReason') }),
     };
   }
   if (autostart.conflict !== null) {
-    return {
-      value: 'BLOCKED',
-      hint: `Another program already answers on the bot's port, so the Command Center will not start a second bot: ${autostart.conflict}. Once that program is gone, the bot starts by itself at the next Command Center start.`,
-    };
+    return { value: t('rd.discord.auto.blocked'), hint: t('rd.discord.auto.conflict', { conflict: autostart.conflict }) };
   }
-  if (!autostart.effective) {
-    return { value: 'NO', hint: `The gateway says the bot will not start by itself.${last}` };
-  }
+  if (!autostart.effective) return { value: t('rd.discord.auto.no'), hint: withLast(t('rd.discord.auto.notEffective')) };
   if (autostart.lastOutcome === 'failed') {
     return {
-      value: 'FAILED',
-      hint: `The bot is set to start by itself, but the last automatic start failed: ${autostart.lastDetail ?? 'no reason given'}. It tries again at the next Command Center start.`,
+      value: t('rd.discord.auto.failed'),
+      hint: t('rd.discord.auto.lastFailed', { detail: autostart.lastDetail ?? t('rd.discord.auto.noReason') }),
     };
   }
-  return {
-    value: 'YES',
-    hint: `The bot starts by itself whenever the Command Center starts, also after a reboot. Switch it off here and it stays off.${last}`,
-  };
+  return { value: t('rd.discord.auto.yes'), hint: withLast(t('rd.discord.auto.on')) };
 }
 
 /* ------------------------------------------------------------------ panels */
@@ -148,24 +119,25 @@ function ServicePanel({
   actionWarning: string | null;
   onToggle: (next: boolean) => void;
 }) {
-  const autostart = autostartText(service.autostart);
+  const { t } = useLocale();
+  const autostart = autostartText(service.autostart, t);
   return (
     <Panel
-      title="Service"
-      subtitle="A real on/off switch — the switch itself only flips once the next status poll confirms it."
+      title={t('rd.discord.service.title')}
+      subtitle={t('rd.discord.service.subtitle')}
       actions={
         <Switch
           checked={service.running}
           onChange={onToggle}
           disabled={pending !== null}
-          label={service.running ? 'Discord service running' : 'Discord service stopped'}
+          label={service.running ? t('rd.discord.service.switchOn') : t('rd.discord.service.switchOff')}
         />
       }
     >
       {pending !== null ? (
         <p className="fw-discord__pending" role="status">
           <Icon name="Loader" size="xs" spin />
-          <span>{pending === 'start' ? 'Starting…' : 'Stopping…'}</span>
+          <span>{pending === 'start' ? t('rd.discord.service.starting') : t('rd.discord.service.stopping')}</span>
         </p>
       ) : null}
 
@@ -191,30 +163,30 @@ function ServicePanel({
       ) : null}
 
       <div className="fw-discord__rows">
-        <Row label="Status" hint="From the gateway's own live status check.">
-          <Machine>{service.running ? 'RUNNING' : 'STOPPED'}</Machine>
+        <Row label={t('rd.discord.service.status')} hint={t('rd.discord.service.statusHint')}>
+          <span>{service.running ? t('rd.discord.service.running') : t('rd.discord.service.stopped')}</span>
         </Row>
-        <Row label="Starts automatically" hint={autostart.hint}>
-          <Machine muted>{autostart.value}</Machine>
+        <Row label={t('rd.discord.service.autostart')} hint={autostart.hint}>
+          <span className="fw-discord-quiet">{autostart.value}</span>
         </Row>
-        <Row label="PID">
+        <Row label={t('rd.discord.service.pid')}>
           <Machine muted>{service.pid ?? '—'}</Machine>
         </Row>
-        <Row label="Started at">
-          <Machine muted>{service.startedAt ?? '—'}</Machine>
+        <Row label={t('rd.discord.service.startedAt')}>
+          <LocalTime value={service.startedAt} muted={false} className="fw-discord-quiet fw-discord-num" />
         </Row>
-        <Row label="Transport" hint={transportHint(service.transport)}>
+        <Row label={t('rd.discord.service.transport')} hint={transportHint(service.transport, t)}>
           <Machine muted>{service.transport ?? '—'}</Machine>
         </Row>
-        <Row label="Bot port">
+        <Row label={t('rd.discord.service.botPort')}>
           <Machine muted>{service.ports.bot ?? '—'}</Machine>
         </Row>
-        <Row label="State directory">
+        <Row label={t('rd.discord.service.stateDir')}>
           <Machine muted className="fw-discord__row-path">
             {service.stateDir || '—'}
           </Machine>
         </Row>
-        <Row label="Log file">
+        <Row label={t('rd.discord.service.logFile')}>
           <Machine muted className="fw-discord__row-path">
             {service.logFile || '—'}
           </Machine>
@@ -225,10 +197,11 @@ function ServicePanel({
 }
 
 function EnvKeysPanel({ envKeys }: { envKeys: DiscordService['envKeys'] }) {
+  const { t } = useLocale();
   return (
-    <Panel title="Environment keys" subtitle="Names and presence only — a value is never shown here.">
+    <Panel title={t('rd.discord.env.title')} subtitle={t('rd.discord.env.subtitle')}>
       {envKeys.length === 0 ? (
-        <EmptyState compact icon="Cable" title="No environment keys reported" />
+        <EmptyState compact icon="Cable" title={t('rd.discord.env.empty')} />
       ) : (
         <ul className="fw-discord__env-list">
           {envKeys.map((key) => (
@@ -240,7 +213,7 @@ function EnvKeysPanel({ envKeys }: { envKeys: DiscordService['envKeys'] }) {
                 }
               >
                 <Icon name={key.present ? 'Check' : 'X'} size="xs" />
-                <span>{key.present ? 'Present' : 'Missing'}</span>
+                <span>{key.present ? t('rd.discord.env.present') : t('rd.discord.env.missing')}</span>
               </span>
             </li>
           ))}
@@ -250,23 +223,22 @@ function EnvKeysPanel({ envKeys }: { envKeys: DiscordService['envKeys'] }) {
   );
 }
 
-function HealthPanel({ health }: { health: DiscordService['health'] }) {
+function HealthPanel({ health, locale }: { health: DiscordService['health']; locale: Locale }) {
+  const { t } = useLocale();
   return (
-    <Panel title="Bot health" subtitle="What the bot's own health check reports, in plain words. Hover a label to see the raw field name.">
+    <Panel title={t('rd.discord.health.title')} subtitle={t('rd.discord.health.subtitle')}>
       {health === null ? (
-        <p className="fw-discord__health-empty">
-          Bot not reachable — it may be stopped or still starting.
-        </p>
+        <p className="fw-discord__health-empty">{t('rd.discord.health.unreachable')}</p>
       ) : Object.keys(health).length === 0 ? (
-        <p className="fw-discord__health-empty">The bot answered with an empty health report.</p>
+        <p className="fw-discord__health-empty">{t('rd.discord.health.emptyReport')}</p>
       ) : (
         <ul className="fw-discord__health-list">
           {Object.entries(health).map(([key, value]) => (
             <li key={key} className="fw-discord__health-item">
               <span className="fw-discord__health-key" title={key}>
-                {healthKeyLabel(key)}
+                {healthKeyLabel(key, locale)}
               </span>
-              <span className="fw-discord__health-value">{formatHealthValue(key, value)}</span>
+              <span className="fw-discord__health-value">{formatHealthValue(key, value, locale)}</span>
             </li>
           ))}
         </ul>
@@ -279,6 +251,7 @@ function HealthPanel({ health }: { health: DiscordService['health'] }) {
 
 export default function DiscordView() {
   const status = useGatewayDiscordStatus();
+  const { t, locale } = useLocale();
   const [pending, setPending] = useState<'start' | 'stop' | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionWarning, setActionWarning] = useState<string | null>(null);
@@ -291,7 +264,7 @@ export default function DiscordView() {
     const result = next ? await requestDiscordStart() : await requestDiscordStop();
     setPending(null);
     if (!result.ok) {
-      setActionError(result.error ?? 'The gateway could not complete this request.');
+      setActionError(result.error ?? t('rd.discord.actionFailed'));
       return;
     }
     // WP-DA (Codex DA-2): the switch worked, but the choice was not saved — never a silent success.
@@ -304,11 +277,8 @@ export default function DiscordView() {
     <div className="fw-discord">
       <header className="fw-discord__head">
         <div className="fw-discord__heading">
-          <Eyebrow>Remote control</Eyebrow>
-          <h1 className="fw-discord__title">Discord</h1>
-          <p className="fw-discord__subtitle">
-            Start, stop and inspect the Discord↔Forge remote-control bot for this project.
-          </p>
+          <h1 className="fw-discord__title">{t('nav.discord.label')}</h1>
+          <p className="fw-discord__subtitle">{t('nav.discord.description')}</p>
         </div>
       </header>
 
@@ -317,17 +287,17 @@ export default function DiscordView() {
           {status.error !== null ? (
             <p className="fw-discord__transport-error" role="alert">
               <Icon name="Unplug" size="sm" />
-              <span>Could not reach the gateway: {status.error}</span>
+              <span>{t('rd.discord.unreachable', { error: status.error })}</span>
             </p>
           ) : null}
 
           {status.loading ? (
-            <EmptyState icon="Loader" title="Reading Discord service status…" compact />
+            <EmptyState icon="Loader" title={t('rd.discord.loading')} compact />
           ) : !service.installed ? (
             <EmptyState
               icon="PackageOpen"
-              title="Discord service is not installed in this project"
-              detail="No Discord bot service was found for this project. Nothing here is running, and nothing can be started yet."
+              title={t('rd.discord.notInstalled')}
+              detail={t('rd.discord.notInstalledDetail')}
             />
           ) : (
             <>
@@ -350,7 +320,7 @@ export default function DiscordView() {
                   simply stored and picked up the next time the bot starts. */}
               <ProjectsDirSection />
               <EnvKeysPanel envKeys={service.envKeys} />
-              <HealthPanel health={service.health} />
+              <HealthPanel health={service.health} locale={locale} />
             </>
           )}
         </div>

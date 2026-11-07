@@ -1630,5 +1630,193 @@ writePrdMetaSections('prd-goal-bare', { acceptance_criteria: [{ id: 'ac-1', text
   });
 }
 
+// =====================================================================================================
+// the claim verdict — narrative strip, runner-output parse, absent-test + hedge rules,
+// graded verdict and its mapping onto the PASS/FAIL gate. All pure except the CLI block (hermetic TMP).
+// =====================================================================================================
+const REPO_RUNNER_OK = [
+  'forge-sample offline tests',
+  '  ok  parses the tally',
+  '  ok  rejects an absent test',
+  '2 passed, 0 failed',
+].join('\n');
+const reportText = (obj, prose) => (prose || '') + '\n\n```forge-report\n' + JSON.stringify(obj, null, 2) + '\n```\n';
+const builderReport = {
+  status: 'completed', work_package: 'WP-SAMPLE', files_changed: ['src/sample.cjs'],
+  tests_run: 'node sample.test.cjs -> 2 passed, 0 failed', claimed_tests: ['parses the tally'],
+  evidence: ['2 passed, 0 failed observed in the runner output'], next_action: 'none',
+};
+const basePacket = () => ({
+  artifact: ['src/sample.cjs'],
+  acceptance_criteria: ['parses the tally', 'rejects an absent test'],
+  runner_output: REPO_RUNNER_OK,
+  report: reportText(builderReport, 'I rewrote the parser carefully and I am confident in it.'),
+});
+const goodJudgement = () => ({
+  criteria_results: [
+    { id: 'ac-1', status: 'met', evidence: 'runner line "ok  parses the tally"' },
+    { id: 'ac-2', status: 'met', evidence: 'runner line "ok  rejects an absent test"' },
+  ],
+  break_attempt: { property: 'a test name containing "3 passed" is never read as the tally', tried: 'fed such a line', counterexample_found: false },
+});
+
+// ---- parseRunnerOutput: the three formats + unknown ----
+{
+  const repo = V.parseRunnerOutput(REPO_RUNNER_OK);
+  tf('WP-S1 parse: repo format names + tally', () => repo.format === 'forge-tally' && repo.passed === 2 && repo.failed === 0 && repo.passed_names.length === 2);
+  const tap = V.parseRunnerOutput(['TAP version 13', '# Subtest: adds', 'ok 1 - adds', 'not ok 2 - subtracts', 'ok 3 - skipped one # SKIP', '1..3', '# tests 3', '# pass 1', '# fail 1'].join('\n'));
+  tf('WP-S1 parse: node:test TAP names, skip ignored, # pass/# fail tally', () => tap.format === 'node-tap' && tap.passed === 1 && tap.failed === 1
+    && tap.passed_names.join() === 'adds' && tap.failed_names.join() === 'subtracts');
+  const spec = V.parseRunnerOutput(['✔ adds (0.5ms)', '✖ subtracts (1.2ms)', 'ℹ pass 1', 'ℹ fail 1'].join('\n'));
+  tf('WP-S1 parse: node:test spec reporter marks + info tally', () => spec.format === 'node-spec' && spec.passed === 1 && spec.failed === 1 && spec.passed_names[0] === 'adds');
+  tf('WP-S1 parse: "10 passed, 2 failed" reads both numbers', () => { const r = V.parseRunnerOutput('10 passed, 2 failed'); return r.format === 'tally-only' && r.passed === 10 && r.failed === 2; });
+  tf('WP-S1 parse: "Tests: 2 failed, 8 passed" reads both numbers', () => { const r = V.parseRunnerOutput('Tests: 2 failed, 8 passed'); return r.passed === 8 && r.failed === 2; });
+  tf('WP-S1 parse: a test NAME saying "3 passed" never becomes the tally', () => { const r = V.parseRunnerOutput('  ok  reports 3 passed, 0 failed\n1 passed, 1 failed'); return r.passed === 1 && r.failed === 1; });
+  tf('WP-S1 parse: repo line "  ok  7d-setup: x" keeps its full name (not TAP test 7)', () => { const r = V.parseRunnerOutput('  ok  7d-setup: x\n  ok  7 tests pass\n2 passed, 0 failed'); return r.format === 'forge-tally' && r.passed_names.join('|') === '7d-setup: x|7 tests pass'; });
+  tf('WP-S1 parse: spec "failing tests:" summary is not a second failure', () => { const r = V.parseRunnerOutput('✖ breaks (1ms)\nℹ fail 1\n✖ failing tests:\n✖ breaks (1ms)'); return r.failed_names.join('|') === 'breaks'; });
+  tf('WP-S1 parse: unknown output -> format unknown, null tallies (never green)', () => { const r = V.parseRunnerOutput('all good, trust me'); return r.format === 'unknown' && r.passed === null && r.failed === null; });
+  tf('WP-S1 parse: empty / non-string input -> unknown', () => V.parseRunnerOutput('').format === 'unknown' && V.parseRunnerOutput(null).format === 'unknown');
+}
+
+// ---- stripNarrative: the verifier never sees the builder's story ----
+{
+  const p = Object.assign(basePacket(), { summary: 'Everything works great.', narrative: 'Long story of my approach.', builder_message: 'trust me' });
+  const s = V.stripNarrative(p);
+  const seen = JSON.stringify(s.packet);
+  tf('WP-S1 strip: only artifact/criteria/runner/claimed tests (+wp) survive', () => Object.keys(s.packet).sort().join() === 'acceptance_criteria,artifact,claimed_tests,runner_output,work_package');
+  tf('WP-S1 strip: builder prose, summary, narrative and report evidence are not in the packet', () => !/carefully|Everything works|Long story|trust me|observed in the runner/.test(seen));
+  tf('WP-S1 strip: every dropped field is named', () => ['summary', 'narrative', 'builder_message', 'report.prose', 'report.evidence', 'report.next_action'].every((k) => s.stripped.includes(k)));
+  tf('WP-S1 strip: claimed tests are kept as data to check', () => s.packet.claimed_tests.join() === 'parses the tally');
+  tf('WP-S1 strip: quoted names in tests_run are claims, commands/paths are not', () => {
+    const r = Object.assign({}, builderReport, { claimed_tests: undefined, tests_run: ['ran "handles empty input" and `node x.test.cjs`'] });
+    const names = V.stripNarrative({ report: r }).packet.claimed_tests;
+    return names.length === 1 && names[0] === 'handles empty input';
+  });
+  tf('WP-S1 strip: the input object is not mutated', () => p.summary === 'Everything works great.' && typeof p.report === 'string');
+}
+
+// ---- hedge words in done-claims ----
+{
+  tf('WP-S1 hedge: English hedges found', () => ['it should work now', 'probably fixed', 'I think this passes', 'seems to work'].every((x) => V.findHedges([x]).length > 0));
+  tf('WP-S1 hedge: Dutch hedges found', () => ['dit zou moeten werken', 'waarschijnlijk opgelost', 'lijkt te werken', 'het werkt, denk ik'].every((x) => V.findHedges([x]).length > 0));
+  tf('WP-S1 hedge: plain observed claims are clean', () => V.findHedges(['12 passed, 0 failed (exit 0)', 'node x.test.cjs exit 0', 'unlikely-named file kept', 'tool said: dispatch ids differ (backfill likely missed)']).length === 0);
+  tf('WP-S1 hedge: "likely fixed" is a hedge', () => V.findHedges(['likely fixed now']).length === 1);
+  const hedged = basePacket();
+  hedged.report = reportText(Object.assign({}, builderReport, { evidence: ['the parser should work now'] }));
+  const r = V.assessClaim(hedged, goodJudgement());
+  tf('WP-S1 hedge: a hedged done-claim -> NOT-PROVEN (FAIL)', () => r.verdict === 'NOT-PROVEN' && r.gate === 'FAIL' && r.findings.hedges.length === 1 && /should work/.test(r.findings.hedges[0].phrase));
+  const nl = basePacket();
+  nl.report = reportText(builderReport, 'Klaar, het zou moeten werken.');
+  tf('WP-S1 hedge: Dutch hedge in the prose around the block -> NOT-PROVEN', () => V.assessClaim(nl, goodJudgement()).verdict === 'NOT-PROVEN');
+  const fwd = basePacket();
+  fwd.report = reportText(Object.assign({}, builderReport, { next_action: 'this should work after the owner adds the key', result_caveat: 'probably fails on macOS' }));
+  tf('WP-S1 hedge: next_action / result_caveat are not done-claims (not flagged)', () => V.assessClaim(fwd, goodJudgement()).verdict === 'PROVEN');
+}
+
+// ---- graded verdicts ----
+{
+  const proven = V.assessClaim(basePacket(), goodJudgement());
+  tf('WP-S1 verdict: a real passing packet -> PROVEN, gate PASS, counts as pass', () => proven.verdict === 'PROVEN' && proven.gate === 'PASS' && proven.counts_as_pass === true);
+  const absentPkt = basePacket();
+  absentPkt.claimed_tests = ['handles unicode names'];
+  const absent = V.assessClaim(absentPkt, goodJudgement());
+  tf('WP-S1 verdict: report naming a test absent from the runner output -> NOT-PROVEN', () => absent.verdict === 'NOT-PROVEN' && absent.gate === 'FAIL'
+    && absent.findings.absent_tests.join() === 'handles unicode names' && absent.counts_as_pass === false);
+  tf('WP-S1 verdict: absent test against TAP output too', () => {
+    const p = Object.assign(basePacket(), { runner_output: 'ok 1 - parses the tally\nok 2 - rejects an absent test\n# pass 2\n# fail 0', claimed_tests: ['never written'] });
+    return V.assessClaim(p, goodJudgement()).verdict === 'NOT-PROVEN';
+  });
+  tf('WP-S1 verdict: absent test against tally-only output (searched in raw text)', () => {
+    const p = Object.assign(basePacket(), { runner_output: '2 passed, 0 failed', claimed_tests: ['never written'] });
+    const a = V.assessClaim(p, goodJudgement()); // no per-test names: the report's own claim is unconfirmable too
+    return a.verdict === 'NOT-PROVEN' && a.findings.absent_tests.includes('never written');
+  });
+  tf('WP-S1 verdict: a claimed test that FAILED -> NOT-PROVEN', () => {
+    const p = Object.assign(basePacket(), { runner_output: '  ok  rejects an absent test\n  FAIL parses the tally\n1 passed, 1 failed' });
+    const r = V.assessClaim(p, goodJudgement());
+    return r.verdict === 'NOT-PROVEN' && r.findings.failed_claimed_tests.join() === 'parses the tally';
+  });
+  tf('WP-S1 verdict: a counterexample found by the break attempt -> NOT-PROVEN', () => {
+    const j = goodJudgement(); j.break_attempt.counterexample_found = true; j.break_attempt.detail = 'empty input crashes';
+    return V.assessClaim(basePacket(), j).verdict === 'NOT-PROVEN';
+  });
+  tf('WP-S1 verdict: an unmet criterion -> NOT-PROVEN', () => {
+    const j = goodJudgement(); j.criteria_results[1].status = 'unmet';
+    return V.assessClaim(basePacket(), j).verdict === 'NOT-PROVEN';
+  });
+  const noBreak = goodJudgement(); delete noBreak.break_attempt;
+  const partly = V.assessClaim(basePacket(), noBreak);
+  tf('WP-S1 verdict: no break attempt -> PARTLY-PROVEN (never a pass)', () => partly.verdict === 'PARTLY-PROVEN' && partly.gate === 'NEEDS_MORE_EVIDENCE' && partly.counts_as_pass === false);
+  tf('WP-S1 verdict: a criterion judged without evidence -> PARTLY-PROVEN', () => {
+    const j = goodJudgement(); j.criteria_results[0].evidence = '';
+    return V.assessClaim(basePacket(), j).verdict === 'PARTLY-PROVEN';
+  });
+  tf('WP-S1 verdict: unrecognised runner output -> PARTLY-PROVEN', () => V.assessClaim(Object.assign(basePacket(), { runner_output: 'parses the tally looked fine' }), goodJudgement()).verdict === 'PARTLY-PROVEN');
+  const abst = V.assessClaim(basePacket(), Object.assign(goodJudgement(), { abstain: 'cannot run the Electron build on this host' }));
+  tf('WP-S1 verdict: an abstention -> NO-CONFIDENT-RESULT, gate NEEDS_OWNER, not a failure', () => abst.verdict === 'NO-CONFIDENT-RESULT' && abst.gate === 'NEEDS_OWNER' && abst.counts_as_pass === false);
+  tf('WP-S1 verdict: a proven-false finding beats an abstention', () => V.assessClaim(absentPkt, Object.assign(goodJudgement(), { abstain: 'unsure' })).verdict === 'NOT-PROVEN');
+  tf('WP-S1 verdict: no acceptance criteria -> NO-CONFIDENT-RESULT', () => V.assessClaim(Object.assign(basePacket(), { acceptance_criteria: [] }), goodJudgement()).verdict === 'NO-CONFIDENT-RESULT');
+  tf('WP-S1 verdict: no artifact -> NO-CONFIDENT-RESULT', () => { const p = basePacket(); delete p.artifact; return V.assessClaim(p, goodJudgement()).verdict === 'NO-CONFIDENT-RESULT'; });
+}
+
+// ---- the gate mapping keeps the downstream PASS/FAIL contract intact ----
+{
+  const R = require('./forge-report.cjs');
+  tf('WP-S1 gate: forge-verify uses the report contract word list itself (one source)', () => V.VERDICT_GRADES === R.VERDICT_GRADES);
+  tf('WP-S1 gate: every grade maps to a gate word', () => R.VERDICT_GRADES.every((g) => typeof V.VERDICT_GATE[g] === 'string') && Object.keys(V.VERDICT_GATE).length === 4);
+  tf('WP-S1 gate: only PROVEN maps to PASS, only NOT-PROVEN to FAIL', () => Object.entries(V.VERDICT_GATE).filter(([, g]) => g === 'PASS').map(([k]) => k).join() === 'PROVEN'
+    && Object.entries(V.VERDICT_GATE).filter(([, g]) => g === 'FAIL').map(([k]) => k).join() === 'NOT-PROVEN');
+  tf('WP-S1 gate: abstention gates neither close wp-verified-per-wp nor demand an escalation', () => ['NEEDS_MORE_EVIDENCE', 'NEEDS_OWNER'].every((g) => !['pass', 'passed', 'fail', 'failed'].includes(g.toLowerCase())));
+  tf('WP-S1 gate: a wp_verified carrying an abstention gate never reads as done', () => ['NEEDS_MORE_EVIDENCE', 'NEEDS_OWNER'].every((g) => V.taskStatus({ event_type: 'wp_verified', wp_id: 'wp-1', verdict: g }) !== 'done'));
+}
+
+// ---- mutation checks: disabling a rule must make its fixture fail (proves the fixtures pin the rules) ----
+{
+  const Module = require('module');
+  const srcPath = require.resolve('./forge-verify.cjs');
+  const SRC = fs.readFileSync(srcPath, 'utf8');
+  const loadMutant = (from, to) => {
+    if (!SRC.includes(from)) return null;
+    const m = new Module(srcPath, module);
+    m.filename = srcPath;
+    m.paths = Module._nodeModulePaths(path.dirname(srcPath));
+    m._compile(SRC.replace(from, to), srcPath); // in memory only: no file is written
+    return m.exports;
+  };
+  const absentPkt = Object.assign(basePacket(), { claimed_tests: ['handles unicode names'] });
+  const mA = loadMutant('const absent = absentClaimedTests(p.claimed_tests, runner, p.runner_output);', 'const absent = [];');
+  tf('WP-S1 mutation: absent-test rule disabled -> the absent-test fixture no longer gets NOT-PROVEN', () => mA !== null && mA.assessClaim(absentPkt, goodJudgement()).verdict !== 'NOT-PROVEN');
+  const hedged = basePacket();
+  hedged.report = reportText(Object.assign({}, builderReport, { evidence: ['probably fine'] }));
+  const mH = loadMutant('const hedges = findHedges(s.claims.done_text);', 'const hedges = [];');
+  tf('WP-S1 mutation: hedge rule disabled -> the hedge fixture no longer gets NOT-PROVEN', () => mH !== null && mH.assessClaim(hedged, goodJudgement()).verdict !== 'NOT-PROVEN');
+  const mS = loadMutant('if (PACKET_KEEP.includes(k)) out[k] = src[k]; else stripped.push(k);', 'out[k] = src[k];');
+  tf('WP-S1 mutation: narrative strip disabled -> the narrative leaks into the packet', () => mS !== null
+    && 'summary' in mS.stripNarrative(Object.assign(basePacket(), { summary: 'x' })).packet);
+}
+
+// ---- CLI --claim ----
+{
+  const cliPath = path.join(__dirname, 'forge-verify.cjs');
+  const writePkt = (name, obj) => { const f = path.join(TMP, name); fs.writeFileSync(f, JSON.stringify(obj), 'utf8'); return f; };
+  const run = (args) => spawnSync(process.execPath, [cliPath, ...args], { encoding: 'utf8', env: Object.assign({}, process.env, { FORGE_STORE_ROOT: CLAUDE_DIR }) });
+  const ok = run(['--claim', writePkt('claim-ok.json', Object.assign(basePacket(), { judgement: goodJudgement() }))]);
+  t('WP-S1 CLI: PROVEN packet exits 0 and prints the verdict', ok.status === 0 && /VERDICT: PROVEN \(gate PASS\)/.test(ok.stdout));
+  const bad = run(['--claim', writePkt('claim-absent.json', Object.assign(basePacket(), { claimed_tests: ['handles unicode names'], judgement: goodJudgement() }))]);
+  t('WP-S1 CLI: absent-test packet exits 1 (NOT-PROVEN)', bad.status === 1 && /NOT-PROVEN/.test(bad.stdout) && /handles unicode names/.test(bad.stdout));
+  const noBreak = goodJudgement(); delete noBreak.break_attempt;
+  const part = run(['--claim', writePkt('claim-partly.json', Object.assign(basePacket(), { judgement: noBreak }))]);
+  t('WP-S1 CLI: PARTLY-PROVEN exits 2 (never 0)', part.status === 2 && /not a pass/.test(part.stdout));
+  const runnerFile = path.join(TMP, 'runner.txt');
+  fs.writeFileSync(runnerFile, REPO_RUNNER_OK, 'utf8');
+  const pk = basePacket(); delete pk.runner_output;
+  const viaFile = run(['--claim', writePkt('claim-runner.json', Object.assign(pk, { judgement: goodJudgement() })), '--runner', runnerFile, '--json']);
+  t('WP-S1 CLI: --runner loads the literal output, --json is machine-readable', viaFile.status === 0 && (() => { try { return JSON.parse(viaFile.stdout).verdict === 'PROVEN'; } catch { return false; } })());
+  const strip = run(['--claim', writePkt('claim-strip.json', Object.assign(basePacket(), { summary: 'trust me' })), '--strip']);
+  t('WP-S1 CLI: --strip prints the packet without the narrative', strip.status === 0 && !/trust me|carefully/.test(strip.stdout) && /"stripped"/.test(strip.stdout));
+  const broken = run(['--claim', path.join(TMP, 'does-not-exist.json')]);
+  t('WP-S1 CLI: unreadable --claim input exits 1 with a message', broken.status === 1 && /--claim/.test(broken.stderr));
+}
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

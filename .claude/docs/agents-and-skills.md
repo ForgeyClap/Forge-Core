@@ -10,7 +10,7 @@
 | **UI Boss** | Premium UI/UX, screenshot loops | sonnet | vision | frontend-design, design-is, browser |
 | **SEO Boss** | SEO/perf/site quality (non-web: perf+docs) | sonnet | default | seo-specialist, performance-optimizer |
 | **Security Boss** | Secrets/auth/validation/production safety | opus (always) | reasoning (extra lens) | security-reviewer, security-review |
-| **Skill Boss** | Global skill registry + auto-attach validation | haiku | fast | skill-builder, global-skills registry |
+| **Skill Boss** | Global skill registry + auto-attach validation | haiku | fast | forge-skill-authoring, global-skills registry |
 | **Search Boss** | Source-grounded research | sonnet | default | deep-research, WebSearch/WebFetch |
 | **Build Boss** | Implementation | sonnet (↑opus hard) | coding | TDD, systematic-debugging, git worktrees, resolving-merge-conflicts, setup-pre-commit (alleen op verzoek van de owner) |
 | **Integration Boss** | APIs/n8n/webhooks/NVIDIA | sonnet (↑opus auth/data) | default | forge-integration, n8n-mcp-tools-expert, nvidia-provider |

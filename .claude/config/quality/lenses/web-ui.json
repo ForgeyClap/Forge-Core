@@ -1,0 +1,321 @@
+{
+  "type": "web-ui",
+  "version": 2,
+  "title": "Web UI",
+  "covers": "Websites, landing pages, web apps, dashboards, extension popups and app screens: anything a person sees and clicks.",
+  "domains": ["website", "fullstack", "ecommerce", "figma", "cms", "mobile", "electron", "extension"],
+  "selected_by": {
+    "en": ["website", "web page", "webpage", "landing page", "homepage", "page", "dashboard", "screen", "button", "web app", "webapp", "mobile app", "app screen", "portal", "frontend", "front-end", "user interface"],
+    "nl": ["website", "-website", "webpagina", "-pagina", "landingspagina", "homepage", "dashboard", "scherm", "knop", "webapp", "mobiele app", "portaal", "-portaal", "frontend", "-site"]
+  },
+  "selected_together": [
+    {
+      "all": [
+        { "en": ["app", "application", "platform", "tool"], "nl": ["app", "applicatie", "platform", "tool"] },
+        { "en": ["people", "user", "customer", "visitor", "member", "kid", "children", "player", "student", "client", "guest", "patient", "parents", "teacher", "employee", "staff", "anyone", "everyone"], "nl": ["mensen", "gebruiker", "klant", "bezoeker", "leden", "lid", "kinderen", "speler", "student", "leerling", "gast", "patient", "ouders", "docent", "medewerker", "iedereen"] },
+        { "en": ["can", "let", "allow", "able to"], "nl": ["kan", "kunnen", "laat", "laten"] }
+      ],
+      "unless": { "en": ["cli", "command line", "terminal", "cron", "headless", "daemon", "script", "library", "sdk", "backend only", "api only", "no ui", "no frontend"], "nl": ["cli", "opdrachtregel", "terminal", "cron", "script", "bibliotheek", "alleen backend", "zonder ui", "zonder frontend", "geen ui"] }
+    }
+  ],
+  "stakeholders": [
+    {
+      "id": "visitor",
+      "who": "First-time visitor on a phone or a laptop (the client's own customer)",
+      "cares_about": ["understanding what this is and what to do next", "a page that works and does not jump while loading", "trusting the business behind it"],
+      "would_notice": ["text clipped or a sideways scroll at phone width", "placeholder words, a default tab title or favicon", "a button or link that does nothing", "a blank area or an endless spinner instead of a message", "light grey text that is hard to read"]
+    },
+    {
+      "id": "assistive-user",
+      "who": "Keyboard or screen-reader user, or someone with low vision",
+      "cares_about": ["reaching every control without a mouse", "readable contrast and text size", "controls whose label says what they do"],
+      "would_notice": ["no visible focus ring when pressing Tab", "icon buttons announced only as 'button'", "form errors shown only in red", "animation that cannot be reduced"]
+    },
+    {
+      "id": "client",
+      "who": "The business owner who commissioned the site",
+      "cares_about": ["their facts, brand and voice shown correctly", "a site that looks made for them, not a template", "enquiries that actually arrive"],
+      "would_notice": ["a wrong phone number, address, price or opening hours", "colours or a logo that do not match the brand", "one page that looks like a different site", "a template look they have seen elsewhere"]
+    },
+    {
+      "id": "reviewer",
+      "who": "A professional front-end reviewer who opens DevTools",
+      "cares_about": ["a clean console and network tab", "no debug leftovers", "layout built on one spacing and type scale"],
+      "would_notice": ["red errors in the console", "localhost URLs or debug banners", "near-miss alignments and random spacing"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Open the page cold at phone width: can you say what it is, who it is for and what to do next?",
+    "Is the main action visible without scrolling, at phone and at desktop width?",
+    "Does anything look unfinished: overflowing text, a missing image, placeholder words, a default tab title or favicon?",
+    "Does it look made for this business, or like a template you have seen before?"
+  ],
+  "checks": [
+    {
+      "id": "breakpoints-read",
+      "stakeholder": "visitor",
+      "claim": "Every changed page was screenshotted at phone, tablet and desktop width, and each image was actually read, not just captured.",
+      "how_to_inspect": "Serve on localhost (never file://); screenshot at about 360-375, 768 and 1280-1440 px (a native app: a small and a large phone); open each image and write one line on what you checked at that width.",
+      "evidence_required": "The evidence record craft-evidence-web-ui.json in the run folder (one screenshot per viewport per page, each with a line on what was looked at), and the exit 0 of forge-craft-evidence.cjs check --run <id> --type web-ui.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/config/orchestration/FORGE_HARD_RULES.json", "rule_id": "web-responsive-evidence", "quote": "must show real responsive screenshot evidence (mobile + tablet + desktop)" }
+    },
+    {
+      "id": "no-overflow",
+      "stakeholder": "visitor",
+      "claim": "No sideways scroll, clipped or overlapping text, or broken layout at any of those widths.",
+      "how_to_inspect": "At 360 px compare document.documentElement.scrollWidth with the viewport width; scan each screenshot for text running past its box, overlapping elements and single orphaned words in headings.",
+      "evidence_required": "The scrollWidth reading at 360 px and the screenshot paths with any overflow named.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/ui-boss.md", "section": "Responsive & cross-device verification", "quote": "No horizontal overflow, clipped text, or broken layout at any tested breakpoint." }
+    },
+    {
+      "id": "real-content",
+      "stakeholder": "client",
+      "claim": "Every visible word, image and number is real content for this client: no lorem ipsum, 'your headline here', TODO, example.com, grey placeholder images or test data.",
+      "how_to_inspect": "Search the built output for lorem, placeholder, todo, example.com, test and 555-; look at every image in the screenshots.",
+      "evidence_required": "The search command with zero hits, or the hits and how each was fixed.",
+      "severity": "block",
+      "owner_data": true,
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-website/SKILL.md", "section": "Hard rules", "quote": "No placeholder/Lorem/test/mock content in anything headed for prod." }
+    },
+    {
+      "id": "facts-match-client",
+      "stakeholder": "client",
+      "claim": "Business facts (name, phone, e-mail, address, prices, opening hours, team names) match the client's own source exactly.",
+      "how_to_inspect": "List every business fact on the pages and compare each with the brief or the client's material; any fact without a source is removed or sent to the owner as a question.",
+      "evidence_required": "A fact list with the source of each fact.",
+      "severity": "block",
+      "owner_data": true,
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-rag/SKILL.md", "section": "Hard rules", "quote": "No hallucinated business facts" }
+    },
+    {
+      "id": "first-screen-action",
+      "stakeholder": "visitor",
+      "claim": "On the first screen, at phone and at desktop width, a visitor can tell what this is, who it is for and what to do next.",
+      "how_to_inspect": "Look only at the top of the 360 px and 1280 px screenshots and write the three answers; a missing answer is a defect.",
+      "evidence_required": "The three answers and the two screenshot paths.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Universal", "quote": "Mobile and desktop layout intact; primary CTA clear." }
+    },
+    {
+      "id": "states-designed",
+      "stakeholder": "visitor",
+      "claim": "Every data view, search and form has a designed loading, empty and error state whose words say what happened and what to do.",
+      "how_to_inspect": "Force each state (loading, empty, error, partial, success, no permission) with no data, DevTools network throttling, a failing request, offline mode or a signed-out user, and screenshot it.",
+      "evidence_required": "In the evidence record: one screenshot per state per view, or n/a with the reason (for example: the page shows no data, or there is no sign-in).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/config/orchestration/FORGE_STANDING_RULES.json", "rule_id": "ui-quality-for-web", "quote": "working nav/forms/search with loading + empty + error states" }
+    },
+    {
+      "id": "working-controls",
+      "stakeholder": "visitor",
+      "claim": "Every link and button does something real: no href=\"#\", no dead navigation item, no 404 from an internal link.",
+      "how_to_inspect": "Run a link checker on the served site and click the main navigation and every call to action once.",
+      "evidence_required": "The link-check output with zero broken links and a note of the clicks made.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-website/SKILL.md", "section": "Domain gates", "quote": "no broken links" }
+    },
+    {
+      "id": "forms-feedback",
+      "stakeholder": "visitor",
+      "claim": "Forms say what is wrong next to the field, in words, and the success state tells the visitor what happens next.",
+      "how_to_inspect": "Submit each form empty, with one wrong value and with valid data; screenshot all three results.",
+      "evidence_required": "Three screenshots per form and the endpoint that received the valid submit.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-website/SKILL.md", "section": "Hard rules", "quote": "Forms validate input and hit a real endpoint; clear error + success states." }
+    },
+    {
+      "id": "contrast",
+      "stakeholder": "assistive-user",
+      "claim": "Body text, small text and controls meet WCAG AA contrast (4.5:1 for text, 3:1 for large text and control edges), including text placed on images.",
+      "how_to_inspect": "Run axe or Lighthouse accessibility, then measure text on images and hover states by hand with a contrast checker.",
+      "evidence_required": "The checker output and the hand-measured ratios.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/ui-boss.md", "section": "Motion & accessibility", "quote": "Color contrast meets a defensible accessibility bar for body text and interactive elements." }
+    },
+    {
+      "id": "keyboard-focus",
+      "stakeholder": "assistive-user",
+      "claim": "Every interactive element is reachable with Tab in a sensible order, shows a visible focus ring, and works with Enter or Space.",
+      "how_to_inspect": "Tab through each changed page from the address bar to the footer without the mouse and note anything skipped, trapped or invisible.",
+      "evidence_required": "A short tab-order note per page, or a recording.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-figma/SKILL.md", "section": "Hard rules", "quote": "visible focus states, keyboard navigation" }
+    },
+    {
+      "id": "names-and-alt",
+      "stakeholder": "assistive-user",
+      "claim": "Meaningful images have alt text, decorative images have empty alt, and icon-only buttons and form fields have an accessible name.",
+      "how_to_inspect": "Run axe, then read the accessibility tree in DevTools for every icon button and input.",
+      "evidence_required": "The axe result with zero name or alt violations, or the fixes made.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-figma/SKILL.md", "section": "Hard rules", "quote": "keyboard navigation, alt text, ARIA where needed" }
+    },
+    {
+      "id": "console-clean",
+      "stakeholder": "reviewer",
+      "claim": "The console shows zero errors and the network tab no failed requests on every changed page, including its empty and error states.",
+      "how_to_inspect": "Load each page with DevTools open on the console and network tabs, then trigger the empty and error states.",
+      "evidence_required": "The console capture per page.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/config/orchestration/FORGE_HARD_RULES.json", "rule_id": "web-responsive-evidence", "quote": "a zero-console-errors note" }
+    },
+    {
+      "id": "no-debug-leftovers",
+      "stakeholder": "reviewer",
+      "claim": "No localhost URLs, debug banners, test buttons, console.log noise, or framework default page titles and favicons.",
+      "how_to_inspect": "Search the build for localhost, 127.0.0.1, console.log and debugger; read document.title and the favicon link of every page.",
+      "evidence_required": "The search output and the title and favicon of each page.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Universal", "quote": "No localhost URLs, debug/test banners, or debug-only UI." }
+    },
+    {
+      "id": "spacing-alignment",
+      "stakeholder": "reviewer",
+      "claim": "Spacing follows one scale and edges line up: the same gap for the same relationship, headings and text on the same column, icons centred with their labels.",
+      "how_to_inspect": "Zoom the 1280 px screenshot to 200 percent (or overlay a grid) and compare left edges, card heights and the gaps between sections.",
+      "evidence_required": "The zoomed screenshot with each misalignment named (element and pixel offset).",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "spacing, alignment, contrast, copy, empty and error states, naming, units, the first ten seconds" }
+    },
+    {
+      "id": "type-readable",
+      "stakeholder": "visitor",
+      "claim": "Body text is at least 16 px on phones, lines hold about 45 to 80 characters, and line height is about 1.5 or more.",
+      "how_to_inspect": "Read the computed font size and line height of body text in DevTools at 360 and 1280 px and count the characters of a typical line.",
+      "evidence_required": "The measured values per width.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Small, long or cramped lines are what a reader feels as 'hard to read' before they can say why." }
+    },
+    {
+      "id": "not-template",
+      "stakeholder": "client",
+      "claim": "The design is specific to this client (their colours, type pairing, imagery and tone), not a generic template look.",
+      "how_to_inspect": "Compare the first screen with the brand assets and ask whether this hero could belong to any other business; walk the guidance tells list (lens --type web-ui) and name each tell you find; name what makes it theirs.",
+      "evidence_required": "One sentence naming the brand-specific choices, the tells found (or none), with the screenshot path.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/ui-boss.md", "section": "Visual quality & hierarchy", "quote": "uniform card grids, centered-hero-plus-gradient-blob, safe gray-on-white with one accent color" }
+    },
+    {
+      "id": "token-plan",
+      "stakeholder": "client",
+      "claim": "Before any markup a token plan was written and held against the brief: 4 to 6 named hex colours with a job each, the type roles, one spacing scale and a layout sketch per page; the build uses only those tokens.",
+      "how_to_inspect": "Open the plan (guidance before_build), trace every colour, face and section to the brief or the brand assets, then search the built CSS for colours and spacing values outside the plan.",
+      "evidence_required": "The plan's path, the brief lines it was checked against, and the off-plan values found (or none); n/a only for a change that adds no new visual design.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A design chosen before building, from the brief, is what stops the framework defaults and the generated look from filling the gaps." }
+    },
+    {
+      "id": "coherent-views",
+      "stakeholder": "client",
+      "claim": "All pages and states share one type scale, colour set, button style and spacing; no page looks like a different site.",
+      "how_to_inspect": "Put the screenshots of every page side by side and compare headings, buttons and section spacing.",
+      "evidence_required": "The side-by-side screenshot paths and any page that deviates.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "2. Sloppy / quality complaints, by deliverable type", "quote": "Visual coherence across all views, not a few pages." }
+    },
+    {
+      "id": "touch-targets",
+      "stakeholder": "visitor",
+      "claim": "On a phone every control is big enough to tap (about 44 by 44 px) and nothing needs hover to work.",
+      "how_to_inspect": "Measure the smallest links and icon buttons in DevTools at 360 px; check that menus and tooltips open with a tap.",
+      "evidence_required": "The smallest target size found, and its fix when under about 44 px.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/ui-boss.md", "section": "Responsive & cross-device verification", "quote": "Touch targets are usable on mobile" }
+    },
+    {
+      "id": "motion-and-theme",
+      "stakeholder": "assistive-user",
+      "claim": "Animation explains a change instead of decorating, respects prefers-reduced-motion, and both light and dark theme are checked when the project has both.",
+      "how_to_inspect": "Emulate prefers-reduced-motion and the colour scheme in DevTools rendering settings and screenshot the main page again.",
+      "evidence_required": "The reduced-motion and theme screenshots, or N/A with the reason.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/agents/ui-boss.md", "section": "Motion & accessibility", "quote": "respects reduced-motion preference" }
+    }
+  ],
+  "guidance": {
+    "precedence": "The brief's explicit visual direction (named colours, fonts, a reference image, a brand guide, a style the owner asked for) always wins over this lens: follow the brief, and use the lens only where the brief is silent.",
+    "before_build": [
+      "Colours: 4 to 6 named tokens with a hex value and one job each (for example text, background, surface, main action, accent, warning), taken from the brand assets when they exist.",
+      "Type roles: one face for headings and one for body text (two families at most), with a size scale of about 5 to 7 steps and the line height for each role.",
+      "Spacing: one scale (for example 4, 8, 12, 16, 24, 32, 48, 64 px) and nothing outside it; radius and shadow as two or three named steps as well.",
+      "Layout sketch per page: the sections in order, what sits on the first screen at phone and at desktop width, and the one memorable element.",
+      "Hold the plan against the brief before building: every token and section traces to the brief or the brand assets; write down each choice you made yourself and why."
+    ],
+    "tells": [
+      { "id": "default-palette", "tell": "Framework default colours: the stock blue or indigo button, grey text on white everywhere, one lonely accent.", "instead": "The named colours from the token plan, derived from the brand." },
+      { "id": "hero-plus-three-cards", "tell": "A centred headline with a sub line and two buttons, followed by three identical cards with an icon on top.", "instead": "A first screen built around this client's own offer, photo, number or proof." },
+      { "id": "uniform-grids", "tell": "Every section is the same grid of equal cards, so the page has no rhythm.", "instead": "Let the content choose the form: a list, a quote, a full-width image, a table, a timeline." },
+      { "id": "gradient-blobs", "tell": "Blurred gradient blobs or glowing orbs behind the hero that have nothing to do with the business.", "instead": "Imagery or texture that belongs to this business, or calm space." },
+      { "id": "random-spacing", "tell": "Paddings and gaps that follow no scale: 13 px here, 22 px there, each section different.", "instead": "Only the spacing steps from the token plan, the same gap for the same relationship." },
+      { "id": "vague-copy", "tell": "Lorem ipsum or empty phrases such as 'Unlock your potential', 'Seamless solutions' or 'Welcome to our website'.", "instead": "Specific words: what it is, for whom, the price or the next step." },
+      { "id": "no-focus-states", "tell": "Buttons and links that change on hover but show nothing on keyboard focus or when pressed.", "instead": "A hover, focus-visible and active state on every clickable element." },
+      { "id": "one-font", "tell": "One family at one weight for headings and body, so nothing leads the eye.", "instead": "The two type roles from the plan, with a clear size step between them." },
+      { "id": "same-shadow", "tell": "The same soft grey drop shadow on every surface.", "instead": "A small depth system: base, raised and floating, tinted towards the palette." },
+      { "id": "mixed-icons", "tell": "Emoji or icons from several sets used as feature icons.", "instead": "One icon family at one stroke weight, or no icons at all." }
+    ],
+    "copy_rules": [
+      "Body text lines hold about 45 to 80 characters (aim near 65): give text columns a maximum width instead of letting lines run across a wide screen.",
+      "One memorable element per page: a striking photo, a bold number, a quote or a signature illustration. One, not five that compete.",
+      "A heading says something only this client can say; a heading that could sit on any other site is rewritten.",
+      "Button labels name the action and its result ('Book a table', 'Get the price list'), never 'Click here' or 'Submit'.",
+      "An empty state says what is missing, why, and the one next step (with a button when there is one); never a blank area or a bare 'No data'.",
+      "An error message says in plain words what went wrong and how to fix it, keeps what the user typed, and never shows only a code or blames the user."
+    ],
+    "rule_lines": [
+      { "id": "contrast", "area": "accessibility", "rule": "Text contrast is at least 4.5:1 against its background; at least 3:1 for large text (about 24 px, or 19 px bold) and for control borders and focus rings. Measure text on images too." },
+      { "id": "focus-visible", "area": "accessibility", "rule": "Every focusable element shows a clear indicator on keyboard focus (:focus-visible); an outline is never removed without a visible replacement." },
+      { "id": "touch-target", "area": "accessibility", "rule": "Tap targets are about 44 by 44 CSS px, never under 24 px without space around them; links inside running text are the only exception." },
+      { "id": "reduced-motion", "area": "accessibility", "rule": "Under prefers-reduced-motion: reduce, movement and parallax stop or become a simple fade; nothing flashes more than three times a second." },
+      { "id": "labels", "area": "accessibility", "rule": "Every input has a visible label tied to it; placeholder text is never the only label, and colour is never the only signal of an error." },
+      { "id": "image-dimensions", "area": "performance", "rule": "Every img and video carries width and height (or sits in an aspect-ratio box), is served near its display size in a modern format, and loads lazily below the first screen." },
+      { "id": "layout-shift", "area": "performance", "rule": "Nothing moves after the first paint: space is reserved for fonts, images, banners and late content; aim for a layout shift (CLS) under 0.1." },
+      { "id": "first-screen-speed", "area": "performance", "rule": "The largest first-screen element shows fast (LCP under about 2.5 s, INP under about 200 ms on a mid-range phone); numbers measured on localhost are labelled local and indicative." },
+      { "id": "fonts", "area": "performance", "rule": "At most two font families and a few weights; fonts use font-display swap or optional, and the first-screen face is preloaded." },
+      { "id": "one-primary-action", "area": "ux", "rule": "Each screen has one primary action that clearly leads; secondary actions look secondary." },
+      { "id": "feedback-in-time", "area": "ux", "rule": "Every action answers within about a second (a pressed state, a skeleton or progress), and a longer wait says what is happening." },
+      { "id": "form-errors", "area": "ux", "rule": "Form errors appear next to the field in words, and focus moves to the first field that needs fixing." }
+    ],
+    "requires_evidence": {
+      "viewports": [
+        { "id": "mobile", "min_px": 320, "max_px": 480 },
+        { "id": "tablet", "min_px": 600, "max_px": 1100 },
+        { "id": "desktop", "min_px": 1200, "max_px": 2560 }
+      ],
+      "states": ["loading", "empty", "error", "partial", "success", "permission"]
+    }
+  },
+  "common_sloppy_defects": [
+    { "defect": "Sideways scroll on phones", "symptom": "the page wiggles left and right at 360 px because one element is wider than the screen" },
+    { "defect": "Framework defaults left in", "symptom": "the browser tab says 'Vite + React' or 'React App' next to the framework favicon" },
+    { "defect": "Placeholder copy", "symptom": "lorem ipsum, 'Your headline here', example.com, 555 phone numbers, grey stock boxes" },
+    { "defect": "Dead controls", "symptom": "a navigation item or button that points to # or does nothing when clicked" },
+    { "defect": "Near-miss alignment", "symptom": "a heading a few pixels off the text column, cards of uneven height, icons sitting above their labels" },
+    { "defect": "Random spacing", "symptom": "each section has a different padding and the gaps follow no scale" },
+    { "defect": "Missing states", "symptom": "a white gap or an endless spinner when there is no data or the request fails" },
+    { "defect": "Washed-out text", "symptom": "light grey body text on white that cannot be read in daylight" },
+    { "defect": "Invisible focus", "symptom": "pressing Tab moves somewhere, but nothing on screen shows where" },
+    { "defect": "Template sameness", "symptom": "a centred hero with a gradient blob and three identical cards, as on many generated sites" }
+  ]
+}

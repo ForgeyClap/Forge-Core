@@ -35,14 +35,14 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { AttachmentRecord, ConversationRecord, ProjectRecord } from '@/shared/protocol';
-import { assertInsideRoot, isInsideRoot, isPathGuardError } from '@/bridge/security/paths';
-import { AttachmentPipelineError, checkAttachmentsReferencable, createAttachmentPipeline } from '@/bridge/attachments/pipeline';
-import type { AttachmentPipeline } from '@/bridge/attachments/pipeline';
-import { ForgeStore, makeStreamKey, openStore } from '@/bridge/storage/store';
-import { emptyGitState } from '@/bridge/projects/registry';
-import { buildClaudeArgv } from '@/bridge/claude/adapter';
-import type { StartRunRequest } from '@/bridge/claude/adapter';
-import type { LocatedClaude } from '@/bridge/claude/locate';
+import { assertInsideRoot, isInsideRoot, isPathGuardError } from '@archive/bridge/security/paths';
+import { AttachmentPipelineError, checkAttachmentsReferencable, createAttachmentPipeline } from '@archive/bridge/attachments/pipeline';
+import type { AttachmentPipeline } from '@archive/bridge/attachments/pipeline';
+import { ForgeStore, makeStreamKey, openStore } from '@archive/bridge/storage/store';
+import { emptyGitState } from '@archive/bridge/projects/registry';
+import { buildClaudeArgv } from '@archive/bridge/claude/adapter';
+import type { StartRunRequest } from '@archive/bridge/claude/adapter';
+import type { LocatedClaude } from '@archive/bridge/claude/locate';
 
 /* ========================================================================== */
 /*  The two-project world                                                      */

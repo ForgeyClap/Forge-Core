@@ -1,0 +1,207 @@
+{
+  "skill": "forge-windows-shell",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "every description must stay <=200 chars or the skill picker truncates it"
+    },
+    {
+      "id": "name-is-folder",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "name: forge-windows-shell",
+      "why": "frontmatter name must equal the folder name"
+    },
+    {
+      "id": "when-trigger",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "description: \"Use when running or writing commands on Windows",
+      "why": "a model-invoked skill needs a Use-when trigger in its description"
+    },
+    {
+      "id": "skill-under-500",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "n": 499,
+      "why": "SKILL.md stays under 500 lines, detail in references/"
+    },
+    {
+      "id": "hard-must-4-pid-only",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "Never kill processes by image name.",
+      "why": "owner HARD MUST 4: only an exact PID you own"
+    },
+    {
+      "id": "pid-by-port",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "Get-NetTCPConnection -LocalPort 4100 -State Listen",
+      "why": "the one sanctioned way to find a PID that is not your own spawn result"
+    },
+    {
+      "id": "stop-by-id",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "Stop-Process -Id <pid>",
+      "why": "stopping is by exact PID only"
+    },
+    {
+      "id": "no-name-kill-ps",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "Stop-Process -Name",
+      "why": "the kill-by-name example of powershell-shell-detection must never come back"
+    },
+    {
+      "id": "no-name-kill-ref",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-windows-shell/references/files-and-processes.md",
+      "needle": "Stop-Process -Name",
+      "why": "no kill-by-name form in the process reference either"
+    },
+    {
+      "id": "no-image-kill",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-windows-shell/references/files-and-processes.md",
+      "needle": "taskkill /IM",
+      "why": "no image-name kill in the process reference"
+    },
+    {
+      "id": "kill-example-removed-said",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "removed (HARD MUST 4)",
+      "why": "the provenance must say the source's kill-by-name example was removed"
+    },
+    {
+      "id": "robocopy-retries",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "robocopy always with `/R:1 /W:1`",
+      "why": "owner HARD MUST: robocopy never with the default million retries"
+    },
+    {
+      "id": "robocopy-exit-codes",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/files-and-processes.md",
+      "needle": "**8 or higher is a failure.**",
+      "why": "robocopy exit 1 is success; judging it as 0/non-0 is a classic false FAIL"
+    },
+    {
+      "id": "no-recursive-delete-advice",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "Remove-Item -Recurse",
+      "why": "the gate hook blocks recursive deletes; the skill must not advise one"
+    },
+    {
+      "id": "no-rmrf-advice",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-windows-shell/references/files-and-processes.md",
+      "needle": "rm -rf",
+      "why": "the gate hook blocks recursive deletes; the reference must not advise one"
+    },
+    {
+      "id": "no-policy-change",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-windows-shell/references/powershell-51.md",
+      "needle": "Set-ExecutionPolicy",
+      "why": "no execution-policy changes"
+    },
+    {
+      "id": "no-path-edit",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "never a PATH edit",
+      "why": "a not-recognised command gets an absolute path, not a PATH change"
+    },
+    {
+      "id": "ps51-no-andand",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "`A; if ($?) { B }`",
+      "why": "PowerShell 5.1 has no && operator"
+    },
+    {
+      "id": "here-string-column-0",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/powershell-51.md",
+      "needle": "the closing `'@` must start at column 0",
+      "why": "the most common multi-line commit failure in the PowerShell tool"
+    },
+    {
+      "id": "native-stderr",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/powershell-51.md",
+      "needle": "judge success by\n  `$LASTEXITCODE`",
+      "why": "2>&1 on a native exe in 5.1 sets $? false even on exit 0"
+    },
+    {
+      "id": "encoding-measured",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/powershell-51.md",
+      "needle": "## Encoding (measured on this machine, 2026-11-05)",
+      "why": "the encoding claims rest on a real measurement"
+    },
+    {
+      "id": "longpaths",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/files-and-processes.md",
+      "needle": "git -c core.longpaths=true worktree add",
+      "why": "long worktree paths fail without core.longpaths"
+    },
+    {
+      "id": "msys-conversion",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/git-bash.md",
+      "needle": "MSYS_NO_PATHCONV=1",
+      "why": "Git Bash rewrites /switch arguments of Windows exes"
+    },
+    {
+      "id": "probe-python",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/git-bash.md",
+      "needle": "Probe each with `--version` and a timeout before a step relies on it",
+      "why": "a WindowsApps python alias can be a real install or a hanging Store stub; measured 2026-11-05: all three answered"
+    },
+    {
+      "id": "bounded-retry",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/references/files-and-processes.md",
+      "needle": "Never an unbounded loop.",
+      "why": "EPERM/EBUSY retries must be bounded"
+    },
+    {
+      "id": "provenance-shas",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "5a1b1123b9e50aa9a66a61005ca6fe012cc7442d",
+      "why": "every source is pinned to a commit SHA"
+    },
+    {
+      "id": "provenance-sha-sickn33",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "48de968b4615c294de601f72268aa7be88dde863",
+      "why": "every source is pinned to a commit SHA"
+    },
+    {
+      "id": "mit-notice",
+      "type": "contains",
+      "path": ".claude/skills/forge-windows-shell/SKILL.md",
+      "needle": "Copyright (c) 2025 Josiah Siegel",
+      "why": "MIT attribution must be kept"
+    }
+  ]
+}

@@ -103,7 +103,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1: the project root comes from forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers the project from the cwd, null when there is none). Guarded: a missing
+// or older forge-paths.cjs keeps the old two-folders-up answer.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
 
 const ASSERTION_TYPES = new Set([
   'max_words', 'min_words', 'required_pattern', 'forbidden_pattern', 'contains', 'not_contains',
@@ -428,6 +432,7 @@ function compareArms(normalizedEvals, withDir, withoutDir, minSamples) {
 /** Best-effort: append ONE real `gate_evaluated` event via log-event.cjs. Never throws — a logging
  *  failure is returned as {ok:false, reason}, never invalidates the score itself (caller decides). */
 function logGateEvaluated(runId, root, note, evidence) {
+  if (!root) return { ok: false, reason: 'no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)' };
   const logEventPath = path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs');
   const payload = JSON.stringify({ agent: 'orchestrator', role: 'lead', note, evidence });
   const r = spawnSync(process.execPath, [logEventPath, runId, 'gate_evaluated', payload], { encoding: 'utf8' });

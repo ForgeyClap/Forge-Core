@@ -27,9 +27,11 @@
  * MODEL (pure scanners are testable without the real project):
  *   scanText(text, label)     -> [{ file:label, line, pattern }]   (pattern = "secret-pattern#<i>", never the secret)
  *   scanFile(file, label?)    -> hits[] for one file (unreadable file -> [])
- *   defaultTargets(claudeDir?) -> runtime artifacts to scan (events.jsonl across runs + memory files, including the
- *                                rotated history in FORGE_MEMORY_ARCHIVE_*.md — moved old memory there)
- *   memoryArchiveFiles(dir)   -> sorted FORGE_MEMORY_ARCHIVE_*.md regular files directly in <dir> (no recursion)
+ *   defaultTargets(claudeDir?) -> runtime artifacts to scan (events.jsonl across runs + memory files incl. LESSONS.md,
+ *                                the rotated history in FORGE_*_ARCHIVE_*.md — and forge-memory-consolidate
+ *                                moved old memory there — and agent-memory/<agent>/lessons-archive-*.md)
+ *   memoryArchiveFiles(dir)   -> sorted FORGE_*_ARCHIVE_*.md regular files directly in <dir> (no recursion)
+ *   lessonsArchiveFiles(cdir) -> sorted agent-memory/<agent>/lessons-archive-*.md regular files (one level deep)
  *   scan(files?)              -> { scanned, hits, clean }          (files omitted -> defaultTargets())
  *
  * CLI (exit: 0 = clean · 3 = finding(s) — advisory, never a hard block · 2 = usage):
@@ -40,17 +42,42 @@ const path = require('path');
 const store = require('./forge-store.cjs');
 
 const PATTERNS = Array.isArray(store.SECRET_PATTERNS) ? store.SECRET_PATTERNS : [];
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const CLAUDE_DIR = path.join(PROJECT_ROOT, '.claude');
-const RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
-const MEMORY_FILES = ['FORGE_MEMORY.md', 'FORGE_DECISIONS.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md', 'FORGE_PROJECT_PROFILE.md'];
+// WP 2.1 (opt-in .forge layout): the default targets come from forge-paths.cjs — run logs from EVERY run folder that
+// exists and memory files from EVERY memory folder (.forge/memory and the legacy .claude), so a partly migrated project
+// is scanned in full; a project without .forge scans exactly the legacy paths, in the same order. agent-memory/ stays
+// in .claude. Guarded: an older or missing forge-paths.cjs keeps the legacy literals. The scribe inbox is redacted at
+// capture by forge-scribe-store.cjs through this module's patterns (path-independent), as before.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.existingStateDirs === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT)
+  : viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+// LESSONS.md (WP 1.9): the distilled lessons table forge-memory-consolidate.cjs builds from memory text.
+const MEMORY_FILES = ['FORGE_MEMORY.md', 'FORGE_DECISIONS.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md', 'FORGE_PROJECT_PROFILE.md', 'LESSONS.md'];
 // the memory rotation moves old FORGE_MEMORY.md history into dated archive files next to it.
-const MEMORY_ARCHIVE_RE = /^FORGE_MEMORY_ARCHIVE_[A-Za-z0-9_.-]+\.md$/;
+// WP 1.9: forge-memory-consolidate.cjs (WP 1.4) rotates FORGE_TASK_HISTORY / FORGE_AGENT_LEDGER /
+// FORGE_DECISIONS.md the same way (FORGE_<NAME>_ARCHIVE_<YYYY-MM>[-b].md), so every FORGE_*_ARCHIVE_*.md is scanned.
+const MEMORY_ARCHIVE_RE = /^FORGE_[A-Z][A-Z_]*_ARCHIVE_[A-Za-z0-9_.-]+\.md$/;
+// ... and moves an over-long agent-memory/<boss>/MEMORY.md verbatim to lessons-archive-<YYYY-MM-DD>[-b].md beside it.
+const LESSONS_ARCHIVE_RE = /^lessons-archive-[A-Za-z0-9_.-]+\.md$/;
 
-/** memoryArchiveFiles(dir) -> absolute paths of the FORGE_MEMORY_ARCHIVE_*.md regular files in dir, sorted; [] when unreadable. */
+/** memoryArchiveFiles(dir) -> absolute paths of the FORGE_*_ARCHIVE_*.md regular files in dir, sorted; [] when unreadable. */
 function memoryArchiveFiles(dir) {
   let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
   return entries.filter((e) => e.isFile() && MEMORY_ARCHIVE_RE.test(e.name)).map((e) => e.name).sort().map((n) => path.join(dir, n));
+}
+
+/** lessonsArchiveFiles(claudeDir) -> absolute paths of the lessons-archive-*.md regular files one level inside
+ *  <claudeDir>/agent-memory/<agent>/ (real directories only, a symlinked folder is skipped), sorted by agent then
+ *  name; [] when agent-memory/ is absent or unreadable. */
+function lessonsArchiveFiles(claudeDir) {
+  const base = path.join(claudeDir, 'agent-memory');
+  let agents; try { agents = fs.readdirSync(base, { withFileTypes: true }); } catch { return []; }
+  const out = [];
+  for (const a of agents.filter((e) => e.isDirectory()).map((e) => e.name).sort()) {
+    let entries; try { entries = fs.readdirSync(path.join(base, a), { withFileTypes: true }); } catch { continue; }
+    for (const n of entries.filter((e) => e.isFile() && LESSONS_ARCHIVE_RE.test(e.name)).map((e) => e.name).sort()) out.push(path.join(base, a, n));
+  }
+  return out;
 }
 
 // Detect a hit WITHOUT ever capturing/returning the secret. Per-line so a huge file can't ReDoS on one regex,
@@ -73,17 +100,35 @@ function scanFile(file, label) {
   return scanText(raw, label || file);
 }
 
+/** defaultTargets(claudeDir?) — an explicit claudeDir is scanned exactly as before (its forge-runs/, its memory files,
+ *  their archives, agent-memory/). Without one: this project's runtime artifacts in every location that exists
+ *  (projectTargets). No project root (a plugin copy outside any project) -> []. */
 function defaultTargets(claudeDir) {
-  const cdir = claudeDir ? path.resolve(claudeDir) : CLAUDE_DIR;
-  const runsDir = claudeDir ? path.join(cdir, 'forge-runs') : RUNS_DIR;
+  if (!claudeDir) return PROJECT_ROOT ? projectTargets(PROJECT_ROOT) : [];
+  const cdir = path.resolve(claudeDir);
+  return targetsIn([path.join(cdir, 'forge-runs')], [cdir], cdir);
+}
+/** projectTargets(root) — WP 2.1: run logs from every existing run folder, memory files + archives from every memory
+ *  folder (active first), agent-memory archives from root/.claude. In the legacy layout: exactly the old target list. */
+function projectTargets(root) {
+  const cdir = path.join(root, '.claude');
+  const runsDirs = viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => [path.join(cdir, 'forge-runs')]);
+  const memDirs = viaForgePaths((P) => { const d = P.existingStateDirs(root, 'memory'); return d.length ? d : [cdir]; }, () => [cdir]);
+  return targetsIn(runsDirs, memDirs, cdir);
+}
+function targetsIn(runsDirs, memDirs, cdir) {
   const targets = [];
-  try {
-    for (const d of fs.readdirSync(runsDir, { withFileTypes: true })) {
-      if (d.isDirectory()) { const p = path.join(runsDir, d.name, 'events.jsonl'); if (fs.existsSync(p)) targets.push(p); }
-    }
-  } catch {}
-  for (const m of MEMORY_FILES) { const p = path.join(cdir, m); if (fs.existsSync(p)) targets.push(p); }
-  return targets.concat(memoryArchiveFiles(cdir));
+  for (const runsDir of runsDirs) {
+    try {
+      for (const d of fs.readdirSync(runsDir, { withFileTypes: true })) {
+        if (d.isDirectory()) { const p = path.join(runsDir, d.name, 'events.jsonl'); if (fs.existsSync(p)) targets.push(p); }
+      }
+    } catch {}
+  }
+  for (const dir of memDirs) for (const m of MEMORY_FILES) { const p = path.join(dir, m); if (fs.existsSync(p)) targets.push(p); }
+  let archives = [];
+  for (const dir of memDirs) archives = archives.concat(memoryArchiveFiles(dir));
+  return targets.concat(archives, lessonsArchiveFiles(cdir));
 }
 
 function scan(files) {
@@ -93,12 +138,16 @@ function scan(files) {
   return { scanned: list.length, hits, clean: hits.length === 0 };
 }
 
-module.exports = { scanText, scanFile, scan, defaultTargets, memoryArchiveFiles, MEMORY_ARCHIVE_RE, PATTERN_COUNT: PATTERNS.length };
+module.exports = { scanText, scanFile, scan, defaultTargets, projectTargets, memoryArchiveFiles, lessonsArchiveFiles, MEMORY_ARCHIVE_RE, LESSONS_ARCHIVE_RE, PATTERN_COUNT: PATTERNS.length };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const json = args.includes('--json');
   const files = args.filter((a) => !a.startsWith('--'));
+  if (!files.length && !PROJECT_ROOT) {
+    console.error('forge-secret-scrub: no project root found (this copy is not inside a project) — pass the files to scan, or set FORGE_PROJECT_ROOT');
+    process.exit(2);
+  }
   const r = scan(files);
   if (json) { console.log(JSON.stringify(r, null, 2)); }
   else {

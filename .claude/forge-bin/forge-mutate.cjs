@@ -233,7 +233,8 @@ function sampleMutants(mutants, n, seed) {
 }
 
 // ---- isolated temp-dir copy (relative sibling requires must keep working) ----
-const SKIP_DIRS = new Set(['node_modules', '.git', 'forge-runs', 'dist', 'build', '.next', 'coverage', '.cache']);
+// '.forge' (WP 2.1): the opt-in runtime-state folder at a project root, skipped like the legacy forge-runs
+const SKIP_DIRS = new Set(['node_modules', '.git', 'forge-runs', '.forge', 'dist', 'build', '.next', 'coverage', '.cache']);
 const MAX_COPY_FILES = 20000;
 const MAX_COPY_DEPTH = 12;
 

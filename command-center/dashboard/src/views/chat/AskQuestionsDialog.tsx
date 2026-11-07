@@ -61,6 +61,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Button, Eyebrow, Icon, KeyHint, Modal } from '@/components/primitives';
 import type { AbandonedAskNotice, AskQuestion, PendingAsk } from '@/prototype/state/gateway-chat/ask-questions';
+import { useLocale } from '@/i18n/use-locale';
+import type { MessageKey } from '@/i18n';
 
 export interface AskQuestionsDialogProps {
   readonly pending: PendingAsk | null;
@@ -76,17 +78,18 @@ export interface AskQuestionsDialogProps {
 
 /** fix-ghost-asks item 3: maps the gateway's own real, machine-readable `reason` string to one
  *  honest human sentence fragment — falls back to the raw reason (or a generic honest phrase) for
- *  any value not in this list, never a blank line. */
-const ABANDON_REASON_LABELS: Record<string, string> = {
-  execution_stopped: 'the run was stopped',
-  execution_closed: 'the run ended',
-  execution_timed_out: "the run's time limit was reached",
-  gateway_restart: 'the gateway was restarted',
+ *  any value not in this list, never a blank line. (4D-1, X1): the fragments are copy keys now. */
+const ABANDON_REASON_KEYS: Record<string, MessageKey> = {
+  execution_stopped: 'rd.chat.ask.reason.stopped',
+  execution_closed: 'rd.chat.ask.reason.closed',
+  execution_timed_out: 'rd.chat.ask.reason.timedOut',
+  gateway_restart: 'rd.chat.ask.reason.restart',
 };
 
-function describeAbandonReason(reason: string | null): string {
-  if (reason === null) return 'the session ended';
-  return ABANDON_REASON_LABELS[reason] ?? reason;
+function describeAbandonReason(reason: string | null, p: (key: MessageKey) => string): string {
+  if (reason === null) return p('rd.chat.ask.reason.ended');
+  const key = ABANDON_REASON_KEYS[reason];
+  return key ? p(key) : reason;
 }
 
 interface QuestionAnswerState {
@@ -98,7 +101,9 @@ interface QuestionAnswerState {
 const EMPTY_ANSWER_STATE: QuestionAnswerState = { selected: [], otherText: '', skipped: false };
 
 /** The literal, honest text sent (and shown in the review summary) for a skipped question — see
- *  the file header's SKIP SEMANTICS note for why this is never an empty string. */
+ *  the file header's SKIP SEMANTICS note for why this is never an empty string. This is the English
+ *  text; the dialog sends the text of the owner's own language ('rd.chat.ask.noPreference'), so the
+ *  review screen always shows exactly what is sent. */
 export const NO_PREFERENCE_ANSWER = 'No preference';
 
 function emptyAnswerState(questions: readonly AskQuestion[]): readonly QuestionAnswerState[] {
@@ -109,8 +114,8 @@ function emptyAnswerState(questions: readonly AskQuestion[]): readonly QuestionA
  *  the owner's most recent explicit action); otherwise "Anders…" wins for a single-select question
  *  (typing something else supersedes a stale prior pick), and is an ADDITIONAL entry alongside
  *  active chips for a multi-select question. */
-function computeFinalAnswer(question: AskQuestion, state: QuestionAnswerState): string {
-  if (state.skipped) return NO_PREFERENCE_ANSWER;
+function computeFinalAnswer(question: AskQuestion, state: QuestionAnswerState, noPreference: string): string {
+  if (state.skipped) return noPreference;
   const otherText = state.otherText.trim();
   if (question.multiSelect) {
     const parts = otherText.length > 0 ? [...state.selected, otherText] : state.selected;
@@ -131,6 +136,7 @@ export function AskQuestionsDialog({
   const [step, setStep] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const baseId = useId();
+  const { t } = useLocale();
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   // Resets the per-question answer state AND the pager position the moment a genuinely NEW ask
@@ -180,8 +186,8 @@ export function AskQuestionsDialog({
         open
         onClose={onDismissAbandoned}
         size="md"
-        title="Forge is asking"
-        description="This question is no longer waiting for an answer."
+        title={t('rd.chat.ask.title')}
+        description={t('rd.chat.ask.closedTitle')}
         footer={
           <div className="fw-ask__footer-row">
             {/* "Dismiss", not "Close" — the Modal's own built-in close button (IconButton, X icon)
@@ -190,15 +196,14 @@ export function AskQuestionsDialog({
                 so a second control also named "Close" would be a real duplicate-name ambiguity for
                 assistive tech, not just a test-query inconvenience. */}
             <Button variant="primary" size="sm" onClick={onDismissAbandoned}>
-              Dismiss
+              {t('rd.chat.ask.dismiss')}
             </Button>
           </div>
         }
       >
         <div className="fw-ask">
           <p className="fw-field__hint" role="alert">
-            The session that asked this question ended ({describeAbandonReason(abandoned.reason)}) before you
-            answered — no answer was recorded. Nothing typed here would reach it anymore.
+            {t('rd.chat.ask.closedBody', { reason: describeAbandonReason(abandoned.reason, t) })}
           </p>
         </div>
       </Modal>
@@ -279,29 +284,30 @@ export function AskQuestionsDialog({
     }
   }
 
-  const finalAnswers = pending.questions.map((q, i) => computeFinalAnswer(q, answerState[i] ?? EMPTY_ANSWER_STATE));
+  const noPreference = t('rd.chat.ask.noPreference');
+  const finalAnswers = pending.questions.map((q, i) => computeFinalAnswer(q, answerState[i] ?? EMPTY_ANSWER_STATE, noPreference));
   const allAnswered = finalAnswers.every((a) => a.trim().length > 0);
 
   async function handleSubmit() {
     if (pending === null || !allAnswered) return;
     setFormError(null);
     const outcome = await onSubmit(finalAnswers);
-    if (!outcome.ok) setFormError(outcome.error ?? 'The gateway could not record your answer.');
+    if (!outcome.ok) setFormError(outcome.error ?? t('rd.chat.ask.sendFailed'));
   }
 
   const footer = isReviewStep ? (
     <div className="fw-ask__footer-row">
       <Button variant="ghost" size="sm" icon="ChevronLeft" onClick={goPrev} disabled={submitting}>
-        Back
+        {t('rd.chat.ask.back')}
       </Button>
       <Button variant="primary" size="sm" onClick={() => void handleSubmit()} disabled={submitting || !allAnswered}>
-        {submitting ? 'Sending…' : 'Send answers'}
+        {submitting ? t('rd.chat.ask.sending') : t('rd.chat.ask.send')}
       </Button>
     </div>
   ) : (
     <div className="fw-ask__footer-row">
       <Button variant="ghost" size="sm" icon="ChevronLeft" onClick={goPrev} disabled={step === 0}>
-        Previous
+        {t('rd.chat.ask.previous')}
       </Button>
       <Button
         variant="ghost"
@@ -309,7 +315,7 @@ export function AskQuestionsDialog({
         iconRight={questionIndex === totalQuestions - 1 ? 'ListChecks' : 'ChevronRight'}
         onClick={goNext}
       >
-        {questionIndex === totalQuestions - 1 ? 'Review answers' : 'Next'}
+        {questionIndex === totalQuestions - 1 ? t('rd.chat.ask.review') : t('rd.chat.ask.next')}
       </Button>
     </div>
   );
@@ -320,14 +326,14 @@ export function AskQuestionsDialog({
       onClose={() => {}}
       hideClose
       size="md"
-      title="Forge is asking"
-      description="A running Claude Code session is waiting for your real answer before it continues."
+      title={t('rd.chat.ask.title')}
+      description={t('rd.chat.ask.waiting')}
       footer={footer}
     >
       <div className="fw-ask">
         {isReviewStep ? (
           <div className="fw-ask__summary">
-            <Eyebrow>Review your answers</Eyebrow>
+            <Eyebrow>{t('rd.chat.ask.reviewTitle')}</Eyebrow>
             <ul className="fw-ask__summary-list">
               {pending.questions.map((q, i) => (
                 <li key={i} className="fw-ask__summary-item">
@@ -337,7 +343,7 @@ export function AskQuestionsDialog({
               ))}
             </ul>
             {!allAnswered ? (
-              <p className="fw-field__hint">Answer every question — or mark it "No preference" — before sending.</p>
+              <p className="fw-field__hint">{t('rd.chat.ask.reviewMissing')}</p>
             ) : null}
           </div>
         ) : (
@@ -351,16 +357,12 @@ export function AskQuestionsDialog({
                 control while submitting); it does not need a <legend> to do that, and the options
                 group below already carries the question text as its own aria-label. */}
             <Eyebrow className="fw-ask__pager">
-              Question {questionIndex + 1} of {totalQuestions}
+              {t('rd.chat.ask.pager', { n: questionIndex + 1, total: totalQuestions })}
             </Eyebrow>
             {question.header ? <div className="fw-ask__header">{question.header}</div> : null}
             <h3 className="fw-ask__text">{question.question}</h3>
-            {question.multiSelect ? <p className="fw-ask__hint">Select all that apply.</p> : null}
-            {state.skipped ? (
-              <p className="fw-ask__hint">
-                Marked "No preference". Pick an option or type an answer below to change it.
-              </p>
-            ) : null}
+            {question.multiSelect ? <p className="fw-ask__hint">{t('rd.chat.ask.multiHint')}</p> : null}
+            {state.skipped ? <p className="fw-ask__hint">{t('rd.chat.ask.skippedHint')}</p> : null}
             {question.options.length > 0 ? (
               <div
                 className="fw-ask__options"
@@ -403,7 +405,7 @@ export function AskQuestionsDialog({
                       {isRecommended ? (
                         <span className="fw-ask__option-recommended">
                           <Icon name="Sparkles" size="xs" />
-                          Recommended
+                          {t('rd.chat.ask.recommended')}
                         </span>
                       ) : null}
                     </button>
@@ -412,7 +414,7 @@ export function AskQuestionsDialog({
               </div>
             ) : null}
             <label className="fw-visually-hidden" htmlFor={otherFieldId}>
-              {question.options.length > 0 ? 'Something else — type your own answer' : 'Your answer'}
+              {question.options.length > 0 ? t('rd.chat.ask.otherLabel') : t('rd.chat.ask.answerLabel')}
             </label>
             <div className="fw-ask__other">
               <Icon name="Pencil" size="sm" className="fw-ask__other-icon" />
@@ -422,13 +424,13 @@ export function AskQuestionsDialog({
                 className="fw-ask__other-input"
                 value={state.otherText}
                 onChange={(event) => setOtherText(questionIndex, event.target.value)}
-                placeholder={question.options.length > 0 ? 'Something else…' : 'Type your answer…'}
+                placeholder={question.options.length > 0 ? t('rd.chat.ask.otherPlaceholder') : t('rd.chat.ask.answerPlaceholder')}
                 disabled={submitting}
               />
             </div>
             <div className="fw-ask__skip-row">
               <Button variant="quiet" size="sm" onClick={() => skipQuestion(questionIndex)} disabled={submitting}>
-                Skip — no preference
+                {t('rd.chat.ask.skip')}
               </Button>
             </div>
           </fieldset>

@@ -1,6 +1,6 @@
 {
   "schema": "forge-release-exclusions/v1",
-  "note": "Two different lists for two different jobs. `sync_folders` is the short allow-list of .claude/ subfolders the release sync is permitted to copy from at all (everything else under .claude/ is never even considered). `never_sync` is the deny-list applied INSIDE those sync_folders: paths relative to .claude/, matched after normalising backslashes to '/', that the sync step must skip even though they live under an allowed folder (private run logs, memory, research, scratch, machine-local state). `dist_forbidden` is a THIRD, independent list: paths relative to the release tree root (which already has `.claude/` as a prefix) that must never be TRACKED in a published release tree at all, checked by forge-release-check.cjs. Deliberately NOT in dist_forbidden by name: the curated placeholder files the public repo ships on purpose (.claude/FORGE_MEMORY.md, FORGE_TASK_HISTORY.md, FORGE_AGENT_LEDGER.md, FORGE_DECISIONS.md, FORGE_OWNER_PROFILE.json, FORGE_PREF_CANDIDATES.json) — those are excluded from SYNC (so the owner's real, private versions are never overwritten by/into the dist tree) but are allowed to exist in the dist tree as the small placeholders they are. Catching real secret/private CONTENT inside an otherwise-allowed file stays the doctor leak scan's job, not this list's. Codex W2-01: every pattern in BOTH lists is compiled case-insensitively (the `i` flag, applied in forge-release-check.cjs's loadExclusions, not written into the pattern strings here) — Windows treats `.CLAUDE/FORGE-RUNS/x` and `.claude/forge-runs/x` as the same folder, so a case-sensitive pattern was a real escape hatch. Codex W2-02: every dist_forbidden pattern that denotes a private `.claude/` subfolder or file is anchored `(^|/)\\.claude/...` instead of `^\\.claude/...`, so a private folder nested at ANY depth (a `.claude` tree copied under `plugins/forge/` or `templates/`, for example) is still caught, not just one living directly at the release root. Verified against the real public release tree (`forge-system-public`): the only tracked paths containing a nested `/.claude/` are `global-install/.claude/commands/*.md` and `global-install/.claude/skills/forge-core/**` (legitimate shipped template content) plus `.claude-plugin/...`/`plugins/forge/.claude-plugin/...` (a different folder name, `.claude-plugin`, not `.claude` — never matches the `(^|/)\\.claude/` anchor because the literal needs a `/` right after `.claude`); none of those contain a `forge-runs`/`agent-memory`/etc. path component, so the any-depth fix adds zero new false positives there. `^_scratch/` stays root-anchored on purpose — it is this project's own root-level scratch-discipline convention (see this project's CLAUDE.md), not a `.claude/` private-folder pattern.",
+  "note": "Two different lists for two different jobs. `sync_folders` is the short allow-list of .claude/ subfolders the release sync is permitted to copy from at all (everything else under .claude/ is never even considered). `never_sync` is the deny-list applied INSIDE those sync_folders: paths relative to .claude/, matched after normalising backslashes to '/', that the sync step must skip even though they live under an allowed folder (private run logs, memory, research, scratch, machine-local state). `dist_forbidden` is a THIRD, independent list: paths relative to the release tree root (which already has `.claude/` as a prefix) that must never be TRACKED in a published release tree at all, checked by forge-release-check.cjs. Deliberately NOT in dist_forbidden by name: the curated placeholder files the public repo ships on purpose (.claude/FORGE_MEMORY.md, FORGE_TASK_HISTORY.md, FORGE_AGENT_LEDGER.md, FORGE_DECISIONS.md, FORGE_OWNER_PROFILE.json, FORGE_PREF_CANDIDATES.json) — those are excluded from SYNC (so the owner's real, private versions are never overwritten by/into the dist tree) but are allowed to exist in the dist tree as the small placeholders they are. Catching real secret/private CONTENT inside an otherwise-allowed file stays the doctor leak scan's job, not this list's. Codex W2-01: every pattern in BOTH lists is compiled case-insensitively (the `i` flag, applied in forge-release-check.cjs's loadExclusions, not written into the pattern strings here) — Windows treats `.CLAUDE/FORGE-RUNS/x` and `.claude/forge-runs/x` as the same folder, so a case-sensitive pattern was a real escape hatch. Codex W2-02: every dist_forbidden pattern that denotes a private `.claude/` subfolder or file is anchored `(^|/)\\.claude/...` instead of `^\\.claude/...`, so a private folder nested at ANY depth (a `.claude` tree copied under `plugins/forge/` or `templates/`, for example) is still caught, not just one living directly at the release root. Verified against the real public release tree (`forge-system-public`): the only tracked paths containing a nested `/.claude/` are `global-install/.claude/commands/*.md` and `global-install/.claude/skills/forge-core/**` (legitimate shipped template content) plus `.claude-plugin/...`/`plugins/forge/.claude-plugin/...` (a different folder name, `.claude-plugin`, not `.claude` — never matches the `(^|/)\\.claude/` anchor because the literal needs a `/` right after `.claude`); none of those contain a `forge-runs`/`agent-memory`/etc. path component, so the any-depth fix adds zero new false positives there. `^_scratch/` stays root-anchored on purpose — it is this project's own root-level scratch-discipline convention (see this project's CLAUDE.md), not a `.claude/` private-folder pattern. WP 1.9: the dated verbatim memory archives (`.claude/FORGE_<NAME>_ARCHIVE_*.md`: memory, task history, agent ledger, decisions) and the distilled `.claude/LESSONS.md` are project memory with NO curated placeholder, so they are dist_forbidden outright (the Boss `agent-memory/**/lessons-archive-*.md` files are already covered by the agent-memory entry). They never reach a release through the sync anyway (root-level `.claude/` files sit outside sync_folders, and the manifest classifies them per-project); this entry is the backstop that turns a tracked copy in a public tree red. WP 2.1: `(^|/)\\.forge/` is in BOTH lists. The opt-in `.forge/` state root (forge-paths.cjs, forge-canon.json paths.state_root) holds the same runtime data as the legacy `.claude/forge-*` folders (runs, research, scribe, memory, backups, ...), so it is never synced and never tracked in a release; never_sync already had `^\\.forge` (the `.claude/.forge-*` markers), the anchored form also catches a nested `.forge/` folder. Every legacy pattern stays: a matcher must still classify older trees.",
   "sync_folders": [
     "forge-bin",
     "skills",
@@ -8,6 +8,7 @@
     "commands",
     "config",
     "docs",
+    "workflows",
     "forge-dashboard",
     "forge-fixtures"
   ],
@@ -23,6 +24,7 @@
     "^forge-mindmaps/",
     "^forge-genesis-staging/",
     "^\\.forge",
+    "(^|/)\\.forge/",
     "^forge-sync-receipt",
     "^config/forge-owner-grant",
     "/\\.claude-flow/",
@@ -53,6 +55,7 @@
     "(^|/)\\.claude/forge-tickets/",
     "(^|/)\\.claude/forge-prd/",
     "(^|/)\\.claude/forge-vault/",
+    "(^|/)\\.forge/",
     "^_scratch/",
     "(^|/)\\.claude-flow/",
     "\\.log$",
@@ -63,6 +66,8 @@
     "\\.user\\.json$",
     "(^|/)FORGE_CONFIG\\.once\\.",
     "(^|/)\\.claude/FORGE_(USAGE_GUARD_ACK|SNAPSHOT|KILLSWITCH_STATE)",
+    "(^|/)\\.claude/FORGE_[A-Z][A-Z_]*_ARCHIVE_[^/]*\\.md$",
+    "(^|/)\\.claude/LESSONS\\.md$",
     "(^|/)\\.claude/forge-sync-receipt",
     "(^|/)\\.claude/forge-dashboard/(DASHBOARD_STATE\\.json|PORT)$",
     "(^|/)\\.claude/scheduled_tasks\\.lock$",

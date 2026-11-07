@@ -1,6 +1,8 @@
 ---
 name: claude-md-improver
-description: "Audit and improve CLAUDE.md files. Use when asked to check, audit, update or fix CLAUDE.md or project memory."
+description: "Use when asked to check, update or fix CLAUDE.md files."
+# A10 original description (listing budget): "Audit and improve CLAUDE.md files. Use when asked to check, audit, update or fix CLAUDE.md or project memory."
+# W2-BUDGET original description (listing budget): "Audit and improve CLAUDE.md files. Use when asked to check, update or fix CLAUDE.md."
 tools: Read, Glob, Grep, Bash, Edit
 license: Apache-2.0 (complete terms in LICENSE.txt)
 ---
@@ -10,7 +12,7 @@ license: Apache-2.0 (complete terms in LICENSE.txt)
   Pinned commit: 6bfd4e0c6d3da6050984fa5ed8281d915fa7ed69
   Upstream path: plugins/claude-md-management/skills/claude-md-improver/
   License: Apache-2.0 -- complete terms in LICENSE.txt next to this file
-  Forge vendor note: this provenance block and the frontmatter license: key added (Apache-2.0 section 4(b) change notice); the rest of the frontmatter, the body and all three references files verbatim; LICENSE.txt is the plugin-root LICENSE, unmodified; not shipped from the plugin: README.md (plugin install notes that embed two screenshots), the two PNG screenshots and the .claude-plugin manifest; the command half of the plugin ships as the revise-claude-md command; no NOTICE file exists in the pinned plugin directory or repo root.
+  Forge vendor note: this provenance block and the frontmatter license: key added (Apache-2.0 section 4(b) change notice); the rest of the frontmatter, the body and all three upstream references files verbatim, EXCEPT the Forge-added parts marked "Forge addendum" (SA-W1-B4): one pointer paragraph before Phase 4, the section "Forge addendum" plus the provenance table at the end of the body, and the Forge-owned file references/forge-disclosure-doctrine.md (not upstream); LICENSE.txt is the plugin-root LICENSE, unmodified; not shipped from the plugin: README.md (plugin install notes that embed two screenshots), the two PNG screenshots and the .claude-plugin manifest; the command half of the plugin ships as the revise-claude-md command; no NOTICE file exists in the pinned plugin directory or repo root.
   Reviewed for prompt-injection patterns, hidden/zero-width/bidi/control unicode, network use and deletes by build-boss, 2026-09-24 -- clean; every upstream file sha256-verified against the pinned-commit manifest before copying.
 -->
 
@@ -102,6 +104,10 @@ Format:
 ...
 ```
 
+> **Forge addendum (not upstream):** when an update would remove, move, shorten or split existing text, or
+> the owner says the file is too big or rules get ignored, read `references/forge-disclosure-doctrine.md`
+> first: signal triage, move verbatim, no false pointers, `@import` saves no context.
+
 ### Phase 4: Targeted Updates
 
 After outputting the quality report, ask user for confirmation before updating.
@@ -187,3 +193,28 @@ When presenting recommendations, remind users:
 - Testing (commands, patterns)
 - Gotchas (quirks, common mistakes)
 - Workflow (when to do what)
+
+## Forge addendum (not upstream)
+
+The upstream body above stays verbatim. Forge adds one rule set, kept in its own file so the vendored text
+does not drift: `references/forge-disclosure-doctrine.md`. In short:
+- Line count is a symptom to investigate, never a goal or a reported result.
+- Triage each line with "if this is deleted, would Claude make a mistake?" before proposing a cut.
+- Moving text is a byte-for-byte copy; shortening is a separate, declared change. Diff the conditions,
+  numbers and negations of any compressed rule word by word.
+- Every pointer names when to read the target, and the target is opened and checked before the pointer is written.
+- An `@path` import loads in full at session start and saves no context.
+- Project facts stay out of the global `~/.claude/CLAUDE.md`; editing that file needs the owner's permission.
+
+Writing the craft of any agent document (skills, Boss prompts) is `forge-skill-authoring`; generating a new
+project CLAUDE.md is `/forge-projectbrain`.
+
+### Provenance of the Forge addendum
+| Source | Path | Pinned SHA | Licence | Taken | Excluded |
+|---|---|---|---|---|---|
+| daymade/claude-code-skills | `daymade-claude-code/claude-md-progressive-disclosurer/SKILL.md` and its two upstream reference files (progressive_disclosure_principles.md, verification-recipes.md) | 8ebd4b540739966edd565dbdaa9b57717b93e78c | MIT | principles only, translated from Chinese and re-expressed: line count as symptom, signal triage, move versus compress, qualifier diff, whole-text match check, pointer trigger, false-pointer gate, `@import` saves no context, global versus project scope, emphasis discipline, per-section fate | the upstream scripts profile_claude_md.py, sink_sections.py and markdown_headings.py and their test_scripts.py (Python that writes files without a dry run), the Codex prompt-input audit command, the case-study texts |
+
+MIT notice: "Permission is hereby granted, free of charge, to any person obtaining a copy of this software ...
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of
+the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND." Copyright (c) 2025 daymade (LICENSE
+at the pinned SHA). The upstream skill itself stays Apache-2.0 under `LICENSE.txt`.

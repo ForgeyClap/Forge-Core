@@ -1,0 +1,161 @@
+{
+  "type": "api-and-integration",
+  "version": 1,
+  "title": "API and integration",
+  "covers": "HTTP and GraphQL APIs, webhooks, SDK surfaces and connections to third-party services that other software calls.",
+  "domains": ["api", "integration", "payments", "bots", "fullstack"],
+  "stakeholders": [
+    {
+      "id": "client-developer",
+      "who": "A developer integrating against the API or webhook",
+      "cares_about": ["docs that match reality", "errors that say what to fix", "no surprise breaking changes"],
+      "would_notice": ["an example in the docs that returns an error", "a 500 for a bad request", "camelCase in one endpoint and snake_case in the next", "a list endpoint that returns ten thousand rows"]
+    },
+    {
+      "id": "operator",
+      "who": "Whoever runs the service and reads its logs",
+      "cares_about": ["outgoing calls that time out and retry safely", "no duplicate writes", "finding one request in the logs"],
+      "would_notice": ["a call that hangs with no timeout", "a double charge or record after a retry", "logs without a request id"]
+    },
+    {
+      "id": "security-reviewer",
+      "who": "A security reviewer checking the boundary",
+      "cares_about": ["deny by default", "verified webhooks", "nothing secret in responses or logs"],
+      "would_notice": ["an endpoint that answers without a token", "a webhook accepted without a signature check", "a stack trace or key in an error body"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Copy the first example from the docs and run it: does it work as written?",
+    "Send one obviously wrong request: is the error clear and a 4xx?",
+    "Call a protected endpoint with no token: is it refused?"
+  ],
+  "checks": [
+    {
+      "id": "contract-matches",
+      "stakeholder": "client-developer",
+      "claim": "A committed contract (OpenAPI, schema or SDL) matches the real behaviour, and the documented examples work when copied.",
+      "how_to_inspect": "Run every documented example request against the running service and compare the responses with the contract.",
+      "evidence_required": "The example runs and any difference from the contract.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "A committed contract file exists and is the source of truth" }
+    },
+    {
+      "id": "clear-errors",
+      "stakeholder": "client-developer",
+      "claim": "Bad input gets a 4xx with one consistent error shape that names the field and the problem; no 500 for a client mistake.",
+      "how_to_inspect": "Send a missing field, a wrong type and an unknown field to each changed endpoint.",
+      "evidence_required": "The three responses per endpoint.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "invalid input returns a clear 4xx with a consistent error envelope" }
+    },
+    {
+      "id": "no-breaking",
+      "stakeholder": "client-developer",
+      "claim": "The API is versioned and nothing in a shipped version was removed, renamed or made stricter.",
+      "how_to_inspect": "Diff the contract against the last shipped version and list every removal, rename and new required field.",
+      "evidence_required": "The contract diff against the last shipped version.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "Explicit versioning present; no breaking change inside a shipped version." }
+    },
+    {
+      "id": "consistent-shape",
+      "stakeholder": "client-developer",
+      "claim": "Names, casing, date formats (ISO 8601 with timezone) and pagination look the same on every endpoint.",
+      "how_to_inspect": "Put the response of two different endpoints side by side and compare casing, dates and list shape.",
+      "evidence_required": "The two responses and any mismatch fixed.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Every inconsistency becomes a special case in every client; integrators notice it on the second endpoint." }
+    },
+    {
+      "id": "paginated",
+      "stakeholder": "client-developer",
+      "claim": "List endpoints paginate with a documented limit and never return an unbounded list.",
+      "how_to_inspect": "Call each list endpoint with no parameters on a large dataset and check the size and the next-page link.",
+      "evidence_required": "The response size and pagination fields.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "list endpoints paginate" }
+    },
+    {
+      "id": "rate-limit-clear",
+      "stakeholder": "client-developer",
+      "claim": "Hitting the rate limit returns 429 with Retry-After, so a client knows when to try again.",
+      "how_to_inspect": "Send requests above the limit and read the status and headers of the first refused one.",
+      "evidence_required": "The refused response with its headers.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "Rate limiting returns 429 + Retry-After" }
+    },
+    {
+      "id": "timeouts-retries",
+      "stakeholder": "operator",
+      "claim": "Every outgoing call has a timeout and a bounded retry with backoff, and permanent failures go to a dead-letter or alert.",
+      "how_to_inspect": "Point one dependency at a slow or failing stub and watch the timeout, the retries and where the failure ends up.",
+      "evidence_required": "The log of the stubbed failure.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "API integration", "quote": "Retries/backoff + timeout" }
+    },
+    {
+      "id": "idempotent-writes",
+      "stakeholder": "operator",
+      "claim": "Retrying an unsafe write (same idempotency key or event id) creates no second record, charge or message.",
+      "how_to_inspect": "Send the same write twice with the same key and count the records created.",
+      "evidence_required": "Both responses and the record count (one).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "Idempotency on unsafe retryable writes" }
+    },
+    {
+      "id": "traceable-logs",
+      "stakeholder": "operator",
+      "claim": "Each request can be followed end to end in the logs by a request or correlation id, with its outcome and duration.",
+      "how_to_inspect": "Make one request and find all its log lines by its id.",
+      "evidence_required": "The log lines for that one request.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Without an id to search, the operator cannot connect a customer's complaint to the failing call." }
+    },
+    {
+      "id": "deny-by-default",
+      "stakeholder": "security-reviewer",
+      "claim": "Every protected route refuses a missing, expired or wrong-scope token, proven by a negative test.",
+      "how_to_inspect": "Call each protected endpoint without a token and with a token of the wrong scope.",
+      "evidence_required": "The refusals (401/403) and the negative test that asserts them.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Domain gates", "quote": "a negative (unauthenticated / wrong-scope) test proves rejection" }
+    },
+    {
+      "id": "webhooks-verified",
+      "stakeholder": "security-reviewer",
+      "claim": "Every inbound webhook verifies its signature on the raw body, and a forged or replayed event is rejected.",
+      "how_to_inspect": "Send one correctly signed test event and one with a changed body or signature.",
+      "evidence_required": "The accepted and the rejected responses (N/A when there are no inbound webhooks).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-integration/SKILL.md", "section": "Hard rules", "quote": "Webhook auth / signature verification on every inbound webhook." }
+    },
+    {
+      "id": "nothing-leaks",
+      "stakeholder": "security-reviewer",
+      "claim": "No secret, stack trace or personal data appears in responses, error bodies or logs.",
+      "how_to_inspect": "Trigger a server error and read the response body and the log line it produced.",
+      "evidence_required": "The error response and the log line.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-api/SKILL.md", "section": "Safety, approval and honesty", "quote": "never in responses, error bodies or logs" }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Docs that lie", "symptom": "the README example returns 400 because a field was renamed" },
+    { "defect": "500 for bad input", "symptom": "a missing field crashes the handler instead of returning a 4xx" },
+    { "defect": "Stack trace in the response", "symptom": "an error body that shows file paths and line numbers to the caller" },
+    { "defect": "Unbounded list", "symptom": "GET /items returns the whole table" },
+    { "defect": "Duplicate on retry", "symptom": "a timeout and a retry create two orders" }
+  ]
+}

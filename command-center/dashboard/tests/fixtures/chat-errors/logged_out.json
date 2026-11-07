@@ -1,0 +1,6 @@
+{
+  "code": "logged_out",
+  "details": "Invalid API key · Please run /login. authorization: Bearer abcdef1234567890abcdef",
+  "expect_title": "Je bent uitgelogd bij Claude",
+  "expect_action": "Open Claude Code om in te loggen"
+}

@@ -51,7 +51,13 @@ const fs = require('fs');
 const path = require('path');
 const memory = require('./forge-memory.cjs');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1: FORGE_PROJECT_ROOT keeps first place; the fallback comes from forge-paths.cjs scriptRoot — an installed copy
+// acts on its own project exactly as before, a plugin copy discovers the project from CLAUDE_PROJECT_DIR / the cwd and
+// answers null outside one (the CLI then refuses). Guarded: an older or missing forge-paths.cjs keeps the literal.
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (() => {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRoot === 'function') return P.scriptRoot(__dirname); } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+})();
 
 // Same fail-safe list as forge-distill.cjs's / log-event.cjs's GENERIC_AGENTS: a Lead/orchestrator label
 // is not a working Boss and must never get its own memory file. Kept as an independent local copy since
@@ -180,6 +186,7 @@ function cmdList(opts, root) {
 if (require.main === module) {
   try {
     const opts = parseArgs(process.argv.slice(2));
+    if (!PROJECT_ROOT) throw new Error('no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) - set FORGE_PROJECT_ROOT'); // WP 2.1: a plugin copy outside any project
     if (opts.mode !== 'add' && opts.mode !== 'list') { printUsage(); process.exitCode = 2; }
     else if (!opts.boss) { console.error('forge-reflect: <boss-slug> is required'); process.exitCode = 2; }
     else {

@@ -1,0 +1,1 @@
+.fw-xstatus[data-status=stuck]{color:var(--fs-warn);background:var(--fs-warn-soft);box-shadow:inset 0 0 0 1px var(--fs-warn)}.fw-xstatus[data-status=stuck]:before{border-radius:1px}

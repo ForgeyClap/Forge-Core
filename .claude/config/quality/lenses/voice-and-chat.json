@@ -1,0 +1,161 @@
+{
+  "type": "voice-and-chat",
+  "version": 1,
+  "title": "Voice and chat",
+  "covers": "Voice and phone agents, chatbots, RAG assistants and messaging bots that hold a conversation with people.",
+  "domains": ["voice", "rag", "bots", "agent"],
+  "stakeholders": [
+    {
+      "id": "caller-or-user",
+      "who": "The customer talking to the voice agent or chatbot",
+      "cares_about": ["being understood quickly", "short, natural answers", "reaching a person when needed"],
+      "would_notice": ["two questions in one breath", "a long pause before every answer", "a made-up answer", "being talked over, or not being able to interrupt"]
+    },
+    {
+      "id": "business-owner",
+      "who": "The business the assistant speaks for",
+      "cares_about": ["correct facts about their business", "their tone", "no messages sent without approval"],
+      "would_notice": ["a wrong price or opening hour", "an answer to a question outside the business", "an outbound call or SMS they never approved"]
+    },
+    {
+      "id": "staff",
+      "who": "The colleague who receives the handoff or notification",
+      "cares_about": ["one notification with everything needed to act"],
+      "would_notice": ["three e-mails for one call", "a notification without a callback number or the reason for the call"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Listen to or read the greeting: does it say it is an AI, in the caller's language, and ask one clear question?",
+    "Ask something it cannot know: does it say so and offer a person instead of guessing?",
+    "Interrupt it (voice) or send a short unclear message (chat): does it recover naturally?"
+  ],
+  "checks": [
+    {
+      "id": "grounded",
+      "stakeholder": "business-owner",
+      "claim": "Answers about the business come from its approved sources and cite them where the channel allows; nothing is invented.",
+      "how_to_inspect": "Ask ten real customer questions with known answers and compare each answer with its source.",
+      "evidence_required": "The question set with answers and sources.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-rag/SKILL.md", "section": "Hard rules", "quote": "answers are source-aware and cite their sources" }
+    },
+    {
+      "id": "honest-fallback",
+      "stakeholder": "caller-or-user",
+      "claim": "When retrieval is empty or unsure it says so and offers a person or a callback, instead of guessing.",
+      "how_to_inspect": "Ask three questions the sources cannot answer and read or listen to each reply.",
+      "evidence_required": "The three replies, quoted or recorded.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-rag/SKILL.md", "section": "Hard rules", "quote": "Clear fallback response when retrieval is empty/low-confidence — no guessing." }
+    },
+    {
+      "id": "one-question",
+      "stakeholder": "caller-or-user",
+      "claim": "Each turn asks at most one question and stays short enough to follow by ear.",
+      "how_to_inspect": "Read the transcript of a full test conversation and count the questions per turn.",
+      "evidence_required": "The transcript with any multi-question turn marked.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Domain gates", "quote": "Exactly one question per turn" }
+    },
+    {
+      "id": "natural-language",
+      "stakeholder": "caller-or-user",
+      "claim": "It speaks the caller's language as configured (Dutch-first for Dutch clients), in natural spoken phrasing rather than written text read aloud, and says names and numbers correctly.",
+      "how_to_inspect": "Listen to a recorded test call (or read the chat) as a native speaker and note stiff phrasing and mispronounced names, times and prices.",
+      "evidence_required": "The recording or transcript and the notes.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Domain gates", "quote": "Dutch-first caller experience verified (spoken-natural, correct voice)" }
+    },
+    {
+      "id": "disclosure",
+      "stakeholder": "caller-or-user",
+      "claim": "The caller hears or reads early that they are talking to an AI, and any recording consent is handled.",
+      "how_to_inspect": "Check the first turn of a test conversation for the disclosure and the consent wording.",
+      "evidence_required": "The first turn of the transcript.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Domain gates", "quote": "AI disclosure present + early" }
+    },
+    {
+      "id": "latency-measured",
+      "stakeholder": "caller-or-user",
+      "claim": "Response time was measured on real turns (and barge-in tested for voice); there are no long silences.",
+      "how_to_inspect": "Time ten turns from the end of the user's input to the start of the reply.",
+      "evidence_required": "The ten measured times.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Domain gates", "quote": "latency measured, not assumed" }
+    },
+    {
+      "id": "clean-close",
+      "stakeholder": "caller-or-user",
+      "claim": "The conversation ends politely when the task is done, and never loops or keeps the user talking.",
+      "how_to_inspect": "Finish a test conversation and check the closing turn and that nothing follows it.",
+      "evidence_required": "The last turns of the transcript.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Fan-out & flow", "quote": "clean close" }
+    },
+    {
+      "id": "out-of-scope",
+      "stakeholder": "business-owner",
+      "claim": "Questions outside the business are declined politely instead of answered.",
+      "how_to_inspect": "Ask two unrelated questions (general knowledge, another company) and read the replies.",
+      "evidence_required": "The two replies, quoted or recorded.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-rag/SKILL.md", "section": "Ship-readiness", "quote": "out-of-scope questions are refused" }
+    },
+    {
+      "id": "no-unapproved-outbound",
+      "stakeholder": "business-owner",
+      "claim": "No outbound calls, SMS or proactive messages are enabled without the owner's approval.",
+      "how_to_inspect": "Read the configuration for outbound, SMS and broadcast features and confirm each is off or approved.",
+      "evidence_required": "The configuration read back.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Domain gates", "quote": "No outbound/SMS/customer traffic enabled without owner approval" }
+    },
+    {
+      "id": "one-notification",
+      "stakeholder": "staff",
+      "claim": "One conversation produces at most one notification, also when a turn is retried.",
+      "how_to_inspect": "Run a test conversation, retry one turn, and count the notifications sent.",
+      "evidence_required": "The notification count (one or zero).",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-voice/SKILL.md", "section": "Domain gates", "quote": "≤1 email per call" }
+    },
+    {
+      "id": "handoff-complete",
+      "stakeholder": "staff",
+      "claim": "The notification holds what staff need to act without replaying the call: name, callback number, reason, requested time and a transcript link.",
+      "how_to_inspect": "Read the test notification as the colleague who must act on it.",
+      "evidence_required": "The notification text with any missing item named.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Staff act on the notification, not the recording; a missing callback number turns a lead into a lost lead." }
+    },
+    {
+      "id": "tone-fits",
+      "stakeholder": "business-owner",
+      "claim": "Voice, tone and form of address fit the business, and stock phrases are not repeated every turn.",
+      "how_to_inspect": "Read a full transcript and mark repeated phrases and any tone that does not fit the brief.",
+      "evidence_required": "The marked transcript.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Callers notice a repeated stock phrase within two turns and stop trusting the assistant." }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Question stacking", "symptom": "'What is your name, and when would you like to come, and for how many people?'" },
+    { "defect": "Confident guessing", "symptom": "an invented opening time instead of 'I do not know; shall I have someone call you?'" },
+    { "defect": "Written text read aloud", "symptom": "bullet points, URLs or 'e.g.' spoken by the voice" },
+    { "defect": "Notification storm", "symptom": "one call produces three e-mails to the office" },
+    { "defect": "Endless goodbye", "symptom": "the assistant keeps asking 'Is there anything else?' after the caller said goodbye" }
+  ]
+}

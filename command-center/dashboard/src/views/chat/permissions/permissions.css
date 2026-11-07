@@ -1,0 +1,247 @@
+/*
+ * Permission cards (WP B3, plan §4.4). Tokens only.
+ *
+ * The card the user must act on is the most raised surface in the chat: surface-2, a strong
+ * hairline, a heavy start edge in the text colour and the medium shadow. The ember accent is used
+ * once, for the small pulse next to "Wacht op jou" (still while reduced motion is on). Badges are
+ * outlined pills with an icon: the words carry the meaning.
+ */
+
+.fw-perm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  inline-size: 100%;
+  max-inline-size: 46rem;
+  margin-inline: auto;
+  padding: var(--fs-space-4) var(--fs-space-5) var(--fs-space-4);
+  border: 1px solid var(--fs-line-strong);
+  border-inline-start: 3px solid var(--fs-ink);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface-2);
+  box-shadow: var(--fs-shadow-2);
+}
+
+.fw-perm__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fs-space-1) var(--fs-space-3);
+}
+
+.fw-perm__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  font: 600 var(--fs-text-12) / 1 var(--fs-font-body);
+  letter-spacing: 0;
+  color: var(--fs-ink);
+}
+
+.fw-perm__pulse {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-accent);
+  animation: fw-perm-pulse 1.8s var(--fs-ease) infinite;
+}
+
+@keyframes fw-perm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-perm__pulse {
+    animation: none;
+  }
+}
+
+.fw-perm__meta {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fw-perm__summary,
+.fw-perm__group-title {
+  margin: 0;
+  font: 600 var(--fs-text-18) / var(--fs-leading-snug) var(--fs-font-body);
+  letter-spacing: 0;
+  color: var(--fs-ink);
+  overflow-wrap: anywhere;
+}
+
+.fw-perm__lead,
+.fw-perm__more {
+  margin: 0;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
+}
+
+.fw-perm__more {
+  margin-block-start: calc(var(--fs-space-2) * -1);
+  font-size: var(--fs-text-13);
+}
+
+.fw-perm__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-perm__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  font: 500 var(--fs-text-12) / 1.2 var(--fs-font-body);
+  color: var(--fs-ink);
+  border: 1px solid var(--fs-ink-3);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-surface);
+}
+
+/* "verwijdert iets" weighs more than the others: weight, never hue. */
+.fw-perm__badge[data-badge='deletes'] {
+  border-width: 2px;
+  border-color: var(--fs-ink);
+  font-weight: 600;
+}
+
+.fw-perm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+  padding-block-start: var(--fs-space-3);
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-perm__note {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+/* Why "Altijd toestaan in dit gesprek" is missing on a multi-command line. */
+.fw-perm__session-note {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
+}
+
+.fw-perm__note[data-state='failed'] {
+  color: var(--fs-ink);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------- group */
+
+.fw-perm__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface);
+}
+
+.fw-perm__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--fs-space-2) var(--fs-space-4);
+  padding: var(--fs-space-3) var(--fs-space-4);
+}
+
+.fw-perm__item + .fw-perm__item {
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-perm__item[data-state='sending'] {
+  opacity: 0.6;
+}
+
+.fw-perm__item-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  min-inline-size: 0;
+}
+
+.fw-perm__item-main .fw-perm__more {
+  margin-block-start: 0;
+}
+
+.fw-perm__item-summary {
+  margin: 0;
+  font: 500 var(--fs-text-14) / var(--fs-leading-snug) var(--fs-font-body);
+  color: var(--fs-ink);
+  overflow-wrap: anywhere;
+}
+
+.fw-perm__item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--fs-space-1);
+}
+
+.fw-perm__who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  font: 500 var(--fs-text-12) / 1 var(--fs-font-body);
+  color: var(--fs-ink-2);
+}
+
+.fw-perm__stamp {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+  border-radius: var(--fs-radius-xs);
+  font: 700 var(--fs-text-12) / 1 var(--fs-font-body);
+  color: var(--fs-ink-2);
+  background: var(--fs-sunken);
+}
+
+@media (max-width: 640px) {
+  .fw-perm {
+    padding: var(--fs-space-4);
+  }
+
+  /* One box, not a box in a box: on a phone the list loses its own frame. */
+  .fw-perm__list {
+    border: 0;
+    border-block: 1px solid var(--fs-line);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .fw-perm__item {
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: 0;
+  }
+
+  .fw-perm__item-actions {
+    justify-content: flex-start;
+  }
+
+  .fw-perm__actions > .fw-button {
+    flex: 1 1 auto;
+  }
+}

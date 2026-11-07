@@ -106,19 +106,42 @@ function pathChainIsReal(root, targetPath) {
  *  is honestly `true` — there is nothing to protect yet, and a fresh project must not be treated as
  *  "compromised" merely for not having run any missions. Every real read under forge-runs/ (readRun,
  *  listRunIds, pruneSynthetic) checks this FIRST, before trusting anything built from RUNS_DIR. */
-function forgeRunsRootIsReal(root) {
-  const claudeDir = path.join(root, '.claude');
-  if (!exists(claudeDir)) return true;
-  if (!pathChainIsReal(root, claudeDir)) return false;
-  const runsDir = path.join(claudeDir, 'forge-runs');
-  if (!exists(runsDir)) return true;
-  return pathChainIsReal(root, runsDir);
+/*  WP 2.1: the runs folder follows the project's layout (runsDirFor below): legacy `.claude/forge-runs` exactly as
+ *  before, or `.forge/runs` in an opted-in project. `runsDir` (optional) names the folder explicitly; every level
+ *  from `root` down to it is checked the same way (absent level = nothing to protect yet, true). A state folder the
+ *  owner placed OUTSIDE the project (FORGE_STATE_DIR) is owner-chosen configuration, trusted like root's own
+ *  ancestry: only its own entry must not be a link. */
+function forgeRunsRootIsReal(root, runsDir) {
+  const target = path.resolve(runsDir || runsDirFor(root));
+  const rootResolved = path.resolve(root);
+  const rel = path.relative(rootResolved, target);
+  if (!rel) return true;
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return !exists(target) || !isSymlinkEntry(target);
+  let cur = rootResolved;
+  for (const part of rel.split(path.sep)) {
+    if (!part) continue;
+    cur = path.join(cur, part);
+    if (!exists(cur)) return true;
+    if (!pathChainIsReal(root, cur)) return false;
+  }
+  return true;
+}
+/** runsChainLabel(root, runsDir?) -> the folder chain an owner reads in a refusal: legacy exactly
+ *  '.claude or .claude/forge-runs' (as before), forge layout '.forge or .forge/runs'. */
+function runsChainLabel(root, runsDir) {
+  const rel = path.relative(path.resolve(root), path.resolve(runsDir || runsDirFor(root))).split(path.sep).join('/');
+  const parts = rel.split('/').filter(Boolean);
+  return parts.length === 2 && !rel.startsWith('..') ? parts[0] + ' or ' + rel : rel;
 }
 /** runsRootRefusalReason(root) -> a plain, printable reason string when forgeRunsRootIsReal(root) is
  *  false, or null when it is fine — so a CLI command can print an honest, specific line instead of a
  *  bare (and misleading) "no runs yet" when the real problem is a symlinked/junction forge-runs/. */
 function runsRootRefusalReason(root) {
-  return forgeRunsRootIsReal(root) ? null : 'the forge-runs directory (or an ancestor: .claude) is a symlink/junction — refusing to read anything under it';
+  if (forgeRunsRootIsReal(root)) return null;
+  const rel = path.relative(path.resolve(root), path.resolve(runsDirFor(root))).split(path.sep).join('/');
+  return rel === '.claude/forge-runs'
+    ? 'the forge-runs directory (or an ancestor: .claude) is a symlink/junction — refusing to read anything under it'
+    : 'the runs directory ' + rel + ' (or an ancestor) is a symlink/junction — refusing to read anything under it';
 }
 /** statIdentity(st) -> the minimal fields pruneSynthetic()'s re-check-before-delete needs from an
  *  fs.lstatSync() result: dev+ino (identify the SAME filesystem object across two separate lstat calls),
@@ -185,8 +208,23 @@ function safeReadContained(filePath, baseDir) {
 // (.claude/forge-bin/forge-runinfo.cjs, two levels above __dirname — same depth server.cjs was at
 // under .claude/forge-dashboard/). An env override is honored only when it points at THIS tool's own
 // install (realpath match): it may not redirect this CLI to read a different project's runs/memory.
+// WP 2.1: forge-paths.cjs (guarded: a missing or older copy keeps every legacy answer below). An INSTALLED copy
+// (<project>/.claude/forge-bin, scriptRootInfo source 'script') keeps the isolation guard exactly as before. A
+// PLUGIN copy has no own install inside any project, so the realpath guard above could never pass: there the
+// owner's FORGE_PROJECT_ROOT is honored when it is an existing folder, else the project is discovered from the
+// working folder - and when there is none, PROJECT_DIR is null and every command refuses with a clear message.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRootInfo === 'function' ? m : null; } catch { return null; } })();
 function detectProjectRoot() {
   const envRoot = process.env.FORGE_PROJECT_ROOT;
+  let info = null;
+  if (forgePaths) { try { info = forgePaths.scriptRootInfo(__dirname); } catch { info = null; } }
+  if (info && info.source !== 'script') {
+    if (envRoot) {
+      try { if (fs.statSync(envRoot).isDirectory()) return path.resolve(envRoot); } catch { /* not a folder */ }
+      console.error('[forge-runinfo] FORGE_PROJECT_ROOT ignored: it is not an existing folder (' + envRoot + ')');
+    }
+    return info.root || null;
+  }
   if (envRoot) {
     try {
       const candidate = path.join(envRoot, '.claude', 'forge-bin', 'forge-runinfo.cjs');
@@ -196,9 +234,27 @@ function detectProjectRoot() {
   }
   return path.resolve(__dirname, '..', '..');
 }
+/** runsDirFor(root) -> the runs folder IN USE for that project: legacy layout = <root>/.claude/forge-runs exactly as
+ *  before; forge layout = the active folder (.forge/runs), or the legacy one while only that one exists. Read-only
+ *  tool: a layout forge-paths cannot judge is read the legacy way. */
+function runsDirFor(root) {
+  const legacy = path.join(root, '.claude', 'forge-runs');
+  if (!forgePaths) return legacy;
+  let active;
+  try { if (forgePaths.layout(root) !== 'forge') return legacy; active = forgePaths.stateDir(root, 'runs'); } catch { return legacy; }
+  return !exists(active) && exists(legacy) ? legacy : active;
+}
+/** memoryPathFor(root, name) -> where a FORGE_* memory file is read (legacy: .claude/<name>; forge layout:
+ *  .forge/memory/<name>, falling back to .claude/<name> until it exists - install files like the skill registry stay). */
+function memoryPathFor(root, name) {
+  const legacy = path.join(root, '.claude', name);
+  if (!forgePaths || typeof forgePaths.memoryFile !== 'function') return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : forgePaths.memoryFile(root, name, { read: true }); } catch { return legacy; }
+}
 const PROJECT_DIR = detectProjectRoot();
-const CLAUDE_DIR = path.join(PROJECT_DIR, '.claude');
-const RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
+const NO_ROOT_MESSAGE = 'forge-runinfo: no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)';
+const CLAUDE_DIR = PROJECT_DIR ? path.join(PROJECT_DIR, '.claude') : null;
+const RUNS_DIR = PROJECT_DIR ? runsDirFor(PROJECT_DIR) : null;
 const MEMORY_FILES = ['FORGE_PROJECT_PROFILE.md', 'FORGE_MEMORY.md', 'FORGE_DECISIONS.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md', 'FORGE_SKILL_REGISTRY.md'];
 const COMMAND_CENTER_URL = 'http://127.0.0.1:4100';
 const HEALTH_TIMEOUT_MS = 2000;
@@ -441,7 +497,7 @@ async function cmdStatus() {
   console.log('  total runs      : ' + ids.length);
   if (rootRefusal) console.log('  ! forge-runs    : ' + rootRefusal);
   console.log('  memory files    :');
-  for (const f of MEMORY_FILES) console.log('    [' + (exists(path.join(CLAUDE_DIR, f)) ? 'x' : ' ') + '] ' + f);
+  for (const f of MEMORY_FILES) console.log('    [' + (exists(memoryPathFor(PROJECT_DIR, f)) ? 'x' : ' ') + '] ' + f);
   const rp = lid && !escaped ? path.join(RUNS_DIR, lid, 'final-report.md') : null;
   console.log('  latest report   : ' + (escaped ? '(refused — see above)' : (rp && exists(rp) ? rp : '(none)')));
 }
@@ -661,8 +717,9 @@ function verifyPinnedCandidate(pin, root, dir, verdict) {
   if (pinFstat.dev !== pinLstat.dev || pinFstat.ino !== pinLstat.ino) {
     return { ok: false, reason: 'the pin file at its expected path is no longer the same file our own handle refers to' };
   }
-  if (!forgeRunsRootIsReal(root)) {
-    return { ok: false, reason: 'the runs directory (.claude or .claude/forge-runs) is a symlink/junction — refusing to delete' };
+  // WP 2.1: the chain checked is the one that holds this candidate (its parent folder), in either layout
+  if (!forgeRunsRootIsReal(root, path.dirname(path.resolve(dir)))) {
+    return { ok: false, reason: 'the runs directory (' + runsChainLabel(root, path.dirname(path.resolve(dir))) + ') is a symlink/junction — refusing to delete' };
   }
   if (!pathChainIsReal(root, dir)) {
     return { ok: false, reason: 'the candidate directory no longer resolves as a real, unlinked path from the project root' };
@@ -771,9 +828,9 @@ function pruneSynthetic(opts) {
   const result = { runsDir, apply: !!opts.apply, candidates: [], removed: [], errors: [] };
   if (!exists(runsDir)) return result;
   const root = opts.root || path.dirname(path.dirname(runsDir));
-  if (!forgeRunsRootIsReal(root)) {
+  if (!forgeRunsRootIsReal(root, runsDir)) {
     result.refused = true;
-    result.reason = 'refusing: the runs directory (.claude or .claude/forge-runs) is a symlink/junction — cannot safely list or prune anything under it';
+    result.reason = 'refusing: the runs directory (' + runsChainLabel(root, runsDir) + ') is a symlink/junction — cannot safely list or prune anything under it';
     return result;
   }
   let entries;
@@ -871,20 +928,35 @@ function printHelp() {
   console.log('  open-report         print the latest run\'s final-report.md');
   console.log('  prune-synthetic     list reserved-name tool-debris run folders (dry run)');
   console.log('  prune-synthetic --apply   actually delete the eligible debris folders listed above');
+  console.log('  stats [--json] [--since <date>] [--runs <n>] [--trend <n>] [--root <dir>]   routing statistics from this project\'s own runs (read-only, no telemetry)');
   console.log('The dashboard itself is the Forge Command Center: /forge dashboard, or see .claude/forge-dashboard/README.md');
 }
 
 async function main() {
   const cmd = process.argv[2] || '';
+  if (!PROJECT_DIR && ['status', 'runs', 'open-report', 'prune-synthetic'].includes(cmd)) { console.error(NO_ROOT_MESSAGE); process.exitCode = 1; return; }
   if (cmd === 'status') { await cmdStatus(); return; }
   if (cmd === 'runs') { cmdRuns(); return; }
   if (cmd === 'open-report') { cmdOpenReport(); return; }
   if (cmd === 'prune-synthetic') { cmdPruneSynthetic(process.argv.slice(3)); return; }
+  if (cmd === 'stats') { cmdStats(process.argv.slice(3)); return; }
   printHelp();
 }
 
+/** cmdStats(args) - `/forge stats` (WP 3.5): delegates to forge-routing-stats.cjs in-process. The project root is
+ *  this tool's own PROJECT_DIR unless the caller passes --root; with neither, the same no-root refusal as the
+ *  other modes. Read-only: the routing-stats tool writes nothing. */
+function cmdStats(args) {
+  const hasRoot = args.includes('--root');
+  if (!hasRoot && !PROJECT_DIR) { console.error(NO_ROOT_MESSAGE); process.exitCode = 1; return; }
+  let rs;
+  try { rs = require('./forge-routing-stats.cjs'); } catch (e) { console.error('forge-runinfo: stats needs forge-routing-stats.cjs next to this tool (' + (e && e.message) + ')'); process.exitCode = 1; return; }
+  process.exitCode = rs.main(hasRoot ? args : ['--root', PROJECT_DIR].concat(args));
+}
+
 if (require.main === module) {
-  main().then(() => process.exit(0)).catch((e) => { console.error('[forge-runinfo] error: ' + (e && e.message)); process.exit(1); });
+  // WP 3.5: honour process.exitCode (stats usage error = 2, no project root = 1); before this a forced exit(0) hid both.
+  main().then(() => process.exit(process.exitCode || 0)).catch((e) => { console.error('[forge-runinfo] error: ' + (e && e.message)); process.exit(1); });
 }
 
 module.exports = {

@@ -1,0 +1,72 @@
+{
+  "ok": true,
+  "id": "c-ollama-down",
+  "turns": [
+    { "type": "turn", "turn_id": "t1", "request_id": "r1", "role": "user", "text": "Zet de openingstijden op de contactpagina.", "created_at": "2026-11-02T13:40:00.000Z" },
+    {
+      "type": "turn",
+      "turn_id": "t1",
+      "request_id": "r1",
+      "role": "assistant",
+      "text": "De openingstijden staan nu op de contactpagina.",
+      "created_at": "2026-11-02T13:41:00.000Z",
+      "error": null,
+      "route": {
+        "target_id": "main", "kind": "claude-account", "label": "Hoofdaccount", "model": null, "capability": "full",
+        "reason": "first", "switched": false, "from_target_id": null, "from_label": null,
+        "from_window": null, "from_pct": null, "from_resume_at": null,
+        "attempt": 1, "retried": false, "outcome": "ok", "handover": null
+      }
+    },
+    { "type": "turn", "turn_id": "t2", "request_id": "r2", "role": "user", "text": "Kun je de tekst op de knop korter maken?", "created_at": "2026-11-02T14:20:00.000Z" },
+    {
+      "type": "turn",
+      "turn_id": "t2",
+      "request_id": "r2-r2",
+      "role": "assistant",
+      "text": "",
+      "created_at": "2026-11-02T14:20:04.000Z",
+      "error": "Ollama is not reachable on 127.0.0.1:11434",
+      "route": {
+        "target_id": "ollama-llama31", "kind": "provider-model", "label": "Ollama · llama3.1", "model": "llama3.1:8b",
+        "capability": "answers-only", "reason": "switch-limit", "switched": true,
+        "from_target_id": "main", "from_label": "Hoofdaccount", "from_window": "five_hour", "from_pct": null,
+        "from_resume_at": "2026-11-02T16:40:00.000Z",
+        "attempt": 2, "retried": false, "outcome": "down",
+        "handover": { "turns": 2, "chars": 140, "truncated": false }
+      }
+    }
+  ],
+  "events": [
+    { "kind": "route_selected", "turn_id": "t2", "request_id": "r2", "data": { "target_id": "main", "label": "Hoofdaccount", "kind": "claude-account", "capability": "full", "reason": "sticky", "attempt": 1, "skipped": [] } },
+    {
+      "kind": "route_attempt_failed",
+      "turn_id": "t2",
+      "request_id": "r2",
+      "data": {
+        "turn_id": "t2", "request_id": "r2", "text": "Ik begin met de knop op de", "error": "rate limit reached",
+        "route": {
+          "target_id": "main", "kind": "claude-account", "label": "Hoofdaccount", "model": null, "capability": "full",
+          "reason": "sticky", "switched": false, "attempt": 1, "retried": true, "outcome": "rate_limited", "handover": null
+        }
+      }
+    },
+    { "kind": "forge_error", "turn_id": "t2", "request_id": "r2", "data": { "type": "forge_error", "source": "stream", "code": "rate_limited", "resume_at": "2026-11-02T16:40:00.000Z" } },
+    { "kind": "route_selected", "turn_id": "t2", "request_id": "r2-r2", "data": { "target_id": "ollama-llama31", "label": "Ollama · llama3.1", "kind": "provider-model", "capability": "answers-only", "reason": "switch-limit", "attempt": 2, "skipped": [] } },
+    {
+      "kind": "route_switched",
+      "turn_id": "t2",
+      "request_id": "r2-r2",
+      "data": {
+        "target_id": "ollama-llama31", "kind": "provider-model", "label": "Ollama · llama3.1", "model": "llama3.1:8b",
+        "capability": "answers-only", "reason": "switch-limit", "switched": true,
+        "from_target_id": "main", "from_label": "Hoofdaccount", "from_window": "five_hour", "from_pct": null,
+        "from_resume_at": "2026-11-02T16:40:00.000Z", "attempt": 2, "retried": false, "outcome": null,
+        "handover": { "turns": 2, "chars": 140, "truncated": false },
+        "skipped": []
+      }
+    },
+    { "kind": "context_handover", "turn_id": "t2", "request_id": "r2-r2", "data": { "turns": 2, "chars": 140, "truncated": false } },
+    { "kind": "forge_error", "turn_id": "t2", "request_id": "r2-r2", "data": { "type": "forge_error", "source": "provider", "code": "ollama_down", "resume_at": null, "model": null, "details": "connect ECONNREFUSED 127.0.0.1:11434" } }
+  ]
+}

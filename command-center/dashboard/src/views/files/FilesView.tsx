@@ -31,7 +31,6 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 
 import {
   EmptyState,
-  Eyebrow,
   ExampleTag,
   Icon,
   IconButton,
@@ -42,45 +41,30 @@ import {
   ToolbarGroup,
 } from '@/components/primitives';
 import { usePrototype } from '@/prototype/state/prototype-store';
+import { useLocale } from '@/i18n/use-locale';
+import type { Locale, Translate } from '@/i18n';
 import { useFilesActions } from '@/prototype/state/gateway-files';
 import type { GatewayFilePreview } from '@/prototype/state/gateway-files';
 import type { FileNode } from '@/prototype/types/prototype-types';
 
 import './files.css';
+import { localeTag } from '@/i18n/format';
+import { reasonKey } from '@/views/files/file-reasons';
 
 /* ------------------------------------------------------------------ marks */
 
 type ChangeKey = NonNullable<FileNode['changed']>;
 
 interface ChangeMarkSpec {
-  /** Leading glyph. Carries the state on its own in pure greyscale. */
+  /** Typographic glyph shown in the tree row. */
   readonly glyph: string;
-  /** Short uppercase label for the tree row. */
-  readonly short: string;
-  /** Full uppercase label for the preview header. */
-  readonly label: string;
-  readonly description: string;
 }
 
+/** W3FX-BC: the words live in the pending copy (`rd.files.change.<key>` and `rd.files.changeInfo.<key>`). */
 const CHANGE_MARKS: Readonly<Record<ChangeKey, ChangeMarkSpec>> = {
-  added: {
-    glyph: '+',
-    short: 'ADD',
-    label: 'ADDED',
-    description: 'Added — this file did not exist before this change.',
-  },
-  modified: {
-    glyph: '~',
-    short: 'MOD',
-    label: 'MODIFIED',
-    description: 'Modified — this file was edited.',
-  },
-  deleted: {
-    glyph: '-',
-    short: 'DEL',
-    label: 'DELETED',
-    description: 'Deleted — this file was removed.',
-  },
+  added: { glyph: '+' },
+  modified: { glyph: '~' },
+  deleted: { glyph: '-' },
 };
 
 const CHANGE_ORDER: readonly ChangeKey[] = ['added', 'modified', 'deleted'];
@@ -263,6 +247,18 @@ function parseUnifiedDiff(diff: string): readonly DiffLine[] {
   return out;
 }
 
+/* ------------------------------------------------------------------ moment */
+
+/** XR-COPY2: a live mtime is an ISO string; show it in the app language ("3 nov 2026, 09:54"), never raw.
+ *  Anything else (the example data's "2026-07-24 10:24") is shown as it is. */
+function formatMoment(value: string, locale: Locale): string {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return value;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms)
+    ? new Date(ms).toLocaleString(localeTag(locale), { dateStyle: 'medium', timeStyle: 'short' })
+    : value;
+}
+
 /* -------------------------------------------------------------- highlight */
 
 function highlight(text: string, needle: string): ReactNode {
@@ -291,41 +287,42 @@ function highlight(text: string, needle: string): ReactNode {
 
 /* --------------------------------------------------------------- fragments */
 
-function ChangeMarker({ change, full = false }: { change: ChangeKey; full?: boolean }) {
+function ChangeMarker({ change }: { change: ChangeKey; full?: boolean }) {
+  const { t } = useLocale();
   const mark = CHANGE_MARKS[change];
+  const description = t(`rd.files.changeInfo.${change}`);
   return (
-    <span className="fw-files__change" data-change={change} title={mark.description}>
+    <span className="fw-files__change" data-change={change} title={description}>
       <span className="fw-files__change-glyph fg-machine" aria-hidden="true">
         {mark.glyph}
       </span>
-      <span className="fw-files__change-label fg-machine" aria-hidden="true">
-        {full ? mark.label : mark.short}
+      <span className="fw-files__change-label" aria-hidden="true">
+        {t(`rd.files.change.${change}`)}
       </span>
-      <span className="fw-visually-hidden">{mark.description}</span>
+      <span className="fw-visually-hidden">{description}</span>
     </span>
   );
 }
 
 function DiffView({ diff, path }: { diff: string; path: string }) {
+  const { t } = useLocale();
   const lines = useMemo(() => parseUnifiedDiff(diff), [diff]);
   const added = lines.filter((line) => line.kind === 'add').length;
   const removed = lines.filter((line) => line.kind === 'del').length;
 
   return (
-    <section className="fw-files__diff" aria-label="Unified diff">
+    <section className="fw-files__diff" aria-label={t('rd.files.diff.label')}>
       <header className="fw-files__diff-head">
-        <Eyebrow>UNIFIED DIFF</Eyebrow>
-        <Machine muted className="fw-files__diff-count">
-          {`+${added} / -${removed}`}
-        </Machine>
+        <span className="fw-files-label">{t('rd.files.diff.title')}</span>
+        <span className="fw-files__diff-count">{`+${added} / -${removed}`}</span>
         <Spacer />
-        <ExampleTag detail="Example patch. No repository was read and no file was opened — this diff is local example text." />
+        <ExampleTag detail={t('rd.files.diff.example')} />
       </header>
 
       <div
         className="fw-files__diff-scroll"
         role="group"
-        aria-label={`Unified diff for ${path}. Read only.`}
+        aria-label={t('rd.files.diff.scroll', { path })}
         tabIndex={0}
       >
         <div className="fw-files__diff-body">
@@ -342,7 +339,7 @@ function DiffView({ diff, path }: { diff: string; path: string }) {
               </span>
               {line.kind === 'add' || line.kind === 'del' ? (
                 <span className="fw-visually-hidden">
-                  {line.kind === 'add' ? 'Added line: ' : 'Removed line: '}
+                  {line.kind === 'add' ? t('rd.files.diff.added') : t('rd.files.diff.removed')}
                 </span>
               ) : null}
               <code className="fw-files__dcode">{line.text === '' ? ' ' : line.text}</code>
@@ -361,18 +358,10 @@ function DiffView({ diff, path }: { diff: string; path: string }) {
  * the adapter, mirroring how `CHANGE_MARKS` above already owns turning a raw
  * field into display text for this same view.
  */
-const BLOCK_REASON_LABEL: Readonly<Record<string, string>> = {
-  'env-file': 'an environment file',
-  'key-or-pem-file': 'a private key file',
-  'ssh-private-key': 'an SSH private key',
-  'git-config': "git's own config file",
-  'node-modules-content': 'a dependency inside node_modules',
-  'secret-pattern-detected': 'content that looks like a credential',
-};
-
-function blockReasonLabel(reason: string | null): string {
-  if (reason === null) return 'this project’s file-preview policy';
-  return BLOCK_REASON_LABEL[reason] ?? reason;
+function blockReasonLabel(reason: string | null, t: Translate): string {
+  // The phrases live in rd.files.reason.* (Dutch first); an unknown code is shown as the gateway sent it.
+  const key = reasonKey(reason);
+  return key ? t(key) : (reason ?? '');
 }
 
 /**
@@ -386,13 +375,14 @@ function blockReasonLabel(reason: string | null): string {
  * recorded" — new labels for a genuinely new state, not a changed one.
  */
 function FilePreviewBody({ preview }: { preview: GatewayFilePreview | null }) {
+  const { t } = useLocale();
   if (preview === null) {
     return (
       <EmptyState
         compact
         icon="Loader"
-        title="Reading the file…"
-        detail="Fetching this file's content from the working tree."
+        title={t('rd.files.preview.loading')}
+        detail={t('rd.files.preview.loadingDetail')}
       />
     );
   }
@@ -402,8 +392,8 @@ function FilePreviewBody({ preview }: { preview: GatewayFilePreview | null }) {
       <EmptyState
         compact
         icon="Lock"
-        title="Preview blocked"
-        detail={`The gateway refuses to read this file's bytes because it looks like ${blockReasonLabel(preview.reason)}. Nothing was read.`}
+        title={t('rd.files.preview.blocked')}
+        detail={t('rd.files.preview.blockedDetail', { reason: blockReasonLabel(preview.reason, t) })}
       />
     );
   }
@@ -413,8 +403,8 @@ function FilePreviewBody({ preview }: { preview: GatewayFilePreview | null }) {
       <EmptyState
         compact
         icon="File"
-        title="Binary file"
-        detail="This file's content is binary, so it cannot be shown as text."
+        title={t('rd.files.preview.binary')}
+        detail={t('rd.files.preview.binaryDetail')}
       />
     );
   }
@@ -424,8 +414,12 @@ function FilePreviewBody({ preview }: { preview: GatewayFilePreview | null }) {
       <EmptyState
         compact
         icon="CircleAlert"
-        title="Preview failed"
-        detail={preview.error ?? 'The gateway could not read this file.'}
+        title={t('rd.files.preview.failed')}
+        detail={
+          preview.error
+            ? t('rd.files.preview.failedDetail', { reason: preview.error })
+            : t('rd.files.preview.failedUnknown')
+        }
       />
     );
   }
@@ -433,18 +427,20 @@ function FilePreviewBody({ preview }: { preview: GatewayFilePreview | null }) {
   const lines = preview.content !== null ? preview.content.split('\n') : [];
 
   return (
-    <section className="fw-files__diff" aria-label="File preview">
+    <section className="fw-files__diff" aria-label={t('rd.files.preview.label')}>
       <header className="fw-files__diff-head">
-        <Eyebrow>FILE PREVIEW</Eyebrow>
-        <Machine muted className="fw-files__diff-count">
-          {preview.truncated ? 'TRUNCATED' : `${lines.length} lines`}
-        </Machine>
+        <span className="fw-files-label">{t('rd.files.preview.title')}</span>
+        <span className="fw-files__diff-count">
+          {preview.truncated
+            ? t('rd.files.preview.truncated')
+            : t(lines.length === 1 ? 'rd.files.preview.linesOne' : 'rd.files.preview.linesMany', { count: lines.length })}
+        </span>
       </header>
 
       <div
         className="fw-files__diff-scroll"
         role="group"
-        aria-label="File content. Read only."
+        aria-label={t('rd.files.preview.content')}
         tabIndex={0}
       >
         <div className="fw-files__diff-body">
@@ -470,6 +466,7 @@ function FilePreviewBody({ preview }: { preview: GatewayFilePreview | null }) {
 
 export default function FilesView() {
   const { state, dispatch } = usePrototype();
+  const { t, locale } = useLocale();
   const tree = state.data.files;
   // `null` on the fixture path (see gateway-files.ts's header) — every branch
   // below that touches it is additive, so the fixture behaviour is unchanged.
@@ -712,33 +709,31 @@ export default function FilesView() {
     <div className="fw-files">
       <header className="fw-files__head">
         <div className="fw-files__heading">
-          <h1 className="fw-files__title">Files</h1>
+          <h1 className="fw-files__title">{t('nav.files.label')}</h1>
           <p className="fw-files__subtitle">
-            {filesActions ? (
-              "This project's working tree, read live from the gateway. Change markers and diffs are not available yet in this build."
-            ) : (
-              'The working tree as it stood mid-run, with change markers and read-only diffs. Example data — this fixture has no filesystem access.'
-            )}
+            {filesActions ? t('rd.files.notTracked') : <>{t('nav.files.description')} <ExampleTag /></>}
           </p>
         </div>
 
-        <Toolbar label="File browser controls" className="fw-files__toolbar">
+        <Toolbar label={t('rd.files.toolbar')} className="fw-files__toolbar">
+          {filesActions ? null : (
           <ToolbarGroup>
             {CHANGE_ORDER.map((change) => (
-              <span key={change} className="fw-files__tally" title={CHANGE_MARKS[change].description}>
+              <span key={change} className="fw-files__tally" title={t(`rd.files.changeInfo.${change}`)}>
                 <span className="fw-files__tally-glyph fg-machine" aria-hidden="true">
                   {CHANGE_MARKS[change].glyph}
                 </span>
-                <Machine muted>{changeCounts[change]}</Machine>
+                <span className="fw-files__tally-count">{changeCounts[change]}</span>
                 <span className="fw-visually-hidden">
-                  {`${changeCounts[change]} ${CHANGE_MARKS[change].label.toLowerCase()}`}
+                  {`${changeCounts[change]} ${t(`rd.files.change.${change}`).toLowerCase()}`}
                 </span>
-                <span className="fw-files__tally-label fg-machine" aria-hidden="true">
-                  {CHANGE_MARKS[change].short}
+                <span className="fw-files__tally-label" aria-hidden="true">
+                  {t(`rd.files.change.${change}`)}
                 </span>
               </span>
             ))}
           </ToolbarGroup>
+          )}
 
           <Spacer />
 
@@ -746,7 +741,7 @@ export default function FilesView() {
             <span
               title={
                 filesActions
-                  ? 'No change-tracking data is available from the gateway yet.'
+                  ? t('rd.files.trackingHint')
                   : undefined
               }
             >
@@ -754,7 +749,7 @@ export default function FilesView() {
                 size="sm"
                 checked={changedOnly}
                 onChange={setChangedOnly}
-                label="Changed only"
+                label={t('rd.files.changedOnly')}
                 disabled={filesActions !== null}
               />
             </span>
@@ -764,7 +759,7 @@ export default function FilesView() {
             <IconButton
               size="sm"
               icon="ChevronsUpDown"
-              label="Expand all folders"
+              label={t('rd.files.openAll')}
               onClick={() => {
                 setExpanded(new Set(collectDirIds(tree, [])));
                 setCollapsed(new Set());
@@ -773,7 +768,7 @@ export default function FilesView() {
             <IconButton
               size="sm"
               icon="ChevronsDownUp"
-              label="Collapse all folders"
+              label={t('rd.files.closeAll')}
               onClick={() => {
                 setExpanded(new Set());
                 setCollapsed(new Set(collectDirIds(tree, [])));
@@ -783,8 +778,8 @@ export default function FilesView() {
         </Toolbar>
       </header>
 
-      <section className="fw-files__recent" aria-label="Recent files">
-        <Eyebrow className="fw-files__recent-label">RECENT</Eyebrow>
+      <section className="fw-files__recent" aria-label={t('rd.files.recentLabel')}>
+        <span className="fw-files__recent-label fw-files-label">{t('rd.files.recent')}</span>
         <ul className="fw-files__recent-list">
           {recent.map((node) => (
             <li key={node.id}>
@@ -799,15 +794,17 @@ export default function FilesView() {
                 {node.changed ? (
                   <span
                     className="fw-files__chip-mark fg-machine"
-                    title={CHANGE_MARKS[node.changed].description}
+                    title={t(`rd.files.changeInfo.${node.changed}`)}
                   >
                     <span aria-hidden="true">{CHANGE_MARKS[node.changed].glyph}</span>
                     <span className="fw-visually-hidden">
-                      {CHANGE_MARKS[node.changed].description}
+                      {t(`rd.files.changeInfo.${node.changed}`)}
                     </span>
                   </span>
                 ) : null}
-                <span className="fw-visually-hidden">{`Updated ${node.updatedAt ?? 'unknown'}`}</span>
+                <span className="fw-visually-hidden">
+                  {t('rd.files.updatedAt', { when: node.updatedAt ? formatMoment(node.updatedAt, locale) : t('rd.files.unknown') })}
+                </span>
               </button>
             </li>
           ))}
@@ -815,17 +812,17 @@ export default function FilesView() {
       </section>
 
       <div className="fw-files__panes">
-        <section className="fw-files__pane fw-files__pane--tree" aria-label="File tree">
+        <section className="fw-files__pane fw-files__pane--tree" aria-label={t('rd.files.tree')}>
           <div className="fw-files__search">
             <label className="fw-visually-hidden" htmlFor={searchId}>
-              Filter files by name or path
+              {t('rd.files.filter')}
             </label>
             <Icon name="Search" size="sm" className="fw-files__search-icon" />
             <input
               id={searchId}
               type="search"
-              className="fw-files__search-input fg-machine"
-              placeholder="Filter by name or path"
+              className="fw-files__search-input"
+              placeholder={t('rd.files.filter')}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               autoComplete="off"
@@ -835,7 +832,7 @@ export default function FilesView() {
               <IconButton
                 size="sm"
                 icon="X"
-                label="Clear the filter"
+                label={t('rd.files.clearFilter')}
                 className="fw-files__search-clear"
                 onClick={() => setQuery('')}
               />
@@ -847,18 +844,14 @@ export default function FilesView() {
               <EmptyState
                 compact
                 icon="SearchX"
-                title={filtering ? 'No files match' : 'No files yet'}
-                detail={
-                  filtering
-                    ? 'No file matches that filter. Clear it to see the whole working tree again.'
-                    : 'This project has no files to show yet.'
-                }
+                title={filtering ? t('rd.files.noMatch') : t('rd.files.none')}
+                detail={filtering ? t('rd.files.noMatchDetail') : t('rd.files.noneDetail')}
               />
             ) : (
               <ul
                 className="fw-files__tree"
                 role="tree"
-                aria-label="Project files"
+                aria-label={t('rd.files.treeLabel')}
                 aria-multiselectable={false}
                 onKeyDown={handleTreeKeyDown}
               >
@@ -868,7 +861,7 @@ export default function FilesView() {
           </div>
         </section>
 
-        <section className="fw-files__pane fw-files__pane--preview" aria-label="File preview">
+        <section className="fw-files__pane fw-files__pane--preview" aria-label={t('rd.files.pane')}>
           {selected ? (
             <>
               <header className="fw-files__preview-head">
@@ -879,7 +872,7 @@ export default function FilesView() {
                 <IconButton
                   size="sm"
                   icon="X"
-                  label="Clear the selection"
+                  label={t('rd.files.clearSelection')}
                   onClick={() => dispatch({ type: 'select', selection: { kind: 'none' } })}
                 />
               </header>
@@ -887,25 +880,25 @@ export default function FilesView() {
               <div className="fw-files__preview-scroll fw-scroll">
                 <dl className="fw-files__meta">
                   <div className="fw-files__meta-row">
-                    <dt className="fg-eyebrow">PATH</dt>
+                    <dt className="fw-files-label">{t('rd.files.meta.path')}</dt>
                     <dd>
                       <Machine>{selected.path}</Machine>
                     </dd>
                   </div>
                   <div className="fw-files__meta-row">
-                    <dt className="fg-eyebrow">SIZE</dt>
+                    <dt className="fw-files-label">{t('rd.files.meta.size')}</dt>
                     <dd>
-                      <Machine>{selected.size ?? '—'}</Machine>
+                      <span className="fw-files-num">{selected.size ?? '—'}</span>
                     </dd>
                   </div>
                   <div className="fw-files__meta-row">
-                    <dt className="fg-eyebrow">UPDATED</dt>
+                    <dt className="fw-files-label">{t('rd.files.meta.updated')}</dt>
                     <dd>
-                      <Machine>{selected.updatedAt ?? '—'}</Machine>
+                      <span className="fw-files-num">{selected.updatedAt ? formatMoment(selected.updatedAt, locale) : '—'}</span>
                     </dd>
                   </div>
                   <div className="fw-files__meta-row">
-                    <dt className="fg-eyebrow">CHANGE</dt>
+                    <dt className="fw-files-label">{t('rd.files.meta.change')}</dt>
                     <dd>
                       {selected.changed ? (
                         <ChangeMarker change={selected.changed} full />
@@ -913,9 +906,9 @@ export default function FilesView() {
                         // The real gateway has no git-diff concept (see
                         // gateway-files.ts's header) — "UNCHANGED" would claim a
                         // check that never ran. Honest absence instead.
-                        <Machine muted>NOT TRACKED</Machine>
+                        <span className="fw-files-quiet">{t('rd.files.meta.notTracked')}</span>
                       ) : (
-                        <Machine muted>UNCHANGED</Machine>
+                        <span className="fw-files-quiet">{t('rd.files.meta.unchanged')}</span>
                       )}
                     </dd>
                   </div>
@@ -929,8 +922,8 @@ export default function FilesView() {
                   <EmptyState
                     compact
                     icon="FileDiff"
-                    title="No diff recorded"
-                    detail="This example record carries metadata only. A handful of files in the tree carry a patch — try slots.ts, booking.css or README.md."
+                    title={t('rd.files.diff.none')}
+                    detail={t('rd.files.diff.noneDetail')}
                   />
                 )}
               </div>
@@ -938,8 +931,8 @@ export default function FilesView() {
           ) : (
             <EmptyState
               icon="FileSearch"
-              title="No file selected"
-              detail="Pick a file in the tree, or one of the recent files above, to see its metadata and — where one was recorded — its diff."
+              title={t('rd.files.noSelection.title')}
+              detail={t('rd.files.noSelection.detail')}
             />
           )}
         </section>

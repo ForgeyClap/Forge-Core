@@ -22,7 +22,22 @@ const fs = require('fs');
 const path = require('path');
 
 const POLICY_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_RECOVERY_POLICY.json');
-const LEDGER_PATH = path.join(__dirname, '..', 'forge-research', 'recovery-attempts.jsonl');
+// WP 2.1: the attempt ledger lives in the project's ACTIVE research folder (forge-paths stateDir: .claude/forge-research
+// in a legacy project — the same file as before — or .forge/research once <root>/.forge/ exists). forge-paths.cjs is
+// optional: without it (a copied tool, an older install) the ledger is <this .claude>/forge-research as before. A
+// plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd and never writes into the plugin: no project found
+// -> LEDGER_PATH null, and recordAttempt refuses unless the caller passes opts.ledgerPath (or dryRun).
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultLedgerPath() {
+  if (!forgePaths) return path.join(__dirname, '..', 'forge-research', 'recovery-attempts.jsonl'); // forge-paths fallback
+  let root = null;
+  try { root = forgePaths.scriptRoot(__dirname); } catch { root = null; }
+  if (!root) return null;
+  try { return path.join(forgePaths.stateDir(root, 'research'), 'recovery-attempts.jsonl'); }
+  catch { return path.join(root, '.claude', 'forge-research', 'recovery-attempts.jsonl'); }
+}
+const LEDGER_PATH = defaultLedgerPath();
 
 const POLICY_DEFAULTS = {
   policy: 'global-research-recovery-solution-first',
@@ -350,6 +365,7 @@ function recordAttempt(record, opts) {
   };
   const safe = redactRecord(full);
   if (!opts.dryRun) {
+    if (!ledgerPath) throw new Error('forge-recovery: no project root found for the attempt ledger (a plugin copy outside any project) — pass opts.ledgerPath');
     fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
     fs.appendFileSync(ledgerPath, JSON.stringify(safe) + '\n');
   }

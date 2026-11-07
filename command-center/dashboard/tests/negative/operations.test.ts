@@ -25,9 +25,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ForgeStore } from '../../src/bridge/storage/store.ts';
-import { ProjectRegistry } from '../../src/bridge/projects/registry.ts';
-import { createProject } from '../../src/bridge/projects/create.ts';
+import { ForgeStore } from '../../archive/bridge/storage/store.ts';
+import { ProjectRegistry } from '../../archive/bridge/projects/registry.ts';
+import { createProject } from '../../archive/bridge/projects/create.ts';
 import {
   MAX_DISPLAY_NAME_LENGTH,
   PathGuardError,
@@ -37,24 +37,24 @@ import {
   inspectSlug,
   isPathGuardError,
   sanitizeSlug,
-} from '../../src/bridge/security/paths.ts';
-import { checkAttachmentsReferencable } from '../../src/bridge/attachments/pipeline.ts';
-import { createConversationService } from '../../src/bridge/operations/conversations.ts';
-import type { ConversationService, EventPublisher } from '../../src/bridge/operations/conversations.ts';
-import { createRunService } from '../../src/bridge/operations/runs.ts';
-import { OperationFailure, Router } from '../../src/bridge/router.ts';
-import type { BridgeRuntimeFacts } from '../../src/bridge/router.ts';
+} from '../../archive/bridge/security/paths.ts';
+import { checkAttachmentsReferencable } from '../../archive/bridge/attachments/pipeline.ts';
+import { createConversationService } from '../../archive/bridge/operations/conversations.ts';
+import type { ConversationService, EventPublisher } from '../../archive/bridge/operations/conversations.ts';
+import { createRunService } from '../../archive/bridge/operations/runs.ts';
+import { OperationFailure, Router } from '../../archive/bridge/router.ts';
+import type { BridgeRuntimeFacts } from '../../archive/bridge/router.ts';
 import {
   MIN_APPROVAL_TTL_MS,
   checkApproval,
   readApproval,
   requestApproval,
   resolveApproval,
-} from '../../src/bridge/operations/approvals.ts';
-import { Transport, createStoreSink } from '../../src/bridge/transport.ts';
-import { loadConfig } from '../../src/bridge/config.ts';
+} from '../../archive/bridge/operations/approvals.ts';
+import { Transport, createStoreSink } from '../../archive/bridge/transport.ts';
+import { loadConfig } from '../../archive/bridge/config.ts';
 import { INVARIANT_DECLARATIONS, PROTOCOL_SCHEMA_VERSION } from '../../src/shared/protocol.ts';
-import { BRIDGE_PROJECT_ID } from '../../src/bridge/storage/store.ts';
+import { BRIDGE_PROJECT_ID } from '../../archive/bridge/storage/store.ts';
 import type {
   AttachmentRecord,
   AttachmentState,
@@ -62,8 +62,8 @@ import type {
   OperationErrorCode,
   ProjectRecord,
 } from '../../src/shared/protocol.ts';
-import type { AdapterOptions, ClaudeAdapter } from '../../src/bridge/claude/adapter.ts';
-import type { LocateResult, LocatedClaude } from '../../src/bridge/claude/locate.ts';
+import type { AdapterOptions, ClaudeAdapter } from '../../archive/bridge/claude/adapter.ts';
+import type { LocateResult, LocatedClaude } from '../../archive/bridge/claude/locate.ts';
 
 /* ------------------------------------------------------------------ fixtures */
 

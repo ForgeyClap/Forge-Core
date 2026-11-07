@@ -16,7 +16,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 export interface TabItem {
   value: string;
   label: string;
-  /** Optional count rendered in the machine face. */
+  /** Optional count, shown as a small pill after the label. */
   count?: number;
 }
 
@@ -99,7 +99,7 @@ export function Tabs({
           >
             <span className="fw-tabs__label">{item.label}</span>
             {typeof item.count === 'number' ? (
-              <span className="fw-tabs__count fg-machine">{item.count}</span>
+              <span className="fw-tabs__count">{item.count}</span>
             ) : null}
           </button>
         );

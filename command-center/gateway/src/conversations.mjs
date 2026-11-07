@@ -39,5 +39,6 @@ export {
   appendAssistantTurn,
   appendConversationEvent,
   deleteConversation,
+  forkConversation,
   _resetConversationsForTests,
 } from './conversation-turns.mjs';

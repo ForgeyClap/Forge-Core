@@ -27,7 +27,13 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { cleanupConversation, forceActivateConversation, openSandboxProject } from './live-gateway-helpers';
+import {
+  blockedOwnerGatewayUrls,
+  cleanupConversation,
+  forceActivateConversation,
+  openComposerTray,
+  openSandboxProject,
+} from './live-gateway-helpers';
 
 // Two real, sequential model round trips (plus real process/network latency) comfortably exceed the
 // project's default 30s per-test timeout.
@@ -43,6 +49,8 @@ test.describe('composer message queue (real run)', () => {
 
   test.afterEach(async ({ page }) => {
     await cleanupConversation(page, createdId);
+    // Fail closed: nothing in this spec may reach the developer's own gateway on 127.0.0.1:4100.
+    expect(blockedOwnerGatewayUrls(page), 'the page tried to reach the live gateway on 127.0.0.1:4100').toEqual([]);
   });
 
   test('a message sent while a run is active is queued, then really sent once the run finishes', async ({ page }) => {
@@ -53,6 +61,8 @@ test.describe('composer message queue (real run)', () => {
     // Plan mode for BOTH turns: the gateway's own exec bridge structurally refuses file writes in
     // this mode, regardless of what either prompt asks for — the real safety net this spec leans on
     // rather than trusting the prompt text alone.
+    // Redesign: the mode control sits in the tray behind the composer's "+" (Add) button.
+    await openComposerTray(page);
     await page.locator('.fw-chat-composer__mode').getByRole('radio', { name: 'Plan' }).click();
 
     const composer = page.getByRole('textbox').last();
@@ -85,11 +95,6 @@ test.describe('composer message queue (real run)', () => {
     });
     await expect(stopButton).toBeVisible();
 
-    // Force the panel onto the conversation THIS test actually created — see this file's own header
-    // for the real race (a concurrent, unrelated conversation elsewhere stealing activation) this
-    // guards against before message 2 is ever typed or queued.
-    await forceActivateConversation(page, createdId);
-
     // Message 2, typed and queued WHILE the first run is still active.
     await composer.fill(PROMPT_2);
     await queueButton.click();
@@ -101,6 +106,14 @@ test.describe('composer message queue (real run)', () => {
     // Queuing must never attempt (and silently swallow) a send — the field is cleared, but nothing
     // pretends the message went out yet.
     await expect(composer).toHaveValue('');
+
+    // Force the panel onto the conversation THIS test actually created: see this file's own header for the
+    // real race (a concurrent, unrelated conversation elsewhere stealing activation). Since the redesign this
+    // wait needs the chat list's own poll (about 4 s), which is longer than the 3 s the mocked run stays open:
+    // doing it BEFORE queueing let the run end first, so there was nothing left to queue behind. It now runs
+    // right after the message is queued and before anything is read from the panel, so a reply that landed on
+    // the wrong conversation still fails loudly (the assertions below read the forced one).
+    await forceActivateConversation(page, createdId);
 
     // The first turn's REAL reply — proof this was a genuine round trip, not a fabricated local echo.
     // Scoped to an assistant ("from Forge") turn specifically: the user's OWN prompt text also

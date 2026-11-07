@@ -129,16 +129,17 @@ t('LOCKED_IDS is a superset of KNOWN_GATES + always_interrupt + schema.locked (d
   const locked = new Set(cfg.LOCKED_IDS);
   for (const id of GATES.concat(ALWAYS, LOCKED_SCHEMA_IDS)) assert.ok(locked.has(id), id + ' missing from LOCKED_IDS');
 });
-t('WP-M1 (independent-review R3): gate-hook desc names all FIVE enforced command gates, incl. secret-print, in both languages', () => {
-  // drift canary: if a 6th command gate is ever added, this fails until BOTH this test and the desc text below
+t('WP-M1 (independent-review R3): gate-hook desc names all SEVEN enforced command gates, incl. secret-print, plugin install and settings edit, in both languages', () => {
+  // drift canary: if an 8th command gate is ever added, this fails until BOTH this test and the desc text below
   // are updated together — the same discipline hard-gates.json's own _gate_coverage block already enforces.
   const commandGates = actiongate.listGates().filter((g) => g.kind === 'command').map((g) => g.id).sort();
-  assert.deepStrictEqual(commandGates, ['destructive-delete', 'git-destructive', 'kill-by-name', 'opaque-exec', 'secret-print'].sort());
+  // the eighth, global-input-command
+  assert.deepStrictEqual(commandGates, ['destructive-delete', 'git-destructive', 'global-input-command', 'kill-by-name', 'opaque-exec', 'plugin-install-command', 'secret-print', 'settings-edit-command'].sort());
   const d = RAW.settings['gate-hook'].desc;
-  for (const phrase of ['recursive', 'killing processes', 'uncommitted work', 'hide what they run', "secret file's contents"]) {
+  for (const phrase of ['recursive', 'killing processes', 'uncommitted work', 'hide what they run', "secret file's contents", 'installing a Claude Code plugin', 'writing the Claude Code settings', 'global keyboard or mouse input']) {
     assert.ok(d.en.includes(phrase), 'desc.en missing "' + phrase + '" (' + JSON.stringify(d.en) + ')');
   }
-  for (const phrase of ['recursief verwijderen', 'op naam killen', 'onvastgelegd werk', 'verbergen wat ze uitvoeren', 'geheim bestand']) {
+  for (const phrase of ['recursief verwijderen', 'op naam killen', 'onvastgelegd werk', 'verbergen wat ze uitvoeren', 'geheim bestand', 'plugin of marketplace installeren', 'instellingen (.claude/settings.json) schrijven', 'globale toetsenbord- of muisinvoer']) {
     assert.ok(d.nl.includes(phrase), 'desc.nl missing "' + phrase + '" (' + JSON.stringify(d.nl) + ')');
   }
 });
@@ -190,8 +191,9 @@ t('product-default comes from the owner profile (read-only) and applies the sche
   const before = bytes(pp);
   const r = cfg.resolve(withOpts(fx, { prefsOpts: { profilePath: pp, globalProfilePath: NOWHERE } }));
   // review-boss M1: codex-review is deliberately NOT mapped from the profile any more — the shipped
-  // profile's optional-on-request would silently downgrade the everything-on default on every fresh install.
-  assert.strictEqual(r.settings['codex-review'].value, 'auto');
+  // profile's optional-on-request would silently downgrade the default on every fresh install.
+  // WP A5 (no Codex account): the schema default is now `off`; the profile still never maps it.
+  assert.strictEqual(r.settings['codex-review'].value, 'off');
   assert.strictEqual(r.settings['codex-review'].source, 'default');
   assert.strictEqual(r.settings.autonomy.value, 'ask-each-phase');
   assert.strictEqual(r.settings['ui-quality'].value, false, 'a boolean pref maps straight onto a bool key');

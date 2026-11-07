@@ -10,56 +10,96 @@
  * `contract`'s top-level KEY NAMES did not — `finalize_receipt`/`run_contract` — and always read
  * "not available" on real data before this fix).
  *
- * Existing primitives/classes only — `Eyebrow`/`Icon`/`Machine`/`Panel`/`EmptyState`, and this
+ * Existing primitives/classes only — `Icon`/`Machine`/`Panel`/`EmptyState`, and this
  * view's own `.fw-tests__panel`/`.fw-tests__stat` treatment, extended with a handful of new,
  * narrowly-scoped classes in `run-health-panel.css` that reuse existing tokens only.
  */
 
 import { useId, useState, type KeyboardEvent } from 'react';
-import { Eyebrow, Icon, IconButton, Machine, Panel, Timestamp } from '@/components/primitives';
+import { Icon, IconButton, Machine, Panel } from '@/components/primitives';
 import type { GatewayProofExtras } from '@/prototype/state/gateway-adapter';
 import { finalizeProofLabel, type FinalizeProofInput } from '@/prototype/state/adapter/finalize-proof-label';
+import { LocalTime } from '@/views/activity/LocalTime';
 import './run-health-panel.css';
+import { useLocale } from '@/i18n/use-locale';
+import type { MessageKey, Translate } from '@/i18n';
+import { proofWords } from '@/views/tests/proof-words';
 
-function GateEvidenceSection({ gateEvidence }: { gateEvidence: GatewayProofExtras['gateEvidence'] }) {
+type C = Translate;
+
+/** A recorded status word ("green", "PASS_WITH_NOTES") in sentence case, never ALL CAPS. */
+function sentence(word: string): string {
+  const plain = word.replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
+}
+
+const VERDICT_WORD: Readonly<Record<string, MessageKey>> = {
+  pass: 'rd.tests.health.reviews.pass',
+  passed: 'rd.tests.health.reviews.pass',
+  'pass with notes': 'rd.tests.health.reviews.passWithNotes',
+  fail: 'rd.tests.health.reviews.fail',
+  failed: 'rd.tests.health.reviews.fail',
+  unknown: 'rd.tests.health.reviews.unknown',
+};
+
+/** A review verdict in the app locale; a verdict this list does not know keeps its own word. */
+function verdictWord(verdict: string | null, t: C): string {
+  const plain = (verdict ?? 'unknown').replace(/[_-]+/g, ' ').trim().toLowerCase();
+  const key = VERDICT_WORD[plain];
+  return key !== undefined ? t(key) : sentence(verdict ?? 'unknown');
+}
+
+function contractWord(status: 'green' | 'red' | null, t: C): string {
+  if (status === 'green') return t('rd.tests.health.contract.green');
+  if (status === 'red') return t('rd.tests.health.contract.red');
+  return t('rd.tests.health.contract.unknown');
+}
+
+function GateEvidenceSection({ gateEvidence, t }: { gateEvidence: GatewayProofExtras['gateEvidence']; t: C }) {
   if (!gateEvidence.present) {
     return (
       <section className="fw-run-health__section">
-        <Eyebrow>Gate evidence</Eyebrow>
-        <p className="fw-run-health__empty">No gate-evidence record has been read for this run yet.</p>
+        <h3 className="fw-run-health__label">{t('rd.tests.health.gates.title')}</h3>
+        <p className="fw-run-health__empty">{t('rd.tests.health.gates.empty')}</p>
       </section>
     );
   }
   return (
     <section className="fw-run-health__section">
-      <Eyebrow>Gate evidence</Eyebrow>
+      <h3 className="fw-run-health__label">{t('rd.tests.health.gates.title')}</h3>
       <dl className="fw-run-health__facts">
         <div className="fw-run-health__fact">
-          <dt>Gates run</dt>
+          <dt>{t('rd.tests.health.gates.total')}</dt>
           <dd>
-            <Machine>{gateEvidence.gatesTotal ?? '—'}</Machine>
+            <span className="fw-run-health__num">{gateEvidence.gatesTotal ?? '—'}</span>
           </dd>
         </div>
         <div className="fw-run-health__fact">
-          <dt>Gates failed</dt>
+          <dt>{t('rd.tests.health.gates.failed')}</dt>
           <dd>
-            <Machine>{gateEvidence.gatesFailed ?? '—'}</Machine>
+            <span className="fw-run-health__num">{gateEvidence.gatesFailed ?? '—'}</span>
           </dd>
         </div>
         <div className="fw-run-health__fact">
-          <dt>All green</dt>
+          <dt>{t('rd.tests.health.gates.allGreen')}</dt>
           <dd>
             <span className="fw-run-health__flag" data-flag={gateEvidence.allGreen === null ? 'unknown' : String(gateEvidence.allGreen)}>
               <Icon name={gateEvidence.allGreen === true ? 'CircleCheck' : gateEvidence.allGreen === false ? 'CircleX' : 'CircleDashed'} size="xs" />
-              <Machine>{gateEvidence.allGreen === null ? 'unknown' : gateEvidence.allGreen ? 'yes' : 'no'}</Machine>
+              <span>
+                {gateEvidence.allGreen === null
+                  ? t('rd.tests.health.answer.unknown')
+                  : gateEvidence.allGreen
+                    ? t('rd.tests.health.answer.yes')
+                    : t('rd.tests.health.answer.no')}
+              </span>
             </span>
           </dd>
         </div>
         {gateEvidence.generatedAt !== null ? (
           <div className="fw-run-health__fact">
-            <dt>Generated</dt>
+            <dt>{t('rd.tests.health.gates.generated')}</dt>
             <dd>
-              <Timestamp value={gateEvidence.generatedAt} />
+              <LocalTime value={gateEvidence.generatedAt} />
             </dd>
           </div>
         ) : null}
@@ -73,9 +113,9 @@ function GateEvidenceSection({ gateEvidence }: { gateEvidence: GatewayProofExtra
           {gateEvidence.gates.map((gate, index) => (
             <li key={gate.name ?? `gate-${index}`} className="fw-run-health__review">
               <Icon name={gate.exitCode === 0 ? 'CircleCheck' : 'CircleX'} size="xs" />
-              <span className="fw-run-health__review-subject fw-truncate">{gate.name ?? 'unnamed gate'}</span>
-              {gate.exitCode !== null ? <Machine muted>exit {gate.exitCode}</Machine> : null}
-              {gate.timedOut === true ? <Machine muted>timed out</Machine> : null}
+              <span className="fw-run-health__review-subject fw-truncate">{gate.name ?? t('rd.tests.health.gates.unnamed')}</span>
+              {gate.exitCode !== null ? <Machine muted>{t('rd.tests.health.gates.exit', { code: gate.exitCode })}</Machine> : null}
+              {gate.timedOut === true ? <span className="fw-run-health__quiet">{t('rd.tests.health.gates.timedOut')}</span> : null}
             </li>
           ))}
         </ul>
@@ -94,10 +134,11 @@ const PROOF_NOT_CHECKED: FinalizeProofInput = {
  * a completion proof; archival, stale and unconfirmed receipts say so in words (the colour only repeats the text).
  * The Info button opens the threat-model note the gateway passes ("Tamper-evident, not tamper-proof: ...").
  */
-function ProofStatus({ finalize }: { finalize: GatewayProofExtras['finalize'] }) {
+function ProofStatus({ finalize, t, locale }: { finalize: GatewayProofExtras['finalize']; t: C; locale: 'nl' | 'en' }) {
   const [open, setOpen] = useState(false);
   const noteId = useId();
   const status = finalizeProofLabel(finalize.proof ?? PROOF_NOT_CHECKED);
+  const words = proofWords(locale, { ...status, short: status.label });
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && open) {
       event.stopPropagation();
@@ -109,12 +150,12 @@ function ProofStatus({ finalize }: { finalize: GatewayProofExtras['finalize'] })
       <div className="fw-run-health__proof-row">
         <span className="fw-run-health__seal" data-tone={status.tone} data-proof={status.key}>
           <Icon name={status.icon} size="xs" />
-          <span className="fw-run-health__seal-label">{status.label}</span>
+          <span className="fw-run-health__seal-label">{words.label}</span>
         </span>
         {finalize.threatModel !== null ? (
           <IconButton
             icon="Info"
-            label={open ? 'Hide what this receipt can prove' : 'What this receipt can prove'}
+            label={open ? t('rd.tests.health.finalize.infoHide') : t('rd.tests.health.finalize.infoShow')}
             size="sm"
             className="fw-run-health__proof-info"
             aria-expanded={open}
@@ -123,9 +164,9 @@ function ProofStatus({ finalize }: { finalize: GatewayProofExtras['finalize'] })
           />
         ) : null}
       </div>
-      <p className="fw-run-health__proof-detail">{status.detail}</p>
+      <p className="fw-run-health__proof-detail">{words.detail}</p>
       {status.tone === 'warning' && finalize.proofNote !== null ? (
-        <p className="fw-run-health__note">Check result: {finalize.proofNote}</p>
+        <p className="fw-run-health__note">{t('rd.tests.health.finalize.checkResult', { note: finalize.proofNote })}</p>
       ) : null}
       {open && finalize.threatModel !== null ? (
         <div id={noteId} role="note" className="fw-run-health__popover">
@@ -136,24 +177,24 @@ function ProofStatus({ finalize }: { finalize: GatewayProofExtras['finalize'] })
   );
 }
 
-function FinalizeSection({ finalize }: { finalize: GatewayProofExtras['finalize'] }) {
+function FinalizeSection({ finalize, t, locale }: { finalize: GatewayProofExtras['finalize']; t: C; locale: 'nl' | 'en' }) {
   return (
     <section className="fw-run-health__section">
-      <Eyebrow>Finalize receipt</Eyebrow>
-      {finalize.present ? <ProofStatus finalize={finalize} /> : null}
+      <h3 className="fw-run-health__label">{t('rd.tests.health.finalize.title')}</h3>
+      {finalize.present ? <ProofStatus finalize={finalize} t={t} locale={locale} /> : null}
       {finalize.present ? (
         <dl className="fw-run-health__facts">
           {finalize.finalizedAt !== null ? (
             <div className="fw-run-health__fact">
-              <dt>Receipt written</dt>
+              <dt>{t('rd.tests.health.finalize.written')}</dt>
               <dd>
-                <Timestamp value={finalize.finalizedAt} />
+                <LocalTime value={finalize.finalizedAt} />
               </dd>
             </div>
           ) : null}
           {finalize.digest !== null ? (
             <div className="fw-run-health__fact">
-              <dt>Digest</dt>
+              <dt>{t('rd.tests.health.finalize.digest')}</dt>
               <dd>
                 <Machine muted className="fw-truncate">
                   {finalize.digest}
@@ -164,23 +205,23 @@ function FinalizeSection({ finalize }: { finalize: GatewayProofExtras['finalize'
         </dl>
       ) : finalize.invalidReason !== null ? (
         // RB2-M1: a receipt exists but no longer counts — say why, never that the file does not exist.
-        <p className="fw-run-health__note">A finalize receipt exists but no longer counts: {finalize.invalidReason}.</p>
+        <p className="fw-run-health__note">{t('rd.tests.health.finalize.invalid', { reason: finalize.invalidReason })}</p>
       ) : (
-        <p className="fw-run-health__empty">This run has not been finalized yet — no `run-finalized.json` receipt exists.</p>
+        <p className="fw-run-health__empty">{t('rd.tests.health.finalize.none')}</p>
       )}
     </section>
   );
 }
 
-function ContractSection({ contract }: { contract: GatewayProofExtras['contract'] }) {
+function ContractSection({ contract, t }: { contract: GatewayProofExtras['contract']; t: C }) {
   return (
     <section className="fw-run-health__section">
-      <Eyebrow>Run contract</Eyebrow>
+      <h3 className="fw-run-health__label">{t('rd.tests.health.contract.title')}</h3>
       {contract.present ? (
         <>
           <p className="fw-run-health__contract-status" data-status={contract.status ?? 'unknown'}>
             <Icon name={contract.status === 'green' ? 'CircleCheck' : contract.status === 'red' ? 'CircleX' : 'CircleDashed'} size="xs" />
-            <Machine>{contract.status ?? 'unknown'}</Machine>
+            <span>{contractWord(contract.status, t)}</span>
           </p>
           {/* REVIEW FIX (found via real screenshot verification, WP-CCD item 6): a real
               `run_contract.note` (e.g. "the central forge-runcontract.cjs was not found") was parsed
@@ -191,7 +232,9 @@ function ContractSection({ contract }: { contract: GatewayProofExtras['contract'
             // the list names the steps the run contract still misses — say so, so the red
             // list is not read as a list of errors or of steps already done.
             <p className="fw-run-health__missing-label" id="fw-run-health-missing">
-              Missing steps ({contract.missingRules.length}):
+              {t(contract.missingRules.length === 1 ? 'rd.tests.health.contract.missingOne' : 'rd.tests.health.contract.missingMany', {
+                count: contract.missingRules.length,
+              })}
             </p>
           ) : null}
           {contract.missingRules.length > 0 ? (
@@ -203,34 +246,34 @@ function ContractSection({ contract }: { contract: GatewayProofExtras['contract'
           ) : null}
         </>
       ) : (
-        <p className="fw-run-health__empty">No run-contract check has been recorded for this run yet.</p>
+        <p className="fw-run-health__empty">{t('rd.tests.health.contract.empty')}</p>
       )}
     </section>
   );
 }
 
-function ReviewsSection({ reviews }: { reviews: GatewayProofExtras['reviews'] }) {
+function ReviewsSection({ reviews, t }: { reviews: GatewayProofExtras['reviews']; t: C }) {
   if (reviews.length === 0) {
     return (
       <section className="fw-run-health__section">
-        <Eyebrow>Reviews</Eyebrow>
-        <p className="fw-run-health__empty">No review has been recorded for this run yet.</p>
+        <h3 className="fw-run-health__label">{t('rd.tests.health.reviews.title')}</h3>
+        <p className="fw-run-health__empty">{t('rd.tests.health.reviews.empty')}</p>
       </section>
     );
   }
   return (
     <section className="fw-run-health__section">
-      <Eyebrow>Reviews</Eyebrow>
+      <h3 className="fw-run-health__label">{t('rd.tests.health.reviews.title')}</h3>
       <ul className="fw-run-health__reviews">
         {reviews.map((review) => (
           <li key={review.reviewId} className="fw-run-health__review">
             <span className="fw-run-health__review-verdict" data-verdict={review.verdict ?? 'unknown'}>
-              <Machine>{review.verdict ?? 'unknown'}</Machine>
+              <span>{verdictWord(review.verdict, t)}</span>
             </span>
             <span className="fw-run-health__review-subject fw-truncate">{review.subject ?? review.reviewId}</span>
-            <Machine muted>{review.agent ?? 'unknown reviewer'}</Machine>
+            <span className="fw-run-health__quiet">{review.agent ?? t('rd.tests.health.reviews.unknownReviewer')}</span>
             {review.commitSha !== null ? <Machine muted>{review.commitSha}</Machine> : null}
-            {review.completedAt !== null ? <Timestamp value={review.completedAt} /> : null}
+            {review.completedAt !== null ? <LocalTime value={review.completedAt} /> : null}
           </li>
         ))}
       </ul>
@@ -239,22 +282,19 @@ function ReviewsSection({ reviews }: { reviews: GatewayProofExtras['reviews'] })
 }
 
 export function RunHealthPanel({ extras, runId = null }: { extras: GatewayProofExtras; runId?: string | null }) {
+  const { t, locale } = useLocale();
   return (
     <Panel
-      title="Run health"
-      subtitle={
-        runId !== null
-          ? `Gate evidence, the finalize receipt, the run contract, and any recorded reviews for ${runId}.`
-          : 'Gate evidence, the finalize receipt, the run contract, and any recorded reviews for this run.'
-      }
+      title={t('rd.tests.health.title')}
+      subtitle={runId !== null ? t('rd.tests.health.subtitleFor', { id: runId }) : t('rd.tests.health.subtitle')}
       padded={false}
       className="fw-tests__panel"
     >
       <div className="fw-run-health">
-        <GateEvidenceSection gateEvidence={extras.gateEvidence} />
-        <FinalizeSection finalize={extras.finalize} />
-        <ContractSection contract={extras.contract} />
-        <ReviewsSection reviews={extras.reviews} />
+        <GateEvidenceSection gateEvidence={extras.gateEvidence} t={t} />
+        <FinalizeSection finalize={extras.finalize} t={t} locale={locale} />
+        <ContractSection contract={extras.contract} t={t} />
+        <ReviewsSection reviews={extras.reviews} t={t} />
       </div>
     </Panel>
   );

@@ -1,0 +1,3 @@
+# forge-bots — domain overview
+
+A bot is an **inbound-webhook + auth + secrets domain** — it lives at the intersection of `forge-integration` (OAuth, secret hygiene, webhook auth, reader-side capability-split for untrusted inbound content) and event-driven delivery. Lead the auth/secret backbone through `forge-integration`; this file adds the platform-specific verification, ack, and anti-spam rules. Each platform has a **different** verification mechanism — never assume one algorithm carries to another. Never claim a bot is "live"/"verified" unless a signed event was actually accepted and a forged one rejected.

@@ -11,7 +11,9 @@
  * (P0-3).
  */
 
+import { t } from '@/i18n';
 import type { ConnectionStatus } from '@/prototype/state/bridge-client';
+import { isDesktopApp } from '@/prototype/state/gateway-client';
 import type { ClaudeCodeStatus } from '@/shared/protocol';
 
 export interface ChipState {
@@ -25,42 +27,50 @@ export interface ChipState {
  * actually reported, and an as-yet-unknown Claude status resolves to the plain
  * connection label rather than a guess.
  */
-export function liveChipState(status: ConnectionStatus, claude: ClaudeCodeStatus | null): ChipState {
+export function liveChipState(
+  status: ConnectionStatus,
+  claude: ClaudeCodeStatus | null,
+  desktop: boolean = isDesktopApp(),
+): ChipState {
+  // WP B3-ui: the desktop app starts its own gateway and has no restart policy yet, so "start Forge"
+  // and "reconnects by itself" are both untrue there; the title says what the user can do.
+  if (desktop && status === 'DISCONNECTED') {
+    return { state: t('shell.chip.disconnectedDesktop'), title: t('shell.chip.disconnectedDesktopTitle') };
+  }
   switch (status) {
     case 'CONNECTING':
-      return { state: 'Connecting…', title: 'Reaching the local Forge gateway on this machine.' };
+      return { state: t('shell.chip.connecting'), title: t('shell.chip.connectingTitle') };
     case 'DEGRADED':
       return {
-        state: 'Reconnecting',
-        title: 'The gateway is reachable but the live stream is being reconciled.',
+        state: t('shell.chip.reconnecting'),
+        title: t('shell.chip.reconnectingTitle'),
       };
     case 'DISCONNECTED':
       return {
-        state: 'Disconnected — start the gateway',
-        title:
-          'The local Forge gateway is not reachable. Start it and the workspace reconnects on its own.',
+        state: t('shell.chip.disconnected'),
+        title: t('shell.chip.disconnectedTitle'),
       };
     case 'CONNECTED':
       if (claude === null) {
-        return { state: 'Connected', title: 'Connected to the local Forge gateway.' };
+        return { state: t('shell.chip.connected'), title: t('shell.chip.connectedTitle') };
       }
       if (!claude.available) {
         return {
-          state: 'Connected · Claude Code not detected',
-          title: claude.note ?? 'The gateway is connected, but Claude Code was not found on this machine.',
+          state: t('shell.chip.notDetected'),
+          title: claude.note ?? t('shell.chip.notDetectedTitle'),
         };
       }
       if (!claude.authenticated) {
         return {
-          state: 'Connected · not signed in',
-          title: 'Connected to the gateway, but the local Claude Code session is not signed in.',
+          state: t('shell.chip.notSignedIn'),
+          title: t('shell.chip.notSignedInTitle'),
         };
       }
       return {
-        state: 'Connected',
+        state: t('shell.chip.connected'),
         title: claude.version
-          ? `Connected to the local Forge gateway · Claude Code ${claude.version}.`
-          : 'Connected to the local Forge gateway and the local Claude Code session.',
+          ? t('shell.chip.readyTitleVersion', { version: claude.version })
+          : t('shell.chip.readyTitle'),
       };
   }
 }

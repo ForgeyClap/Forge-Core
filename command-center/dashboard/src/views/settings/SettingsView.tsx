@@ -1,1548 +1,246 @@
 /**
- * Settings — every workspace preference in one place.
+ * Settings — one page (WP B6, plan §4.6; v1.0 redesign DESIGN.md §3.4, mockups/04-instellingen-*.png).
  *
- * Two columns: a section nav (a horizontal scroller on a narrow viewport) and
- * the section body. Appearance, density, reduced motion, the shell layout
- * switches, the composer/reading/remembering preferences, the model-label
- * toggle and the reset in Data and privacy are all genuinely wired — they take
- * effect immediately and are remembered in this browser. Every remaining panel
- * either changes real (if unwired) local state honestly, or has been removed
- * rather than shipped as a control that lies about what it does.
+ * Header: "Instellingen" on the left and the Eenvoudig | Uitgebreid switch on the right, so the mode is
+ * found where people look for it. Left: the list of groups (Algemeen, Accounts, Veiligheid, Privacy;
+ * Uitgebreid adds Modellen, Gebruik, Koppelingen, Mappen, Diagnose and Over Forge under a hairline). It
+ * marks the group in view (`group-in-view.ts`) and scrolls to a group on click; below 1000 px it becomes a row of tabs.
+ * Uitgebreid also has Eigen API as its own group right after Accounts (DESIGN.md §3.4, fix round XR-SET): it
+ * has no entry in the list, which marks Accounts while it is in view. Its list is drawn by AccountsSection
+ * (it shares that section's lists) into this group's body through `OwnApiSlotContext`.
+ * Rows sit grouped in one surface with hairlines: a name, at most one sub-line, the control on the
+ * right, and the "Wat merk je ervan" line behind "Meer info". There is no port field anywhere in
+ * Eenvoudig, and nothing that only looks like a control: what cannot work yet is grey with its reason.
  *
- * The Claude Code connection section reads the gateway's own live health check
- * (the same one the topbar's chip uses) — it is not a detector running in this
- * tab. Nothing here ever asks you to type a credential of any kind.
+ * Headings: the page title is the one h1 ("Instellingen"; the bar draws no title on pages that have
+ * their own, DESIGN.md §2), groups are h2, the blocks inside Accounts are h3.
+ *
+ * The model of the page (groups, rows, the mapping from the twelve old sections) lives in
+ * `settings-model.ts`; the rows themselves in `sections/`. The old screen survives only as a
+ * developer view (`LegacySettingsView.tsx`, behind `isLegacySettingsEnabled()`).
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 
-import {
-  Button,
-  EmptyState,
-  Eyebrow,
-  ExampleTag,
-  Icon,
-  IconButton,
-  KeyHint,
-  Machine,
-  Panel,
-  SegmentedControl,
-  Spacer,
-  Switch,
-  Toolbar,
-} from '@/components/primitives';
-import { useGatewayClaudeCodeHealth, useGatewayConnection as useConnection } from '@/prototype/state/gateway-adapter';
-import {
-  useGatewayCapabilities,
-  useGatewayForgeConfig,
-  useGatewayMcp,
-  useGatewayModels,
-  useGatewayTools,
-} from '@/prototype/state/gateway-capabilities';
-import type {
-  GatewayForgeConfigFile,
-  GatewayForgeSetting,
-} from '@/prototype/state/gateway-capabilities';
-import { nextToastId, selectActiveProject, usePrototype } from '@/prototype/state/prototype-store';
-import type { DockTab } from '@/prototype/state/prototype-store';
-import { liveChipState } from '@/components/shell/claude-code-chip';
-import { ForgeSettingRow } from './ForgeSettingRow';
-import { categorizeForgeSettings, forgeSettingMatchesQuery } from './forge-setting-presentation';
-import type { AgentLayout, Appearance, Density, TaskLayout } from '@/prototype/types/prototype-types';
+import { SegmentedControl } from '@/components/primitives';
+import { useCheckup } from '@/components/checkup/use-checkup';
+import type { CheckupController } from '@/components/checkup/use-checkup';
+import { useLocale } from '@/i18n/use-locale';
+import { useUiMode } from '@/state/ui-mode';
 
-import './settings.css';
+import { isLegacySettingsEnabled, listEntryOf, listedGroups, readDesktopBridge, visibleGroups, visibleRows } from './settings-model';
+import type { DesktopBridge, GroupId, RowDef } from './settings-model';
+import { AccountsSection } from './sections/AccountsSection';
+import { AppRouterSection, ROUTER_SECTION_ID } from './sections/app-router/AppRouterSection';
+import { OwnApiSlotContext } from './sections/own-api-slot';
+import { DensityRow, DesktopToggleRow, LanguageRow, MotionRow, StartCardRow, ThemeRow, TourRow, ViewModeRow } from './sections/GeneralRows';
+import { FolderAccessRow, PermissionModeRow, SafetyLocksPanel } from './sections/SafetyRows';
+import { ExportRow, WhereRow, WipeRow } from './sections/PrivacyRows';
+import { DiagnoseRow, LimitRow, PathsRow, RolesRow, SkillsRow, SmartScreenRow, UpdatesRow, VersionRow } from './sections/AdvancedRows';
+import { useGroupInView } from './group-in-view';
+import { useGatewayPaths } from './use-gateway-paths';
+import type { GatewayPaths } from './use-gateway-paths';
 
-/* ------------------------------------------------------------------ model */
+import './settings-page.css';
 
-type SectionId =
-  | 'appearance'
-  | 'layout'
-  | 'chat'
-  | 'connection'
-  | 'models'
-  | 'capabilities'
-  | 'forge'
-  | 'agents'
-  | 'skills'
-  | 'permissions'
-  | 'privacy'
-  | 'shortcuts';
+const LegacySettingsView = lazy(() => import('./LegacySettingsView'));
 
-interface SectionDef {
-  readonly id: SectionId;
-  readonly label: string;
-  readonly icon: string;
-  /** True when the controls in this section actually change the workspace. */
-  readonly wired: boolean;
-  readonly summary: string;
+/** Groups whose content brings its own blocks (account lists, the router, the Eigen API list, the pc check). */
+const OWN_LAYOUT: ReadonlySet<GroupId> = new Set(['accounts', 'eigenapi', 'diagnose']);
+
+/** Frames the scroll-spy tries to find the router before it gives up (it mounts after its own read). */
+const ROUTER_SCROLL_FRAMES = 120;
+
+interface RowContext {
+  readonly bridge: DesktopBridge | null;
+  readonly checkup: CheckupController;
+  readonly paths: GatewayPaths;
+  readonly onShowDiagnose?: () => void;
+  /** Receives the body of the Eigen API group, where AccountsSection draws that list. */
+  readonly onOwnApiSlot: (node: HTMLElement | null) => void;
 }
 
-const SECTIONS: readonly SectionDef[] = [
-  {
-    id: 'appearance',
-    label: 'Appearance',
-    icon: 'Contrast',
-    wired: true,
-    summary: 'Theme, density and motion. These take effect immediately.',
-  },
-  {
-    id: 'layout',
-    label: 'Layout',
-    icon: 'PanelsTopLeft',
-    wired: true,
-    summary: 'Which regions of the shell are open, and how the busiest views arrange themselves.',
-  },
-  {
-    id: 'chat',
-    label: 'Chat preferences',
-    icon: 'MessageSquare',
-    wired: true,
-    summary: 'How a conversation reads and how the composer behaves. Saved in this browser.',
-  },
-  {
-    id: 'connection',
-    label: 'Claude Code connection',
-    icon: 'Terminal',
-    wired: true,
-    summary: 'Live Claude Code and gateway connection status, read from the gateway itself.',
-  },
-  {
-    id: 'models',
-    label: 'Models',
-    icon: 'Cpu',
-    wired: true,
-    summary: 'The runtime and tool labels that appear on agent cards, and whether the roster shows them.',
-  },
-  {
-    id: 'capabilities',
-    label: 'Capabilities',
-    icon: 'Boxes',
-    wired: true,
-    summary: 'What this gateway can actually route to and call: models, tools, MCP servers and the Forge capability report.',
-  },
-  {
-    id: 'forge',
-    label: 'Forge settings',
-    icon: 'Wrench',
-    wired: true,
-    summary:
-      // WP-RB-CC (review finding L-2): this used to say "Change it in chat or with /forge config",
-      // which implied the command line/chat were the only ways in — but this same view's own "Forge
-      // settings" panel (renderForgeSettings()'s Note, below) edits a setting right in place: flip a
-      // switch, pick an option, or type a number. The command line/chat are the secondary, exact-
-      // syntax route it also shows, not the primary one — the two must say the same thing.
-      'Every Forge setting of the active project — value, where it comes from, what it does — read from GET /api/config. Change a setting right in this view; the exact command is also there for the command line or chat.',
-  },
-  {
-    id: 'agents',
-    label: 'Agents',
-    icon: 'Users',
-    wired: false,
-    summary: 'The current agent roster, grouped and counted.',
-  },
-  {
-    id: 'skills',
-    label: 'Skills',
-    icon: 'Sparkles',
-    wired: false,
-    summary: 'The skill set the agent roster draws on.',
-  },
-  {
-    id: 'permissions',
-    label: 'Permissions',
-    icon: 'ShieldCheck',
-    wired: false,
-    summary: 'What each permission level is allowed to do once there is a runtime to allow it in.',
-  },
-  {
-    id: 'privacy',
-    label: 'Data and privacy',
-    icon: 'Database',
-    wired: true,
-    summary: 'Exactly what this workspace stores, and what it sends to the gateway.',
-  },
-  {
-    id: 'shortcuts',
-    label: 'Keyboard shortcuts',
-    icon: 'Keyboard',
-    wired: false,
-    summary: 'The shortcut vocabulary the workspace is designed around.',
-  },
-];
-
-/* ------------------------------------------------------------- shortcuts */
-
-interface ShortcutGroup {
-  readonly title: string;
-  readonly rows: readonly { readonly keys: readonly string[]; readonly action: string }[];
-}
-
-const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
-  {
-    title: 'Global',
-    rows: [
-      { keys: ['Ctrl', 'K'], action: 'Open the command palette' },
-      { keys: ['Ctrl', 'B'], action: 'Collapse or expand the sidebar' },
-      { keys: ['Ctrl', 'I'], action: 'Show or hide the inspector' },
-      { keys: ['Ctrl', 'J'], action: 'Show or hide the dock' },
-      { keys: ['Ctrl', ','], action: 'Open settings' },
-      { keys: ['Esc'], action: 'Close the palette, a dialog or the dock' },
-    ],
-  },
-  {
-    title: 'Navigation',
-    rows: [
-      { keys: ['G', 'H'], action: 'Go to home' },
-      { keys: ['G', 'P'], action: 'Go to projects' },
-      { keys: ['G', 'C'], action: 'Go to chat' },
-      { keys: ['G', 'M'], action: 'Go to mission control' },
-      { keys: ['G', 'A'], action: 'Go to agents' },
-      { keys: ['G', 'T'], action: 'Go to tasks' },
-    ],
-  },
-  {
-    title: 'Chat',
-    rows: [
-      { keys: ['Ctrl', 'Enter'], action: 'Send the message' },
-      { keys: ['Shift', 'Enter'], action: 'New line inside the composer' },
-      { keys: ['Ctrl', 'Shift', 'A'], action: 'Attach a file to the message' },
-      { keys: ['Ctrl', 'Shift', 'S'], action: 'Stop the running response' },
-    ],
-  },
-  {
-    title: 'Lists and boards',
-    rows: [
-      { keys: ['↑', '↓'], action: 'Move through rows' },
-      { keys: ['Enter'], action: 'Open the selected row in the inspector' },
-      { keys: ['Space'], action: 'Expand or collapse a group' },
-      { keys: ['/'], action: 'Focus the filter field' },
-    ],
-  },
-];
-
-/* ------------------------------------------------------------------ atoms */
-
-function Note({ children }: { children: ReactNode }) {
-  return (
-    <p className="fw-settings__note">
-      <Icon name="Info" size="sm" className="fw-settings__note-icon" />
-      <span>{children}</span>
-    </p>
-  );
-}
-
-function Row({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="fw-settings__row">
-      <div className="fw-settings__row-text">
-        <span className="fw-settings__row-label">{label}</span>
-        {hint ? <span className="fw-settings__row-hint">{hint}</span> : null}
-      </div>
-      <div className="fw-settings__row-control">{children}</div>
-    </div>
-  );
-}
-
-const SURFACE_SWATCHES: readonly { readonly token: string; readonly name: string }[] = [
-  { token: 'canvas', name: '--forge-color-canvas' },
-  { token: 'bg', name: '--forge-color-bg' },
-  { token: 'surface-1', name: '--forge-color-surface-1' },
-  { token: 'surface-2', name: '--forge-color-surface-2' },
-  { token: 'surface-3', name: '--forge-color-surface-3' },
-  { token: 'line', name: '--forge-color-line' },
-  { token: 'text-muted', name: '--forge-color-text-muted' },
-  { token: 'accent', name: '--forge-color-accent' },
-];
-
-function unique(values: readonly string[]): readonly string[] {
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
-}
-
-/* --------------------------------------------------------- forge settings */
-
-/**
- * helpers for the read-only Forge
- * settings section. The JSON carries only the flag letters; these words are
- * `forge-config-text.cjs`'s own English `flag` map, in its own FLAG_ORDER, so
- * this view says exactly what `/forge config list` says.
- */
-const FORGE_FLAG_WORDS: Readonly<Record<string, string>> = {
-  C: 'reads credentials',
-  N: 'uses the network',
-  $: 'costs quota or money',
-  U: 'runs unattended',
-  X: 'reads outside this project',
-  D: 'deletes files',
-};
-const FORGE_FLAG_ORDER: readonly string[] = ['C', 'N', '$', 'U', 'X', 'D'];
-
-function forgeFileLine(file: GatewayForgeConfigFile | null): string {
-  if (file === null) return '—';
-  return `${file.pretty ?? file.path ?? '—'} · ${file.present ? 'saved' : 'not created, defaults apply'}`;
-}
-
-/** Footnote numbers in settings order for every setting that says what it
- *  does with your data — the same numbering `/forge config list` prints. */
-function forgeFootnoteRefs(settings: readonly GatewayForgeSetting[]): ReadonlyMap<string, number> {
-  const refs = new Map<string, number>();
-  for (const setting of settings) {
-    if (setting.disclosure !== null || setting.flags.length > 0) refs.set(setting.key, refs.size + 1);
-  }
-  return refs;
-}
-
-/* -------------------------------------------------------- real preferences */
-
-/**
- * The 11 controls that are genuinely local, client-side preferences (Layout ▸
- * Remembering, Chat ▸ Composer, Chat ▸ Reading, Models ▸ "Show model labels").
- * Persisted the same way `prototype-store.ts` persists appearance/density —
- * `localStorage`, guarded by a try/catch so private-mode/disabled storage
- * degrades to "does not persist" rather than throwing. Kept in its own key
- * (not `prototype-store.ts`'s own two keys) because this view owns these
- * preferences; nothing else in the workspace reads them yet — see this file's
- * handoff notes for Test Boss.
- */
-const PREFERENCES_KEY = 'forge.workspace.preferences';
-
-type PreferenceValue = boolean | string;
-
-function readStoredPreferences(): Record<string, PreferenceValue> {
-  try {
-    const raw = localStorage.getItem(PREFERENCES_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, PreferenceValue>) : {};
-  } catch {
-    return {};
+function renderRow(row: RowDef, context: RowContext): ReactNode {
+  switch (row.id) {
+    case 'taal':
+      return <LanguageRow />;
+    case 'thema':
+      return <ThemeRow />;
+    case 'weergave':
+      return <ViewModeRow />;
+    case 'rondleiding':
+      // "Start hier opnieuw tonen" sits next to the tour replay; each shows only when it works.
+      return (
+        <>
+          <TourRow />
+          <StartCardRow />
+        </>
+      );
+    case 'opstarten':
+    case 'systeemvak':
+      return context.bridge ? <DesktopToggleRow id={row.id} bridge={context.bridge} /> : null;
+    case 'dichtheid':
+      return <DensityRow />;
+    case 'beweging':
+      return <MotionRow />;
+    case 'accounts':
+      return <AccountsSection checkup={context.checkup} onShowDiagnose={context.onShowDiagnose} />;
+    case 'router':
+      return <AppRouterSection />;
+    case 'eigenapi':
+      return <div className="fs-set__ownapi" ref={context.onOwnApiSlot} />;
+    case 'sloten':
+      return <SafetyLocksPanel />;
+    case 'modus':
+      return <PermissionModeRow />;
+    case 'map':
+      return <FolderAccessRow />;
+    case 'waar':
+      return <WhereRow paths={context.paths} />;
+    case 'exporteren':
+      return <ExportRow />;
+    case 'wissen':
+      return <WipeRow />;
+    case 'rollen':
+      return <RolesRow />;
+    case 'limiet':
+      return <LimitRow />;
+    case 'vaardigheden':
+      return <SkillsRow />;
+    case 'paden':
+      return <PathsRow paths={context.paths} />;
+    case 'diagnose':
+      return <DiagnoseRow checkup={context.checkup} bridge={context.bridge} />;
+    case 'versie':
+      return <VersionRow bridge={context.bridge} />;
+    case 'updates':
+      return <UpdatesRow bridge={context.bridge} />;
+    case 'smartscreen':
+      return <SmartScreenRow />;
+    default:
+      return null;
   }
 }
 
-function persistPreferences(next: Record<string, PreferenceValue>): void {
-  try {
-    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(next));
-  } catch {
-    /* Private mode or storage disabled — preferences simply do not persist. */
-  }
+/** `#/settings?focus=router` (the chat's limit card and Leer Forge link here): scroll the router into view. */
+function useFocusRouter(focus: string | null): void {
+  useEffect(() => {
+    if (focus !== 'router') return undefined;
+    let frames = 0;
+    let handle = 0;
+    const tryScroll = () => {
+      const node = document.getElementById(ROUTER_SECTION_ID);
+      if (node) {
+        node.scrollIntoView({ block: 'start' });
+        return;
+      }
+      frames += 1;
+      if (frames < ROUTER_SCROLL_FRAMES) handle = window.requestAnimationFrame(tryScroll);
+    };
+    handle = window.requestAnimationFrame(tryScroll);
+    return () => window.cancelAnimationFrame(handle);
+  }, [focus]);
 }
-
-function clearStoredPreferences(): void {
-  try {
-    localStorage.removeItem(PREFERENCES_KEY);
-  } catch {
-    /* Nothing to clear if storage was never available. */
-  }
-}
-
-/* ------------------------------------------------------------------- view */
 
 export default function SettingsView() {
-  const { state, dispatch } = usePrototype();
-  const [section, setSection] = useState<SectionId>('appearance');
-  // Skills toggles are the one remaining group with no real effect behind
-  // them yet (see renderSkills) — kept in plain React state, unlike the real
-  // preferences below.
-  const [flags, setFlags] = useState<Record<string, boolean>>({});
-  const [preferences, setPreferences] = useState<Record<string, PreferenceValue>>(() =>
-    readStoredPreferences(),
-  );
-  // free-text filter across the Forge settings section only —
-  // its own local state, since no other section has enough rows to need one.
-  const [forgeQuery, setForgeQuery] = useState('');
+  const { t } = useLocale();
+  const { mode, isAdvanced, setUiMode } = useUiMode();
+  const bridge = useMemo(() => readDesktopBridge(), []);
+  const checkup = useCheckup(null, true);
+  const paths = useGatewayPaths();
+  const { search } = useLocation();
+  useFocusRouter(new URLSearchParams(search).get('focus'));
 
-  const announce = useCallback(
-    (label: string) => {
-      dispatch({
-        type: 'toast/push',
-        toast: {
-          id: nextToastId(),
-          title: `${label} — not wired yet`,
-          detail: 'This control is not wired to anything. Toggling it changes nothing.',
-          icon: 'FlaskConical',
-        },
-      });
-    },
-    [dispatch],
-  );
+  const rows = visibleRows(isAdvanced, bridge);
+  const groups = visibleGroups(isAdvanced);
+  const listed = listedGroups(groups);
+  const [activeGroup, setActiveGroup] = useState<GroupId | null>(null);
+  const [ownApiSlot, setOwnApiSlot] = useState<HTMLElement | null>(null);
+  const [pinnedGroup, setPinnedGroup] = useState<GroupId | null>(null);
+  useGroupInView(groups.map((group) => group.id).join(','), setActiveGroup, pinnedGroup, setPinnedGroup);
 
-  const inertSwitch = useCallback(
-    (key: string, label: string, fallback: boolean) => ({
-      checked: flags[key] ?? fallback,
-      label,
-      labelHidden: true,
-      onChange: (next: boolean) => {
-        setFlags((current) => ({ ...current, [key]: next }));
-        announce(label);
-      },
-    }),
-    [announce, flags],
-  );
-
-  /** A genuinely persisted preference — saved to `localStorage`, no toast. */
-  const realSwitch = useCallback(
-    (key: string, label: string, fallback: boolean) => ({
-      checked: (preferences[key] as boolean | undefined) ?? fallback,
-      label,
-      labelHidden: true,
-      onChange: (next: boolean) => {
-        const updated = { ...preferences, [key]: next };
-        setPreferences(updated);
-        persistPreferences(updated);
-      },
-    }),
-    [preferences],
-  );
-
-  const realChoice = useCallback(
-    (key: string, label: string, fallback: string) => ({
-      value: (preferences[key] as string | undefined) ?? fallback,
-      label,
-      onChange: (next: string) => {
-        const updated = { ...preferences, [key]: next };
-        setPreferences(updated);
-        persistPreferences(updated);
-      },
-    }),
-    [preferences],
-  );
-
-  const resetPreferences = useCallback(() => {
-    dispatch({ type: 'appearance/set', appearance: 'system' });
-    dispatch({ type: 'density/set', density: 'comfortable' });
-    setFlags({});
-    setPreferences({});
-    clearStoredPreferences();
-    dispatch({
-      type: 'toast/push',
-      toast: {
-        id: nextToastId(),
-        title: 'Preferences reset',
-        detail: 'Appearance is back on system, density on comfortable, and the saved workspace preferences were cleared.',
-        icon: 'RotateCcw',
-      },
-    });
-  }, [dispatch]);
-
-  const agents = state.data.agents;
-  const runtimeModels = useMemo(() => unique(agents.map((a) => a.runtimeModel)), [agents]);
-  const toolModels = useMemo(() => unique(agents.map((a) => a.toolModel)), [agents]);
-  const skills = useMemo(() => unique(agents.flatMap((a) => a.skills)), [agents]);
-
-  // P0-3: the live Claude Code + gateway health, read the same way the
-  // topbar's chip reads it — never a new detector, never a fixture.
-  const connection = useConnection();
-  const claudeCode = useGatewayClaudeCodeHealth()?.claudeCode ?? null;
-  const chip = liveChipState(connection.status, claudeCode);
-  // fix-composer-truth: same active-project source the composer's own write-scope
-  // line reads (`state.activeProjectId` via `selectActiveProject`) — named here too
-  // so this section states the real write boundary, not just the CLI's identity.
-  const activeProject = selectActiveProject(state);
-
-  // wire-capabilities: the 4 real gateway routes this section renders.
-  // `useGatewayModels()` carries no `?project=` (it reports this gateway's
-  // own install); the other three read the active project, honestly empty
-  // until one is selected — see gateway-capabilities.ts's header.
-  const models = useGatewayModels();
-  const tools = useGatewayTools(state.activeProjectId);
-  const mcp = useGatewayMcp(state.activeProjectId);
-  const capabilities = useGatewayCapabilities(state.activeProjectId);
-  // the active project's Forge settings, read-only (GET /api/config).
-  const forgeConfig = useGatewayForgeConfig(state.activeProjectId);
-
-  const active = SECTIONS.find((entry) => entry.id === section) ?? SECTIONS[0];
-
-  /* ---------------------------------------------------------- sections */
-
-  function renderAppearance(): ReactNode {
-    return (
-      <>
-        <Panel
-          title="Theme"
-          subtitle="Applied immediately and remembered in this browser only."
-        >
-          <div className="fw-settings__rows">
-            <Row label="Appearance" hint="System follows your operating system setting.">
-              <SegmentedControl
-                label="Appearance"
-                value={state.appearance}
-                onChange={(next) =>
-                  dispatch({ type: 'appearance/set', appearance: next as Appearance })
-                }
-                options={[
-                  { value: 'dark', label: 'Dark', icon: 'Moon' },
-                  { value: 'light', label: 'Light', icon: 'Sun' },
-                  { value: 'system', label: 'System', icon: 'Monitor' },
-                ]}
-              />
-            </Row>
-            <Row label="Resolved theme" hint="What the workspace is drawing at this moment.">
-              <Machine>{state.resolvedTheme}</Machine>
-            </Row>
-            <Row
-              label="Reduced motion"
-              hint="Stops the workspace's own motion, like the composer's reveal effect. Your system setting is honoured either way."
-            >
-              <Switch
-                checked={state.reducedMotion}
-                onChange={(next) => dispatch({ type: 'motion/set', reduced: next })}
-                label="Reduced motion"
-                labelHidden
-              />
-            </Row>
-          </div>
-        </Panel>
-
-        <Panel
-          title="Preview"
-          subtitle="Live values from the current theme. Flip the control above and watch the ramp move."
-        >
-          <ul className="fw-settings__swatches">
-            {SURFACE_SWATCHES.map((swatch) => (
-              <li key={swatch.token} className="fw-settings__swatch">
-                <span className="fw-settings__swatch-chip" data-token={swatch.token} />
-                <Machine muted className="fw-settings__swatch-name">
-                  {swatch.name}
-                </Machine>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-
-        <Panel title="Density" subtitle="Retunes control heights, row heights and gutters at once.">
-          <div className="fw-settings__rows">
-            <Row label="Density" hint="Compact suits a laptop screen and a long task board.">
-              <SegmentedControl
-                label="Density"
-                value={state.density}
-                onChange={(next) => dispatch({ type: 'density/set', density: next as Density })}
-                options={[
-                  { value: 'comfortable', label: 'Comfortable', icon: 'Rows3' },
-                  { value: 'compact', label: 'Compact', icon: 'Rows4' },
-                ]}
-              />
-            </Row>
-            <Row label="Current value" hint="Written on the document root as data-density.">
-              <Machine>{state.density}</Machine>
-            </Row>
-          </div>
-        </Panel>
-      </>
-    );
+  function scrollToGroup(id: GroupId) {
+    setPinnedGroup(id);
+    document.getElementById(`fs-group-${id}`)?.scrollIntoView({ block: 'start' });
+    setActiveGroup(id);
   }
 
-  function renderLayout(): ReactNode {
-    return (
-      <>
-        <Panel title="Shell regions" subtitle="These switches move the real shell around you.">
-          <div className="fw-settings__rows">
-            <Row label="Sidebar" hint="Collapsed keeps the icons and drops the labels.">
-              <Switch
-                checked={!state.sidebarCollapsed}
-                onChange={(next) => dispatch({ type: 'sidebar/set', collapsed: !next })}
-                label="Sidebar expanded"
-                labelHidden
-              />
-            </Row>
-            <Row label="Inspector" hint="The right-hand detail column.">
-              <Switch
-                checked={state.inspectorOpen}
-                onChange={(next) => dispatch({ type: 'inspector/set', open: next })}
-                label="Inspector open"
-                labelHidden
-              />
-            </Row>
-            <Row label="Dock" hint="The bottom drawer that holds activity, tests and the proof ledger.">
-              <Switch
-                checked={state.dockOpen}
-                onChange={(next) => dispatch({ type: 'dock/set', open: next })}
-                label="Dock open"
-                labelHidden
-              />
-            </Row>
-            <Row label="Dock tab" hint="Selecting a tab also opens the dock.">
-              <SegmentedControl
-                label="Dock tab"
-                size="sm"
-                value={state.dockTab}
-                onChange={(next) => dispatch({ type: 'dock/tab', tab: next as DockTab })}
-                options={[
-                  { value: 'activity', label: 'Activity' },
-                  { value: 'terminal', label: 'Terminal' },
-                  { value: 'tests', label: 'Tests' },
-                  { value: 'events', label: 'Events' },
-                  { value: 'proof', label: 'Proof' },
-                  { value: 'notices', label: 'Notices' },
-                ]}
-              />
-            </Row>
-          </div>
-        </Panel>
-
-        <Panel title="View defaults" subtitle="How the two densest views arrange themselves.">
-          <div className="fw-settings__rows">
-            <Row label="Agents view" hint="Grouped stacks the roster by agent group.">
-              <SegmentedControl
-                label="Agent layout"
-                size="sm"
-                value={state.agentLayout}
-                onChange={(next) => dispatch({ type: 'agents/layout', layout: next as AgentLayout })}
-                options={[
-                  { value: 'list', label: 'List' },
-                  { value: 'grid', label: 'Grid' },
-                  { value: 'grouped', label: 'Grouped' },
-                ]}
-              />
-            </Row>
-            <Row label="Tasks view" hint="The board, the table, or the plan behind them.">
-              <SegmentedControl
-                label="Task layout"
-                size="sm"
-                value={state.taskLayout}
-                onChange={(next) => dispatch({ type: 'tasks/layout', layout: next as TaskLayout })}
-                options={[
-                  { value: 'kanban', label: 'Kanban' },
-                  { value: 'table', label: 'Table' },
-                  { value: 'work-packages', label: 'Packages' },
-                  { value: 'phases', label: 'Phases' },
-                ]}
-              />
-            </Row>
-          </div>
-        </Panel>
-
-        <Panel title="Remembering" subtitle="Saved in this browser.">
-          <Note>Saved automatically, and remembered the next time you open the workspace.</Note>
-          <div className="fw-settings__rows">
-            <Row label="Remember layout per project" hint="Each project reopens the way you left it.">
-              <Switch {...realSwitch('layout.per-project', 'Remember layout per project', true)} />
-            </Row>
-            <Row label="Reopen the last conversation" hint="Land back in the thread you were reading.">
-              <Switch {...realSwitch('layout.last-conversation', 'Reopen the last conversation', true)} />
-            </Row>
-            <Row label="Open the dock when a run starts" hint="Activity comes to you rather than waiting.">
-              <Switch {...realSwitch('layout.dock-on-run', 'Open the dock when a run starts', false)} />
-            </Row>
-          </div>
-        </Panel>
-      </>
-    );
-  }
-
-  function renderChat(): ReactNode {
-    return (
-      <>
-        <Panel title="Composer" subtitle="Saved in this browser.">
-          <Note>These preferences change how the composer behaves and are remembered here.</Note>
-          <div className="fw-settings__rows">
-            <Row label="Send with" hint="Which key commits the message.">
-              <SegmentedControl
-                size="sm"
-                {...realChoice('chat.send', 'Send with', 'ctrl-enter')}
-                options={[
-                  { value: 'enter', label: 'Enter' },
-                  { value: 'ctrl-enter', label: 'Ctrl + Enter' },
-                ]}
-              />
-            </Row>
-            <Row label="Spell check the composer" hint="Browser spell checking inside the input.">
-              <Switch {...realSwitch('chat.spellcheck', 'Spell check the composer', true)} />
-            </Row>
-            <Row label="Keep drafts per conversation" hint="An unsent message survives a view change.">
-              <Switch {...realSwitch('chat.drafts', 'Keep drafts per conversation', true)} />
-            </Row>
-          </div>
-        </Panel>
-
-        <Panel title="Reading" subtitle="Saved in this browser.">
-          <div className="fw-settings__rows">
-            <Row label="Show step blocks" hint="The collapsible progress list inside a response.">
-              <Switch {...realSwitch('chat.steps', 'Show step blocks', true)} />
-            </Row>
-            <Row label="Show the model label" hint="The machine-set line under a Forge response.">
-              <Switch {...realSwitch('chat.model-label', 'Show the model label', true)} />
-            </Row>
-            <Row label="Show timestamps" hint="Absolute time rather than 'just now'.">
-              <Switch {...realSwitch('chat.timestamps', 'Show timestamps', false)} />
-            </Row>
-            <Row label="Reading width" hint="How wide a message is allowed to run.">
-              <SegmentedControl
-                size="sm"
-                {...realChoice('chat.width', 'Reading width', 'reading')}
-                options={[
-                  { value: 'reading', label: 'Reading' },
-                  { value: 'wide', label: 'Wide' },
-                  { value: 'full', label: 'Full' },
-                ]}
-              />
-            </Row>
-          </div>
-        </Panel>
-      </>
-    );
-  }
-
-  function renderConnection(): ReactNode {
-    return (
-      <>
-        <Panel title="Local session link" subtitle="Uses your locally authenticated Claude Code session.">
-          <p className="fw-link-callout">
-            <Icon name="ShieldCheck" size="sm" className="fw-link-callout__icon" />
-            <span>
-              There is nothing to enter here: the gateway resolves the <Machine>claude</Machine> CLI
-              already signed in on this machine and spawns it when you send a message — no separate
-              credential is ever requested by this workspace.
-            </span>
-          </p>
-        </Panel>
-
-        <Panel
-          title="Live status"
-          subtitle="Read from the gateway's own health check — the same reading the topbar's chip shows."
-        >
-          <div className="fw-settings__rows">
-            <Row label="Gateway connection" hint="Whether this browser can currently reach the gateway.">
-              <Machine>{connection.status}</Machine>
-            </Row>
-            <Row label="Claude Code" hint={chip.title}>
-              <span>{chip.state}</span>
-            </Row>
-            <Row label="Executable" hint="The resolved claude CLI path, or absent if none was found.">
-              <Machine muted>{claudeCode?.executablePath ?? '—'}</Machine>
-            </Row>
-            <Row label="Last checked" hint="When the gateway last reported this state.">
-              <Machine muted>{claudeCode?.lastCheckedAt ?? '—'}</Machine>
-            </Row>
-          </div>
-        </Panel>
-
-        <Panel title="What this connection uses" subtitle="Stated plainly, because it matters.">
-          <ul className="fw-settings__facts">
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>
-                Sending a message spawns the <Machine>claude</Machine> CLI already signed in on this
-                machine — the gateway process does this, never this browser tab.
-              </span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>
-                That CLI run has no permission-bypass: it can create or edit files only inside{' '}
-                {activeProject ? (
-                  <Machine muted>{activeProject.path}</Machine>
-                ) : (
-                  "the active project's folder"
-                )}
-                . A request for any other path is refused by the CLI itself, not attempted.
-              </span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>No editor is opened from this screen, and no VS Code integration exists yet.</span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>
-                The gateway only ever reaches <Machine muted>127.0.0.1:4100</Machine> on this machine —
-                never a remote address.
-              </span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>Nothing is ever typed in here. There is no credential field anywhere in the workspace.</span>
-            </li>
-          </ul>
-        </Panel>
-      </>
-    );
-  }
-
-  function renderModels(): ReactNode {
-    return (
-      <>
-        <Panel title="Runtime labels" subtitle="What an agent card prints under its name.">
-          <Note>
-            Display strings taken from the agent roster. Nothing here contacts a model or routes a
-            request.
-          </Note>
-          <ul className="fw-settings__machine-list">
-            {runtimeModels.map((model) => (
-              <li key={model}>
-                <Machine>{model}</Machine>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-
-        <Panel title="Tool labels" subtitle="The tool-side label shown on the same card.">
-          <ul className="fw-settings__machine-list">
-            {toolModels.map((model) => (
-              <li key={model}>
-                <Machine muted>{model}</Machine>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-
-        <Panel title="Display" subtitle="Saved in this browser.">
-          <div className="fw-settings__rows">
-            <Row label="Show model labels in the roster" hint="Hide them for a quieter card.">
-              <Switch {...realSwitch('models.show-labels', 'Show model labels in the roster', true)} />
-            </Row>
-          </div>
-        </Panel>
-      </>
-    );
-  }
-
-  function renderCapabilities(): ReactNode {
-    const nvidia = models.data.nvidia;
-    const rolesRows = models.data.roles;
-    const catalogRows = models.data.catalog;
-
-    return (
-      <>
-        <Panel
-          title="Routed models"
-          subtitle="This gateway's own model-routing matrix, read straight from GET /api/models."
-        >
-          {models.error ? (
-            <EmptyState icon="Unplug" title="Model routing unavailable" detail={models.error} />
-          ) : models.loading ? (
-            <Note>Reading the live model-routing matrix…</Note>
-          ) : rolesRows.length === 0 && catalogRows.length === 0 ? (
-            <EmptyState
-              icon="Cpu"
-              title="No routed models reported"
-              detail="The model-capability matrix returned no roles or catalog entries."
-            />
-          ) : (
-            <>
-              <div className="fw-settings__rows">
-                <Row label="NVIDIA connection" hint="The gateway's own live health probe.">
-                  <Machine>{nvidia?.state ?? '—'}</Machine>
-                </Row>
-                <Row label="Models available" hint="Reported by the live probe, not this workspace.">
-                  <Machine muted>{nvidia?.models ?? '—'}</Machine>
-                </Row>
-                <Row label="Broken or unavailable" hint="Entries in the matrix marked not usable right now.">
-                  <Machine muted>{models.data.brokenCount ?? '—'}</Machine>
-                </Row>
-                <Row label="Latest verified" hint="The newest live-probe date across the catalog.">
-                  <Machine muted>{models.data.latestVerifiedDate ?? '—'}</Machine>
-                </Row>
-              </div>
-              {rolesRows.length > 0 ? (
-                <div className="fw-settings__table-scroll">
-                  <table className="fw-settings__table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Role</th>
-                        <th scope="col">Model</th>
-                        <th scope="col">Env override</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rolesRows.map((role) => (
-                        <tr key={role.role}>
-                          <td>
-                            <Machine>{role.role}</Machine>
-                          </td>
-                          <td>
-                            <Machine muted>{role.model ?? '—'}</Machine>
-                          </td>
-                          <td>
-                            <Machine muted>{role.envOverride ?? '—'}</Machine>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </>
-          )}
-        </Panel>
-
-        {catalogRows.length > 0 ? (
-          <Panel title="Model catalog" subtitle="Every model this gateway can address, with its own live probe result.">
-            <div className="fw-settings__table-scroll">
-              <table className="fw-settings__table">
-                <thead>
-                  <tr>
-                    <th scope="col">Model ID</th>
-                    <th scope="col">Tier</th>
-                    <th scope="col">Context</th>
-                    <th scope="col">Verified</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {catalogRows.map((entry) => (
-                    <tr key={entry.id}>
-                      <td>
-                        <Machine>{entry.id}</Machine>
-                      </td>
-                      <td>
-                        <Machine muted>{entry.tier ?? '—'}</Machine>
-                      </td>
-                      <td>
-                        <Machine muted>{entry.ctx ?? '—'}</Machine>
-                      </td>
-                      <td>
-                        <Machine muted>{entry.verified ?? '—'}</Machine>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        ) : null}
-
-        <Panel title="Tools" subtitle="The active project's own .claude/forge-bin inventory, read straight from GET /api/tools.">
-          {tools.error ? (
-            <EmptyState icon="Unplug" title="Tool inventory unavailable" detail={tools.error} />
-          ) : tools.loading ? (
-            <Note>Reading the tool inventory…</Note>
-          ) : tools.data.tools.length === 0 ? (
-            <EmptyState
-              icon="Wrench"
-              title="No tools reported"
-              detail={tools.data.note ?? "This project's forge-bin inventory is empty."}
-            />
-          ) : (
-            <>
-              <Note>{tools.data.toolsCount ?? tools.data.tools.length} tools, read from this project's own forge-bin directory.</Note>
-              <div className="fw-settings__table-scroll">
-                <table className="fw-settings__table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Tool</th>
-                      <th scope="col">Has test</th>
-                      <th scope="col">Size</th>
-                      <th scope="col">Modified</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tools.data.tools.map((tool) => (
-                      <tr key={tool.name}>
-                        <td>
-                          <Machine>{tool.name}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{tool.hasTest ? 'yes' : 'no'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{tool.size ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{tool.mtime ?? '—'}</Machine>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </Panel>
-
-        <Panel title="MCP servers" subtitle="The dormant server catalog and per-Boss grant matrix, read straight from GET /api/mcp.">
-          {mcp.error ? (
-            <EmptyState icon="Unplug" title="MCP registry unavailable" detail={mcp.error} />
-          ) : mcp.loading ? (
-            <Note>Reading the MCP registry…</Note>
-          ) : mcp.data.servers.length === 0 ? (
-            <EmptyState icon="Cable" title="No MCP servers registered" detail="This project's mcp-registry.json has no server entries." />
-          ) : (
-            <>
-              <Note>
-                {mcp.data.optedInCount ?? '—'} of {mcp.data.serversCount ?? mcp.data.servers.length} servers opted in;{' '}
-                {mcp.data.installedCount ?? '—'} installed.
-              </Note>
-              <div className="fw-settings__table-scroll">
-                <table className="fw-settings__table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Server</th>
-                      <th scope="col">Tier</th>
-                      <th scope="col">Network</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Opted in</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mcp.data.servers.map((server) => (
-                      <tr key={server.id}>
-                        <td>
-                          <Machine>{server.id}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{server.tier ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{server.network ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{server.status ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{server.optedIn ? 'yes' : 'no'}</Machine>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </Panel>
-
-        <Panel
-          title="Claude install capabilities"
-          subtitle="The active project's own forge-capabilities report, read straight from GET /api/capabilities."
-        >
-          {capabilities.error ? (
-            <EmptyState icon="Unplug" title="Capability report unavailable" detail={capabilities.error} />
-          ) : capabilities.loading ? (
-            <Note>Reading the capability report…</Note>
-          ) : !capabilities.data.available ? (
-            <EmptyState
-              icon="PackageOpen"
-              title="No capability report available"
-              detail={capabilities.data.note ?? capabilities.data.state ?? undefined}
-            />
-          ) : capabilities.data.capabilities.length === 0 ? (
-            <EmptyState icon="PackageOpen" title="No capabilities reported" detail="The capability report returned an empty list." />
-          ) : (
-            <>
-              {capabilities.data.summary ? (
-                <ul className="fw-settings__facts">
-                  <li>
-                    <Icon name="PackageCheck" size="sm" className="fw-settings__facts-mark" />
-                    <span>
-                      <Machine>{capabilities.data.summary.total ?? '—'}</Machine> capabilities tracked —{' '}
-                      <Machine muted>{capabilities.data.summary.active ?? '—'}</Machine> active,{' '}
-                      <Machine muted>{capabilities.data.summary.dormant ?? '—'}</Machine> dormant,{' '}
-                      <Machine muted>{capabilities.data.summary.neverUsed ?? '—'}</Machine> never used.
-                    </span>
-                  </li>
-                </ul>
-              ) : null}
-              <div className="fw-settings__table-scroll">
-                <table className="fw-settings__table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Capability</th>
-                      <th scope="col">Kind</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Times used</th>
-                      <th scope="col">Last run</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {capabilities.data.capabilities.map((entry) => (
-                      <tr key={entry.capability}>
-                        <td>
-                          <Machine>{entry.name ?? entry.capability}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{entry.kind ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{entry.status ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{entry.timesUsed ?? '—'}</Machine>
-                        </td>
-                        <td>
-                          <Machine muted>{entry.lastUsedRun ?? '—'}</Machine>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </Panel>
-      </>
-    );
-  }
-
-  /** a full redesign for a beginner — see the owner's Settings
-   *  screenshot for this work package (words breaking mid-word in narrow
-   *  columns, a raw terminal command under every description, one 24-row
-   *  wall of settings). Every value still comes from GET /api/config and a
-   *  change still POSTs through ForgeSettingControl (untouched — see that
-   *  file's own header), but the section now: gives each setting a
-   *  plain-language name (forge-setting-presentation.ts), groups by topic
-   *  instead of the tool's own core/when-needed/advanced buckets, adds a
-   *  free-text search, and moves the technical key + the raw
-   *  `/forge config set ...` command to small secondary detail — see
-   *  ForgeSettingRow.tsx for the per-setting layout. */
-  function renderForgeSettings(): ReactNode {
-    const config = forgeConfig.data;
-    const showData = !forgeConfig.error && !forgeConfig.loading && config.available;
-    const hasAnySettings = showData && config.settings.length > 0;
-    const refs = forgeFootnoteRefs(config.settings);
-    const footnoted = config.settings.filter((setting) => refs.has(setting.key));
-    const usedFlags = FORGE_FLAG_ORDER.filter((flag) => footnoted.some((setting) => setting.flags.includes(flag)));
-    const matches = hasAnySettings
-      ? config.settings.filter((setting) => forgeSettingMatchesQuery(setting, forgeQuery))
-      : [];
-    const categories = categorizeForgeSettings(matches);
-    const searching = forgeQuery.trim() !== '';
-    const noMatches = hasAnySettings && searching && matches.length === 0;
-
-    return (
-      <>
-        <Panel
-          title="Where the values come from"
-          subtitle="The active project's own forge-config.cjs, read straight from GET /api/config."
-        >
-          {forgeConfig.error ? (
-            <EmptyState icon="Unplug" title="Forge settings unavailable" detail={forgeConfig.error} />
-          ) : forgeConfig.loading ? (
-            <Note>Reading the Forge settings…</Note>
-          ) : !config.available ? (
-            <EmptyState
-              icon="PackageOpen"
-              title="Settings unavailable"
-              detail={config.note ?? config.state ?? undefined}
-            />
-          ) : config.settings.length === 0 ? (
-            <EmptyState icon="PackageOpen" title="No settings reported" detail="forge-config.cjs returned an empty settings list." />
-          ) : (
-            <>
-              <Note>
-                Change a setting right here — flip a switch, pick an option, or type a number. Open
-                “For the command line” on any setting for the exact command, or just say it in chat.
-              </Note>
-              <div className="fw-settings__rows">
-                <Row label="Project settings file" hint="Values saved for this project only.">
-                  <Machine muted>{forgeFileLine(config.projectFile)}</Machine>
-                </Row>
-                <Row label="Global settings file" hint="Values saved for every project on this computer.">
-                  <Machine muted>{forgeFileLine(config.globalFile)}</Machine>
-                </Row>
-              </div>
-              {config.notes.map((note) => (
-                <Note key={note}>{note}</Note>
-              ))}
-              {config.hidden ? <Note>{config.hidden} advanced setting(s) not listed.</Note> : null}
-            </>
-          )}
-        </Panel>
-
-        {hasAnySettings ? (
-          <Panel title="Find a setting" subtitle="Search by name, technical key, or what it does.">
-            <label className="fw-visually-hidden" htmlFor="fw-forge-settings-search">
-              Find a setting by name or word
-            </label>
-            <span className="fw-fsettings-search">
-              <Icon name="Search" size="sm" className="fw-fsettings-search__icon" />
-              <input
-                id="fw-forge-settings-search"
-                className="fw-fsettings-search__input"
-                type="search"
-                placeholder="Find a setting…"
-                autoComplete="off"
-                spellCheck={false}
-                value={forgeQuery}
-                onChange={(event) => setForgeQuery(event.target.value)}
-              />
-              {forgeQuery ? (
-                <IconButton
-                  icon="X"
-                  label="Clear search"
-                  size="sm"
-                  className="fw-fsettings-search__clear"
-                  onClick={() => setForgeQuery('')}
-                />
-              ) : null}
-            </span>
-          </Panel>
-        ) : null}
-
-        {noMatches ? (
-          <Panel>
-            <EmptyState
-              icon="SearchX"
-              title={`No settings match "${forgeQuery.trim()}"`}
-              detail="Try a different word, or clear the search to see every setting again."
-              action={
-                <Button size="sm" icon="RotateCcw" onClick={() => setForgeQuery('')}>
-                  Show every setting again
-                </Button>
-              }
-            />
-          </Panel>
-        ) : null}
-
-        {hasAnySettings
-          ? categories.map((group) => (
-              <Panel key={group.category.id} title={group.category.title} subtitle={group.category.intro}>
-                <div className="fw-fsetting-list">
-                  {group.settings.map((setting) => (
-                    <ForgeSettingRow
-                      key={setting.key}
-                      projectName={state.activeProjectId}
-                      setting={setting}
-                      onChanged={forgeConfig.refresh}
-                      footnoteRef={refs.get(setting.key)}
-                    />
-                  ))}
-                </div>
-              </Panel>
-            ))
-          : null}
-
-        {showData && footnoted.length > 0 ? (
-          <Panel title="Footnotes" subtitle="What these settings do with your data.">
-            <ul className="fw-settings__facts">
-              {footnoted.map((setting) => (
-                <li key={setting.key}>
-                  <Icon name="Info" size="sm" className="fw-settings__facts-mark" />
-                  <span>
-                    [{refs.get(setting.key)}] <Machine>{setting.key}</Machine>
-                    {setting.flags.length > 0 ? (
-                      <>
-                        {' '}
-                        (<Machine muted>{setting.flags.join(' ')}</Machine>)
-                      </>
-                    ) : null}
-                    : {setting.disclosure ?? setting.flags.map((flag) => FORGE_FLAG_WORDS[flag] ?? flag).join('; ')}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {usedFlags.length > 0 ? (
-              <Note>Flags: {usedFlags.map((flag) => `${flag} = ${FORGE_FLAG_WORDS[flag]}`).join(' · ')}</Note>
-            ) : null}
-          </Panel>
-        ) : null}
-
-        {showData && config.locked.length > 0 ? (
-          <Panel title="Locked" subtitle="Always on and never settable — not from chat, not with /forge config.">
-            <ul className="fw-settings__facts">
-              {config.locked.map((entry) => (
-                <li key={entry.id}>
-                  <Icon name="ShieldCheck" size="sm" className="fw-settings__facts-mark" />
-                  <span>
-                    <Machine>{entry.id}</Machine> — {entry.text ?? '—'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        ) : null}
-      </>
-    );
-  }
-
-  function renderAgents(): ReactNode {
-    return (
-      <Panel title="Roster" subtitle="The team this workspace renders.">
-        <ul className="fw-settings__facts">
-          <li>
-            <Icon name="Users" size="sm" className="fw-settings__facts-mark" />
-            <span>
-              <Machine>{agents.length}</Machine> agents across seven groups, each drawn with the
-              group luminance step rather than a colour.
-            </span>
-          </li>
-        </ul>
-      </Panel>
-    );
-  }
-
-  function renderSkills(): ReactNode {
-    return (
-      <Panel
-        title="Skills"
-        subtitle={`${skills.length} skills referenced by the agent roster.`}
-        actions={<ExampleTag />}
-      >
-        <Note>
-          Toggling a skill here changes nothing yet — there is no gateway route that starts or stops
-          a skill from this screen.
-        </Note>
-        <ul className="fw-settings__skill-grid">
-          {skills.map((skill) => (
-            <li key={skill} className="fw-settings__skill">
-              <Machine className="fw-settings__skill-name">{skill}</Machine>
-              <Switch size="sm" {...inertSwitch(`skill.${skill}`, skill, true)} />
-            </li>
-          ))}
-        </ul>
-      </Panel>
-    );
-  }
-
-  function renderPermissions(): ReactNode {
-    const levels: readonly { readonly level: string; readonly reach: string }[] = [
-      { level: 'read-only', reach: 'Reads the tree and reports. Writes nothing, ever.' },
-      { level: 'standard', reach: 'Writes inside its own work package and its own artifacts.' },
-      { level: 'elevated', reach: 'Writes across packages and may run the project toolchain.' },
-      { level: 'lead', reach: 'Dispatches other agents and closes work packages.' },
-    ];
-
-    return (
-      <>
-        <Panel title="Levels" subtitle="What each level would be allowed to do.">
-          <div className="fw-settings__table-scroll">
-            <table className="fw-settings__table">
-              <thead>
-                <tr>
-                  <th scope="col">Level</th>
-                  <th scope="col">Reach</th>
-                </tr>
-              </thead>
-              <tbody>
-                {levels.map((row) => (
-                  <tr key={row.level}>
-                    <td>
-                      <Machine>{row.level}</Machine>
-                    </td>
-                    <td>{row.reach}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-      </>
-    );
-  }
-
-  function renderPrivacy(): ReactNode {
-    return (
-      <>
-        <Panel title="What is stored" subtitle="Three keys in this browser's localStorage. That is the whole list.">
-          <div className="fw-settings__table-scroll">
-            <table className="fw-settings__table">
-              <thead>
-                <tr>
-                  <th scope="col">Key</th>
-                  <th scope="col">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>
-                    <Machine>forge.prototype.appearance</Machine>
-                  </td>
-                  <td>
-                    <Machine muted>dark | light | system</Machine>
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <Machine>forge.prototype.density</Machine>
-                  </td>
-                  <td>
-                    <Machine muted>comfortable | compact</Machine>
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <Machine>forge.workspace.preferences</Machine>
-                  </td>
-                  <td>
-                    <Machine muted>the composer, reading and layout-remembering preferences above</Machine>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
-        <Panel title="What is not stored, and what is sent" subtitle="No exceptions and no small print.">
-          <ul className="fw-settings__facts">
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>
-                Sending a chat message reaches the gateway at <Machine>127.0.0.1:4100</Machine> on
-                this machine only — this workspace never calls a remote server.
-              </span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>No account, no cookie, no session identifier, no analytics, no telemetry.</span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>
-                Every project, agent, run and ledger line you see is read from a real gateway
-                record. A value this workspace cannot read renders as an absence marker — a dash,
-                a named empty state — never an invented number standing in for it.
-              </span>
-            </li>
-            <li>
-              <Icon name="Minus" size="sm" className="fw-settings__facts-mark" />
-              <span>
-                Everything you change outside those three keys — selections, filters, pinned
-                projects, the shell layout toggles above — lives in memory and disappears on reload.
-              </span>
-            </li>
-          </ul>
-        </Panel>
-
-        <Panel title="Reset" subtitle="Puts every stored preference back to its default.">
-          <Button icon="RotateCcw" onClick={resetPreferences}>
-            Reset stored preferences
-          </Button>
-        </Panel>
-      </>
-    );
-  }
-
-  function renderShortcuts(): ReactNode {
-    return (
-      <>
-        <Panel title="Reference" subtitle="The vocabulary the workspace is designed around.">
-          <Note>
-            A reference table. The shell implements the subset it needs; the rest describes the
-            intended design.
-          </Note>
-        </Panel>
-        {SHORTCUT_GROUPS.map((group) => (
-          <Panel key={group.title} title={group.title}>
-            <div className="fw-settings__table-scroll">
-              <table className="fw-settings__table fw-settings__table--shortcuts">
-                <thead>
-                  <tr>
-                    <th scope="col">Shortcut</th>
-                    <th scope="col">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rows.map((row) => (
-                    <tr key={row.action}>
-                      <td>
-                        <KeyHint keys={row.keys} />
-                      </td>
-                      <td>{row.action}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        ))}
-      </>
-    );
-  }
-
-  function renderSection(): ReactNode {
-    switch (section) {
-      case 'appearance':
-        return renderAppearance();
-      case 'layout':
-        return renderLayout();
-      case 'chat':
-        return renderChat();
-      case 'connection':
-        return renderConnection();
-      case 'models':
-        return renderModels();
-      case 'capabilities':
-        return renderCapabilities();
-      case 'forge':
-        return renderForgeSettings();
-      case 'agents':
-        return renderAgents();
-      case 'skills':
-        return renderSkills();
-      case 'permissions':
-        return renderPermissions();
-      case 'privacy':
-        return renderPrivacy();
-      case 'shortcuts':
-        return renderShortcuts();
-      default:
-        return null;
-    }
-  }
-
-  /* ------------------------------------------------------------ render */
+  const context: RowContext = {
+    bridge,
+    checkup,
+    paths,
+    // Uitgebreid has its own Diagnose group: "Controleer of alles werkt" jumps there.
+    onShowDiagnose: isAdvanced ? () => window.requestAnimationFrame(() => scrollToGroup('diagnose')) : undefined,
+    onOwnApiSlot: setOwnApiSlot,
+  };
+  const current = activeGroup !== null ? listEntryOf(activeGroup) : (listed[0]?.id ?? null);
 
   return (
-    <div className="fw-settings">
-      <header className="fw-settings__head">
-        <div className="fw-settings__headings">
-          <Eyebrow>SETTINGS</Eyebrow>
-          <h1 className="fw-settings__title">Workspace settings</h1>
-          <p className="fw-settings__lede">
-            Appearance, density, motion, the shell layout and the preferences below are wired to the
-            workspace and take effect as you touch them. Anything without real behaviour behind it
-            has been removed rather than left to pretend.
-          </p>
-        </div>
-        <Toolbar label="Settings actions" className="fw-settings__head-toolbar">
-          <ExampleTag detail="A visual prototype. Not connected to Forge, Claude Code or any API." />
-          <Spacer />
-          <Button size="sm" icon="RotateCcw" onClick={resetPreferences}>
-            Reset stored preferences
-          </Button>
-        </Toolbar>
+    <div className="fs-set" role="region" aria-labelledby="fs-set-title" data-mode={mode}>
+      <header className="fs-set__head">
+        <h1 id="fs-set-title" className="fs-set__title">
+          {t('rd.settings.title')}
+        </h1>
+        <SegmentedControl
+          className="fs-set__mode"
+          label={t('rd.settings.general.view')}
+          value={mode}
+          onChange={(next) => setUiMode(next === 'uitgebreid' ? 'uitgebreid' : 'eenvoudig')}
+          options={[
+            { value: 'eenvoudig', label: t('rd.settings.simple') },
+            { value: 'uitgebreid', label: t('rd.settings.advanced') },
+          ]}
+        />
       </header>
 
-      <div className="fw-settings__body">
-        <nav className="fw-settings__nav" aria-label="Settings sections">
-          <ul className="fw-settings__nav-list">
-            {SECTIONS.map((entry) => (
-              <li key={entry.id}>
-                <button
-                  type="button"
-                  className={
-                    entry.id === section
-                      ? 'fw-settings__nav-item is-selected'
-                      : 'fw-settings__nav-item'
-                  }
-                  aria-current={entry.id === section ? 'true' : undefined}
-                  onClick={() => setSection(entry.id)}
-                >
-                  <Icon name={entry.icon} size="sm" className="fw-settings__nav-icon" />
-                  <span className="fw-settings__nav-label fw-truncate">{entry.label}</span>
-                  {entry.wired ? (
-                    <>
-                      <span className="fw-settings__nav-mark" aria-hidden="true" />
-                      <span className="fw-visually-hidden">wired to the workspace</span>
-                    </>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="fw-settings__nav-legend">
-            <span className="fw-settings__nav-mark" aria-hidden="true" />
-            <span>Marked sections genuinely change the workspace.</span>
-          </p>
+      <div className="fs-set__layout">
+        <nav className="fs-set__toc" aria-label={t('settingsPage.groupsLabel')}>
+          {listed.map((group, index) => (
+            <Fragment key={group.id}>
+              {group.advanced && !listed[index - 1]?.advanced ? <hr className="fs-set__toc-sep" /> : null}
+              <a
+                href={`#fs-group-${group.id}`}
+                className="fs-set__toc-link"
+                aria-current={current === group.id ? 'true' : undefined}
+                onClick={(event) => {
+                  // HashRouter owns the hash: scroll instead of navigating.
+                  event.preventDefault();
+                  scrollToGroup(group.id);
+                }}
+              >
+                {t(group.label)}
+              </a>
+            </Fragment>
+          ))}
         </nav>
 
-        <div className="fw-settings__content fw-scroll">
-          <div className="fw-settings__section">
-            <header className="fw-settings__section-head">
-              <div className="fw-settings__section-heading">
-                <Eyebrow>{active.wired ? 'WIRED' : 'PRESENTATION ONLY'}</Eyebrow>
-                <h2 className="fw-settings__section-title">{active.label}</h2>
-              </div>
-              <p className="fw-settings__section-sub">{active.summary}</p>
-            </header>
-            <div className="fw-settings__panels">{renderSection()}</div>
+        <OwnApiSlotContext.Provider value={ownApiSlot}>
+          <div className="fs-set__groups">
+            {groups.map((group) => {
+              const body = rows
+                .filter((row) => row.group === group.id)
+                .map((row) => <Fragment key={row.id}>{renderRow(row, context)}</Fragment>);
+              const headingId = `fs-group-${group.id}-h`;
+              // Accounts carries its own block headings ("Je accounts", "Als je limiet op is"); Eigen API has its own group.
+              const ownHeadings = group.id === 'accounts';
+              return (
+                <section key={group.id} id={`fs-group-${group.id}`} className="fs-set__group" data-group={group.id} aria-labelledby={headingId}>
+                  <h2 id={headingId} className={ownHeadings ? 'fw-visually-hidden' : 'fs-set__group-title'}>
+                    {t(group.label)}
+                  </h2>
+                  {OWN_LAYOUT.has(group.id) ? <div className="fs-set__stack">{body}</div> : <div className="fs-set__rows">{body}</div>}
+                </section>
+              );
+            })}
+            {isLegacySettingsEnabled() ? (
+              <Suspense fallback={null}>
+                <LegacySettingsView />
+              </Suspense>
+            ) : null}
           </div>
-        </div>
+        </OwnApiSlotContext.Provider>
       </div>
     </div>
   );

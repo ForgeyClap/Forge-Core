@@ -7,10 +7,11 @@
  */
 
 import { ExampleTag, Machine } from '@/components/primitives';
+import { t } from '@/i18n';
 import { readChatRunArtifactDiff } from '@/prototype/state/gateway-adapter';
 import type { ChatRunArtifactDiff } from '@/prototype/state/gateway-adapter';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { Console, Diff, Excerpt, Fields, KIND_LABEL, LinkRow, Section } from './inspector-shared';
+import { Console, Diff, Excerpt, Fields, KIND_LABEL, LinkRow, Section, Quiet } from './inspector-shared';
 import type { Detail, SelectFn } from './inspector-shared';
 
 /**
@@ -34,37 +35,28 @@ import type { Detail, SelectFn } from './inspector-shared';
 function chatRunDiffSection(diff: ChatRunArtifactDiff, fileName: string) {
   if (diff.state === 'present' && diff.text !== null) {
     return (
-      <Section title="Change" defaultOpen>
-        <Diff text={diff.text} label={`Recorded change to ${fileName}`} />
-        <p className="fw-inspector__hint">
-          The exact strings the CLI reported for this edit — what it replaced, and what it replaced
-          it with. No diff algorithm was run and nothing was read from disk. Long text is capped by
-          the gateway at capture time.
-        </p>
+      <Section title={t('rd.details.section.change')} defaultOpen>
+        <Diff text={diff.text} label={t('rd.details.recordedChange', { name: fileName })} />
+        <p className="fw-inspector__hint">{t('rd.details.changeHint')}</p>
       </Section>
     );
   }
 
   if (diff.state === 'omitted_budget') {
     return (
-      <Section title="Change" defaultOpen>
+      <Section title={t('rd.details.section.change')} defaultOpen>
         <p className="fw-inspector__none">
-          This edit is real, but its before/after text was left out of this response: the diff
-          budget
-          {diff.budgetChars === null ? '' : ` (${diff.budgetChars} characters)`} was already spent
-          by earlier edits. Nothing was truncated — the text is absent, not shortened.
+          {diff.budgetChars === null
+            ? t('rd.details.changeOmitted')
+            : t('rd.details.changeOmittedChars', { chars: diff.budgetChars })}
         </p>
       </Section>
     );
   }
 
   return (
-    <Section title="Change" defaultOpen>
-      <p className="fw-inspector__none">
-        No diff was recorded for this edit — the change is real, but no before/after text was
-        captured for it (runs recorded before diff capture existed have none). This is an absence of
-        evidence, not evidence that nothing changed.
-      </p>
+    <Section title={t('rd.details.section.change')} defaultOpen>
+      <p className="fw-inspector__none">{t('rd.details.changeNone')}</p>
     </Section>
   );
 }
@@ -88,23 +80,21 @@ export function buildArtifactDetail(
       <>
         <Fields
           rows={[
-            { label: 'Kind', value: <Machine>{artifact.kind}</Machine> },
-            { label: 'Produced by', value: artifact.producedBy },
-            { label: 'Created', value: <Machine muted>{artifact.createdAt}</Machine> },
-            { label: 'Size', value: <Machine muted>{artifact.size}</Machine> },
+            { label: t('rd.details.field.kind'), value: artifact.kind },
+            { label: t('rd.details.field.producedBy'), value: artifact.producedBy },
+            { label: t('rd.details.field.created'), value: <Quiet>{artifact.createdAt}</Quiet> },
+            { label: t('rd.details.field.size'), value: <Quiet>{artifact.size}</Quiet> },
           ]}
         />
-        <Section title="Preview" defaultOpen count={<ExampleTag />}>
+        <Section title={t('rd.details.section.preview')} defaultOpen count={<ExampleTag />}>
           {machineFace ? <Console text={artifact.preview} /> : <Excerpt text={artifact.preview} />}
           <p className="fw-inspector__hint">
-            {production
-              ? 'A summary recorded with this artifact by the run that produced it — not a live file read.'
-              : 'Written example content. No file was produced and nothing was rendered.'}
+            {production ? t('rd.details.previewLive') : t('rd.details.previewExample')}
           </p>
         </Section>
         {chatRunDiff !== null ? chatRunDiffSection(chatRunDiff, artifact.name) : null}
         {artifact.taskId ? (
-          <Section title="Produced for">
+          <Section title={t('rd.details.section.producedFor')}>
             <div className="fw-inspector__links">
               <LinkRow
                 icon="ListChecks"

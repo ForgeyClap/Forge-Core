@@ -1,0 +1,112 @@
+{
+  "skill": "ponytail",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "name-matches-folder",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "name: ponytail\n",
+      "why": "frontmatter name must equal the folder name"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load budget: descriptions over 200 chars get truncated in the listing"
+    },
+    {
+      "id": "description-use-when",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "description: \"Use ",
+      "why": "audit finding on never-triggering skills: the description must say WHEN to use it"
+    },
+    {
+      "id": "max-lines",
+      "type": "max_lines",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "n": 500,
+      "why": "project rule: files under 500 lines, detail in references/"
+    },
+    {
+      "id": "learnings-wiring",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "learnings.md",
+      "why": "wp-skill-evals: read own learnings.md before use"
+    },
+    {
+      "id": "learnings-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/ponytail/learnings.md",
+      "why": "the learnings file the skill points to must exist"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "## Provenance",
+      "why": "adopted text keeps its license and source in a provenance block"
+    },
+    {
+      "id": "no-kill-by-name",
+      "type": "not_contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "taskkill /IM",
+      "why": "HARD MUST 4: never kill processes by image name"
+    },
+    {
+      "id": "ref-lean",
+      "type": "file_exists",
+      "path": ".claude/skills/ponytail/references/lean-review.md",
+      "why": "the lean review lens must exist"
+    },
+    {
+      "id": "never-cut",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "## Never cut",
+      "why": "core doctrine: never cut validation, errors, security, accessibility"
+    },
+    {
+      "id": "levels",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "| **ultra** |",
+      "why": "lite/full/ultra levels adopted"
+    },
+    {
+      "id": "tests-not-cut",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "Lean never means untested",
+      "why": "Forge testing rules win over the upstream trivial-change exemption"
+    },
+    {
+      "id": "no-toml",
+      "type": "file_absent",
+      "path": ".claude/skills/ponytail/commands",
+      "why": "command .toml files are excluded"
+    },
+    {
+      "id": "ref-minimal-code-discipline",
+      "type": "file_exists",
+      "path": ".claude/skills/ponytail/references/minimal-code-discipline.md",
+      "why": "the new reference must exist (W2-H1A)"
+    },
+    {
+      "id": "ptr-minimal-code-discipline",
+      "type": "contains",
+      "path": ".claude/skills/ponytail/SKILL.md",
+      "needle": "`references/minimal-code-discipline.md`",
+      "why": "SKILL.md must point at the new reference (W2-H1A)"
+    }
+  ]
+}

@@ -1,26 +1,34 @@
 ---
 name: forge-payments
-description: "Forge: payment/checkout/billing — Stripe, Mollie, Adyen, PayPal: payment, checkout, subscription, refund, webhook signature, idempotency key, PCI, 3D Secure."
+description: "Playbook for payments and billing: Stripe, Mollie, refunds (gebruik bij betalingen)."
+# A10 original description (listing budget): "Playbook for payments and billing: Stripe, Mollie, webhooks, idempotency, refunds, PCI (gebruik bij betalingen)."
+# W2-BUDGET original description (listing budget): "Playbook for payments and billing: Stripe, Mollie, idempotency, refunds (gebruik bij betalingen)."
 ---
 
 # Forge playbook — Payments / checkout / billing
 
-This is a **money + secrets + PCI-scope domain.** The `payment-integration` specialist (`.claude/agents/payment-integration.md`) leads the payment-specific work under Integration Boss or Build Boss. `security-reviewer` / `codex-reviewer` are useful (optional) advisors — payments is exactly the "high-risk" case where Codex-on-request earns its keep. Never claim PCI compliance or a working live charge that wasn't verified in the sandbox.
+## When to use
+- Use for: payments, checkout and billing: tokenized capture, minor-units money, idempotent charges, verified webhooks.
+- Domain framing, team roles and honesty rule: `references/overview.md`.
 
 ## Hard rules (non-negotiable)
-- **No raw PAN, ever.** Card data is captured by the gateway's tokenization / hosted fields / hosted checkout (Stripe Elements or Checkout, Mollie/Adyen hosted, PayPal SDK) — the raw card number, CVV, and full track data never touch your server, logs, DB, memory files, or the repo. This keeps you in **PCI DSS v4.0.1 SAQ A / SAQ A-EP** scope instead of full SAQ D. (SAQ A eligibility now also requires confirming the payment page is not susceptible to script-injection tampering — see Domain gates.)
-- **Integer minor units only.** All money is integer minor units (cents) + an explicit ISO-4217 currency code. **No floating-point money math** anywhere — not in totals, tax, discounts, or display conversion. Round at defined boundaries only.
-- **Idempotency-key per charge (send side).** Every create-charge / create-payment-intent / refund call carries a client-generated `Idempotency-Key` so a network retry, double-tap, or gateway timeout never double-charges. Keys are deterministic per logical operation and stored.
-- **Signature-verified webhooks (receive side).** Every inbound gateway webhook verifies the provider HMAC signature against the **raw request body** (Stripe `Stripe-Signature` / `construct_event`, Mollie fetch-by-id re-check, Adyen HMAC) before acting. Reject on failure. Then dedupe on `event.id` with a UNIQUE constraint, return `2xx` **fast** (before heavy logic — Stripe fails a delivery after ~10s and retries for up to 3 days), and process the effect in a background/idempotent path. Tolerate duplicate and out-of-order events.
-- **Test vs live separation.** Test/sandbox keys are clearly separated from live; **no live charge and no live-key touch without explicit owner approval** (Forge honesty + irreversible-action rule). Real money is an owner-gated action, never autonomous.
-- **Secrets in env + `.env.example` placeholders.** No gateway secret, webhook signing secret, or API key in code, logs, error messages, or git.
-- **Refunds, disputes, and chargebacks handled explicitly.** Each has its own handler and appears in the order history. Nothing assumes a charge is final — re-fetch the charge state from the provider when it matters.
+- **No raw PAN, ever.**
+- **Integer minor units only.**
+- **Idempotency-key per charge (send side).**
+- **Signature-verified webhooks (receive side).**
+- **Test vs live separation.**
+- **Secrets in env + `.env.example` placeholders.**
+- **Refunds, disputes, and chargebacks handled explicitly.**
+
+Full text of every rule: `references/hard-rules.md`.
 
 ## Team (conditional)
-Lead: `integration-boss` (or `build-boss` if payments are one slice of a larger app). Payment work: **`payment-integration`** specialist. Support: `silent-failure-hunter` (dropped webhooks / swallowed gateway errors look like clean success), `typescript-reviewer` / `python-reviewer` (charge + webhook code), `database-reviewer` (idempotency table, transaction-state audit trail). Optional advisors: `security-reviewer`, `codex-reviewer` (recommended for the charge + webhook paths — payments is a Codex-on-risk trigger).
+Lead: `integration-boss` (or `build-boss` if payments are one slice of a larger app). Full roster: `references/team-and-tools.md`.
 
 ## Skills / commands / MCP
 `claude-api` only if an LLM is in the loop; otherwise gateway SDK docs (Context7 / vendor docs) for exact API + version behavior. Reuse the gateway's official verification library — never hand-roll HMAC. If checkout renders a UI, load `forge-website` for the checkout page (real content, responsive, a11y). If billing runs through n8n, defer webhook handling to `forge-n8n`.
+
+**Provider references (read the one that applies before writing gateway code):** Stripe → `references/stripe.md` (API choice, fulfil-in-webhook, restricted keys, subscription event set); Mollie → `references/mollie.md` (triage, fetch-to-verify webhooks, mandates, refund `409` handling). Both add a Forge-authored idempotency section the vendor skills lack.
 
 ## Fan-out & flow
 L2 single gateway + one charge flow; L3 subscriptions + refunds + multi-event webhooks + reconciliation.
@@ -38,7 +46,24 @@ L2 single gateway + one charge flow; L3 subscriptions + refunds + multi-event we
 - Sandbox + test-card scenarios exercised (success, decline, 3DS challenge, duplicate webhook) before anything is called production-ready.
 
 ## Ship-readiness (unique)
-Tokenized/hosted capture proven (no PAN on server); minor-units money verified; idempotency key on every charge with a persisted store; webhook signature verification + `event.id` dedupe proven against a replayed event; auth→capture→refund state transitions have an audit trail (no card data stored); test-mode fully separated from live; **no live charge performed without explicit owner approval**; sandbox test output attached as evidence. Advisory checklist — optionally run `codex-reviewer` on the charge + webhook code (strongly recommended here); not a blocker, but if Codex was not run, say so.
+Evidence checklist before handoff: `references/ship-readiness.md`.
 
-## Untrusted-content note
-Webhook payloads and any hosted-checkout return/redirect params are **untrusted until the signature verifies** — never act on webhook `data.object` amounts/status before signature + dedupe pass; always re-fetch or trust only signed fields. This mirrors the reader-side capability-split in `forge-integration`.
+## Safety, approval and honesty
+- Approval / safety: no live charge and no live-key touch without explicit owner approval.
+- Approval / safety: gateway and webhook signing secrets in env only.
+- Honest failure: never claim PCI compliance or a working live charge that was not verified in the sandbox; if Codex did not run, say so.
+- Untrusted content: see `references/untrusted-content.md`.
+- Shared gates for every playbook (honesty, owner approval, secrets, reviews): `.claude/docs/forge-reference/playbook-template.md`.
+
+## References
+- `references/overview.md` — domain framing paragraph(s) from under the title.
+- `references/hard-rules.md` — full text of every hard rule.
+- `references/team-and-tools.md` — full team roster, skills, commands, MCP and opt-in runtimes.
+- `references/ship-readiness.md` — full ship-readiness evidence checklist.
+- `references/untrusted-content.md` — Untrusted-content note.
+- `references/stripe.md` — Stripe specifics (adapted from stripe/ai, MIT; notice in `LICENSE`).
+- `references/mollie.md` — Mollie specifics (adapted from mollie/ai, MIT; notice in `LICENSE`).
+- `.claude/skills/forge-integration/references/webhooks.md` — the shared Forge webhook rule set (raw-body verify, dedupe with a uniqueness guarantee, persist before `2xx`, retries and dead letter); the payment rules above stay stricter where they differ.
+
+## Provenance
+only a link to the shared webhook section was added here; no external text. That section's own provenance (hookdeck/webhook-skills, pinned SHA 0aa8c48e3e1c65dc1fa893190006248b92805417, MIT) is inside the linked file.

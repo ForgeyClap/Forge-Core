@@ -2,6 +2,7 @@
   "_doc": "FORGE_HARD_RULES.json (P1 / V9-build, override model hardened V9-fix 2026-07-22, version 2 = the ONE rules registry, part A). THE single source of truth for the owner's #1 ask: a small, fixed set of non-negotiables that 'cannot be skipped' on a real run, checkable PURELY from a run's real events.jsonl + the real files actually sitting in that run's directory — never assumed, never inferred from a self-report. Read only via .claude/forge-bin/forge-runcontract.cjs::check() — no other file may re-implement this matching logic (same single-source-of-truth discipline hard-gates.json/forge-actiongate.cjs, required-evidence.json/forge-evidence.cjs and run-checklist.json/forge-orchestrate.cjs already established). Advisory-shaped output (a run-contract violation is reported loudly with ok:false + a named missing rule), but unlike this project's other advisory checks this one is DESIGNED to be wired as a real gate by a caller (V9-integrate) — the CLI's exit code 3 on a missing block-rule is the enforcement surface.\n\nRULE SHAPE: { id, rule, trigger, check:{type, key, domain_aware?}, severity, override, source, cannot_override? }.\n  id       — stable kebab-case identifier, unique across the file.\n  rule     — the human-readable non-negotiable statement.\n  trigger  — when this rule applies to a run: 'always' (every run) | 'web' (domain is 'web' or 'website') |\n             'correctness-critical' (domain is one of forge-fixtures.cjs's CRITICAL_DOMAINS: finance, parser,\n             ocr, data, prediction) | 'domain:<x>' (an exact-match single domain, reserved for future rules —\n             none seeded yet, validated by the schema so a future addition needs no new trigger vocabulary).\n  check    — type:'event-present' (satisfied when ANY event in the run's events.jsonl has an event_type\n             matching (case-insensitive) any string in `key`, which may be a single string or an array) |\n             type:'artifact-present' (satisfied when ANY real file actually sitting in the run's directory —\n             fs.readdirSync of that directory, excluding events.jsonl itself — contains (case-insensitive)\n             any substring in `key` AND is genuinely non-empty, i.e. its real content is not just 0 bytes or\n             whitespace — V9-fix 2026-07-22, DEFECT 1: a 0-byte placeholder file used to satisfy this on\n             filename alone; see forge-runcontract.cjs::listRunArtifacts()/hasArtifact()) | type:'doctor-check'\n             (forward-declared minimal support: satisfied when a 'doctor_run' event is present in the run;\n             `key` is documentation-only for now — no seeded rule below uses this type yet, same\n             forward-declaration convention log-event.cjs already uses for\n             mcp_tool_loaded/repomap_generated/bead_added). An optional `domain_aware:true` on an\n             'event-present' check means: when the caller's real domain is a required-evidence.json domain\n             key, forge-runcontract.cjs ALSO tries forge-verify.cjs::evidenceCheck(events, domain) (reused,\n             never re-implemented) and treats an ok:true result there as satisfying too — the rule passes on\n             EITHER the generic event-present signal OR real domain-specific proof.\n  severity — 'block' (an unmet, non-overridden rule makes the whole contract ok:false — 'NOT DONE') | 'warn'\n             (an unmet rule is reported but never flips ok to false). Every rule seeded below is 'block' — the\n             schema also accepts 'warn' for a future genuinely-optional addition; the generic warn-path itself\n             is proven by forge-runcontract.test.cjs's own hermetic fixture rules (not by any seeded rule\n             here — there is currently no non-negotiable the owner wants advisory-only).\n  override — human-readable description of the ONE convention every OVERRIDABLE rule shares (V9-fix,\n             2026-07-22 — break-swarm DEFECT 2/3, REPLACES the retired 'agent_note substring' convention: any\n             dispatched subagent could freely log an agent_note containing 'override:<rule id>' and clear the\n             very rules meant to police that agent's own honesty — proven by a break-swarm repro). An override\n             is now recognized ONLY from an explicit, structured, attributed, affirmative owner act: a real\n             event shaped EXACTLY like { event_type:'owner_override', rule:'<exact-rule-id>',\n             reason:'<non-empty, non-bare-token reason>', by:'<owner id>' }. `rule` must EXACT-match the rule\n             id (no substring/prefix/negation matching of any kind); `reason` must be non-blank and more than\n             just the bare rule id/token repeated; `by` must match a configured owner id — see this file's own\n             top-level `owners_allowlist` array and/or FORGE_OWNER_PROFILE.json (forge-runcontract.cjs's\n             loadOwnerAllowlist()) — an empty/missing allow-list means NO override can ever be recognized\n             (fails closed, never 'anyone is the owner'). A rule with `cannot_override:true` (see below) never\n             even consults this mechanism, regardless of how a matching event is shaped.\n  source   — which existing capability/config this rule is grounded in (never a bare assertion).\n  cannot_override — optional boolean, default false/absent. true marks a rule as UN-OVERRIDABLE: no\n             owner_override event, however validly structured/attributed, can ever clear it — an unsatisfied\n             cannot_override rule is ALWAYS reported as genuinely missing (severity permitting). Seeded on the\n             honesty-core subset (memory-read, dispatch-logged, evidence-satisfied, verify-checked, \n             report-present) — the rules that police the agents' OWN honesty must never be\n             clearable by an act that is itself only as trustworthy as the honesty this contract exists to\n             verify.\n  phase    — optional: when the obligation is due — 'preview' (before the first work event), 'wp' (per work\n             package, while the run works) or 'complete' (at completion; the default when absent). check({phase}) /\n             `--phase` judges only the rules due by that phase; later ones are reported in phase_deferred, never as\n             missing. A phase-less check judges every rule, exactly as before V2.\n  since    — optional: an ISO date. The rule applies only to runs that STARTED on/after it (run start = the\n             first run_started timestamp, else the first timestamped event, else run.json); an older run is\n             reported in historical_exempt for that rule — judged by the rules of its own time, never retroactively\n             red. A run whose start cannot be dated is exempt from a WARN rule and judged by a BLOCK rule\n             (fail-closed). Every rule added in version 2 carries since:\"2026-10-09\" and severity \"warn\"; promotion to\n             \"block\" happens one rule at a time after real runs satisfy it (migration step M6, owner-confirmed).\n part ii added owner-requests-reconciled with since:\"2026-10-10\" (warn), the day it was wired.\n  applies_if_exists — optional (part ii): a project-relative path; the rule applies only while that\n             path exists under the run's root (check() reports it in not_applicable otherwise — never satisfied, missing\n             or warned). The fail-safe for a capability a project may not have: owner-requests-reconciled applies only\n             where the scribe has captured something (.claude/forge-scribe/ledger.jsonl). A checker older than this field\n             ignores it and judges the rule as written (a warn rule there never turns a run red).\n  V2 check types (each with its own shape; see forge-runcontract.cjs \"V2 CHECK TYPES\" for the exact semantics):\n             closure {open, close, key, close_where?, skip_rule?, distinct_agent?, worker_exclude?} — every open\n             event has a LATER close event with the same key (1:1); key is a field or a priority list of fields,\n             compared on the first field both events carry; skip_rule names an owner_override rule that may close\n             one keyed item; distinct_agent forbids a closer who did work on that item. sequence {before, after} —\n             every before item (type | [any-of types] | {event, where}) occurs before the FIRST after event (no after\n             event yet = vacuously met). reaction {on, require, key?, on_where?, require_where?, count?,\n             forbid_unprompted?} — every trigger is followed by a reaction (count at-least-one) or, per key, exactly\n             one reaction after the first trigger (count exactly-one); forbid_unprompted also flags a reaction with\n             no earlier trigger. file-touched {files, mode?, alt_event?} — each project-relative\n             file's sha256 differs from the one the WRITER recorded on run_started (field file_hashes, stamped by\n             log-event.cjs, never caller-supplied); without that baseline the file is 'unverified' (an alt_event\n             naming the exact project-relative path is reported as a claim, never as proof);\n             with a baseline the hash decides alone. A checker older than V2\n             reports all four as unevaluated (never a crash; a warn rule never turns a run red there).\n  Every event type a rule, a lifecycle row or a checklist step names must be registered in log-event.cjs\n             KNOWN_EVENT_TYPES (+ the forge-verify.cjs mirror); forge-runcontract-v2.test.cjs enforces it. The nine version-2 names are\n             registered; a future name not registered yet is listed there as pending (until then the strict writer refuses it and\n             a rule waiting for it simply stays open or vacuous — honest, never a fake pass).\n\n\nHONEST GAPS (documented, not hidden — same discipline run-checklist.json's own _doc already applies):\n  (1) 'research-done' relies on a BRAND NEW event_type, research_done (declared here, registered by\n      V9-integrate in log-event.cjs KNOWN_EVENT_TYPES) — no historical run before this piece ever logged it,\n      so every pre-existing run will show this rule as genuinely missing until the research step that emits it\n      is actually wired into the intake flow. This is intentional, not a bug: the whole point of this piece is\n      to make a previously-invisible gap (research skipped) visible and blockable going forward.\n  (2) 'correctness-critical-fixtures' can only automatically recognize the EXPLICIT-WAIVER half of\n      forge-fixtures.cjs's model (the registered fixtures_waived event) — there is currently no dedicated\n      event_type for 'real fixtures were genuinely attached to this run' (real fixtures live in the project's\n      shared .claude/forge-fixtures/ vault, not per-run, so a per-run artifact-present check cannot see them\n      either). A run that genuinely used real fixtures but logged neither fixtures_waived nor a matching\n      owner_override event will be honestly flagged missing — favors under-claiming over over-claiming (same\n      bias run-checklist.json's own 'update-memory' gap documents). A real future improvement would add a\n      dedicated 'fixtures_provided' event_type.\n  (3) 'web-responsive-evidence' degrades to the weaker single-event signal (browser_screenshot_captured\n      logged at least once) when the caller does not pass a real domain of 'web'/'website' to check() — the\n      strong 3-breakpoint proof only fires via the domain_aware forge-verify.cjs::evidenceCheck() path.\n  (4) RESOLVED (removed 2026-10-09, audit S9): this gap said 'owner_override' was not yet registered in\n      log-event.cjs — it is (KNOWN_EVENT_TYPES), so an owner can log one through the normal strict write path.\n      forge-runcontract-v2.test.cjs now asserts every event type this registry names is registered, so a stale\n      gap like this one is caught by a test instead of lingering as prose.\n  (5) the `by` provenance check is a CONFIG-MATCH, not a cryptographic signature: this project has no\n      out-of-band agent-identity authentication anywhere (no run here is ever cryptographically signed), so\n      `by` matching the configured owner id is the 'strongest realistic' provenance available in an\n      events.jsonl-based system — a determined, dishonest subagent could still fabricate an owner_override\n      event claiming by:'owner'. What this fix closes is the SPECIFIC proven gap (a free-text agent_note\n      substring, which ANY normal event trivially satisfies with no deliberate impersonation at all); a\n      structured, exact-match, falsely-attributed owner_override event is a categorically more deliberate and\n      more detectable act of dishonesty, and the cannot_override honesty-core subset is immune to this vector\n      entirely regardless.",
   "_doc_doctor_check_overrides": "V9-INTEGRATE (2026-07-22) — doctor_check_overrides is a SEPARATE, SIBLING array to `rules` above (not a rule; forge-runcontract.cjs's loadRules()/check() never reads or validates this key, only `rules`/`owners_allowlist`). It is the owner-recovery path for forge-doctor.cjs's ENFORCED completeness checks (currently: unregistered_event, check_the_checks — see forge-doctor.cjs header doc 'V9-INTEGRATE enforcement' note for exactly which checks are enforced and why). Shape: [{check, reason, by, ts}, ...]. `check` must match a real forge-doctor.cjs checks-key id; `reason` must be a real, non-blank, non-templated explanation (a blank/whitespace-only reason is silently dropped by loadDoctorCheckOverrides() — never treated as a valid override). `by`/`ts` are optional context (defaults to 'owner' when absent). An override NEVER changes what actually happened — it only lets a genuinely-reviewed, explained false-red pass VISIBLY (forge-doctor.cjs's printSummary() still prints the check as ✓ but tags it '[OVERRIDDEN by <by>: <reason>]', never a silent bypass). This is deliberately the SAME file the run-contract per-run overrides above already live in, reused rather than inventing a second override mechanism/file.",
   "_doc_owners_allowlist": "owners_allowlist (V9-fix, 2026-07-22 — break-swarm DEFECT 2) is the primary, in-repo source of truth forge-runcontract.cjs::loadOwnerAllowlist() reads for the set of `by` identifiers a per-run owner_override event is allowed to claim. Every entry must be a real, non-blank string (matched case-insensitively). Seeded with the SAME literal identifier ('owner') this project's own doctor_check_overrides entries already use throughout (their `by` field's documented default) — reusing an existing convention rather than inventing a new one. This array is additive to (never a replacement for) any owner_id FORGE_OWNER_PROFILE.json may itself declare in the future (see that reader's own doc). An EMPTY array here (and no FORGE_OWNER_PROFILE.json owner_id) means NO owner_override event can ever be recognized — the fix's fail-closed default; do not clear this array to 'disable' the honesty gate, that would only make every OVERRIDABLE rule un-overridable, never the reverse.",
+  "_doc_run_shape": "I.6 (2026-10-24, Forge Intelligence — docs/claude-md/intelligence-bar.md): four BLOCK rules turn prose the owner kept repeating into contract checks: plan-card-recorded, anticipation-recorded, parallelism-considered, craft-review-recorded. OPT-IN BY RUN SHAPE (binding design): their trigger is the form 'run-shape:<shape>', and a shape exists only when the run ITSELF declares it in its own run folder — run.json (work_packages, lanes / lanes.expected / lanes_expected / expected_lanes, deliverable_types), plan-card.json or anticipate.json — never inferred from the domain or from an event count, so every run that predates the plan flow (all 64 judgeable runs in this project on 2026-10-24, measured: _scratch/baseline/contract-replay-I6.txt) and every older test fixture is judged exactly as before. Shapes: plan-scale (3+ declared work packages or 2+ expected lanes), plan-card (a plan-card.json is present), visible-deliverable (a declared type in web-ui, copy-and-content, documents-and-spreadsheets, game-and-interactive, voice-and-chat, cli-and-devtools), serial-plan (a plan card with 4+ packages, no file shared inside a wave, 1 expected lane). Check type 'run-evidence' {evidence: plan-card | anticipation | craft-review | parallelism-reason, exception?: {event, decisions, require?}} is keyless; each rule carries `message` {en, nl} (what to do next, both languages) and `next_step` (the one command), which forge-runcontract plan prints and check --log-event / finalize report. EXCEPTION, never a dead end: decision_logged {rule:'<exact id>', decision:'not-applicable' (parallelism-considered also 'serial'), reason:'<12+ characters>', blocking (parallelism-considered only), deliverable_type (craft only, optional)}; an excepted rule is listed in the result's `exceptions` and in the gate_evaluated note, never as a silent pass; a craft exception never replaces a recorded review. The owner_override path applies too (none of these is cannot_override). FLEET SKEW: this rules file and forge-runcontract.cjs ship together (forge-sync); a checker older than I.6 reads 'run-shape:' as an unknown trigger and reports each of these BLOCK rules as unknown-rule:<id> on every run (loud and honest: 'sync forge-runcontract.cjs'), a checker older than 2026-08-03 throws. HONEST GAPS: (1) the shapes are declarations — a run that writes no run.json fields, no plan card and no overlay is not judged by these rules, so the plan flow must write them (owner of commands/forge.md and forge-plan-card.cjs); (2) plan-card.json carries no per-package file list, so 'no file shared' is read from its lanes.collisions (overlaps inside a wave only); (3) forge-anticipate.cjs apply writes only .claude/forge-runs/<id>, so in a project that opted into .forge the anticipation rule needs the exception until that tool learns forge-paths; (4) an agent can record an exception — it is visible and attributed, not prevented. S3b (2026-10-24): a fifth shape, web-ui-deliverable (the declared visible types include web-ui, so the web-ui craft lens is in the review plan), and evidence kind craft-evidence back the rule craft-evidence-recorded (since 2026-10-24, no agent exception, owner_override only; BLOCK since F13 2026-11-07: restaurant-v5 shipped without a record and a WARN let the contract say OK): <run folder>/craft-evidence-web-ui.json judged by forge-craft-evidence.cjs, fail-closed when that tool is absent. A checker older than S3b reports it as unknown-rule (unknown trigger), never as met.",
   "version": 2,
   "doctor_check_overrides": [],
   "owners_allowlist": [
@@ -67,6 +68,46 @@
       "severity": "block",
       "override": "a real event {event_type:'owner_override', rule:'plan-or-prd-present', reason:'<real, non-bare-token reason, e.g. a genuinely trivial 1-line fix with no plan needed>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
       "source": "log-event.cjs KNOWN_EVENT_TYPES (prd_generated/mission_blueprint_created/agent_work_package_created) + forge-prd.cjs"
+    },
+    {
+      "id": "skill-map-recorded",
+      "rule": "A run records its Skill Discovery (/forge step 3a): which skill or method route each work package gets, or that it looked and none fits. No subagent is dispatched without a skill/method route.",
+      "trigger": "always",
+      "phase": "wp",
+      "check": {
+        "type": "event-present",
+        "key": [
+          "skill_map_created",
+          "skill_discovery"
+        ]
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'skill-map-recorded', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} - see this file's top-level owners_allowlist",
+      "next_step": "node .claude/forge-dashboard/log-event.cjs <run_id> skill_map_created '{\"agent\":\"orchestrator\",\"map\":{\"<agent-type>\":[\"<skill>\"]}}'",
+      "message": {
+        "en": "Run Skill Discovery before dispatch: pick the skill (or method route) per work package from the project skills and the category playbook, then log skill_map_created with the mapping per agent type, {\"<agent-type>\": [\"<skill>\"]} (or skill_discovery saying none fits and why).",
+        "nl": "Doe eerst Skill Discovery: kies per werkpakket de skill (of methode) uit de projectskills en het playbook van de categorie, en log skill_map_created met die koppeling per agenttype, {\"<agent-type>\": [\"<skill>\"]} (of skill_discovery met waarom er geen past)."
+      },
+      "source": "Category tests 2026-11-07 (owner rule 1: are skills connected to the agents and the category?): three v1 runs never ran step 3a and restaurant-v2 closed CONTRACT OK without it, because no rule asked for it. Guard: forge-runcontract-skillmap.test.cjs. The next step logs the map per agent type (field map), the shape forge-skillmap.cjs injects at SubagentStart and skill-delivered judges."
+    },
+    {
+      "id": "skill-delivered",
+      "rule": "From L2, every skill the skill maps of the run assign (all maps together: a later map may add skills, never drop them) to an agent type is really opened by that agent: the union of skills_opened on the SubagentStop lines of that type for this run (stamped with the run, or unstamped inside its time window) holds every assigned skill. An agent type that was never dispatched is listed, not failed; a type whose transcript could not be scanned is listed as not measured; a project whose stop hook does not record transcript_scanned yet is reported as not measured. A map that names no real skill per agent fails. An agent type that builds, makes the UI or tests (build-boss, ui-boss, test-boss, integration-boss, seo-boss and the build specialists) and is dispatched with no skill in any map of the run fails (SK4, 2026-11-07: windows-v5 built the whole game with an unassigned build-boss); planning and recording roles and read-only reviewers are not judged this way.",
+      "trigger": "complexity:>=L2",
+      "phase": "complete",
+      "since": "2026-11-07",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "skill-delivery"
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'skill-delivered', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} - see this file's top-level owners_allowlist. There is no agent exception: an agent cannot excuse a skill it did not open.",
+      "next_step": "node .claude/forge-dashboard/log-event.cjs <run_id> skill_map_created '{\"agent\":\"orchestrator\",\"map\":{\"<agent-type>\":[\"<skill>\"]}}'",
+      "message": {
+        "en": "An agent did not get or did not open its skills. If it was dispatched without an assignment, log skill_map_created with map {\"<agent-type>\": [\"<category playbook, e.g. forge-website or forge-game>\", ...]} for it and re-dispatch it; if it did not open an assigned skill, re-dispatch that agent type (forge-subagent-start.cjs puts its assigned skills into its starting context) and let it open each one (the Skill tool, or Read .claude/skills/<skill>/SKILL.md). A later map can add skills, never remove them.",
+        "nl": "Een agent kreeg zijn skills niet of opende ze niet. Is hij zonder toewijzing gedispatcht: log skill_map_created met map {\"<agent-type>\": [\"<categorie-playbook, bv. forge-website of forge-game>\", ...]} voor hem en dispatch hem opnieuw; opende hij een toegewezen skill niet: dispatch dat agenttype opnieuw (forge-subagent-start.cjs zet zijn toegewezen skills in zijn startcontext) en laat hem elke skill openen (de Skill-tool, of Read .claude/skills/<skill>/SKILL.md). Een latere map kan skills toevoegen, nooit weghalen."
+      },
+      "source": "Category tests 2026-11-07 (SK1, owner rule 1): on three measured runs the Lead logged a skill map but the agents never received or opened the skills. forge-skillmap.cjs (P1) injects the assigned skills at SubagentStart and forge-subagent-stop.cjs records skills_opened + transcript_scanned per stop line; this rule joins the two. Trigger complexity >= L2 like the other team rules; since 2026-11-07 so older runs are judged by the rules of their own time. Guard: forge-runcontract-skill-delivered.test.cjs."
     },
     {
       "id": "prd-required-for-heavy-work",
@@ -408,6 +449,184 @@
       "severity": "warn",
       "override": "a real event {event_type:'owner_override', rule:'owner-requests-reconciled', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist",
       "source": "audit-scribe (run forge-2026-10-09-forge-core-overhaul) SCRIBE-F3/F4, wired in WP-7b part ii: the owner kept sending changes over a 7-day project and nothing tracked them. forge-bin/forge-scribe-hook.cjs (UserPromptSubmit) captures every owner prompt word for word; forge-dashboard/log-event.cjs re-runs the scribe gate in-process and refuses owner_requests_reconciled (exit 2) while it is not OK; forge-bin/forge-scribe-stop.cjs blocks a stop once per unplanned item. An existing type (event-present) so older fleet checkers evaluate it without throwing; applies_if_exists keeps it not-applicable where the scribe has captured nothing; WP-13 promotes it to block. Codex R3 SC-05 (2026-10-10): check.binding 'scribe-ledger' makes the current checker (forge-runcontract.cjs scribeReconcileBinding) and forge-finalize.cjs require the LAST final reconciliation to still be current against the ledger; an older checker ignores the field and judges the plain event-present rule."
+    },
+    {
+      "id": "run-shape-declared",
+      "rule": "From L2, a run declares its shape before work starts: an anticipate.json applied for this run (node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id> --text \"<raw request>\", which writes the deliverable types it detects), a plan-card.json written by forge-plan-card.cjs --run, or a run.json that lists deliverable_types. Without one of them every run-shape rule (plan card, anticipation, parallelism, craft review, screenshot evidence) is silently not applicable. Nothing is inferred here: the rule only demands the declaration step /forge already prescribes.",
+      "trigger": "complexity:>=L2",
+      "phase": "preview",
+      "since": "2026-11-07",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "shape-declared"
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'run-shape-declared', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. There is no agent exception: the declaration is one command.",
+      "next_step": "node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id> --text \"<the raw request>\"",
+      "message": {
+        "en": "Declare what this run delivers before the work starts: node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id> --text \"<the raw request>\" (it writes anticipate.json with the deliverable types it detects, e.g. web-ui for a website, game-and-interactive for a game), then the plan card: node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --run <run_id>. The quality rules for that type (craft review, screenshot evidence) then apply.",
+        "nl": "Leg vast wat deze run oplevert voordat het werk begint: node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id> --text \"<het letterlijke verzoek>\" (die schrijft anticipate.json met de herkende soorten oplevering, bv. web-ui voor een website, game-and-interactive voor een spel), daarna de plankaart: node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --run <run_id>. Dan gelden de kwaliteitsregels voor dat soort (craft-review, screenshotbewijs)."
+      },
+      "source": "F14 (2026-11-07, category tests round 6): android-v5/v6, windows-v5/v6 and restaurant-v6 declared no shape, so plan-card-recorded, anticipation-recorded, craft-review-recorded and craft-evidence-recorded never applied to them; restaurant-v6 shipped a website without a screenshot record and the contract said OK. forge-runcontract-shape-declared.test.cjs."
+    },
+    {
+      "id": "plan-card-recorded",
+      "rule": "A run that declares a plan of 3 or more work packages or 2 or more expected lanes (run.json work_packages or lanes, the anticipation overlay, or the plan card itself) records its plan card — plan-card.json in the run folder, written by forge-plan-card.cjs --run — before work starts, or logs a justified exception.",
+      "trigger": "run-shape:plan-scale",
+      "phase": "preview",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "plan-card",
+        "exception": {
+          "event": "decision_logged",
+          "decisions": [
+            "not-applicable"
+          ]
+        }
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'plan-card-recorded', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. The agent path is the recorded exception named in check.exception and in `message`; it is reported in result.exceptions, never as a silent pass.",
+      "next_step": "node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --run <run_id>",
+      "message": {
+        "en": "Write the plan card before work starts: node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --run <run_id> (it saves plan-card.json in the run folder). If a plan card truly does not fit this run, record why: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"plan-card-recorded\",\"decision\":\"not-applicable\",\"reason\":\"<why, in plain words>\"}'",
+        "nl": "Schrijf de plankaart voordat het werk begint: node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --run <run_id> (die bewaart plan-card.json in de runmap). Past een plankaart echt niet bij deze run, leg dan vast waarom: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"plan-card-recorded\",\"decision\":\"not-applicable\",\"reason\":\"<waarom, in gewone woorden>\"}'"
+      },
+      "source": "I.6 (2026-10-24, Forge Intelligence; docs/claude-md/intelligence-bar.md rule 1): forge-anticipate.cjs reported the plan card as default-on but not enforced; WP 3.2 forge-plan-card.cjs --run writes plan-card.json. Opt-in by run shape (forge-runcontract.cjs readRunShape): it applies only to a run that DECLARES its plan size, so no older run and no older fixture is judged by it."
+    },
+    {
+      "id": "anticipation-recorded",
+      "rule": "A run with a plan card proves the anticipation engine ran for it: anticipate.json in the run folder, for this run, with status applied or reverted (forge-anticipate.cjs apply --run), or a logged exception such as anticipation switched off by the owner.",
+      "trigger": "run-shape:plan-card",
+      "phase": "preview",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "anticipation",
+        "exception": {
+          "event": "decision_logged",
+          "decisions": [
+            "not-applicable"
+          ]
+        }
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'anticipation-recorded', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. The agent path is the recorded exception named in check.exception and in `message`; it is reported in result.exceptions, never as a silent pass.",
+      "next_step": "node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id>",
+      "message": {
+        "en": "Run the anticipation engine for this run: node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id> (it writes anticipate.json and says in one line what it turned on and why). If anticipation is switched off (setting anticipate=false) or cannot run here, record that: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"anticipation-recorded\",\"decision\":\"not-applicable\",\"reason\":\"anticipate off: <who switched it off, or why it cannot run>\"}'",
+        "nl": "Laat de anticipatie-engine voor deze run draaien: node .claude/forge-bin/forge-anticipate.cjs apply --run <run_id> (die schrijft anticipate.json en zegt in één regel wat er aan ging en waarom). Staat anticipatie uit (instelling anticipate=false) of kan hij hier niet draaien, leg dat dan vast: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"anticipation-recorded\",\"decision\":\"not-applicable\",\"reason\":\"anticipatie uit: <wie hem uitzette, of waarom hij niet kan draaien>\"}'"
+      },
+      "source": "I.6 (2026-10-24, Forge Intelligence; intelligence-bar.md rule 1 'anticipate, do not make the owner toggle things'): I.2 forge-anticipate.cjs apply writes the per-run overlay anticipate.json; until now nothing proved the engine ran. Opt-in by run shape: it applies only to a run that has a plan card."
+    },
+    {
+      "id": "parallelism-considered",
+      "rule": "A run whose plan card holds 4 or more packages with no file shared inside a wave, but which runs with 1 expected lane, records why it runs serially and names what blocks parallel lanes (a file, a lock, a dependency or the usage limit) — serial is never silent.",
+      "trigger": "run-shape:serial-plan",
+      "phase": "wp",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "parallelism-reason",
+        "exception": {
+          "event": "decision_logged",
+          "decisions": [
+            "serial",
+            "not-applicable"
+          ],
+          "require": [
+            "blocking"
+          ]
+        }
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'parallelism-considered', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. The agent path is the recorded decision named in check.exception and in `message` (it must name the blocker).",
+      "next_step": "node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"parallelism-considered\",\"decision\":\"serial\",\"blocking\":\"<file, lock or dependency>\",\"reason\":\"<why>\"}'",
+      "message": {
+        "en": "This plan has 4 or more packages with separate files but runs in 1 lane. Run the independent packages in parallel lanes (and set run.json lanes.expected to the real number), or name what blocks it: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"parallelism-considered\",\"decision\":\"serial\",\"blocking\":\"<the file, lock or dependency>\",\"reason\":\"<why it cannot run in parallel>\"}'",
+        "nl": "Dit plan heeft 4 of meer pakketten met eigen bestanden maar draait in 1 lane. Laat de onafhankelijke pakketten in parallelle lanes draaien (en zet run.json lanes.expected op het echte aantal), of noem wat het tegenhoudt: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"parallelism-considered\",\"decision\":\"serial\",\"blocking\":\"<het bestand, de lock of de afhankelijkheid>\",\"reason\":\"<waarom het niet parallel kan>\"}'"
+      },
+      "source": "I.6 (2026-10-24, Forge Intelligence): owner evidence docs/audit/intelligence-evidence.md section 1 row 1 (parallel lanes asked for 6 times on 2026-10-10) and the global HARD MUST 'serial is a defect that must be explained: name the exact blocking file or lock'. Data source: plan-card.json lanes (forge-plan-card.cjs planLanes: one writer per file, collisions named). Opt-in by run shape: it applies only to a run with such a plan card."
+    },
+    {
+      "id": "craft-review-recorded",
+      "rule": "A run that declares a visible, user-facing deliverable type (web-ui, copy-and-content, documents-and-spreadsheets, game-and-interactive, voice-and-chat, cli-and-devtools) records a craft review per declared type before it is called done — craft-review-<type>.json written by forge-craft.cjs record, untampered, valid against the lens and without an unresolved block DEFECT — or a logged exception for that type.",
+      "trigger": "run-shape:visible-deliverable",
+      "phase": "complete",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "craft-review",
+        "exception": {
+          "event": "decision_logged",
+          "decisions": [
+            "not-applicable"
+          ]
+        }
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'craft-review-recorded', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. The agent path is the recorded exception named in check.exception and in `message` (per deliverable_type); it never replaces a review that was recorded.",
+      "next_step": "node .claude/forge-bin/forge-craft.cjs record --run <run_id> --type <type> --file <filled review.json>",
+      "message": {
+        "en": "Review the deliverable as each stakeholder and record it: node .claude/forge-bin/forge-craft.cjs review-template --type <type> --json > review.json, fill every mark with its evidence (a block check may not stay NOT_INSPECTED; a DEFECT needs a fix or a stated weakness), then node .claude/forge-bin/forge-craft.cjs record --run <run_id> --type <type> --file review.json. A block DEFECT must be fixed (fix + evidence) and the review recorded again before the run is done. If the type was declared by mistake, record why: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"craft-review-recorded\",\"decision\":\"not-applicable\",\"deliverable_type\":\"<type>\",\"reason\":\"<why>\"}'",
+        "nl": "Bekijk het resultaat door de ogen van elke belanghebbende en leg dat vast: node .claude/forge-bin/forge-craft.cjs review-template --type <type> --json > review.json, vul elk oordeel in met bewijs (een blokkerende check mag niet NOT_INSPECTED blijven; een DEFECT heeft een fix of een benoemde zwakte nodig), en daarna node .claude/forge-bin/forge-craft.cjs record --run <run_id> --type <type> --file review.json. Een blokkerende DEFECT moet gefixt zijn (fix + bewijs) en de review opnieuw vastgelegd voordat de run klaar is. Is het type per ongeluk opgegeven, leg dan vast waarom: node .claude/forge-dashboard/log-event.cjs <run_id> decision_logged '{\"agent\":\"orchestrator\",\"rule\":\"craft-review-recorded\",\"decision\":\"not-applicable\",\"deliverable_type\":\"<type>\",\"reason\":\"<waarom>\"}'"
+      },
+      "source": "I.6 (2026-10-24, Forge Intelligence; intelligence-bar.md rule 2 'craft lens before done', owner quote R-0055 'sloppy design, output en werk'): I.3 lenses in .claude/config/quality/lenses/ and forge-craft.cjs record/check (the tool validates and stores, it never marks). Opt-in by run shape: it applies only to a run that DECLARES a visible deliverable type (run.json deliverable_types or the anticipation overlay's type), never inferred from the domain."
+    },
+    {
+      "id": "end-self-review",
+      "rule": "Before an L2+ run is called done, the lead answers the fixed end-of-work self-review questions (.claude/config/quality/self-review-questions.json, q1..q12) in writing: every question has a non-empty answer and evidence or a named open item, recorded for THIS run as self-review.json by forge-endreview.cjs record (untampered: record_sha256 still matches), and final-report.md carries the '## Self-review' section.",
+      "trigger": "complexity:>=L2",
+      "phase": "complete",
+      "since": "2026-10-24",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "self-review"
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'end-self-review', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. There is no agent exception: an agent cannot excuse its own self-review.",
+      "next_step": "node .claude/forge-bin/forge-endreview.cjs template --run <run_id>, answer it in final-report.md, then node .claude/forge-bin/forge-endreview.cjs record --run <run_id> --answers <answers.json>",
+      "message": {
+        "en": "Answer the end-of-work self-review before calling this run done: node .claude/forge-bin/forge-endreview.cjs template --run <run_id> prints the '## Self-review' section for final-report.md (template --run <run_id> --json prints the answers.json skeleton). Give every question an answer plus evidence (command + output, file, screenshot) or an open item, fix the weak answers that are cheap to fix, then record it: node .claude/forge-bin/forge-endreview.cjs record --run <run_id> --answers <answers.json>. Check it with: node .claude/forge-bin/forge-endreview.cjs check --run <run_id>.",
+        "nl": "Beantwoord de zelfreview aan het eind voordat deze run klaar heet: node .claude/forge-bin/forge-endreview.cjs template --run <run_id> print de sectie '## Self-review' voor final-report.md (template --run <run_id> --json print het answers.json-skelet). Geef elke vraag een antwoord plus bewijs (commando + uitvoer, bestand, screenshot) of een open punt, fix de zwakke antwoorden die goedkoop te fixen zijn, en leg het vast: node .claude/forge-bin/forge-endreview.cjs record --run <run_id> --answers <answers.json>. Controleer met: node .claude/forge-bin/forge-endreview.cjs check --run <run_id>."
+      },
+      "source": "E.1 (2026-10-24, owner HARD MUST 'DIT MOET AAN HET EINDE GEBEUREN, DIT IS EEN MUST': CLAUDE.md 'End-of-work self-review', docs/claude-md/end-self-review.md). Mechanism mirrors the I.6 run-evidence rules: forge-endreview.cjs record validates and stores (it never answers), checkRecorded re-reads it for the contract (fail-closed when the tool is absent). Trigger complexity >= L2 (an L1 fix keeps the prose rule only); severity warn with since 2026-10-24, so every older run is judged by the rules of its own time and an undatable run is exempt; promotion to block follows the M6 path (forge-rule-promotion) once real runs satisfy it. Completion sequence step 2 names the template command."
+    },
+    {
+      "id": "craft-evidence-recorded",
+      "rule": "A run that declares a web-ui deliverable (so the web-ui craft lens is in its review plan) records the screenshot evidence before it is called done: <run folder>/craft-evidence-web-ui.json lists, per view, a screenshot per viewport and per state the web-ui lens asks for (guidance.requires_evidence), each with one line on what was checked or an n/a with a reason, and every screenshot is a real image file inside the project — judged by forge-craft-evidence.cjs.",
+      "trigger": "run-shape:web-ui-deliverable",
+      "phase": "complete",
+      "since": "2026-10-24",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "craft-evidence"
+      },
+      "severity": "block",
+      "override": "a real event {event_type:'owner_override', rule:'craft-evidence-recorded', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. There is no agent exception: an agent cannot excuse the screenshots it did not take (a web-ui type declared by mistake is excused on craft-review-recorded, not here).",
+      "next_step": "node .claude/forge-bin/forge-craft-evidence.cjs check --run <run_id> --type web-ui",
+      "message": {
+        "en": "Show the rendered UI was really looked at: serve it (localhost or preview, never file://), take a screenshot per viewport and per state the web-ui lens asks for, start the record with node .claude/forge-bin/forge-craft-evidence.cjs template --type web-ui --views \"home,<page>\" > <run folder>/craft-evidence-web-ui.json, fill every entry (screenshots + what you checked, or n/a with a reason), then check it: node .claude/forge-bin/forge-craft-evidence.cjs check --run <run_id> --type web-ui (exit 0 = complete).",
+        "nl": "Laat zien dat de gerenderde UI echt bekeken is: serveer hem (localhost of preview, nooit file://), maak een screenshot per viewport en per toestand die de web-ui-lens vraagt, begin het record met node .claude/forge-bin/forge-craft-evidence.cjs template --type web-ui --views \"home,<page>\" > <run folder>/craft-evidence-web-ui.json, vul elke regel in (screenshots + wat je hebt gecontroleerd, of n/a met een reden) en controleer het: node .claude/forge-bin/forge-craft-evidence.cjs check --run <run_id> --type web-ui (exit 0 = compleet)."
+      },
+      "source": "S3b (2026-10-24, owner complaint R-0055 'sloppy design, output en werk' and the global frontend rule 'screenshot-loop with 2+ comparison rounds'): forge-craft-evidence.cjs (WP-S3) validates the record and the image files, it never marks a design as good. Opt-in by run shape: web-ui-deliverable is the visible-deliverable shape narrowed to a declared web-ui type (same run.json deliverable_types / anticipate.json type declaration, never inferred from the domain). Fail-closed: without forge-craft-evidence.cjs the rule is not satisfied. Severity warn with since 2026-10-24 (older and undatable runs are exempt); promotion to block follows the M6 path (forge-rule-promotion) once real runs satisfy it. Mirrors end-self-review: no agent exception, only owner_override. Completion step 2 names the template and check commands."
+    },
+    {
+      "id": "dispatch-harness-match",
+      "rule": "From L2, every dispatch the run logs (subagent_started / agent_started) is backed by a record the HARNESS wrote, not the Lead, and the harness agent type equals the claimed agent: an Agent-tool dispatch (dispatch_id toolu_...) by its PreToolUse(Agent) record and subagent_type, an agent-id dispatch (a<hex>) by its SubagentStart/SubagentStop record, a Workflow lane (wf_<id>:<lane>) by its journal entry plus the harness agent type (agent meta or SubagentStart/Stop). At least check.min_match_pct percent of the dispatches must match, judged by forge-harness-match.cjs. A dispatch no Claude Code hook can see (runtime codex, cli, gateway and the like) is reported unverifiable and left out of the percentage; a missing hook, a missing run pointer or a missing journal lowers it. Conditional (A13, fleet rollout): when the project's .claude/settings.json and .claude/settings.local.json do not register forge-subagent-start.cjs under SubagentStart AND the harness recorded nothing start-side for the run (no SubagentStart or Agent-tool record), the rule is a visible warning 'harness hooks not installed' and the dispatches are not counted as unmatched.",
+      "trigger": "complexity:>=L2",
+      "phase": "complete",
+      "since": "2026-11-01",
+      "check": {
+        "type": "run-evidence",
+        "evidence": "dispatch-harness",
+        "min_match_pct": 95
+      },
+      "severity": "warn",
+      "override": "a real event {event_type:'owner_override', rule:'dispatch-harness-match', reason:'<real, non-bare-token reason>', by:'<configured owner id>'} — see this file's top-level owners_allowlist. There is no agent exception: an agent cannot excuse a dispatch the harness never saw.",
+      "next_step": "node .claude/forge-bin/forge-harness-match.cjs --run <run_id>",
+      "message": {
+        "en": "Some dispatches of this run are not backed by a harness record. See which ones: node .claude/forge-bin/forge-harness-match.cjs --run <run_id> (add --journal <path to journal.jsonl> for a Workflow lane logged as workflow:<name>:<lane>). Make the next dispatches provable: install the SubagentStart and PreToolUse/PostToolUse(Agent) hooks (forge-subagent-start.cjs, forge-agent-tool-hook.cjs; forge-sync merges them into .claude/settings.json), set the run pointer right after run_started (node .claude/forge-bin/forge-active-run.cjs set <run_id> --session <session id>), and log dispatch_id as the Agent tool_use_id, the returned agent id, or <wf run id>:<lane>.",
+        "nl": "Een deel van de dispatches van deze run heeft geen harness-record. Bekijk welke: node .claude/forge-bin/forge-harness-match.cjs --run <run_id> (voeg --journal <pad naar journal.jsonl> toe voor een Workflow-lane die als workflow:<naam>:<lane> is gelogd). Maak volgende dispatches bewijsbaar: installeer de SubagentStart- en PreToolUse/PostToolUse(Agent)-hooks (forge-subagent-start.cjs, forge-agent-tool-hook.cjs; forge-sync voegt ze samen in .claude/settings.json), zet de run-pointer direct na run_started (node .claude/forge-bin/forge-active-run.cjs set <run_id> --session <sessie-id>) en log als dispatch_id de tool_use_id van de Agent-call, het teruggegeven agent-id of <wf-run-id>:<lane>."
+      },
+      "promotion": "Severity is the owner's switch and stays warn until real data supports blocking: promote to block only when forge-rule-promotion reports READY for this rule, i.e. the last 3 applicable real runs each met min_match_pct (>= 95% of their dispatches matched). Lower min_match_pct only with an owner decision. In the fleet (WP A13) the rule may block only in projects where the SubagentStart hook is installed; elsewhere it stays a warning.",
+      "source": "A2 (2026-11-01, run forge-2026-11-01-forge-systeem; plan FORGE_SYSTEEM_PLAN section 5 row A2 in the development tree, findings F3/F4; spike A2a _scratch/spike-harness/A2a-findings.md: on Claude Code 2.1.316 SubagentStop carries agent_id + agent_type for Workflow lanes with an agentType and for Agent-tool dispatches, no tool_use_id and no run id). Hooks forge-subagent-start.cjs, forge-subagent-stop.cjs and forge-agent-tool-hook.cjs write token-free lines to <runs>/_hooks/; the run comes from the pointer forge-active-run.cjs writes. Fail-closed: without forge-harness-match.cjs the rule is not satisfied. Severity warn with since 2026-11-01 (older and undatable runs are exempt). log-event.cjs stamps a dispatch event whose run the harness recorded but which no harness record backs as dispatch_unverified with a reason, and still writes it (a labelled exception, never a refusal)."
     }
   ],
   "orchestration_hard_rules": [
@@ -441,7 +660,7 @@
     },
     {
       "id": "goat-model-routing",
-      "rule": "Every coding task / work package follows the GOAT router (.claude/FORGE_MODEL_ROUTING.json). The Lead (main session) is the router on sonnet / effort medium. Head Chef triages first ({route: quick|build|deep, risk, checks}); the owning Boss is dispatched with the route MODEL via the Agent-tool model param (routes: quick sonnet/low · build opus/medium · deep opus/xhigh). The Agent tool has no effort param: a plain dispatch runs at the Boss FRONTMATTER effort; when the route effort differs, use a Workflow agent({agentType, model, effort}) or a Boss whose default route matches, and log the ACTUAL effort (never the route effort that could not be set); Verify Boss checks EVERY package (sonnet/medium, PASS/FAIL with evidence, never edits). On FAIL: exactly ONE retry one step up — more effort first for a process failure, a bigger model (build -> deep -> escalate fable/high) for a capability failure; a second FAIL stops and is reported honestly (this one-retry cap overrides every open-ended repair loop: VERIFY-LOOP rework, QA fix-loop, Boss reassign-until-pass). Fable is never chosen up front; haiku is no default route. After any escalation, one line '<YYYY-MM-DD> <task pattern> -> <route that worked>' goes into .claude/agent-memory/head-chef/MEMORY.md. Never set CLAUDE_CODE_SUBAGENT_MODEL or CLAUDE_CODE_EFFORT_LEVEL.",
+      "rule": "Every coding task / work package follows the GOAT router (.claude/FORGE_MODEL_ROUTING.json). The Lead (main session) is the router on sonnet / effort medium. Head Chef triages first ({route: quick|build|deep, risk, checks}); the owning Boss is dispatched with the route MODEL via the Agent-tool model param (routes: quick sonnet/low · build opus/medium · deep opus/xhigh). Since Claude Code 2.1.292 the Agent tool also takes an effort param that overrides the Boss frontmatter effort the same way: pass the route effort when it differs from the frontmatter (or use a Workflow agent({agentType, model, effort})); a dispatch that omits it runs at the Boss FRONTMATTER effort. Log the ACTUAL effort (never a route effort that was not passed); Verify Boss checks EVERY package (sonnet/medium, PASS/FAIL with evidence, never edits). On FAIL: exactly ONE retry one step up — more effort first for a process failure, a bigger model (build -> deep -> escalate fable/high) for a capability failure; a second FAIL stops and is reported honestly (this one-retry cap overrides every open-ended repair loop: VERIFY-LOOP rework, QA fix-loop, Boss reassign-until-pass). Fable is never chosen up front; haiku is no default route. After any escalation, one line '<YYYY-MM-DD> <task pattern> -> <route that worked>' goes into .claude/agent-memory/head-chef/MEMORY.md. Never set CLAUDE_CODE_SUBAGENT_MODEL or CLAUDE_CODE_EFFORT_LEVEL.",
       "trigger": "always",
       "enforcement": "hook",
       "severity": "block",
@@ -501,13 +720,16 @@
       "trigger": "a subagent is dispatched or goes silent",
       "event": "subagent_started",
       "required_reaction": "subagent_completed or subagent_failed for the same dispatch; a silent agent found by forge-heartbeat is logged as stall_detected and then re-dispatched or failed",
-      "missing_reaction_behaviour": "contract warning subagent-closure",
+      "missing_reaction_behaviour": "contract warning subagent-closure; a dispatch no harness record backs is a contract warning dispatch-harness-match (A2, from L2) and, once the harness recorded the run, a dispatch_unverified stamp with a reason on the event",
       "enforced_by": [
         "contract (warn): subagent-closure",
+        "contract (warn): dispatch-harness-match (forge-bin/forge-harness-match.cjs)",
+        "hook (records, never blocks): forge-bin/forge-subagent-start.cjs, forge-bin/forge-subagent-stop.cjs, forge-bin/forge-agent-tool-hook.cjs",
         "monitor (on request): forge-bin/forge-heartbeat.cjs"
       ],
       "rule_ids": [
-        "subagent-closure"
+        "subagent-closure",
+        "dispatch-harness-match"
       ],
       "planned": "WP-6: heartbeat at phase boundaries; stall_detected registered (WP-4b)",
       "audit_ref": "T3"
@@ -677,6 +899,25 @@
       "rule_ids": [],
       "planned": "unassigned: no overhaul-blueprint WP owns running or requiring the config diff in the preview phase",
       "audit_ref": "T13"
+    },
+    {
+      "id": "intelligence-shape",
+      "trigger": "a run declares its plan shape (run.json deliverable_types, lanes or work_packages; a plan card; an anticipation overlay)",
+      "event": "decision_logged",
+      "required_reaction": "plan card (forge-plan-card.cjs --run) before work, then the anticipation overlay (forge-anticipate.cjs apply --run); a serial plan of 4+ disjoint packages names its blocker; every declared visible deliverable type gets a recorded craft review (forge-craft.cjs record) without an unresolved block DEFECT; any of them may instead be a justified exception: decision_logged {rule, decision:'not-applicable', reason}",
+      "missing_reaction_behaviour": "contract block (opt-in by run shape): plan-card-recorded, anticipation-recorded, parallelism-considered, craft-review-recorded — forge-runcontract plan names the next command, forge-finalize refuses while one is red",
+      "enforced_by": [
+        "contract (block, only for runs that declare the shape): plan-card-recorded, anticipation-recorded, parallelism-considered, craft-review-recorded",
+        "tool: forge-bin/forge-craft.cjs record / check (validates a filled review, never marks)"
+      ],
+      "rule_ids": [
+        "plan-card-recorded",
+        "anticipation-recorded",
+        "parallelism-considered",
+        "craft-review-recorded"
+      ],
+      "planned": "the plan flow (commands/forge.md + forge-plan-card.cjs) writes run.json deliverable_types and lanes so every planned run declares its shape; forge-anticipate.cjs learns the .forge layout (its apply writes only .claude/forge-runs today)",
+      "audit_ref": "I.6"
     }
   ],
   "_doc_completion_proof": "Codex adversarial review fixes F01/F02/F03 (2026-10-10, run forge-2026-10-09-forge-core-overhaul). What counts as PROOF of completion: a finalize receipt whose verdict is FINALIZED, or HISTORICAL with reverified:true (forge-finalize re-judged the contract under the receipt's own pinned rules — <run>/ruleset-pinned.json, content-addressed by the receipt's ruleset_sha256 — and commit). A HISTORICAL record with reverified:false (a legacy-generation receipt, a receipt judged under rules that were never pinned, or an 'unverified-archival' record whose rules or raw gate outputs cannot be reproduced) is valid HISTORY but 'archival, not a completion proof': forge-runcontract plan and forge-doctor accept it ONLY when it is allowlist-authenticated (legacy_receipts_allowlist) AND the run started before enforcement_cutoff. Codex R2/N03b: an 'unverified-archival' record, or any other non-re-verified record that the allowlist does not authenticate, is never a completion proof whatever the run date (for a pre-cutoff run it is archival history: neither done nor red); forge-finalize check() reports this cutoff-aware answer as completion_proof, the one value plan, doctor and the Command Center read. Legacy eligibility is authenticated by the per-project allowlist named in legacy_receipts_allowlist (run id + sha256 of the receipt bytes; never shipped by forge-sync) — any other receipt lacking the binding fields is invalid (STALE). Gate evidence is green only when every gate's raw output is readable and hash-verified; the canonical evidence digest binds run id, command, output reference and hash (older forms are accepted only for allowlisted receipts).",
@@ -700,12 +941,15 @@
     {
       "step": 2,
       "id": "final-report",
-      "action": "write the honest final report",
-      "produces": "final-report.md in the run folder",
+      "action": "write the honest final report, with its Self-review section (answer every question, then record the answers)",
+      "command": "node .claude/forge-bin/forge-endreview.cjs template --run <run_id>",
+      "produces": "final-report.md in the run folder (with a ## Self-review section) and self-review.json written by node .claude/forge-bin/forge-endreview.cjs record --run <run_id> --answers <answers.json>; for a run that declares a web-ui deliverable also craft-evidence-web-ui.json (rule craft-evidence-recorded): node .claude/forge-bin/forge-craft-evidence.cjs template --type web-ui --views \"home,<page>\" > <run folder>/craft-evidence-web-ui.json, fill it, then node .claude/forge-bin/forge-craft-evidence.cjs check --run <run_id> --type web-ui",
       "rule_ids": [
-        "report-present"
+        "report-present",
+        "end-self-review",
+        "craft-evidence-recorded"
       ],
-      "why": "report-present needs a real, non-empty file"
+      "why": "report-present needs a real, non-empty file; end-self-review (E.1, owner HARD MUST 2026-10-24) needs the written self-review"
     },
     {
       "step": 3,

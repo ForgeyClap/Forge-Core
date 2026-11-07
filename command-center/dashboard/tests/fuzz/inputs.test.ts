@@ -46,7 +46,7 @@ import {
   isInsideRoot,
   isPathGuardError,
   sanitizeSlug,
-} from '@/bridge/security/paths';
+} from '@archive/bridge/security/paths';
 import {
   MACHINES,
   MACHINE_IDS,
@@ -60,8 +60,8 @@ import {
   isTerminalRunState,
 } from '@/shared/state-machines';
 import type { MachineId, RunAttempt, RunState, RunStateEvidence } from '@/shared/state-machines';
-import { ForgeStore } from '@/bridge/storage/store';
-import { EVENT_SCHEMA_VERSION } from '@/bridge/storage/schema';
+import { ForgeStore } from '@archive/bridge/storage/store';
+import { EVENT_SCHEMA_VERSION } from '@archive/bridge/storage/schema';
 import type { ForgeEvent } from '@/shared/protocol';
 import { renderMarkdown } from '@/views/chat/markdown';
 
@@ -768,7 +768,7 @@ const TOTAL_INPUTS =
 /*  The assertions                                                             */
 /* ========================================================================== */
 
-describe('fuzzing sanitizeSlug (src/bridge/security/paths.ts)', () => {
+describe('fuzzing sanitizeSlug (archive/bridge/security/paths.ts)', () => {
   it('never throws anything but PathGuardError, and an accepted slug is one safe segment', () => {
     expect(report('sanitizeSlug', SLUG_RESULT)).toBe('');
     expect(SLUG_RESULT.counterexample).toBeNull();
@@ -787,7 +787,7 @@ describe('fuzzing sanitizeSlug (src/bridge/security/paths.ts)', () => {
   });
 });
 
-describe('fuzzing assertInsideRoot (src/bridge/security/paths.ts)', () => {
+describe('fuzzing assertInsideRoot (archive/bridge/security/paths.ts)', () => {
   it('an accepted path is always inside the trusted root, and only PathGuardError escapes', () => {
     expect(report('assertInsideRoot', CONTAINMENT_RESULT)).toBe('');
     expect(CONTAINMENT_RESULT.counterexample).toBeNull();
@@ -860,7 +860,7 @@ describe('fuzzing every state machine (src/shared/state-machines.ts)', () => {
   });
 });
 
-describe('fuzzing event normalization and sequencing (src/bridge/storage/store.ts)', () => {
+describe('fuzzing event normalization and sequencing (archive/bridge/storage/store.ts)', () => {
   it('a duplicate eventId never double-applies and the stored sequence stays monotonic', () => {
     expect(report('event ops', EVENT_OPS_RESULT)).toBe('');
     expect(EVENT_OPS_RESULT.counterexample).toBeNull();

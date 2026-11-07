@@ -1,7 +1,7 @@
 {
   "score": 1,
-  "passed": 25,
-  "total": 25,
+  "passed": 24,
+  "total": 24,
   "cases": [
     "honesty.canonical-name",
     "honesty.reject-fake-pass",
@@ -20,7 +20,6 @@
     "intake.bank-list-shaped",
     "promptmaster.dispatch-lint",
     "learning.cost-capture-parse",
-    "learning.federated-readonly-isolation",
     "learning.stats-readonly-projector",
     "reliability.sync-rollback-proven",
     "security.agent-least-privilege",

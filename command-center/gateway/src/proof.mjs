@@ -550,8 +550,9 @@ export async function buildProof(projectPath, runId) {
     if (!JSON.stringify(doc).includes(runId)) continue; // only artifacts that actually reference THIS run
     matchedStoreArtifacts.push({
       id: entry.id, store: entry.store || null, ts: entry.ts || null,
-      title: doc.title || null, type: doc.type || doc.kind || null, path: doc.path || null,
-      summary: doc.summary || null, source: 'forge-artifacts-index',
+      // WP A8: title/summary are agent-written free text from the store, served as evidence — redacted.
+      title: redactDeep(doc.title || null), type: doc.type || doc.kind || null, path: doc.path || null,
+      summary: redactDeep(doc.summary || null), source: 'forge-artifacts-index',
       size_bytes: statIndexedArtifactSize(projectPath, doc.path),
     });
   }
@@ -581,16 +582,19 @@ export async function buildProof(projectPath, runId) {
   if (eventsResult.ok) {
     for (const ev of eventsResult.events) {
       if (ev.event_type !== 'check_passed' && ev.event_type !== 'check_failed') continue;
+      // WP A8 (owner-queue item E): a check's `output`/`evidence` is where a gate's raw stdout+stderr
+      // lands, so the free-text fields go through the redactor HERE, at the evidence boundary itself —
+      // not only because readEvents() happens to redact the whole event upstream today.
       const row = {
         source: 'event', event_type: ev.event_type, agent: ev.agent || null, role: ev.role || null,
         check: typeof ev.check === 'string' ? ev.check : null,
-        summary: typeof ev.summary === 'string' ? ev.summary : null,
-        command: ev.command || null, exit_code: ev.exit_code != null ? ev.exit_code : null,
+        summary: typeof ev.summary === 'string' ? redactDeep(ev.summary) : null,
+        command: redactDeep(ev.command || null), exit_code: ev.exit_code != null ? ev.exit_code : null,
         // cc-fix-adapter T6b/gate-output fix: `output` was already on the raw event (missions.mjs's
         // own verdict builder already reads it) but this route never forwarded it, so a gate's real
         // console output was always dropped in favour of an empty string downstream. Kept alongside
         // `evidence`, not instead of it — the two are genuinely different fields on a real event.
-        evidence: ev.evidence || null, output: ev.output || null, timestamp: ev.timestamp || null,
+        evidence: redactDeep(ev.evidence || null), output: redactDeep(ev.output || null), timestamp: ev.timestamp || null,
       };
       const key = row.check || row.command;
       if (key) checksByKey.set(key, row);
@@ -744,8 +748,8 @@ export function buildProofAll(projectPath, maxRuns = DEFAULT_MAX_RUNS_FOR_ALL) {
     const matchedRunId = candidateRunIds.find((id) => docJson.includes(id)) ?? null;
     matchedStoreArtifacts.push({
       id: entry.id, store: entry.store || null, ts: entry.ts || null,
-      title: doc.title || null, type: doc.type || doc.kind || null, path: doc.path || null,
-      summary: doc.summary || null, source: 'forge-artifacts-index',
+      title: redactDeep(doc.title || null), type: doc.type || doc.kind || null, path: doc.path || null,
+      summary: redactDeep(doc.summary || null), source: 'forge-artifacts-index',
       size_bytes: statIndexedArtifactSize(projectPath, doc.path),
       run_id: matchedRunId,
     });

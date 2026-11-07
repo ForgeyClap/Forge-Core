@@ -8,7 +8,7 @@
  * Mirrors `chat-project-mismatch.test.tsx`'s own render helper and `STUB_CHAT_CONTROLLER`.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import type { ReactElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -21,6 +21,7 @@ import { ChatSendContext } from '@/prototype/state/chat-send';
 import type { ChatSendController } from '@/prototype/state/chat-send';
 import type { Conversation, Project } from '@/prototype/types/prototype-types';
 import ChatView from '@/views/chat/ChatView';
+import { setUiMode } from '@/state/ui-mode';
 
 function buildProject(id: string, name: string): Project {
   return {
@@ -108,10 +109,14 @@ function renderChatView(dispatch: (action: PrototypeAction) => void, state: Prot
   return render(createElement(MemoryRouter, null, tree));
 }
 
+// Redesign 2A: the chat's own Delete button lives in Uitgebreid's tools row; Eenvoudig deletes from the
+// sidebar's Recent list (sidebar-delete-conversation) or with /delete.
 describe('ChatView — "Delete conversation"', () => {
+  beforeEach(() => setUiMode('uitgebreid'));
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    setUiMode('eenvoudig');
   });
 
   it('production: opens a real confirm dialog and sends a real DELETE on confirm', async () => {

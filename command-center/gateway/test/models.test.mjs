@@ -122,6 +122,44 @@ test('a health probe that exits 1 with an "NVIDIA FAIL — ..." line stays DISCO
   }
 });
 
+// WP A8 (plan F10): the probe child used to inherit the gateway's whole environment. It must now get the
+// credential-free allowlist plus exactly one credential (NVIDIA_API_KEY) and the provider's own non-secret
+// settings. The fixture reports only yes/no per name, never a value.
+test('SECURITY (A8): the NVIDIA probe child gets NVIDIA_API_KEY and its settings, but no other credential or unlisted variable', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cc-models-env-'));
+  const names = ['NVIDIA_API_KEY', 'NVIDIA_SKIP_ENV_FILES', 'FORGE_CONFIG_HOME', 'A8_UNLISTED_CANARY', 'CC_A8_CANARY_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
+  const saved = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+  try {
+    const fixture = path.join(dir, 'fake-nvidia-provider.cjs');
+    writeFileSync(fixture, [
+      "const seen = (n) => (process.env[n] !== undefined ? 1 : 0);",
+      "const names = " + JSON.stringify(names) + ";",
+      "console.log('NVIDIA FAIL — env ' + names.map((n) => n + '=' + seen(n)).join(' ') + ' path=' + seen('PATH'));",
+    ].join('\n'), 'utf8');
+    Object.assign(process.env, {
+      NVIDIA_API_KEY: 'nvapi-' + 'A8probeFAKE'.repeat(3), NVIDIA_SKIP_ENV_FILES: '1', FORGE_CONFIG_HOME: dir,
+      A8_UNLISTED_CANARY: 'x', CC_A8_CANARY_TOKEN: 'x', CLAUDE_CODE_OAUTH_TOKEN: 'x',
+    });
+    _setNvidiaProviderCjsForTests(fixture);
+    _resetNvidiaHealthCacheForTests();
+    const result = await buildModelsView();
+    assert.equal(result.nvidia.state, 'DISCONNECTED', JSON.stringify(result.nvidia));
+    const note = result.nvidia.note;
+    assert.match(note, /NVIDIA_API_KEY=1/, 'the one credential the probe needs must reach it');
+    assert.match(note, /NVIDIA_SKIP_ENV_FILES=1/);
+    assert.match(note, /FORGE_CONFIG_HOME=1/, 'the owner-config location must reach it (nvidia on/off switch)');
+    assert.match(note, /path=1/, 'the base allowlist (PATH) must still reach it');
+    assert.match(note, /A8_UNLISTED_CANARY=0/, 'a variable outside the allowlist must not reach the probe');
+    assert.match(note, /CC_A8_CANARY_TOKEN=0/, 'a credential-shaped name must not reach the probe');
+    assert.match(note, /CLAUDE_CODE_OAUTH_TOKEN=0/, 'the Claude credential must not reach the NVIDIA probe');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    _setNvidiaProviderCjsForTests(null);
+    _resetNvidiaHealthCacheForTests();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('SECURITY: with nvidia=false the REAL provider CLI reports OFF and sends nothing, even with a key and a reachable-looking endpoint', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cc-models-offcfg-'));
   const names = ['FORGE_PROJECT_ROOT', 'FORGE_CONFIG_HOME', 'NVIDIA_API_KEY', 'NVIDIA_BASE_URL', 'NVIDIA_ALLOW_CUSTOM_BASE_URL', 'NVIDIA_SKIP_ENV_FILES'];

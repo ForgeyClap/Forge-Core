@@ -104,6 +104,18 @@ t('agent_output.output is a compact one-line summary with status/WP/files/tests'
 t('agent_output carries the full (redacted) report object', events[0].extra.report.work_package === 'WP-1' && !JSON.stringify(events[0].extra.report).includes(SECRET));
 t('agent_evidence_added carries the joined, redacted evidence', typeof events[1].extra.evidence === 'string' && events[1].extra.evidence.includes('***REDACTED***') && !events[1].extra.evidence.includes(SECRET));
 
+// ---- optional graded verdict (enum validated only when present) ------------------------------
+t('VERDICT_GRADES is exactly the four graded words', JSON.stringify(R.VERDICT_GRADES) === JSON.stringify(['PROVEN', 'PARTLY-PROVEN', 'NOT-PROVEN', 'NO-CONFIDENT-RESULT']));
+t('a report without verdict stays valid (builder reports omit it)', R.validateReport(validCompleted).length === 0);
+for (const v of R.VERDICT_GRADES) {
+  t('verdict ' + v + ' is accepted', R.validateReport(Object.assign({}, validCompleted, { verdict: v })).length === 0);
+}
+for (const bad of ['PASS', 'proven', 'MOSTLY-PROVEN', '', null, 1]) {
+  const errs = R.validateReport(Object.assign({}, validCompleted, { verdict: bad }));
+  t('verdict ' + JSON.stringify(bad) + ' is rejected with a verdict error', errs.length === 1 && /verdict must be one of/.test(errs[0]));
+}
+t('parseReport rejects a block with an invalid verdict', R.parseReport(blockText(Object.assign({}, validCompleted, { verdict: 'PROBABLY' }))).ok === false);
+
 // ---- CLI: validate -------------------------------------------------------------------------------
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-report-test-'));
 const validFile = path.join(TMP, 'valid.txt');

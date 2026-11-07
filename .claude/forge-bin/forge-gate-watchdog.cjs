@@ -53,9 +53,11 @@
  * WIRE FORMAT (SharedArrayBuffer, written by forge-gate-classify-worker.cjs): Int32 [0] status (0 pending, 1
  * done), Int32 [1] payload byte length, then up to PAYLOAD_BYTES of UTF-8 JSON — `{ok:true,verdict:{block,
  * gates,reason,notice,why}}` (the COMPLETE evaluate()-shaped verdict, wp-v3) on success or `{ok:false,error}` on
- * a worker-side exception. Measured worst case (all five command gates named in one `reason` string,
- * 2026-09-27 re-measurement after `secret-print` joined the other four): ~3.4 KB — PAYLOAD_BYTES leaves
- * more than 2.3x headroom over that.
+ * a worker-side exception. Measured worst case (all SEVEN command gates named in one `reason` string; re-measured
+ * 2026-10-24, WP 3.3c, after `plugin-install-command` and `settings-edit-command` joined in WP 3.3b): 5,740 bytes —
+ * PAYLOAD_BYTES (8,192) leaves about 1.4x headroom (it was ~3.4 KB, 2.3x, with five gates). forge-gate-hook.test.cjs
+ * pins it ("the worst-case block reason ... still fits"); an eighth gate with long wording needs this raised first.
+ * The write-scope block is built on the main thread and never passes through this buffer.
  *
  * NO SIZE THRESHOLD (independent review, REMOVED from the original wp-v1 design). wp-v1 originally
  * only routed a command ABOVE a 20,000-char INLINE_THRESHOLD_CHARS through this watchdog, calibrated on

@@ -7,106 +7,119 @@
 .fw-run-health {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-5);
-  padding: var(--forge-space-5);
+  gap: var(--fs-space-5);
+  padding: var(--fs-space-5);
 }
 
 .fw-run-health__section {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
+}
+
+.fw-run-health__label {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
+}
+
+.fw-run-health__num {
+  font-variant-numeric: tabular-nums;
+}
+
+.fw-run-health__quiet {
+  color: var(--fs-ink-3);
 }
 
 .fw-run-health__empty {
-  font-size: var(--forge-text-sm);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
 }
 
 .fw-run-health__note {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-run-health__facts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--forge-space-5);
+  gap: var(--fs-space-5);
   margin: 0;
 }
 
 .fw-run-health__fact {
   display: flex;
   flex-direction: column-reverse;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   /* a long value (the 64-hex digest) truncates inside the panel instead of widening it on a phone */
   min-inline-size: 0;
   max-inline-size: 100%;
 }
 
 .fw-run-health__fact dt {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  text-transform: uppercase;
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-run-health__fact dd {
   margin: 0;
   min-inline-size: 0;
-  font-size: var(--forge-text-md);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-15);
+  color: var(--fs-ink);
 }
 
 .fw-run-health__flag {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  color: var(--forge-color-text-secondary);
+  gap: var(--fs-space-1);
+  color: var(--fs-ink-2);
 }
 
 .fw-run-health__flag[data-flag='true'] {
-  color: var(--forge-status-completed);
+  color: var(--fs-ok);
 }
 
 .fw-run-health__flag[data-flag='false'] {
-  color: var(--forge-status-failed);
+  color: var(--fs-danger);
 }
 
 .fw-run-health__contract-status {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin: 0;
-  font-size: var(--forge-text-sm);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
 }
 
 .fw-run-health__contract-status[data-status='green'] {
-  color: var(--forge-status-completed);
+  color: var(--fs-ok);
 }
 
 .fw-run-health__contract-status[data-status='red'] {
-  color: var(--forge-status-failed);
+  color: var(--fs-danger);
 }
 
 .fw-run-health__missing-label {
   margin: 0;
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-2);
 }
 
 .fw-run-health__missing {
   margin: 0;
-  padding-inline-start: var(--forge-space-5);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  padding-inline-start: var(--fs-space-5);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-run-health__reviews {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -115,37 +128,35 @@
 .fw-run-health__review {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
+  gap: var(--fs-space-3);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
   min-inline-size: 0;
 }
 
 .fw-run-health__review-verdict {
   flex: none;
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  text-transform: uppercase;
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
 }
 
 .fw-run-health__review-verdict[data-verdict='pass'],
 .fw-run-health__review-verdict[data-verdict='approved'] {
-  color: var(--forge-status-completed);
+  color: var(--fs-ok);
 }
 
 .fw-run-health__review-verdict[data-verdict='fail'],
 .fw-run-health__review-verdict[data-verdict='changes_required'] {
-  color: var(--forge-status-failed);
+  color: var(--fs-danger);
 }
 
 .fw-run-health__review-subject {
   flex: 1;
   min-inline-size: 0;
-  font-size: var(--forge-text-sm);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
 }
 
 /* the truncating value (digest) must be a block for its ellipsis to apply inside a narrow panel */
@@ -164,47 +175,47 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
 }
 
 .fw-run-health__proof-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
 }
 
 .fw-run-health__seal {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   max-inline-size: 100%;
-  padding: var(--forge-space-1) var(--forge-space-3);
-  border: var(--forge-status-idle-width) var(--forge-status-idle-style) var(--forge-status-idle-line);
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-status-idle-soft);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-sm);
+  padding: var(--fs-space-1) var(--fs-space-3);
+  border: 1px dotted color-mix(in srgb, var(--fs-ink-3) 40%, transparent);
+  border-radius: var(--fs-radius-pill);
+  background: transparent;
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-13);
   font-weight: 600;
   line-height: 1.2;
 }
 
 .fw-run-health__seal[data-tone="verified"] {
-  border: var(--forge-status-completed-width) var(--forge-status-completed-style) var(--forge-status-completed-line);
-  background: var(--forge-status-completed-soft);
-  color: var(--forge-color-text);
+  border: 1px solid color-mix(in srgb, var(--fs-ok) 40%, transparent);
+  background: var(--fs-ok-soft);
+  color: var(--fs-ink);
 }
 
 .fw-run-health__seal[data-tone="archival"] {
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
+  border: 1px dashed var(--fs-line-strong);
   background: transparent;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fw-run-health__seal[data-tone="warning"] {
-  border: var(--forge-status-failed-width) var(--forge-status-failed-style) var(--forge-status-failed-line);
-  background: var(--forge-status-failed-soft);
-  color: var(--forge-status-failed);
+  border: 2px solid color-mix(in srgb, var(--fs-danger) 40%, transparent);
+  background: var(--fs-danger-soft);
+  color: var(--fs-danger);
 }
 
 .fw-run-health__seal-label {
@@ -214,28 +225,28 @@
 .fw-run-health__proof-detail {
   margin: 0;
   max-inline-size: 68ch;
-  font-size: var(--forge-text-sm);
+  font-size: var(--fs-text-13);
   line-height: 1.6;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fw-run-health__popover {
   max-inline-size: 60ch;
-  padding: var(--forge-space-3) var(--forge-space-4);
-  border: var(--forge-border-hair) solid var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-3);
-  box-shadow: var(--forge-shadow-md);
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-xs);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  box-shadow: var(--fs-shadow-2);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-12);
   line-height: 1.6;
-  animation: fw-run-health-popover-in var(--forge-motion-fast) var(--forge-motion-ease-enter) both;
+  animation: fw-run-health-popover-in var(--fs-dur-1) var(--fs-ease) both;
 }
 
 @keyframes fw-run-health-popover-in {
   from {
     opacity: 0;
-    transform: translateY(calc(-1 * var(--forge-space-1)));
+    transform: translateY(calc(-1 * var(--fs-space-1)));
   }
   to {
     opacity: 1;

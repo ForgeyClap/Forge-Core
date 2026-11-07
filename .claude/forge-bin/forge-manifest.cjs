@@ -132,26 +132,44 @@ const FAILED_EVENT_TYPES = new Set(['wp_failed', 'check_failed', 'subagent_faile
 const WP_DONE_STATUS = 'done';
 
 // ---- root / path resolution (mirrors forge-run-state.cjs / forge-checkpoint.cjs conventions) ----
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
 function resolveRoot(explicit) {
   if (explicit) return path.resolve(explicit);
   if (process.env.FORGE_PROJECT_ROOT) return path.resolve(process.env.FORGE_PROJECT_ROOT);
-  return path.resolve(__dirname, '..', '..');
+  // WP 2.1: forge-paths scriptRoot (an installed copy keeps its own project; a plugin copy discovers it from the cwd)
+  const root = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
+  if (!root) throw new Error('forge-manifest: no project root found (no .claude, .forge or .git above the current folder; pass opts.root or set FORGE_PROJECT_ROOT)');
+  return root;
 }
 function isValidRunId(id) { return typeof id === 'string' && RUN_ID_RE.test(id); }
-function runDir(root, runId) { return path.join(root, '.claude', 'forge-runs', runId); }
+/** runsBase(root, runId) -> the runs folder that holds this run: the active one, or the legacy one when the run only
+ *  exists there (WP 2.1: one run never spans two folders; in the legacy layout always .claude/forge-runs). */
+function runsBase(root, runId) {
+  const active = statePath(root, 'runs'), legacy = path.join(root, '.claude', 'forge-runs');
+  return active !== legacy && !fs.existsSync(path.join(active, runId)) && fs.existsSync(path.join(legacy, runId)) ? legacy : active;
+}
+function runDir(root, runId) { return path.join(runsBase(root, runId), runId); }
 function assertContained(target, base) {
   const b = path.resolve(base), t = path.resolve(target);
   if (t !== b && !t.startsWith(b + path.sep)) throw new Error('forge-manifest: path escapes forge-runs — refused');
 }
 function manifestPath(root, runId) {
-  const base = path.join(root, '.claude', 'forge-runs');
-  const p = path.join(runDir(root, runId), 'manifest.json');
+  const base = runsBase(root, runId);
+  const p = path.join(base, runId, 'manifest.json');
   assertContained(p, base);
   return p;
 }
 function eventsPath(root, runId) {
-  const base = path.join(root, '.claude', 'forge-runs');
-  const p = path.join(runDir(root, runId), 'events.jsonl');
+  const base = runsBase(root, runId);
+  const p = path.join(base, runId, 'events.jsonl');
   assertContained(p, base);
   return p;
 }

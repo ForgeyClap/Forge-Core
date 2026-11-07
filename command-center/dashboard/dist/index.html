@@ -1,37 +1,37 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="nl" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark light" />
-    <meta
-      name="description"
-      content="Forge Command Center — a local dashboard for Forge projects, backed by the gateway on 127.0.0.1:4100."
-    />
-    <title>Forge Command Center</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Forge Systeem — bouw met een team van helpers op je eigen pc." />
+    <link rel="icon" type="image/svg+xml" href="./assets/forge-mark-favicon-CcEF0GhG.svg" />
+    <title>Forge Systeem</title>
     <script>
-      // Applied before first paint so the shell never flashes the wrong theme.
+      // Applied before first paint so the shell never flashes the wrong theme. Light is the default;
+      // "system" (Zoals Windows) follows Windows, so a Windows set to dark still opens dark.
       (function () {
+        var resolved = 'light';
         try {
           var stored = localStorage.getItem('forge.prototype.appearance');
           var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
-          var resolved =
+          resolved =
             mode === 'system'
-              ? window.matchMedia('(prefers-color-scheme: light)').matches
-                ? 'light'
-                : 'dark'
+              ? window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
               : mode;
-          document.documentElement.setAttribute('data-theme', resolved);
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark');
+          resolved = 'light';
         }
+        document.documentElement.setAttribute('data-theme', resolved);
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-SUBzQZbl.js"></script>
+    <script type="module" crossorigin src="./assets/index--RfeHEGb.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/react-BuQOX7bh.js">
-    <link rel="modulepreload" crossorigin href="./assets/icons-CzFtYAGw.js">
-    <link rel="modulepreload" crossorigin href="./assets/router-68d_K6t8.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-Cw3oMvFa.css">
+    <link rel="modulepreload" crossorigin href="./assets/icons-CIJfn9MV.js">
+    <link rel="modulepreload" crossorigin href="./assets/router-Bb5ghnA1.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-BRpEQo4R.css">
   </head>
   <body>
     <div id="root"></div>

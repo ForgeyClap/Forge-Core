@@ -1,0 +1,102 @@
+{
+  "kind": "forge-harness-rubric",
+  "version": 1,
+  "_doc": ". Read by .claude/forge-bin/forge-harness-score.cjs. Each category scores round(earned / max x 10) over the checks that could be measured; a check whose input is absent (no --doctor-json, a missing tool or file) is 'not_measured' and leaves the max, so a missing input never looks like a pass or a fail. Overall = round(10 x sum(weight x earned/max) / sum(weight)) over measured categories. Change a check, its points or a weight only on purpose and bump 'version': the score is only comparable between runs on the same rubric version.",
+  "categories": [
+    {
+      "id": "tests",
+      "title": "Tests green (from a forge-doctor --json output file)",
+      "weight": 3,
+      "checks": [
+        { "id": "doctor-tests-ok", "type": "doctor-check", "check": "tests", "points": 6, "action": "Fix the failing test suites reported by forge-doctor (checks.tests)." },
+        { "id": "doctor-node-check-ok", "type": "doctor-check", "check": "node_check", "points": 2, "action": "Fix the files that fail `node --check` (checks.node_check)." },
+        { "id": "doctor-all-checks-ok", "type": "doctor-all-checks", "points": 2, "action": "Fix every forge-doctor check that is not ok." }
+      ]
+    },
+    {
+      "id": "run_contract",
+      "title": "Run contract rules present",
+      "weight": 1,
+      "checks": [
+        { "id": "contract-tool-present", "type": "file-present", "path": ".claude/forge-bin/forge-runcontract.cjs", "points": 2, "action": "Restore forge-runcontract.cjs (the run contract checker)." },
+        { "id": "contract-rules-present", "type": "json-array-min", "path": ".claude/config/orchestration/FORGE_HARD_RULES.json", "array": "rules", "min": 10, "points": 4, "action": "Restore FORGE_HARD_RULES.json with its rules array." },
+        { "id": "contract-core-rules", "type": "json-ids-present", "path": ".claude/config/orchestration/FORGE_HARD_RULES.json", "array": "rules", "key": "id", "ids": ["memory-read", "dispatch-logged", "evidence-satisfied", "independent-verification", "report-present", "end-self-review"], "points": 4, "action": "Add the missing core run-contract rules to FORGE_HARD_RULES.json." }
+      ]
+    },
+    {
+      "id": "hard_gates",
+      "title": "Hard gates present and the gate hook enabled",
+      "weight": 2,
+      "checks": [
+        { "id": "gates-file", "type": "json-array-min", "path": ".claude/config/orchestration/hard-gates.json", "array": "gates", "min": 5, "points": 3, "action": "Restore hard-gates.json with its gates." },
+        { "id": "gate-hook-tool", "type": "file-present", "path": ".claude/forge-bin/forge-gate-hook.cjs", "points": 2, "action": "Restore forge-gate-hook.cjs." },
+        { "id": "gate-hook-registered", "type": "settings-hook", "event": "PreToolUse", "matcher_includes": ["Bash", "PowerShell"], "command_includes": "forge-gate-hook", "points": 3, "action": "Register forge-gate-hook.cjs as a PreToolUse hook for Bash|PowerShell in .claude/settings.json." },
+        { "id": "gate-hook-on", "type": "config-value", "key": "gate-hook", "equals": true, "points": 2, "action": "Turn the gate hook back on (owner only): /forge config set gate-hook on." }
+      ]
+    },
+    {
+      "id": "memory_ledger",
+      "title": "Memory and ledger discipline",
+      "weight": 1,
+      "checks": [
+        { "id": "memory-file", "type": "memory-file", "name": "FORGE_MEMORY.md", "min_bytes": 64, "points": 2, "action": "Write FORGE_MEMORY.md with real lessons." },
+        { "id": "task-history-file", "type": "memory-file", "name": "FORGE_TASK_HISTORY.md", "min_bytes": 64, "points": 2, "action": "Write FORGE_TASK_HISTORY.md after each task." },
+        { "id": "agent-ledger-file", "type": "memory-file", "name": "FORGE_AGENT_LEDGER.md", "min_bytes": 64, "points": 2, "action": "Write FORGE_AGENT_LEDGER.md after each task." },
+        { "id": "latest-run-chained", "type": "latest-run-chain", "points": 2, "action": "Repair the latest run's events.jsonl: every line must parse and carry prev_hash + entry_hash." },
+        { "id": "latest-run-finalized", "type": "latest-run-finalized", "points": 2, "action": "Close the latest run: forge-runcontract.cjs check --finalize until run-finalized.json exists." }
+      ]
+    },
+    {
+      "id": "skill_lint",
+      "title": "Skill lint cleanliness (forge-skilllint)",
+      "weight": 1,
+      "checks": [
+        { "id": "skill-lint", "type": "lint", "tool": "skill", "per_error": 2, "per_warn": 0.1, "points": 10, "action": "Fix the forge-skilllint findings (errors first, then warnings)." }
+      ]
+    },
+    {
+      "id": "agent_lint",
+      "title": "Agent lint cleanliness (forge-agentlint)",
+      "weight": 1,
+      "checks": [
+        { "id": "agent-lint", "type": "lint", "tool": "agent", "per_error": 2, "per_warn": 0.1, "points": 10, "action": "Fix the forge-agentlint findings (errors first, then warnings)." }
+      ]
+    },
+    {
+      "id": "mcp_dormancy",
+      "title": "MCP servers dormant and pinned",
+      "weight": 1,
+      "checks": [
+        { "id": "mcp-registry-ok", "type": "mcp-registry", "points": 5, "action": "Fix the violations from forge-mcp-pin.cjs check (dormancy, pins, floating tags)." },
+        { "id": "mcp-host-pinned", "type": "mcp-host", "points": 3, "action": "Pin every server in .mcp.json to an exact version or digest." },
+        { "id": "mcp-not-auto-enabled", "type": "settings-flag-absent", "flag": "enableAllProjectMcpServers", "points": 2, "action": "Remove enableAllProjectMcpServers: true from the project settings." }
+      ]
+    },
+    {
+      "id": "plugin_build",
+      "title": "Plugin build identical to the source",
+      "weight": 1,
+      "checks": [
+        { "id": "plugin-identical", "type": "plugin-identical", "points": 10, "action": "Rebuild the plugin: node .claude/forge-bin/forge-plugin-build.cjs, then --check." }
+      ]
+    },
+    {
+      "id": "eval_bar",
+      "title": "Eval bar (forge-intel-evals regression baseline)",
+      "weight": 1,
+      "checks": [
+        { "id": "eval-baseline-present", "type": "eval-baseline-present", "path": ".claude/config/intelligence/eval-baseline.json", "points": 3, "action": "Write the eval baseline: forge-intel-evals.cjs baseline --write." },
+        { "id": "eval-no-fail", "type": "eval-baseline-nofail", "path": ".claude/config/intelligence/eval-baseline.json", "points": 4, "action": "Fix the FAIL scenarios in the eval baseline." },
+        { "id": "eval-pass-ratio", "type": "eval-baseline-ratio", "path": ".claude/config/intelligence/eval-baseline.json", "min": 0.9, "points": 3, "action": "Close known eval gaps until at least 90% of scenarios PASS." }
+      ]
+    },
+    {
+      "id": "config_scan",
+      "title": "Configuration scan clean (forge-config-scan)",
+      "weight": 2,
+      "checks": [
+        { "id": "config-scan", "type": "config-scan", "per_error": 3, "per_warn": 0.5, "points": 10, "action": "Fix the forge-config-scan findings (secrets, permissions, hook injection, hidden Unicode, unpinned MCP)." }
+      ]
+    }
+  ]
+}

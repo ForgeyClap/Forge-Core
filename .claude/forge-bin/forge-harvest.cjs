@@ -77,7 +77,17 @@ const store = require('./forge-store.cjs');
 const memory = require('./forge-memory.cjs');
 const consolidateModule = require('./forge-consolidate.cjs');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1 (opt-in .forge layout): each harvested project's memory files are read through forge-paths.cjs memoryFile
+// (read path) and its archives are listed in every memory folder of THAT project — a project without .forge reads
+// exactly .claude/<name> as before. Guarded: an older or missing forge-paths.cjs keeps the legacy literals.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.memoryFile === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT)
+  : viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+/** memoryDirsOf(projectPath) — the folders holding that project's memory files, active first (legacy: .claude). */
+function memoryDirsOf(projectPath) {
+  return viaForgePaths((P) => { const d = P.existingStateDirs(projectPath, 'memory'); return d.length ? d : [path.join(projectPath, '.claude')]; }, () => [path.join(projectPath, '.claude')]);
+}
 const GLOBAL_NAMESPACE = 'global'; // MUST match forge-recall.cjs::GLOBAL_NAMESPACE — this is the reserved namespace every dispatch blends in.
 const MARKER_FILES = ['FORGE_MEMORY.md', 'FORGE_TASK_HISTORY.md', 'FORGE_DECISIONS.md', 'FORGE_AGENT_LEDGER.md', 'FORGE_PROJECT_PROFILE.md'];
 // the memory rotation moves old FORGE_MEMORY.md history into dated archive files next to
@@ -103,9 +113,14 @@ function isForbiddenFilename(name) {
 /** isMarkedProjectDir(dir) -> true when dir/.claude/ contains at least one FORGE_*-named entry. A pure
  *  existence check, never opens/reads the file — discovery only decides WHICH directories are eligible. */
 function isMarkedProjectDir(dir) {
-  let entries;
-  try { entries = fs.readdirSync(path.join(dir, '.claude')); } catch { return false; }
-  return entries.some((f) => /^FORGE_/.test(f));
+  // WP 2.1: a FORGE_* entry in .claude (unchanged) or in the .forge layout's memory folder marks a project
+  const forgeMem = viaForgePaths((P) => P.stateDirFor(dir, 'memory').forge, () => path.join(dir, '.forge', 'memory'));
+  for (const d of [path.join(dir, '.claude'), forgeMem]) {
+    let entries;
+    try { entries = fs.readdirSync(d); } catch { continue; }
+    if (entries.some((f) => /^FORGE_/.test(f))) return true;
+  }
+  return false;
 }
 /** discover(opts) -> [{project, path}]. Only ever consults opts.projects (explicit list) or opts.scanDir's
  *  IMMEDIATE children (one level, never recursive) — see file header guardrail 4. Neither given -> []. */
@@ -141,7 +156,7 @@ function readMarkerFile(projectPath, filename) {
   const isArchive = MEMORY_ARCHIVE_RE.test(String(filename || ''));
   if (!MARKER_FILES.includes(filename) && !isArchive) return null;
   if (isForbiddenFilename(filename)) return null;
-  const abs = path.join(projectPath, '.claude', filename);
+  const abs = viaForgePaths((P) => P.memoryFile(projectPath, filename, { read: true }), () => path.join(projectPath, '.claude', filename));
   let st;
   try { st = isArchive ? fs.lstatSync(abs) : fs.statSync(abs); } catch { return null; }
   if (!st.isFile()) return null;
@@ -154,7 +169,7 @@ function readMarkerFile(projectPath, filename) {
  *  through readMarkerFile(), which re-checks the name and refuses anything that is not a regular file. */
 function memoryFilesFor(projectPath) {
   let names = [];
-  try { names = fs.readdirSync(path.join(projectPath, '.claude')); } catch { names = []; }
+  for (const d of memoryDirsOf(projectPath)) { try { for (const n of fs.readdirSync(d)) if (!names.includes(n)) names.push(n); } catch { /* unreadable: skipped */ } }
   const archives = names.filter((n) => MEMORY_ARCHIVE_RE.test(n) && !isForbiddenFilename(n)).sort();
   return MARKER_FILES.concat(archives);
 }
@@ -286,6 +301,7 @@ function defaultGlobalStorePath(root) { return path.join(root, '.claude', 'agent
 function harvest(opts) {
   opts = opts || {};
   const root = opts.root || PROJECT_ROOT;
+  if (!opts.globalStore && !root) throw new Error('no project root found (this copy is not inside a project) — pass --global-store <file> or set FORGE_PROJECT_ROOT');
   const globalStorePath = opts.globalStore || defaultGlobalStorePath(root);
   const discovered = discover(opts);
   const notes = [];

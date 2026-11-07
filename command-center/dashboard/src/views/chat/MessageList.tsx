@@ -22,6 +22,7 @@ import { Button, ExampleTag, Eyebrow } from '@/components/primitives';
 import { isProductionMode } from '@/config/mode';
 import type { ChatSendOutcome } from '@/prototype/state/chat-send';
 import { readChatMessageRequestedModel } from '@/prototype/state/gateway-chat';
+import { useLocale } from '@/i18n/use-locale';
 import { Message } from './Message';
 
 export interface MessageListProps {
@@ -41,8 +42,6 @@ export interface MessageListProps {
 /** How close to the end still counts as "at the bottom", in pixels. */
 const BOTTOM_SLACK = 48;
 
-const STREAM_START = 'Forge is responding.';
-const STREAM_END = 'Forge response complete.';
 
 export function MessageList({
   messages,
@@ -51,13 +50,14 @@ export function MessageList({
   regenerateFor,
 }: MessageListProps) {
   const { state } = usePrototype();
+  const { t } = useLocale();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [stuckToBottom, setStuckToBottom] = useState(true);
 
   // Derived, not stored: the status line is a pure function of the simulator's
   // state, so there is no effect writing state back into React.
   const { stream } = state;
-  const announcement = stream === null ? '' : stream.done ? STREAM_END : STREAM_START;
+  const announcement = stream === null ? '' : stream.done ? t('chat.thread.streamEnd') : t('chat.thread.streamStart');
 
   // Follow the tail while the reader has not moved away from it. `messages` is a
   // fresh array on every reveal tick, so this runs as the reply grows.
@@ -84,7 +84,7 @@ export function MessageList({
     setStuckToBottom(true);
   }, [state.reducedMotion]);
 
-  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLOListElement>) => {
+  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     const { key } = event;
     if (key !== 'ArrowDown' && key !== 'ArrowUp' && key !== 'Home' && key !== 'End') return;
 
@@ -113,54 +113,56 @@ export function MessageList({
   return (
     <div className="fw-chat-thread">
       <div className="fw-chat-thread__scroll" ref={scrollRef} onScroll={handleScroll}>
-        <ol
-          className="fw-chat-thread__list"
+        {/* role="log" sits on a plain wrapper: on the <ol> itself it strips the list role, so every turn would be a
+            list item outside a list (axe listitem + aria-allowed-role, redesign wave 4 part 4D-1). */}
+        <div
+          className="fw-chat-thread__log"
           role="log"
-          aria-label={`Conversation: ${conversationTitle}`}
+          aria-label={t('chat.thread.label', { title: conversationTitle })}
           aria-live="polite"
           aria-relevant="additions"
           onKeyDown={handleKeyDown}
         >
-          <li className="fw-chat-thread__start">
-            <Eyebrow>Thread start</Eyebrow>
-            {isProductionMode() ? (
-              <span className="fw-chat-thread__start-text">
-                Live conversation through your local Claude Code session.
-              </span>
-            ) : (
-              <>
-                <span className="fw-chat-thread__start-text">
-                  Example conversation. Nothing here was generated and no session was contacted.
-                </span>
-                <ExampleTag />
-              </>
-            )}
-          </li>
+          <ol className="fw-chat-thread__list">
+            <li className="fw-chat-thread__start">
+              <Eyebrow>{t('chat.thread.start')}</Eyebrow>
+              {/* A real conversation names no engine here: the router may run it on Claude, Codex, Ollama or an
+                  own model, and each answer's own "via …" badge says which (review F8). Only the example thread
+                  needs a line, to say that nothing is real. */}
+              {isProductionMode() ? null : (
+                <>
+                  <span className="fw-chat-thread__start-text">{t('chat.thread.example')}</span>
+                  <ExampleTag />
+                </>
+              )}
+            </li>
 
-          {messages.map((message, index) => {
-            // feat-model-picker: the model the PRECEDING user turn requested, only ever computed
-            // for a real assistant reply immediately following a real user turn — mirrors
-            // `ChatView.tsx`'s own `resolveRegenerate`'s "previous message must be author:'user'"
-            // check, done here instead since `Message.tsx` only ever sees its own single turn.
-            const previous = index > 0 ? messages[index - 1] : null;
-            const requestedModel =
-              message.author !== 'user' && previous !== null && previous.author === 'user'
-                ? readChatMessageRequestedModel(previous)
-                : null;
-            return (
-              <li key={message.id} className="fw-chat-thread__item">
-                <Message
-                  message={message}
-                  streaming={message.id === streamingId}
-                  position={index + 1}
-                  total={messages.length}
-                  regenerate={regenerateFor ? regenerateFor(index) : null}
-                  requestedModel={requestedModel}
-                />
-              </li>
-            );
-          })}
-        </ol>
+            {messages.map((message, index) => {
+              // feat-model-picker: the model the PRECEDING user turn requested, only ever computed
+              // for a real assistant reply immediately following a real user turn — mirrors
+              // `ChatView.tsx`'s own `resolveRegenerate`'s "previous message must be author:'user'"
+              // check, done here instead since `Message.tsx` only ever sees its own single turn.
+              const previous = index > 0 ? messages[index - 1] : null;
+              const requestedModel =
+                message.author !== 'user' && previous !== null && previous.author === 'user'
+                  ? readChatMessageRequestedModel(previous)
+                  : null;
+              return (
+                // A user turn and its answer share the gateway `turn_id` (= message.id): the author keeps the key unique.
+                <li key={`${message.author}:${message.id}`} className="fw-chat-thread__item">
+                  <Message
+                    message={message}
+                    streaming={message.id === streamingId}
+                    position={index + 1}
+                    total={messages.length}
+                    regenerate={regenerateFor ? regenerateFor(index) : null}
+                    requestedModel={requestedModel}
+                  />
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </div>
 
       {stuckToBottom ? null : (
@@ -170,7 +172,7 @@ export function MessageList({
           icon="ArrowDown"
           onClick={jumpToLatest}
         >
-          Latest
+          {t('chat.thread.latest')}
         </Button>
       )}
 

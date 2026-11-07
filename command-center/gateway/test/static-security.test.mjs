@@ -8,6 +8,8 @@ import { createServer } from '../src/server.mjs';
 import { request } from '../test-support/helpers.mjs';
 import { getExecToken } from '../src/security.mjs';
 import { needsBuiltDashboard } from './.real-data-guard.mjs';
+import crypto from 'node:crypto';
+import { buildContentSecurityPolicy, inlineScriptHashes } from '../src/static.mjs';
 
 // serveStatic() returns null before it reaches ANY of its own decode/containment/header logic when
 // command-center/dashboard/dist is absent (src/static.mjs:55) — so without a build these tests do
@@ -99,24 +101,24 @@ test('#11 SECURITY: a same-origin / no-header static request still succeeds (rea
   assert.equal(none.statusCode, 200);
 });
 
-// fix-sec-round #1 (HIGH): the served SPA carries the real per-boot exec token so the dashboard
-// can read it and send it back on every real write (see security.mjs + gateway-client.ts).
-test('AUTH: GET / carries a <meta name="cc-exec-token"> tag with the REAL current-boot token', { skip: NEEDS_BUILD }, async () => {
+// fix-sec-round #1 put the per-boot exec token into the served SPA as a meta tag. FU-STEP2 (Security
+// Boss Step 2) took it out again: any local process could read it with one GET. The dashboard now
+// authenticates with an out-of-band cookie (test/ui-session-cookie.test.mjs covers the full contract).
+test('AUTH (FU-STEP2): GET / carries NO cc-exec-token meta tag and not the current-boot token', { skip: NEEDS_BUILD }, async () => {
   const res = await request(port, '/');
   assert.equal(res.statusCode, 200);
-  const match = res.body.match(/<meta name="cc-exec-token" content="([^"]+)">/);
-  assert.ok(match, 'the served index.html must carry the exec-token meta tag');
-  assert.equal(match[1], getExecToken());
+  assert.doesNotMatch(res.body, /<meta[^>]*cc-exec-token/, 'the served index.html must not carry an exec-token meta tag');
+  assert.ok(!res.body.includes(getExecToken()), 'the per-boot token must never be in the served page');
 });
 
-test('AUTH: the exec-token meta tag is only injected into HTML, never into a real built asset', { skip: NEEDS_BUILD }, async () => {
+test('AUTH: neither the exec token nor a token meta tag ever appears in a real built asset', { skip: NEEDS_BUILD }, async () => {
   const indexRes = await request(port, '/');
   const assetMatch = indexRes.body.match(/(?:src|href)="\.?(\/assets\/[^"]+)"/);
   assert.ok(assetMatch, 'the built index.html must reference at least one /assets/ file to make this test meaningful');
   const assetRes = await request(port, assetMatch[1]);
   assert.equal(assetRes.statusCode, 200);
-  // The guarantee is that the gateway's injectExecToken() touches HTML responses ONLY — it must
-  // never splice the meta TAG (nor, above all, the REAL per-boot token value) into a JS/CSS asset.
+  // Kept from the meta-tag era (fix-sec-round #1 to FU-STEP2): the gateway must never splice a token
+  // meta TAG (nor, above all, the REAL per-boot token value) into a JS/CSS asset.
   // It is NOT that the literal string "cc-exec-token" is absent: the dashboard client legitimately
   // ships that meta-NAME as a source constant so it can READ the token from the DOM
   // (gateway-client.ts readExecToken()), so a built chunk that bundles that code contains the name
@@ -124,4 +126,66 @@ test('AUTH: the exec-token meta tag is only injected into HTML, never into a rea
   // the injected markup — not on the harmless name.
   assert.ok(!assetRes.body.includes(getExecToken()), 'the real per-boot token must never appear in a built asset');
   assert.doesNotMatch(assetRes.body, /<meta[^>]*cc-exec-token/, 'the injected meta tag must never appear in a built asset');
+});
+
+// WP A8 (plan F10): a script CSP. The page holds the exec token, so only same-origin scripts and the
+// shell's own inline script (by exact hash) may run — never eval, never an arbitrary inline script.
+function cspDirectives(header) {
+  return Object.fromEntries(header.split(';').map((d) => d.trim()).filter(Boolean).map((d) => {
+    const [name, ...values] = d.split(/\s+/);
+    return [name, values];
+  }));
+}
+
+test('A8 CSP: GET / allows scripts from self only, with no unsafe-eval and no unsafe-inline', async () => {
+  const res = await request(port, '/');
+  assert.equal(res.statusCode, 200);
+  const header = res.headers['content-security-policy'];
+  const d = cspDirectives(header);
+  assert.ok(d['script-src'], 'a script-src directive must be present: ' + header);
+  assert.equal(d['script-src'][0], "'self'");
+  assert.ok(!header.includes('unsafe-eval'), header);
+  assert.ok(!header.includes('unsafe-inline'), header);
+  for (const v of d['script-src'].slice(1)) assert.match(v, /^'sha256-[A-Za-z0-9+/]+=*'$/, 'only exact hashes may follow self: ' + v);
+  assert.deepEqual(d['object-src'], ["'none'"]);
+  assert.deepEqual(d['base-uri'], ["'self'"]);
+  assert.deepEqual(d['frame-ancestors'], ["'none'"]);
+});
+
+test('A8 CSP: every inline script in the served shell is allowed by its exact sha256 (the dashboard still boots)', { skip: NEEDS_BUILD }, async () => {
+  const res = await request(port, '/');
+  const allowed = cspDirectives(res.headers['content-security-policy'])['script-src'];
+  const inline = [...res.body.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].filter((m) => !/\bsrc\s*=/i.test(m[1]));
+  assert.ok(inline.length >= 1, 'the built shell has its pre-paint theme script; without one this test proves nothing');
+  for (const m of inline) {
+    const hash = crypto.createHash('sha256').update(m[2], 'utf8').digest('base64');
+    assert.ok(allowed.includes("'sha256-" + hash + "'"), 'inline script not allowed by the CSP: ' + m[2].slice(0, 60));
+  }
+  // The module entry and its preloads are same-origin files: covered by 'self', and they really load.
+  const scripts = [...res.body.matchAll(/<script\b[^>]*\bsrc="\.?(\/assets\/[^"]+)"/g)].map((m) => m[1]);
+  assert.ok(scripts.length >= 1, 'the shell must load at least one same-origin module script');
+  for (const src of scripts) {
+    const asset = await request(port, src);
+    assert.equal(asset.statusCode, 200, src);
+    assert.match(asset.headers['content-type'], /javascript/, src);
+  }
+});
+
+test('A8 CSP: a built asset gets the base script policy (no per-page hashes)', { skip: NEEDS_BUILD }, async () => {
+  const indexRes = await request(port, '/');
+  const assetMatch = indexRes.body.match(/(?:src|href)="\.?(\/assets\/[^"]+)"/);
+  const assetRes = await request(port, assetMatch[1]);
+  assert.equal(assetRes.headers['content-security-policy'], buildContentSecurityPolicy());
+});
+
+test('A8 CSP: inlineScriptHashes hashes inline scripts only, exactly as a browser does', () => {
+  const body = "\n  (function () { document.documentElement.dataset.x = '1'; })();\n";
+  const html = '<head><script>' + body + '</script><script type="module" crossorigin src="./assets/a.js"></script>'
+    + '<script type="module">import("./b.js")</script></head>';
+  const hashes = inlineScriptHashes(html);
+  assert.equal(hashes.length, 2, 'the src= script is covered by self and must not be hashed');
+  assert.equal(hashes[0], crypto.createHash('sha256').update(body, 'utf8').digest('base64'));
+  const csp = buildContentSecurityPolicy(hashes);
+  assert.ok(csp.startsWith("script-src 'self' 'sha256-" + hashes[0] + "' 'sha256-" + hashes[1] + "'; "), csp);
+  assert.equal(buildContentSecurityPolicy(), "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
 });

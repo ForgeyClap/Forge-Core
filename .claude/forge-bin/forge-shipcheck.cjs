@@ -100,6 +100,9 @@ const PROTECTED_PATHS = [
   { glob: '.claude/forge-vault/**', probe: '.claude/forge-vault/entries.jsonl' },
   { glob: '.claude/forge-backups/**', probe: '.claude/forge-backups/2026-01-01/x.cjs' },
   { glob: '.claude/forge-backups-central/**', probe: '.claude/forge-backups-central/x/y.cjs' },
+  // WP 2.1: the opt-in .forge/ state root holds the same runs, memory, scribe store and backups as the folders above.
+  // Root level only: a nested .forge/ inside a shipped tree (plugins/**) is release-exclusions dist_forbidden's job.
+  { glob: '.forge/**', probe: '.forge/runs/forge-2026-01-01-probe/events.jsonl' },
   { glob: '.claude/config/forge-owner-grant*', probe: '.claude/config/forge-owner-grant.txt' },
   { glob: '.claude/config/forge-usage-guard-override-grant.json', probe: '.claude/config/forge-usage-guard-override-grant.json' },
   { glob: '.claude/config/**/*.user.json', probe: '.claude/config/orchestration/codex-review.user.json' },
@@ -548,8 +551,16 @@ function devTreeMarkerValid(root) {
     return !!d && d.dev_tree === true;
   } catch { return false; }
 }
+// WP 2.1: forge-paths.cjs is optional (a copied tool or an older install keeps the own-folder default). Plugin copy:
+// scriptRoot discovers the project (CLAUDE_PROJECT_DIR / cwd), never the plugin folder; none found -> --root needed.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
 function parseArgs(argv) {
-  const a = { root: path.resolve(__dirname, '..', '..'), manifest: null, releaseTree: null, json: false, verbose: false, ignoreKnownGaps: false, error: null };
+  const a = { root: defaultRoot(), manifest: null, releaseTree: null, json: false, verbose: false, ignoreKnownGaps: false, error: null };
   for (let i = 2; i < argv.length; i++) {
     const x = argv[i];
     if (x === '--root') a.root = argv[++i];
@@ -561,6 +572,7 @@ function parseArgs(argv) {
     else if (x === '--force-dev') a.forceDev = true;
     else a.error = 'unknown argument ' + x;
   }
+  if (!a.error && a.root === null && !argv.includes('--root')) a.error = 'no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>';
   if (!a.error && (!a.root || (a.releaseTree === undefined) || (a.manifest === undefined))) a.error = 'a flag is missing its value';
   return a;
 }

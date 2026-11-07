@@ -180,6 +180,9 @@ export function UsageBar() {
   // the local reveal; this bar falls back to the honest "no active run" state.
   const chat = useChatSend();
   const connection = useConnection();
+  // WP B3-ui: the desktop app gives no developer command (startCommand null). UsageDetails reads
+  // only the status, but its prop is the bridge shape with a string, so the absent command is ''.
+  const detailsConnection = { ...connection, startCommand: connection.startCommand ?? '' };
   const latency = useGatewayLatency();
   const accountUsage = useGatewayAccountUsage();
 
@@ -459,7 +462,7 @@ export function UsageBar() {
         scopeId={scopeId}
         usage={shownUsage}
         run={run}
-        connection={connection}
+        connection={detailsConnection}
         clientLatency={latency}
       />
     </div>

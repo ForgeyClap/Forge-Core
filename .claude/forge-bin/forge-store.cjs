@@ -43,9 +43,32 @@ const path = require('path');
 // This file lives in .claude/forge-bin/, so CLAUDE_DIR is one level up — same resolution as
 // forge-bin/nvidia-provider.cjs and forge-dashboard/log-event.cjs. FORGE_STORE_ROOT overrides it
 // for hermetic tests only.
+// WP 2.1 (opt-in .forge layout): forge-paths.cjs decides the project and, in a project with a .forge folder (or
+// FORGE_STATE_DIR), the store folder (.forge/<store>). Guarded: an older or missing forge-paths.cjs keeps every
+// legacy literal. An installed copy keeps CLAUDE_DIR = this folder's parent exactly as before; a plugin copy uses the
+// discovered project's .claude, and CLAUDE_DIR is null when it is not inside any project (resolveStoreDir then
+// refuses, so a store is never written beside the plugin's own scripts).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRootInfo === 'function' ? m : null; } catch { return null; } })();
+const SCRIPT_ROOT = (() => {
+  if (forgePaths) { try { return forgePaths.scriptRootInfo(__dirname); } catch { /* the legacy answer below */ } }
+  return { root: path.resolve(__dirname, '..', '..'), source: 'script' };
+})();
 const CLAUDE_DIR = process.env.FORGE_STORE_ROOT
   ? path.resolve(process.env.FORGE_STORE_ROOT)
-  : path.resolve(__dirname, '..');
+  : (SCRIPT_ROOT.source === 'script' ? path.resolve(__dirname, '..') : (SCRIPT_ROOT.root ? path.join(SCRIPT_ROOT.root, '.claude') : null));
+/** STORE_PROJECT_ROOT — the project whose layout decides the store folders: the parent of a CLAUDE_DIR named .claude
+ *  (an installed copy, a plugin's project, or FORGE_STORE_ROOT naming a project's .claude). A FORGE_STORE_ROOT that is
+ *  not a .claude folder (a bare test dir) has none: the legacy literal only, exactly as before. */
+const STORE_PROJECT_ROOT = CLAUDE_DIR && path.basename(CLAUDE_DIR).toLowerCase() === '.claude' ? path.dirname(CLAUDE_DIR) : null;
+/** forgeLayoutStoreDir(store) -> {dir, base} in the forge layout, else null (legacy: the caller's literal). */
+function forgeLayoutStoreDir(store) {
+  if (!forgePaths || !STORE_PROJECT_ROOT) return null;
+  try {
+    if (forgePaths.layout(STORE_PROJECT_ROOT) !== 'forge') return null;
+    // contained in the state root (.forge, or an absolute FORGE_STATE_DIR the owner chose)
+    return { dir: forgePaths.stateDir(STORE_PROJECT_ROOT, store), base: forgePaths.stateDir(STORE_PROJECT_ROOT, 'state_root') };
+  } catch { return null; }
+}
 
 // Allowlisted stores only (mirrors log-event.cjs's KNOWN_EVENT_TYPES strictness) — no store name is
 // ever taken from user input and used to build a path directly.
@@ -62,6 +85,13 @@ function isValidId(id) { return typeof id === 'string' && /^[A-Za-z0-9_-]+$/.tes
 
 function resolveStoreDir(store) {
   if (!isValidStore(store)) throw new Error('unknown store "' + store + '" — allowed: ' + Object.keys(STORES).join(', '));
+  if (!CLAUDE_DIR) throw new Error('no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — refused, nothing is written beside the script');
+  const fl = forgeLayoutStoreDir(store);
+  if (fl) {
+    const fbase = path.resolve(fl.base), fres = path.resolve(fl.dir);
+    if (fres === fbase || !fres.startsWith(fbase + path.sep)) throw new Error('store escapes the state root — refused');
+    return fl.dir;
+  }
   const dir = path.join(CLAUDE_DIR, STORES[store]);
   const base = path.resolve(CLAUDE_DIR), resolved = path.resolve(dir);
   if (resolved !== base && !resolved.startsWith(base + path.sep)) throw new Error('store escapes .claude/ — refused');

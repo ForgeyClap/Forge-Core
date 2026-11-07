@@ -61,9 +61,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
-const DEFAULT_PROJECT_PROFILE_PATH = path.join(PROJECT_ROOT_DEFAULT, '.claude', 'FORGE_OWNER_PROFILE.json');
-const DEFAULT_PROJECT_CANDIDATES_PATH = path.join(PROJECT_ROOT_DEFAULT, '.claude', 'FORGE_PREF_CANDIDATES.json');
+// WP 2.1: the default root comes from forge-paths.cjs scriptRoot (an installed copy: its own project, exactly as
+// before; a plugin copy: the discovered project, or null outside one — the project layer then reads as absent).
+// FORGE_OWNER_PROFILE.json and FORGE_PREF_CANDIDATES.json are owner preference files: they keep their .claude location
+// in BOTH layouts (forge-config.cjs, forge-audit-loop.cjs, forge-runcontract.cjs and log-event.cjs read the same file).
+// Guarded: an older or missing forge-paths.cjs keeps the literal.
+const PROJECT_ROOT_DEFAULT = (() => {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRoot === 'function') return P.scriptRoot(__dirname); } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+})();
+const DEFAULT_PROJECT_PROFILE_PATH = PROJECT_ROOT_DEFAULT ? path.join(PROJECT_ROOT_DEFAULT, '.claude', 'FORGE_OWNER_PROFILE.json') : null;
+const DEFAULT_PROJECT_CANDIDATES_PATH = PROJECT_ROOT_DEFAULT ? path.join(PROJECT_ROOT_DEFAULT, '.claude', 'FORGE_PREF_CANDIDATES.json') : null;
 const DEFAULT_GLOBAL_PROFILE_PATH = path.join(os.homedir(), '.claude', 'FORGE_OWNER_PROFILE.json');
 
 const VALID_CONFIDENCE = new Set(['evidenced', 'inferred']);
@@ -92,6 +100,7 @@ function validateEntry(key, entry, filePath) {
  *  ENOENT is the only case that degrades gracefully (present:false + note) — everything else (unreadable,
  *  invalid JSON, wrong shape, an invalid pref entry) throws. */
 function loadProfileLayer(filePath, layerName) {
+  if (!filePath) return { present: false, prefs: {}, note: layerName + ' layer: no project root found (a copy outside any project) — degraded, not an error' };
   let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
@@ -180,6 +189,7 @@ function list(opts) {
 function listCandidates(opts) {
   opts = opts || {};
   const candPath = opts.candidatesPath || DEFAULT_PROJECT_CANDIDATES_PATH;
+  if (!candPath) return { present: false, candidates: [], path: null, note: 'no project root found (a copy outside any project) — STAGE-ONLY store, absent means no proposals yet, not an error' };
   let raw;
   try {
     raw = fs.readFileSync(candPath, 'utf8');

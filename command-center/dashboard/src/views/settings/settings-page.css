@@ -1,0 +1,612 @@
+/*
+ * Settings, one page (WP B6; v1.0 redesign DESIGN.md §3.4, mockups/04-instellingen-*.png).
+ * v1.0 tokens only (brand/forge-tokens.css). Rows sit grouped in one surface with hairlines; a group
+ * has one quiet heading; the accent marks only what you can act on. Motion: transform and opacity only,
+ * none under reduced motion (the duration tokens drop to 0 there).
+ */
+
+.fs-set {
+  inline-size: min(100% - 48px, var(--fs-column-wide));
+  margin: 0 auto;
+  padding: var(--fs-space-5) 0 var(--fs-space-10);
+  color: var(--fs-ink);
+}
+
+/* ------------------------------------------------------------- header */
+
+.fs-set__head {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-4);
+  margin-block-end: var(--fs-space-6);
+}
+
+.fs-set__title {
+  margin: 0 auto 0 0;
+  font-family: var(--fs-font-display);
+  font-size: 26px;
+  font-weight: 400;
+  font-stretch: 92%;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+}
+
+/* ------------------------------------------------------------- layout */
+
+.fs-set__layout {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  gap: var(--fs-space-8);
+  align-items: start;
+}
+
+.fs-set__toc {
+  position: sticky;
+  top: var(--fs-space-5);
+  display: grid;
+  gap: 2px;
+}
+
+.fs-set__toc-link {
+  padding: 8px var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  color: var(--fs-ink-2);
+  text-decoration: none;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  transition: transform var(--fs-dur-1) var(--fs-ease-spring);
+}
+
+.fs-set__toc-link:hover {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+}
+
+.fs-set__toc-link:active {
+  transform: scale(0.985);
+}
+
+.fs-set__toc-link[aria-current='true'] {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+  font-weight: 600;
+}
+
+.fs-set__toc-link:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-set__toc-sep {
+  block-size: 1px;
+  margin: var(--fs-space-2) var(--fs-space-3);
+  border: 0;
+  background: var(--fs-line);
+}
+
+.fs-set__groups {
+  display: grid;
+  gap: var(--fs-space-9);
+  min-inline-size: 0;
+}
+
+.fs-set__group {
+  scroll-margin-top: var(--fs-space-5);
+  min-inline-size: 0;
+}
+
+.fs-set__group-title,
+.fs-set__sub-title {
+  margin: 0;
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
+}
+
+.fs-set__group-title {
+  margin-block-end: var(--fs-space-3);
+}
+
+.fs-set__stack {
+  display: grid;
+  gap: var(--fs-space-8);
+}
+
+/* A block inside a group: "Je accounts", "Eigen API", "Als je limiet op is". */
+.fs-set__sub {
+  display: grid;
+  gap: var(--fs-space-3);
+  min-inline-size: 0;
+  scroll-margin-top: var(--fs-space-5);
+}
+
+.fs-set__sub-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fs-space-3);
+}
+
+.fs-set__link {
+  margin-inline-start: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--fs-radius-xs);
+  background: transparent;
+  color: var(--fs-accent-text);
+  font: inherit;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.fs-set__link:hover {
+  color: var(--fs-ink);
+}
+
+.fs-set__link:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+/* ------------------------------------------------------- rows surface */
+
+.fs-set__rows,
+.fs-acct__list,
+.fs-capi__box {
+  min-inline-size: 0;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+}
+
+.fs-set__rows > * + * {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-set__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fs-space-1) var(--fs-space-4);
+  min-block-size: 60px;
+  padding: var(--fs-space-3) var(--fs-space-4);
+}
+
+/* The name with a quiet "Meer info" beside it on one line; the sub-line and the opened text below. */
+.fs-set__text {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px var(--fs-space-2);
+  justify-items: start;
+  min-inline-size: 0;
+}
+
+.fs-set__text > .fs-set__name {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.fs-set__text > .fs-set__note {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.fs-set__text > .fs-set__more {
+  display: contents;
+}
+
+.fs-set__text > .fs-set__more > .fw-disclosure__trigger {
+  grid-column: 2;
+  grid-row: 1;
+  margin-inline-start: 0;
+}
+
+.fs-set__text > .fs-set__more > .fw-disclosure__panel {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  margin-block-start: var(--fs-space-1);
+}
+
+.fs-set__name {
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
+}
+
+.fs-set__note {
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
+}
+
+.fs-set__more .fw-disclosure__trigger {
+  min-block-size: 24px;
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
+}
+
+.fs-set__more .fw-disclosure__trigger:hover {
+  color: var(--fs-ink);
+}
+
+.fs-set__feel {
+  display: block;
+  max-inline-size: 62ch;
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-2);
+}
+
+.fs-set__ctl {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--fs-space-2);
+  flex-wrap: wrap;
+}
+
+.fs-set__select {
+  min-block-size: 36px;
+  padding: 0 32px 0 var(--fs-space-3);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-14);
+  font-weight: 500;
+}
+
+.fs-set__select:hover {
+  border-color: var(--fs-ink-3);
+}
+
+.fs-set__select:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-set__select:disabled {
+  opacity: 0.45;
+}
+
+/* An action row ("Rondleiding opnieuw bekijken", "Account toevoegen", "Eigen API toevoegen"). The hairline
+   above it is restated here, because the row resets its own border. */
+.fs-set__action,
+.fs-set__add {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  inline-size: 100%;
+  min-block-size: 48px;
+  padding: 0 var(--fs-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--fs-accent-text);
+  font: inherit;
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fs-set__rows > * + .fs-set__action,
+.fs-acct__list > * + .fs-set__add,
+.fs-capi__box > * + .fs-set__add {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-set__action:hover,
+.fs-set__add:hover {
+  background: var(--fs-surface-2);
+}
+
+.fs-set__action:focus-visible,
+.fs-set__add:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-set__action:last-child,
+.fs-set__add:last-child {
+  border-radius: 0 0 var(--fs-radius-md) var(--fs-radius-md);
+}
+
+.fs-set__action:first-child:last-child,
+.fs-set__add:first-child:last-child {
+  border-radius: var(--fs-radius-md);
+}
+
+.fs-set__action:active .fs-set__action-icon,
+.fs-set__add:active svg {
+  transform: scale(0.9);
+}
+
+.fs-set__action-icon,
+.fs-set__add svg {
+  transition: transform var(--fs-dur-1) var(--fs-ease-spring);
+}
+
+.fs-set__checkpanel {
+  padding: var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+}
+
+/* ------------------------------------------------------ status pills */
+
+.fs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.fs-pill__dot {
+  inline-size: 6px;
+  block-size: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.fs-pill[data-tone='ok'] {
+  background: var(--fs-ok-soft);
+  color: var(--fs-ok);
+}
+
+.fs-pill[data-tone='warn'] {
+  background: var(--fs-warn-soft);
+  color: var(--fs-warn);
+}
+
+.fs-pill[data-tone='bad'] {
+  background: var(--fs-danger-soft);
+  color: var(--fs-danger);
+}
+
+.fs-pill[data-tone='busy'] {
+  background: var(--fs-accent-soft);
+  color: var(--fs-accent-text);
+}
+
+.fs-pill[data-tone='busy'] .fs-pill__dot {
+  animation: fs-set-breathe 1.6s var(--fs-ease) infinite;
+}
+
+@keyframes fs-set-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* --------------------------------------------- small text and paths */
+
+.fs-set__muted {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-set__mono,
+.fs-set__path {
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  overflow-wrap: anywhere;
+}
+
+.fs-set__reason {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+/* -------------------------------------------- Uitgebreid: blocks inside rows */
+
+.fs-set__block {
+  padding: 0 var(--fs-space-4) var(--fs-space-4);
+  min-inline-size: 0;
+}
+
+.fs-set__rows > .fs-set__block {
+  border-top: 0;
+}
+
+.fs-set__block--diagnose {
+  padding: var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+}
+
+.fs-set__feel--group {
+  margin: 0 0 var(--fs-space-3);
+}
+
+.fs-set__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-text-13);
+}
+
+.fs-set__table th,
+.fs-set__table td {
+  padding: 8px var(--fs-space-3);
+  text-align: start;
+  vertical-align: top;
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-set__table thead th {
+  border-top: 0;
+  color: var(--fs-ink-3);
+  font-weight: 600;
+}
+
+.fs-set__table tbody th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fs-set__meters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--fs-space-4);
+  inline-size: min(100%, 440px);
+  margin-top: var(--fs-space-2);
+}
+
+.fs-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fs-meter__label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fs-meter__track {
+  display: block;
+  block-size: 4px;
+  border-radius: 2px;
+  background: var(--fs-sunken);
+  overflow: hidden;
+}
+
+.fs-meter__track i {
+  display: block;
+  block-size: 100%;
+  inline-size: 100%;
+  background: var(--fs-accent);
+  transform-origin: left center;
+  transition: transform var(--fs-dur-3) var(--fs-ease);
+}
+
+.fs-meter__track i[data-high] {
+  background: var(--fs-warn);
+}
+
+.fs-meter__reset {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+/* Limiet: "Verouderd" / "net opnieuw begonnen" is about the whole reading, so it runs under both meters. */
+.fs-set__limit-state {
+  grid-column: 1 / -1;
+}
+
+.fs-set__paths {
+  display: grid;
+  gap: var(--fs-space-2);
+  margin: 0;
+  padding: 0 var(--fs-space-4) var(--fs-space-4);
+}
+
+.fs-set__rows > .fs-set__paths {
+  border-top: 0;
+}
+
+.fs-set__path-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: var(--fs-space-3);
+  align-items: baseline;
+}
+
+.fs-set__path-row dt {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-set__path-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fs-space-2);
+  margin: 0;
+}
+
+/* ------------------------------------------------------------ narrow */
+
+/* Below 1000 px the group list becomes a row of tabs above the content (DESIGN.md §3.4). */
+@media (max-width: 1000px) {
+  .fs-set__layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--fs-space-5);
+  }
+  /* The tabs stay at the top while the groups scroll under them, so a jump never hides the list. */
+  .fs-set__toc {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding-block: var(--fs-space-2);
+    background: var(--fs-bg);
+    box-shadow: 0 1px 0 var(--fs-line);
+  }
+  .fs-set__toc-sep {
+    display: none;
+  }
+  /* A jump lands the heading under the tabs, not behind them (two rows of tabs in Uitgebreid). */
+  .fs-set__group,
+  .fs-set__sub {
+    scroll-margin-top: calc(var(--fs-space-10) + var(--fs-space-8));
+  }
+  /* Eenvoudig has four tabs: one row. */
+  .fs-set[data-mode='eenvoudig'] .fs-set__group,
+  .fs-set[data-mode='eenvoudig'] .fs-set__sub {
+    scroll-margin-top: var(--fs-space-10);
+  }
+}
+
+@media (max-width: 640px) {
+  .fs-set__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fs-set__ctl {
+    justify-content: flex-start;
+  }
+  .fs-set__meters,
+  .fs-set__path-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-set__toc-link,
+  .fs-set__action-icon,
+  .fs-set__add svg,
+  .fs-meter__track i {
+    transition: none;
+  }
+  .fs-pill[data-tone='busy'] .fs-pill__dot {
+    animation: none;
+  }
+}

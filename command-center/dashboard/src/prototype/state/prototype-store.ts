@@ -209,11 +209,15 @@ function persist(key: string, value: string): void {
   }
 }
 
+/**
+ * The theme Windows asks for. Same rule as the first-paint script in index.html: dark only when the
+ * system says dark; no preference, no matchMedia or an error all mean light (the default theme).
+ */
 export function systemTheme(): 'dark' | 'light' {
   try {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 

@@ -87,6 +87,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+// WP 2.1: the default project root comes from forge-paths scriptRoot when it is there (optional require): an installed
+// copy keeps exactly the old own-folder answer; a plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd and
+// never the plugin's parent folder (null = no project found, the CLI then asks for --root).
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
 
 const CONFIG_REL = path.join('config', 'orchestration', 'FORGE_CONTEXT_BUDGET.json');
 const ESTIMATE_NOTE = 'ESTIMATE ONLY: tokens are characters / chars_per_token. No tokenizer ran — these are '
@@ -137,6 +146,8 @@ const COMMAND_MAX_DEPTH = 4;
  *  depth-4 count on 2026-08-01, which reported 2 plugin skills instead of 112 and looked perfectly calm doing
  *  it. Overridable per machine via `max_skill_depth` in the config. */
 const MAX_SKILL_DEPTH = 8;
+/** How far below the cap the walk still probes for left-out SKILL.md files (never counted, only reported). */
+const PROBE_CEILING = 64;
 
 /** SKILL_SOURCES — the three catalogs a session actually carries, in report order. Kept as data (not three
  *  copy-pasted blocks) so adding a fourth source is one line and every source automatically gets the same
@@ -342,7 +353,8 @@ function parseIncludes(text) {
  *  things beyond the file list, and each of them exists because leaving it out is how a walk lies:
  *    deepest — how deep it actually had to go, so a future cap that is too shallow is obvious from the report
  *              alone rather than from someone re-counting by hand;
- *    capped  — whether it refused to descend further, i.e. whether this count may be short;
+ *    capped  — whether this count IS short: a SKILL.md lies below the cap (`missed` says how many), or the
+ *              probe below the cap hit PROBE_CEILING so it cannot tell;
  *    dirExists — whether the root is even there, which is the difference between "this machine has no plugin
  *              catalog" (an honest zero) and "the catalog is empty" (usually a symptom).
  *  Symlink/cycle guard: every directory is resolved with realpath and visited at most once, so a loop cannot
@@ -353,9 +365,11 @@ function walkSkillCatalog(baseDir, maxDepth) {
   const seen = new Set();
   let deepest = 0;
   let capped = false;
+  let missed = 0;
+  let probeCeilingHit = false;
   let dirExists = false;
   try { dirExists = fs.statSync(baseDir).isDirectory(); } catch { dirExists = false; }
-  if (!dirExists) return { files, deepest, capped, dirExists };
+  if (!dirExists) return { files, deepest, capped, missed, dirExists };
   try { seen.add(fs.realpathSync(baseDir)); } catch { seen.add(path.resolve(baseDir)); }
   (function walk(dir, depth) {
     let entries = [];
@@ -367,19 +381,40 @@ function walkSkillCatalog(baseDir, maxDepth) {
       let isDir = e.isDirectory();
       if (!isDir && e.isSymbolicLink()) { try { isDir = fs.statSync(p).isDirectory(); } catch { isDir = false; } }
       if (!isDir) continue;
-      if (depth >= limit) { capped = true; continue; }
       let real; try { real = fs.realpathSync(p); } catch { real = path.resolve(p); }
       if (seen.has(real)) continue;
       seen.add(real);
+      if (depth >= limit) { probe(p, depth + 1); continue; }
       walk(p, depth + 1);
     }
   })(baseDir, 0);
+  /* Below the cap the walk only PROBES: it counts the SKILL.md files it is leaving out (`missed`) instead of
+   * assuming the count is short. 2026-11-05: claude-mem 15.9.0 ships test fixtures 14 levels deep in its cache,
+   * so "a directory exists below the cap" raised depth_capped although no skill was missed. The probe stops at
+   * PROBE_CEILING; a tree that still goes deeper there is unknown, so it stays `capped`. */
+  function probe(dir, depth) {
+    if (depth > PROBE_CEILING) { probeCeilingHit = true; return; }
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.name === 'SKILL.md' && !e.isDirectory()) { missed += 1; continue; }
+      let isDir = e.isDirectory();
+      if (!isDir && e.isSymbolicLink()) { try { isDir = fs.statSync(p).isDirectory(); } catch { isDir = false; } }
+      if (!isDir) continue;
+      let real; try { real = fs.realpathSync(p); } catch { real = path.resolve(p); }
+      if (seen.has(real)) continue;
+      seen.add(real);
+      probe(p, depth + 1);
+    }
+  }
+  capped = missed > 0 || probeCeilingHit;
   files.sort();
-  return { files, deepest, capped, dirExists };
+  return { files, deepest, capped, missed, dirExists };
 }
 
-/** measureSkillSource — one catalog, one post. Counts ONLY the frontmatter name + description of each skill:
- *  that pair is what the model is shown for every skill whether or not any of them is ever opened, so it is
+/** measureSkillSource — one catalog, one post. Counts ONLY the frontmatter name + description (+ when_to_use, WP 1.9)
+ *  of each skill: that is what the model is shown for every skill whether or not any of them is ever opened, so it is
  *  always-loaded weight, while the body is not. A source with no directory is still a full post (chars 0,
  *  `exists:false`) carrying a `note` that says why it is zero — see the header on honest zeros. */
 function measureSkillSource(src, dir, root, perToken, maxDepth, enablement) {
@@ -401,12 +436,15 @@ function measureSkillSource(src, dir, root, perToken, maxDepth, enablement) {
     const skill = path.relative(dir, path.dirname(abs)).split(path.sep).join('/') || '.';
     const name = frontmatterField(text, 'name') || '';
     const desc = frontmatterField(text, 'description') || '';
+    // WP 1.9: Claude Code lists `when_to_use` together with the description (verified against the live
+    // docs on 2026-10-24), so it is always-loaded weight too and is counted in the same entry.
+    const wtu = frontmatterField(text, 'when_to_use') || '';
     // a SKILL.md with no name AND no description declares nothing, so it adds nothing to the always-loaded
     // surface — six such files sit in ~/.claude/plugins, prose guides that merely share the filename. They
     // are still COUNTED as found (dropping them would make the walk's number disagree with `find`) but the
     // post says how many they are, so "112 skills" is never read as "112 skills' worth of loaded text".
     if (!name && !desc) withoutFrontmatter++;
-    const entry = { skill, chars: name.length + desc.length, name_chars: name.length, description_chars: desc.length };
+    const entry = { skill, chars: name.length + desc.length + wtu.length, name_chars: name.length, description_chars: desc.length, when_to_use_chars: wtu.length };
     const userOnly = /^true$/i.test(String(frontmatterField(text, 'disable-model-invocation') || '').trim());
     if (!en) { if (userOnly) toUserOnly(entry); else files.push(entry); continue; }
     const a = attributePluginSkill(abs, dir, en);
@@ -452,7 +490,7 @@ function measureSkillSource(src, dir, root, perToken, maxDepth, enablement) {
   }
   return {
     id: src.id, kind: 'catalog',
-    label: src.label + ' — name+description of ' + files.length + ' loaded skill(s)'
+    label: src.label + ' — name+description+when_to_use of ' + files.length + ' loaded skill(s)'
       + (en && disabledFiles.length ? ' (+' + disabledFiles.length + ' present but not loaded)' : ''),
     path: dir,
     in_project: inProject,
@@ -478,6 +516,7 @@ function measureSkillSource(src, dir, root, perToken, maxDepth, enablement) {
     deepest_depth: walk.deepest,
     max_depth: maxDepth || MAX_SKILL_DEPTH,
     depth_capped: walk.capped,
+    missed: walk.missed,
     note,
     files,
     disabled_files: disabledFiles,
@@ -745,14 +784,15 @@ function measure(root, opts) {
       disabled_chars: p.disabled_chars, disabled_approx_tokens: p.disabled_approx_tokens,
       user_only_skills: p.user_only_skills, user_only_chars: p.user_only_chars,
       unattributed_skills: p.unattributed_skills, enablement_aware: p.enablement_aware,
-      deepest_depth: p.deepest_depth, depth_capped: p.depth_capped, note: p.note,
+      deepest_depth: p.deepest_depth, depth_capped: p.depth_capped, missed: p.missed, note: p.note,
     });
     // a walk that stopped at its cap MIGHT be short — that possibility is a finding, not a footnote
     if (p.depth_capped) {
       findings.push({
         kind: 'depth_capped', id: p.id,
         detail: src.label + ': the SKILL.md walk stopped at its maximum depth of ' + maxDepth
-          + ' and did not descend further, so this count of ' + p.skills + ' skill(s) may be short — raise '
+          + (p.missed > 0 ? ' and left ' + p.missed + ' SKILL.md below it uncounted' : ' and could not see the bottom of the tree')
+          + ', so this count of ' + p.skills + ' skill(s) is short — raise '
           + '`max_skill_depth` in ' + CONFIG_REL.split(path.sep).join('/') + ' and re-measure',
       });
     }
@@ -777,7 +817,7 @@ function measure(root, opts) {
   if (overListingBudget) {
     findings.push({
       kind: 'over_listing_budget', id: 'skill_listing',
-      detail: 'the loaded skill listing (name+description summed across all three catalogs) is ' + skillListingChars
+      detail: 'the loaded skill listing (name+description+when_to_use summed across all three catalogs) is ' + skillListingChars
         + ' chars (~' + skillListingTokens + ' est. tokens), over the ~' + (listingBudgetPct * 100) + '% '
         + 'context-window listing budget of ~' + skillListingBudgetChars + ' chars (~' + skillListingBudgetTokens
         + ' est. tokens at a ' + contextWindowTokens + '-token context) — once this overflows, Claude Code drops '
@@ -1002,12 +1042,13 @@ if (require.main === module) {
     console.log('  --help, -h        show this usage line and exit');
     process.exit(0);
   }
-  let root = path.resolve(__dirname, '..', '..'), wantJson = false, wantBaseline = false;
+  let root = defaultRoot(), wantJson = false, wantBaseline = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--root') root = argv[++i];
     else if (argv[i] === '--json') wantJson = true;
     else if (argv[i] === '--write-baseline') wantBaseline = true;
   }
+  if (!root) { console.error('forge-contextbudget: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); process.exit(2); }
   if (wantBaseline) {
     const r = writeBaseline(root);
     console.log('baseline written: ' + r.path);

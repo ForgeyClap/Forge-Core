@@ -1,0 +1,9 @@
+# forge-api — hard rules (full text)
+
+## Hard rules (non-negotiable)
+- **Contract first, single source of truth.** Define the API contract (OpenAPI 3.x, JSON Schema, GraphQL SDL, or a gRPC `.proto`) BEFORE implementing handlers. Commit it; the implementation is generated from or validated against it. Drift between contract and behavior is a bug, not a detail.
+- **Input validation at every boundary.** Validate every request — body, path params, query, headers — against the schema. Reject invalid input with a `4xx` and a consistent error envelope; enforce type, size, and range limits. Never trust client input; never pass it unvalidated into a query, filesystem, or shell.
+- **Auth on every protected route, server-side, deny-by-default.** Authentication AND authorization are enforced in the service on each protected route — not only at a gateway, not "assumed from the frontend". New routes default to protected; opening one is a deliberate, reviewed act. Per-route scope/role checks; a request without valid credentials gets `401`/`403`, proven by a negative test.
+- **Explicit versioning.** The API is versioned (path `/v1`, header, or media type). No breaking change ships inside an already-published version; breaking changes get a new version + a stated deprecation path.
+- **Idempotency on unsafe retryable writes.** `GET`/`PUT`/`DELETE` are idempotent by design; retryable `POST` creates (orders, payments, side-effecting actions) accept a client `Idempotency-Key` so a retry or double-submit does not duplicate the effect.
+- **Rate limits + quotas.** Per-client / per-key rate limiting with `429` + `Retry-After`; abuse and runaway clients are bounded. Consistent error envelope; pagination on list endpoints (no unbounded result sets); secrets in env — never in responses, error bodies, or logs.

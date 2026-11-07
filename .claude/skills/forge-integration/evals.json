@@ -1,0 +1,136 @@
+{
+  "skill": "forge-integration",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "needle": "Use when coding an API integration",
+      "why": "description carries a when-trigger"
+    },
+    {
+      "id": "webhooks-section",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "needle": "## Webhooks (shared section)",
+      "why": "the shared webhook section is referenced from the playbook"
+    },
+    {
+      "id": "outbound-timeout",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "needle": "Every outbound call has an explicit timeout",
+      "why": "reliability rule"
+    },
+    {
+      "id": "outreach-gate",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "needle": "Outreach drafted only",
+      "why": "owner gate stays"
+    },
+    {
+      "id": "provenance",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "needle": "0aa8c48e3e1c65dc1fa893190006248b92805417",
+      "why": "MIT provenance names the pinned hookdeck SHA"
+    },
+    {
+      "id": "ref-webhooks",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "why": "the shared webhook rule set must exist"
+    },
+    {
+      "id": "seq-raw-body",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "Read the raw body. Do not parse it yet.",
+      "why": "hookdeck graft: verify on the raw body before parsing"
+    },
+    {
+      "id": "persist-before-ack",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "Persist, then acknowledge.",
+      "why": "Forge addition: ack after a durable write, not before"
+    },
+    {
+      "id": "uniqueness-guarantee",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "uniqueness guarantee",
+      "why": "hookdeck graft: a unique constraint, not only a lookup, stops races"
+    },
+    {
+      "id": "no-200-error",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "Never answer `200` with an error body",
+      "why": "response-code rule"
+    },
+    {
+      "id": "dead-letter",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "**Dead letter:**",
+      "why": "nothing is silently dropped"
+    },
+    {
+      "id": "replay-owner",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "owner decision",
+      "why": "replaying an event with an outside effect is owner-gated"
+    },
+    {
+      "id": "tests-forged",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "A forged signature",
+      "why": "the webhook tests include a forged signature"
+    },
+    {
+      "id": "webhooks-mit",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "Permission is hereby granted",
+      "why": "MIT notice kept"
+    },
+    {
+      "id": "no-express-code",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-integration/references/webhooks.md",
+      "needle": "express.raw(",
+      "why": "no framework code copied"
+    },
+    {
+      "id": "copy-host-connectors",
+      "type": "contains",
+      "path": ".claude/skills/forge-integration/SKILL.md",
+      "needle": "read at least two existing connectors",
+      "why": "api-connector-builder graft"
+    }
+  ]
+}

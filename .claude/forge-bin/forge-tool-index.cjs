@@ -78,14 +78,26 @@ const SUMMARY_FIELDS = ['task', 'approach', 'note', 'detail', 'output', 'summary
 const SUMMARY_MAX_CHARS = 400;
 const SUMMARY_JOIN = ' · ';
 const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
-const REF_RE = /^\.claude\/forge-runs\/([^/\\]+)\/events\.jsonl#L(\d+)$/;
+// WP 2.1: a ref names the run folder it was indexed from — the legacy .claude/forge-runs or the .forge layout's
+// .forge/runs (both accepted; resolve() then finds the run in whichever run folder holds it).
+const REF_RE = /^(?:\.claude\/forge-runs|\.forge\/runs)\/([^/\\]+)\/events\.jsonl#L(\d+)$/;
 const TOKEN_RE = /[\p{L}\p{N}_]+/gu;
 
 // ---- root / path resolution (identical to forge-snapshot.cjs / forge-manifest.cjs) ----
+// WP 2.1 (opt-in .forge layout): the index folder and the run folders come from forge-paths.cjs — .forge/index and
+// .forge/runs only in a project with a .forge folder (or FORGE_STATE_DIR), otherwise exactly .claude/forge-index and
+// .claude/forge-runs (every label and ref_path byte-identical there). The index is WRITTEN to the active folder; runs
+// are READ from every run folder that exists (a partly migrated project keeps its older runs). Guarded: an older or
+// missing forge-paths.cjs keeps the legacy literals.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const relPosix = (root, p) => path.relative(root, p).split(path.sep).join('/');
 function resolveRoot(explicit) {
   if (explicit) return path.resolve(explicit);
   if (process.env.FORGE_PROJECT_ROOT) return path.resolve(process.env.FORGE_PROJECT_ROOT);
-  return path.resolve(__dirname, '..', '..');
+  const r = viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+  if (!r) throw new Error('forge-tool-index: no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — pass --root');
+  return r;
 }
 /** assertContained — copied from forge-manifest.cjs. Nothing may ever resolve outside its own base dir. */
 function assertContained(target, base, label) {
@@ -93,28 +105,38 @@ function assertContained(target, base, label) {
   if (t !== b && !t.startsWith(b + path.sep)) throw new Error('forge-tool-index: path escapes ' + (label || base) + ' — refused');
 }
 function indexPaths(root) {
-  const base = path.join(path.resolve(root), '.claude', 'forge-index');
+  const r = path.resolve(root);
+  const base = viaForgePaths((P) => P.stateDir(r, 'index'), () => path.join(r, '.claude', 'forge-index'));
   const p = {
     dir: base,
     dbPath: path.join(base, 'tool-index.db'),
     jsonlPath: path.join(base, 'tool-index.jsonl'),
     statePath: path.join(base, 'state.json'),
   };
-  for (const k of ['dbPath', 'jsonlPath', 'statePath']) assertContained(p[k], base, '.claude/forge-index');
+  for (const k of ['dbPath', 'jsonlPath', 'statePath']) assertContained(p[k], base, relPosix(r, base));
   return p;
 }
-function runsDir(root) { return path.join(path.resolve(root), '.claude', 'forge-runs'); }
+/** runsDir(root) — the ACTIVE run folder (legacy layout: .claude/forge-runs). */
+function runsDir(root) { const r = path.resolve(root); return viaForgePaths((P) => P.stateDir(r, 'runs'), () => path.join(r, '.claude', 'forge-runs')); }
+/** runsDirs(root) — every run folder that exists, active first (legacy layout: [.claude/forge-runs] or []). */
+function runsDirs(root) { const r = path.resolve(root); return viaForgePaths((P) => P.existingStateDirs(r, 'runs'), () => [runsDir(r)]); }
 function eventsPathFor(root, runId) {
-  const base = runsDir(root);
+  // the run folder that holds runId (active first); a run that exists nowhere resolves under the active folder
+  let base = runsDir(root);
+  for (const d of runsDirs(root)) if (fs.existsSync(path.join(d, runId))) { base = d; break; }
   const p = path.join(base, runId, 'events.jsonl');
-  assertContained(p, base, '.claude/forge-runs');
+  assertContained(p, base, relPosix(path.resolve(root), base));
   return p;
 }
 function isValidRunId(id) { return typeof id === 'string' && RUN_ID_RE.test(id); }
 function listRunDirs(root) {
-  let entries;
-  try { entries = fs.readdirSync(runsDir(root), { withFileTypes: true }); } catch { return []; }
-  return entries.filter((e) => e.isDirectory() && isValidRunId(e.name)).map((e) => e.name).sort();
+  const names = new Set();
+  for (const d of runsDirs(root)) {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) if (e.isDirectory() && isValidRunId(e.name)) names.add(e.name);
+  }
+  return [...names].sort();
 }
 
 // ---- atomic write (same-dir temp + rename, EPERM/EBUSY retry — mirrors forge-manifest.cjs) ----
@@ -226,7 +248,8 @@ function toIndexRecord(event, ctx) {
     event_type: eventType,
     tool,
     summary,
-    ref_path: '.claude/forge-runs/' + runId + '/events.jsonl#L' + lineNo,
+    // WP 2.1: ctx.runsRel names the run folder the event was read from (default: the legacy .claude/forge-runs)
+    ref_path: (typeof ctx.runsRel === 'string' && ctx.runsRel ? ctx.runsRel : '.claude/forge-runs') + '/' + runId + '/events.jsonl#L' + lineNo,
     line_no: lineNo,
     event_uid: entryHash || (runId + ':' + lineNo),
     summary_fields: summaryFields,
@@ -428,7 +451,7 @@ function ingest(opts) {
         if (!raw) { skipped++; continue; }
         let ev;
         try { ev = JSON.parse(raw); } catch { skipped++; continue; }
-        const rec = toIndexRecord(ev, { runId, lineNo, root });
+        const rec = toIndexRecord(ev, { runId, lineNo, root, runsRel: relPosix(root, path.dirname(path.dirname(file))) });
         if (!rec) { skipped++; continue; }
         if (uids.has(rec.event_uid)) { skipped++; continue; }
         uids.add(rec.event_uid);

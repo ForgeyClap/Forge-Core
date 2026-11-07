@@ -1,0 +1,8 @@
+/*
+ * The chat's work strip sits in the dock, at the composer's column width (chat.css `.fw-chat__dock > *`).
+ * The strip itself is the WorkStrip primitive; this file only places it.
+ */
+
+.fw-chat-work {
+  flex: none;
+}

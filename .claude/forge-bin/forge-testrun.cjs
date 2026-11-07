@@ -92,9 +92,21 @@ function parseArgs(argv) {
   return o;
 }
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+
+/** defaultLogDir() -> <runs>/_testlogs of this project, or null when no project root is found (plugin copy outside a
+ *  project): the full log is then not written, never into the plugin folder. */
 function defaultLogDir() {
-  const root = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-  return path.join(root, '.claude', 'forge-runs', '_testlogs');
+  const root = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
+  return root ? path.join(statePath(root, 'runs'), '_testlogs') : null;
 }
 
 function buildReport(o, res, logPath) {
@@ -181,7 +193,9 @@ async function main(argv) {
   const res = await run(o);
   let logPath = null;
   try {
-    const dir = path.resolve(o.logDir || defaultLogDir());
+    const base = o.logDir || defaultLogDir();
+    if (!base) throw new Error('no project root found'); // -> the OS temp fallback below, never the script's own folder
+    const dir = path.resolve(base);
     fs.mkdirSync(dir, { recursive: true });
     logPath = path.join(dir, 'testrun-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + process.pid + '.log');
     fs.writeFileSync(logPath, scrub('$ ' + o.cmd.join(' ') + '\n\n' + res.stdout + (res.stderr ? '\n--- stderr ---\n' + res.stderr : '')));

@@ -85,5 +85,49 @@ t('WP-9b: memoryArchiveFiles() on a missing directory is [] (never throws)', () 
   assert.deepStrictEqual(scrub.memoryArchiveFiles(path.join(os.tmpdir(), 'no-such-dir-' + process.pid)), []);
 });
 
+// WP 1.9: forge-memory-consolidate.cjs (WP 1.4) archives history/ledger/decisions as
+// FORGE_<NAME>_ARCHIVE_<YYYY-MM>[-b].md, distills Boss memory into agent-memory/<agent>/lessons-archive-*.md and
+// builds LESSONS.md. All of them hold verbatim memory text, so all of them are scanned like FORGE_MEMORY_ARCHIVE_*.md.
+t('WP 1.9: defaultTargets() also scans every FORGE_*_ARCHIVE_*.md, LESSONS.md and agent-memory/*/lessons-archive-*.md', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-scrub-archive19-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'FORGE_MEMORY.md'), '# current state\nclean\n');
+    fs.writeFileSync(path.join(dir, 'LESSONS.md'), '| lesson | evidence |\n| leak ' + FAKE_SK + ' | x |\n');
+    for (const n of ['FORGE_TASK_HISTORY_ARCHIVE_2026-10.md', 'FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md']) {
+      fs.writeFileSync(path.join(dir, n), '# archive\nkey ' + FAKE_NV + '\n');
+    }
+    fs.writeFileSync(path.join(dir, 'FORGE_DECISIONS_ARCHIVE_2026-10.txt'), 'not markdown ' + FAKE_SK + '\n');
+    fs.writeFileSync(path.join(dir, 'forge_memory_archive_2026-10.md'), 'lower case is not a Forge archive ' + FAKE_SK + '\n');
+    fs.mkdirSync(path.join(dir, 'agent-memory', 'build-boss'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'agent-memory', 'verify-boss'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'agent-memory', 'build-boss', 'lessons-archive-2026-10-23.md'), '# archive\nleak ' + FAKE_SK + '\n');
+    fs.writeFileSync(path.join(dir, 'agent-memory', 'build-boss', 'lessons-archive-2026-09-27b.md'), 'clean\n');
+    fs.writeFileSync(path.join(dir, 'agent-memory', 'build-boss', 'MEMORY.md'), 'live file is git-tracked, the doctor leak scan covers it\n');
+    fs.writeFileSync(path.join(dir, 'agent-memory', 'verify-boss', 'lessons-archive-2026-10-23.md'), 'clean\n');
+    fs.mkdirSync(path.join(dir, 'agent-memory', 'verify-boss', 'lessons-archive-dir.md'));
+    fs.mkdirSync(path.join(dir, 'agent-memory', 'deep', 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'agent-memory', 'deep', 'nested', 'lessons-archive-2026-10-23.md'), 'two levels down: out of scope\n');
+    const rel = (p) => path.relative(dir, p).split(path.sep).join('/');
+    const targets = scrub.defaultTargets(dir).map(rel);
+    assert.deepStrictEqual(targets, [
+      'FORGE_MEMORY.md', 'LESSONS.md',
+      'FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'FORGE_TASK_HISTORY_ARCHIVE_2026-10.md',
+      'agent-memory/build-boss/lessons-archive-2026-09-27b.md', 'agent-memory/build-boss/lessons-archive-2026-10-23.md', 'agent-memory/verify-boss/lessons-archive-2026-10-23.md',
+    ]);
+    const r = scrub.scan(scrub.defaultTargets(dir));
+    const hitFiles = [...new Set(r.hits.map((h) => rel(h.file)))].sort();
+    assert.deepStrictEqual(hitFiles, ['FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'FORGE_TASK_HISTORY_ARCHIVE_2026-10.md', 'LESSONS.md', 'agent-memory/build-boss/lessons-archive-2026-10-23.md']);
+    assert.ok(!JSON.stringify(r).includes(FAKE_SK) && !JSON.stringify(r).includes(FAKE_NV), 'location only, never the secret');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+t('WP 1.9: the archive patterns accept the consolidation names and refuse look-alikes', () => {
+  for (const ok of ['FORGE_MEMORY_ARCHIVE_2026-10.md', 'FORGE_TASK_HISTORY_ARCHIVE_2026-10-b.md', 'FORGE_AGENT_LEDGER_ARCHIVE_2026-10.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md']) assert.ok(scrub.MEMORY_ARCHIVE_RE.test(ok), ok);
+  for (const bad of ['FORGE_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_.md', 'FORGE_MEMORY_ARCHIVE_2026-10.txt', 'x/FORGE_MEMORY_ARCHIVE_2026-10.md', 'FORGE_memory_ARCHIVE_2026-10.md']) assert.ok(!scrub.MEMORY_ARCHIVE_RE.test(bad), bad);
+  assert.ok(scrub.LESSONS_ARCHIVE_RE.test('lessons-archive-2026-09-27g.md') && scrub.LESSONS_ARCHIVE_RE.test('lessons-archive-2026-07-30-b.md'));
+  assert.ok(!scrub.LESSONS_ARCHIVE_RE.test('lessons-archive-2026-10-23.txt') && !scrub.LESSONS_ARCHIVE_RE.test('MEMORY.md') && !scrub.LESSONS_ARCHIVE_RE.test('../lessons-archive-x.md'));
+  assert.deepStrictEqual(scrub.lessonsArchiveFiles(path.join(os.tmpdir(), 'no-such-dir-' + process.pid)), []);
+});
+
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

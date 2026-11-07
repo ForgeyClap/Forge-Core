@@ -1,0 +1,4 @@
+# forge-api — ship-readiness (full text)
+
+## Ship-readiness (unique)
+Contract (OpenAPI/schema/proto) committed and the implementation proven to match it; auth verified on protected routes **with a negative test** showing an unauthenticated/wrong-scope request is rejected; boundary validation returns clear `4xx`s; idempotency + rate limit demonstrated (a replayed create does not double-write; an over-limit client gets `429`); versioning strategy documented; error envelope consistent across endpoints; secrets in env; contract/integration tests green (or explicitly marked not-run if the runtime is unavailable). Advisory checklist — optionally run `codex-reviewer` on the auth + validation + idempotency code (recommended here); not a blocker, but if the contract tests or Codex did not run, say so.

@@ -6,11 +6,12 @@
  * file's own header for the full refactor rationale.
  */
 
-import { Machine, Timestamp } from '@/components/primitives';
+import { Machine } from '@/components/primitives';
+import { t } from '@/i18n';
 import { selectConversation, selectProject } from '@/prototype/state/prototype-store';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
 import { renderMarkdown } from '@/views/chat/markdown';
-import { Chips, Fields, KIND_LABEL, Section } from './inspector-shared';
+import { Chips, Fields, KIND_LABEL, Section, Quiet } from './inspector-shared';
 import type { Detail } from './inspector-shared';
 
 export function buildConversationDetail(
@@ -26,6 +27,7 @@ export function buildConversationDetail(
   const models = Array.from(
     new Set(messages.map((message) => message.model).filter((model): model is string => Boolean(model))),
   );
+  const author = last?.author === 'user' ? t('inspector.conversation.you') : t('inspector.conversation.forge');
   return {
     eyebrow: KIND_LABEL.conversation,
     title: conversation.title,
@@ -37,17 +39,17 @@ export function buildConversationDetail(
       <>
         <Fields
           rows={[
-            { label: 'Project', value: project ? project.name : <Machine>{conversation.projectId}</Machine> },
-            { label: 'Messages', value: <Machine>{conversation.messageCount}</Machine> },
-            { label: 'Updated', value: <Timestamp value={conversation.updatedAt} /> },
+            { label: t('inspector.conversation.project'), value: project ? project.name : <Machine>{conversation.projectId}</Machine> },
+            { label: t('inspector.conversation.messages'), value: conversation.messageCount },
+            { label: t('inspector.conversation.updated'), value: <Quiet>{conversation.updatedAt}</Quiet> },
           ]}
         />
         {last ? (
-          <Section title="Last message" defaultOpen count={last.author === 'user' ? 'you' : 'forge'}>
+          <Section title={t('inspector.conversation.lastMessage')} defaultOpen count={author}>
             <div className="fw-inspector__meta">
-              <Machine muted>{last.author === 'user' ? 'you' : 'forge'}</Machine>
+              <Quiet>{author}</Quiet>
               <span className="fw-inspector__dot" aria-hidden="true" />
-              <Timestamp value={last.timestamp} />
+              <Quiet>{last.timestamp}</Quiet>
             </div>
             {/* WP-8d: the message is Markdown — render it with the chat's own safe renderer
                 (real React elements, no HTML injection, links get rel="noreferrer noopener")
@@ -58,20 +60,18 @@ export function buildConversationDetail(
           </Section>
         ) : null}
         {models.length > 0 ? (
-          <Section title="Model labels" count={models.length}>
-            <Chips items={models} label="Model labels used in this thread" />
+          <Section title={t('inspector.conversation.models')} count={models.length}>
+            <Chips items={models} label={t('inspector.conversation.modelsLabel')} />
             <p className="fw-inspector__hint">
-              {production
-                ? 'Display labels carried on these messages. No model was contacted from this panel.'
-                : 'Display labels written into the example data. No model was contacted.'}
+              {production ? t('inspector.conversation.modelsLive') : t('inspector.conversation.modelsExample')}
             </p>
           </Section>
         ) : null}
-        <Section title="Thread" count={messages.length}>
+        <Section title={t('inspector.conversation.history')} count={messages.length}>
           <div className="fw-inspector__links">
             {messages.slice(-6).map((message) => (
               <div key={message.id} className="fw-inspector__row">
-                <Timestamp value={message.timestamp} />
+                <Quiet>{message.timestamp}</Quiet>
                 <span className="fw-truncate fw-inspector__row-text">
                   {message.body.replace(/[#*`>|-]/g, ' ').trim().slice(0, 64) || '—'}
                 </span>

@@ -79,6 +79,7 @@ function runStop(payload, opts) {
     const sessionId = H.str(payload.session_id, 200);
     if (!sessionId) return out({ reason: 'no session_id — cannot tell which items this session captured' });
     const root = H.resolveRoot(opts);
+    if (!root) return out({ reason: 'no project root found (a copy outside any project)' });
     const mod = H.loadScribe(root, opts);
     if (!mod) return out({ reason: 'forge-scribe is not installed in this project' });
     const { S, SC } = mod;

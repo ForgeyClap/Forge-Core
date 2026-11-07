@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Offline tests for the usage-guard reset-rhythm auto-resume feature + forge-resume.cjs + the
+ * Offline tests for the usage-guard reset-rhythm auto-resume feature + the
  * NVIDIA-shift soft pressure threshold (owner policy: prefer NVIDIA agents over Claude agents at
  * ~80% weekly usage, advisory-only, no quality downgrade, never pauses/blocks anything).
  * No network, no live OAuth key.
@@ -10,8 +10,7 @@
  * even hits the live network for `status`/`check` on require()), so this test deliberately does NOT
  * require() them — it replicates the tiny PURE helpers (resumeAtEpoch math, creditsExhausted, the
  * hook's self-heal predicate, computePressureLevel/buildPressureData) inline, mirroring the real
- * implementations 1:1. forge-resume.cjs IS a real CLI, so it is exercised as a genuine subprocess
- * against a temp HOME, hermetically.
+ * implementations 1:1. (The forge-resume.cjs subprocess cases moved into that tool's own test when A6 archived it.)
  *
  * Run: node usage-guard.test.cjs   (exit 0 = all pass, exit 1 = at least one failure)
  */
@@ -158,55 +157,8 @@ test('hook self-heal: does not resume with a missing/NaN resumeAtEpoch', () => {
   assert.strictEqual(shouldRhythmResume('paused', NaN, 2000), false);
 });
 
-// ---- 4) forge-resume.cjs round-trip (hermetic: fake HOME via env; real ~/.claude untouched) ----
-const NODE = process.execPath;
-const FORGE_RESUME_CJS = path.join(__dirname, 'forge-resume.cjs');
-function withTmpHome(fn) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-resume-test-'));
-  try { return fn(tmp); } finally { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
-}
-function runForgeResume(tmpHome, cliArgs) {
-  return execFileSync(NODE, [FORGE_RESUME_CJS, ...cliArgs], {
-    env: { ...process.env, USERPROFILE: tmpHome, HOME: tmpHome },
-    encoding: 'utf8',
-  });
-}
-test('forge-resume set/todo-add/todo-status/show round-trip in an isolated HOME', () => {
-  withTmpHome((tmpHome) => {
-    runForgeResume(tmpHome, ['set', '--project', 'TestProj', '--path', 'C:/x/TestProj', '--phase', 'build', '--last', 'wrote hook', '--next', 'write tests']);
-    runForgeResume(tmpHome, ['todo-add', 'write', 'the', 'usage-guard', 'test']);
-    runForgeResume(tmpHome, ['todo-add', 'sync', 'template']);
-    runForgeResume(tmpHome, ['todo-status', '1', 'done']);
-    const out = runForgeResume(tmpHome, ['show']);
-
-    const stateFile = path.join(tmpHome, '.claude', 'FORGE_RESUME_STATE.json');
-    assert.ok(fs.existsSync(stateFile), 'state file should be created under the fake HOME');
-    const s = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-    assert.strictEqual(s.project, 'TestProj');
-    assert.strictEqual(s.phase, 'build');
-    assert.strictEqual(s.last_done, 'wrote hook');
-    assert.strictEqual(s.next, 'write tests');
-    assert.strictEqual(s.todo.length, 2);
-    assert.strictEqual(s.todo[0].status, 'done');
-    assert.strictEqual(s.todo[1].status, 'pending');
-    assert.ok(out.includes('open to-do: 1'), 'show output should report 1 open todo, got: ' + out);
-  });
-});
-test('forge-resume never writes to the real global HOME during the isolated test', () => {
-  // FLAKINESS-WORTEL GEVONDEN (vloot-diagnose): dit was een byte-gelijkheids-assert op het
-  // ECHTE ~/.claude/FORGE_RESUME_STATE.json voor/na — een bestand dat de LIVE sessie en haar hooks
-  // legitiem herschrijven. Elke legitieme schrijf die toevallig tijdens deze suite viel = 1 "failure":
-  // exact de intermitterende enkele rode test die install-validaties (die deze suite in het doelproject
-  // draaien terwijl de hoofdsessie doorwerkt) al drie projecten lang liet terugrollen, en de "transiente"
-  // doctor-rood van 2026-08-05. De ECHTE invariant — de hermetische run lekt zijn testdata niet naar de
-  // echte HOME — blijft volledig overeind; alleen de race op andermans legitieme writes is weg.
-  const realStateFile = path.join(os.homedir(), '.claude', 'FORGE_RESUME_STATE.json');
-  withTmpHome((tmpHome) => {
-    runForgeResume(tmpHome, ['set', '--project', 'ShouldNotLeak']);
-  });
-  const after = fs.existsSync(realStateFile) ? fs.readFileSync(realStateFile, 'utf8') : null;
-  if (after != null) assert.ok(!after.includes('ShouldNotLeak'), 'real state file must not contain test data — the hermetic run leaked into the real HOME');
-});
+// ---- 4) (A6 2026-11-02) the forge-resume.cjs subprocess cases moved into that tool's own test when it was
+// archived (development tree only); this suite no longer spawns forge-resume.cjs. ----
 
 // ---- 5) NVIDIA-shift soft pressure threshold (mirrors usage-guard.cjs computePressureLevel()/
 // buildPressureData()/writePressureFile() 1:1 — advisory-only routing signal, purely additive; the

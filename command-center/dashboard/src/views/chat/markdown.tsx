@@ -17,6 +17,7 @@
 import { createElement } from 'react';
 import type { ReactNode } from 'react';
 import { ExampleTag, IconButton, Machine, Spacer } from '@/components/primitives';
+import { getLocale, translate } from '@/i18n';
 
 /* ------------------------------------------------------------------ types */
 
@@ -336,6 +337,8 @@ function codeBlock(
   onCopy: MarkdownOptions['onCopy'],
 ): ReactNode {
   const label = lang === '' ? 'text' : lang;
+  // A renderer, not a component: it reads the current locale; a locale switch re-renders the thread anyway.
+  const locale = getLocale();
   return (
     <div className="fw-chat-md__code" key={key}>
       <div className="fw-chat-md__code-head">
@@ -346,12 +349,19 @@ function codeBlock(
         <Spacer />
         <IconButton
           icon="Copy"
-          label={`Copy the ${label} block`}
+          label={translate(locale, 'rd.chat.copyCode', { lang: label })}
           size="sm"
           onClick={() => onCopy?.(code, label)}
         />
       </div>
-      <pre className="fw-chat-md__code-body">
+      {/* A long line scrolls sideways, so the block takes keyboard focus (axe scrollable-region-focusable). Its name
+          needs a role that allows one: group, not region, so a thread with several blocks repeats no landmark. */}
+      <pre
+        className="fw-chat-md__code-body"
+        tabIndex={0}
+        role="group"
+        aria-label={translate(locale, 'chat.message.codeBlock', { lang: label })}
+      >
         <code className="fg-machine">{code}</code>
       </pre>
     </div>

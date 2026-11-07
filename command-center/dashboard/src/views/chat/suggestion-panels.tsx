@@ -10,6 +10,7 @@
  */
 
 import { Icon, Machine } from '@/components/primitives';
+import { useLocale } from '@/i18n/use-locale';
 
 import type { ActiveMentionToken, MentionFileEntry, MentionIndexState } from './mention-files';
 import type { SlashCommand } from './slash-commands';
@@ -23,17 +24,18 @@ export interface MentionSuggestionsProps {
 }
 
 export function MentionSuggestions({ token, status, results, hasActiveProject, onChoose }: MentionSuggestionsProps) {
+  const { t } = useLocale();
   if (token === null) return null;
   return (
-    <div className="fw-chat-menu__panel fw-chat-composer__suggest-panel" role="listbox" aria-label="Mention a file">
-      <p className="fg-eyebrow fw-chat-menu__title">Mention a file</p>
+    <div className="fw-chat-menu__panel fw-chat-composer__suggest-panel" role="listbox" aria-label={t('chat.suggest.mentionTitle')}>
+      <p className="fg-eyebrow fw-chat-menu__title">{t('chat.suggest.mentionTitle')}</p>
       {status === 'loading' && results.length === 0 ? (
-        <p className="fw-chat-menu__note">Loading this project&rsquo;s files…</p>
+        <p className="fw-chat-menu__note">{t('chat.suggest.loadingFiles')}</p>
       ) : !hasActiveProject ? (
-        <p className="fw-chat-menu__note">Select a project to mention its files.</p>
+        <p className="fw-chat-menu__note">{t('chat.suggest.selectProject')}</p>
       ) : results.length === 0 ? (
         <p className="fw-chat-menu__note">
-          {token.query === '' ? "Type to search this project's files." : `No files match "@${token.query}".`}
+          {token.query === '' ? t('chat.suggest.typeToSearch') : t('chat.suggest.noFileMatch', { query: token.query })}
         </p>
       ) : (
         results.map((entry) => (
@@ -63,12 +65,13 @@ export interface SlashCommandSuggestionsProps {
 }
 
 export function SlashCommandSuggestions({ query, results, onChoose }: SlashCommandSuggestionsProps) {
+  const { t } = useLocale();
   if (query === null) return null;
   return (
-    <div className="fw-chat-menu__panel fw-chat-composer__suggest-panel" role="listbox" aria-label="Slash commands">
-      <p className="fg-eyebrow fw-chat-menu__title">Commands</p>
+    <div className="fw-chat-menu__panel fw-chat-composer__suggest-panel" role="listbox" aria-label={t('chat.suggest.commandsLabel')}>
+      <p className="fg-eyebrow fw-chat-menu__title">{t('chat.suggest.commandsTitle')}</p>
       {results.length === 0 ? (
-        <p className="fw-chat-menu__note">No matching command.</p>
+        <p className="fw-chat-menu__note">{t('chat.suggest.noCommand')}</p>
       ) : (
         results.map((command) => (
           <button

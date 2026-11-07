@@ -21,6 +21,24 @@
  *   A TEXT gate (class:irreversible, match.kind==='regex') fires when its pattern matches the combined
  *   text (input.text + input.action + input.command).
  *
+ *   PHRASES (WP 3.3). A text gate may also carry `match.phrases: {en:[...], nl:[...]}` — extra
+ *   regex ARMS, one reviewable line per phrase family and language, OR'ed with the unchanged `pattern`
+ *   (textGateArms()/matchedTextArm() below; compiled once per gate). They exist because the original English
+ *   patterns missed the plain phrases an owner or agent really writes — measured on 2026-10-24: 'publish to the
+ *   marketplace', 'send the newsletter', 'delete the folder', 'verwijder de map', 'verstuur de nieuwsbrief',
+ *   'publiceer' and 128 similar phrases all classified gate:false. loadGates() REFUSES phrases on a command
+ *   gate: forge-gate-hook.cjs blocks every command-kind id classify() reports, so a spoken-intent phrase on a
+ *   command gate would turn a git commit message or a scribe record that merely SAYS "verwijder de map" into a
+ *   hard block. That is also why deletion intent got its own text gate id (`data-delete`) instead of an arm on
+ *   the command gate `destructive-delete`. Every arm must compile, and the suite proves every arm fires on at
+ *   least one real or constructed phrase (no dead arm) and that the negative controls stay silent.
+ *
+ *   DESCRIPTIONS (WP 3.3b). A text gate with `match.descriptions: "skip"` fires only on an arm occurrence
+ *   that reads as an instruction; a feature description, a how-to question, an adjective or a quoted mention is
+ *   skipped through the shared hard-gates.json `description_cues` (see validateDescriptionCues()/instructionTextArm()).
+ *   A command gate may also carry `match.line_all_of` (see validateLineAllOf()/lineAllOfFires()): 2+ regexes that
+ *   must all match the whole text, linear, for inline code the segment split would cut in two.
+ *
  *   A COMMAND gate (class:irreversible, match.kind==='command', added 2026-08-01) fires when
  *   `match.pattern` matches ANY SINGLE COMMAND SEGMENT of that same combined text, or when the optional
  *   `match.pattern_line` matches the WHOLE text. WHY A THIRD KIND: the nine original regex gates describe
@@ -46,6 +64,15 @@
  *   `match.pattern_line` is the counterpart: a danger that no single segment can see. `Get-Process node |
  *   Stop-Process` splits into a harmless selector and a target-less killer — only the whole line shows the
  *   selection was BY NAME. It is never segment-split and has no except valve.
+ *
+ *   LINEAR TIME (WP 3.3c). An arm `A(?=[^\n]*X)` rescans the rest of the line from EVERY occurrence of
+ *   its verb A, so one long command of a repeated verb cost k x line (`cat ` x 120k chars: 9.4 s). Each such arm in
+ *   hard-gates.json now starts with an exact guard `(?=A)(?<!A[^\n]*?)A`: only the first A of a line runs the rest,
+ *   and that A is the best one anyway, so no verdict changes (arms with a NEGATIVE lookahead take the first A after
+ *   the last negative hit instead). Each gate's `_linear_doc` names its variant; forge-actiongate.test.cjs section
+ *   2c-linear proves the same verdicts against the pinned pre-3.3c text and linear growth per shape. kill-by-name's
+ *   and opaque-exec's multi-arm pattern_lines are still quadratic on some shapes (listed there; the hook watchdog
+ *   bounds them), because a guard there could hide one arm behind another arm's skipped quoted match.
  *
  *   `match.except` (optional) is the FALSE-ALARM valve: when it excuses the SAME segment that matched,
  *   that segment does not fire. It exists because a recursive delete of `node_modules` or `_scratch` is
@@ -111,6 +138,179 @@ const CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'hard-
  *  over-warn, a misread one = a bypass). */
 const EXCEPT_KINDS = new Set(['exact-segment']);
 
+/** PHRASE_LANG_RE — the language keys a `match.phrases` block may use (WP 3.3 ships `en` and `nl`; any two-letter
+ *  key is accepted so a later language needs no code change). Keys starting with `_` are documentation, ignored. */
+const PHRASE_LANG_RE = /^[a-z]{2}$/;
+
+/** validatePhrases(g, p) — WP 3.3. Throws (fail closed, like the except valve) on a `match.phrases` block that is
+ *  not {lang:[non-empty regex source, ...]}, on an arm that does not compile, and on ANY phrases block on a
+ *  non-regex gate (see the PHRASES note in the header: a command gate is hook-enforced). */
+function validatePhrases(g, p) {
+  const ph = g.match.phrases;
+  const where = 'forge-actiongate: gate "' + g.id + '" match.phrases in ' + p;
+  if (g.match.kind !== 'regex') {
+    throw new Error(where + ' is only allowed on a "regex" (text) gate — a "' + g.match.kind + '" gate is enforced by the PreToolUse hook, and a spoken-intent phrase must never become a hook block');
+  }
+  if (!ph || typeof ph !== 'object' || Array.isArray(ph)) throw new Error(where + ' must be an object {en:[...], nl:[...]}');
+  for (const [lang, list] of Object.entries(ph)) {
+    if (lang.startsWith('_')) continue;
+    if (!PHRASE_LANG_RE.test(lang)) throw new Error(where + ': "' + lang + '" is not a two-letter language key');
+    if (!Array.isArray(list) || list.length === 0) throw new Error(where + '.' + lang + ' must be a non-empty array of regex sources');
+    list.forEach((src, i) => {
+      if (typeof src !== 'string' || !src.trim()) throw new Error(where + '.' + lang + '[' + i + '] must be a non-empty string');
+      try { new RegExp(src, armFlags(g.match.flags)); } catch (e) { throw new Error(where + '.' + lang + '[' + i + '] does not compile: ' + e.message); }
+    });
+  }
+}
+
+/** validateLineAllOf(g, p) — WP 3.3b. `match.line_all_of` (command gates only) is a list of 2+ regex sources that must
+ *  ALL match somewhere in the WHOLE command text, the FIRST one at a position outside quoted data (lineAllOfFires()).
+ *  It exists for inline code (`node -e "...; fs.writeFileSync('.claude/settings.json', x)"`): the quote-blind segment
+ *  split cuts such code at its own `;`, so no single segment holds the interpreter, the write call AND the path. Each
+ *  regex is tested once over the text, so the check is linear — unlike a lookahead pattern_line that rescans the
+ *  rest of the line from every interpreter word. Throws (fail closed) on anything malformed. */
+function validateLineAllOf(g, p) {
+  const where = 'forge-actiongate: gate "' + g.id + '" match.line_all_of in ' + p;
+  if (g.match.kind !== 'command') throw new Error(where + ' is only allowed on a "command" gate');
+  const list = g.match.line_all_of;
+  if (!Array.isArray(list) || list.length < 2) throw new Error(where + ' must be an array of at least 2 regex sources');
+  list.forEach((src, i) => {
+    if (typeof src !== 'string' || !src.trim()) throw new Error(where + '[' + i + '] must be a non-empty string');
+    try { new RegExp(src, armFlags(g.match.flags)); } catch (e) { throw new Error(where + '[' + i + '] does not compile: ' + e.message); }
+  });
+}
+
+/** armFlags(flags) — the gate's flags minus g/y: the arms are compiled ONCE and reused, and a global or sticky
+ *  regex keeps lastIndex between test() calls, which would make the same text match only every other time. */
+function armFlags(flags) { return String(flags || 'i').replace(/[gy]/g, ''); }
+
+/** DESCRIPTIONS (WP 3.3b). A text gate may set `match.descriptions: "skip"`: an arm match then counts
+ *  only when it reads as an INSTRUCTION, not as a DESCRIPTION of a feature or a quoted mention. Measured before this
+ *  existed: 35 of 41 feature descriptions ('the app can delete files', 'add a button to delete files', 'de gebruiker
+ *  kan de map verwijderen', 'start the headless run from an empty temp folder') fired data-delete. The cues live ONCE
+ *  in hard-gates.json `description_cues`: `before` regexes are tested on the clause text BEFORE a match (each anchors
+ *  itself with `$`), `through` regexes on that clause text plus the match (also `$`-anchored, for Dutch verb-final
+ *  word order: 'de app kan bestanden verwijderen'). A match inside a quoted phrase ("delete the folder") is a mention,
+ *  unless an execution verb (run, type, draai, ...) stands right before the quote. Backticks are never a mention:
+ *  `rm -rf dist` in a plan is a planned command. Every occurrence of every arm is judged; ONE instruction occurrence
+ *  fires the gate, so 'the app can delete files; delete the old backups folder now' still fires. Fail-closed limits:
+ *  more than DESCRIPTION_MAX_OCCURRENCES description-shaped occurrences fire the gate, the left context is capped at
+ *  DESCRIPTION_LEFT_CHARS, and a gate that asks for descriptions when no cues could be compiled is judged without
+ *  them (stricter). loadGates() refuses `descriptions` on a command gate, any value but "skip", a missing or
+ *  malformed `description_cues` block and a cue that does not compile. */
+const DESCRIPTION_VALUES = new Set(['skip']);
+const DESCRIPTION_MAX_OCCURRENCES = 64;
+const DESCRIPTION_LEFT_CHARS = 160;
+const DESCRIPTION_QUOTE_WINDOW = 400;
+const DESCRIPTION_PARTS = ['before', 'through'];
+/** _descCueByMatch — compiled cues per opted-in gate.match object (WeakMap, set by loadGates()). */
+const _descCueByMatch = new WeakMap();
+
+/** validateDescriptionCues(data, p) -> {before:RegExp[], through:RegExp[]} | null — throws (fail closed) on a malformed
+ *  block or a gate that opts in wrongly; null when no gate opts in and no block exists. */
+function validateDescriptionCues(data, p) {
+  const users = data.gates.filter((g) => g.match && g.match.descriptions !== undefined);
+  for (const g of users) {
+    const where = 'forge-actiongate: gate "' + g.id + '" match.descriptions in ' + p;
+    if (g.match.kind !== 'regex') throw new Error(where + ' is only allowed on a "regex" (text) gate — a "' + g.match.kind + '" gate is enforced by the PreToolUse hook');
+    if (!DESCRIPTION_VALUES.has(g.match.descriptions)) throw new Error(where + ' must be "skip"');
+  }
+  const dc = data.description_cues;
+  if (dc === undefined) {
+    if (users.length) throw new Error('forge-actiongate: ' + p + ' has gates with match.descriptions but no description_cues block');
+    return null;
+  }
+  const where = 'forge-actiongate: description_cues in ' + p;
+  if (!dc || typeof dc !== 'object' || Array.isArray(dc)) throw new Error(where + ' must be an object {before:{en,nl}, through:{en,nl}}');
+  const out = { before: [], through: [] };
+  for (const part of DESCRIPTION_PARTS) {
+    const block = dc[part];
+    if (!block || typeof block !== 'object' || Array.isArray(block)) throw new Error(where + '.' + part + ' must be an object {en:[...], nl:[...]}');
+    for (const [lang, list] of Object.entries(block)) {
+      if (lang.startsWith('_')) continue;
+      if (!PHRASE_LANG_RE.test(lang)) throw new Error(where + '.' + part + ': "' + lang + '" is not a two-letter language key');
+      if (!Array.isArray(list) || list.length === 0) throw new Error(where + '.' + part + '.' + lang + ' must be a non-empty array of regex sources');
+      list.forEach((src, i) => {
+        if (typeof src !== 'string' || !src.trim()) throw new Error(where + '.' + part + '.' + lang + '[' + i + '] must be a non-empty string');
+        try { out[part].push(new RegExp(src, 'i')); } catch (e) { throw new Error(where + '.' + part + '.' + lang + '[' + i + '] does not compile: ' + e.message); }
+      });
+    }
+  }
+  if (!out.before.length && !out.through.length) throw new Error(where + ' has no cue at all');
+  return out;
+}
+
+/** isClauseBoundary(text, i) — a sentence/clause end: ! ? ; | a newline, or a period followed by whitespace/end. */
+function isClauseBoundary(text, i) {
+  const c = text[i];
+  if (c === '!' || c === '?' || c === ';' || c === '|' || c === '\n' || c === '\r') return true;
+  return c === '.' && (i + 1 >= text.length || /\s/.test(text[i + 1]));
+}
+/** clauseLeft(text, idx) -> the clause text before idx (at most DESCRIPTION_LEFT_CHARS). */
+function clauseLeft(text, idx) {
+  const floor = Math.max(0, idx - DESCRIPTION_LEFT_CHARS);
+  for (let i = idx - 1; i >= floor; i--) if (isClauseBoundary(text, i)) return text.slice(i + 1, idx);
+  return text.slice(floor, idx);
+}
+
+// Directional quote pairs (opener, closers); straight " and ' are handled by parity / word boundaries below.
+const MENTION_PAIRS = [['“', '”'], ['„', '“”'], ['«', '»'], ['‘', '’']];
+const MENTION_EXEC_RE = /\b(?:run|runs|execute|exec|type|enter|paste|invoke|draai|voer|typ|plak)\b[^"'“”„‘’«»]{0,24}$/i;
+const isWordChar = (c) => c !== undefined && /\w/.test(c);
+/** quoteSentenceBounds(text, start, end) -> [lo, hi]: the sentence around the match, capped at DESCRIPTION_QUOTE_WINDOW. */
+function quoteSentenceBounds(text, start, end) {
+  let lo = Math.max(0, start - DESCRIPTION_QUOTE_WINDOW);
+  for (let i = start - 1; i >= lo; i--) if (isClauseBoundary(text, i)) { lo = i + 1; break; }
+  let hi = Math.min(text.length, end + DESCRIPTION_QUOTE_WINDOW);
+  for (let j = end; j < hi; j++) if (isClauseBoundary(text, j) && text[j] !== '.') { hi = j; break; }
+  return [lo, hi];
+}
+/** openingQuote(text, start, end, lo, hi) -> index of the quote that opens a phrase holding [start,end), or -1. */
+function openingQuote(text, start, end, lo, hi) {
+  const dq = [];
+  for (let i = lo; i < start; i++) if (text[i] === '"') dq.push(i);
+  if (dq.length % 2 === 1 && text.indexOf('"', end) !== -1 && text.indexOf('"', end) < hi) return dq[dq.length - 1];
+  for (const [o, cl] of MENTION_PAIRS) {
+    let open = -1;
+    for (let i = start - 1; i >= lo; i--) {
+      if (text[i] === o) { open = i; break; }
+      if (cl.includes(text[i]) && !(o === '‘' && isWordChar(text[i + 1]))) break; // closed before the match
+    }
+    if (open < 0) continue;
+    for (let j = end; j < hi; j++) if (cl.includes(text[j]) && !(o === '‘' && isWordChar(text[j + 1]))) return open;
+  }
+  // straight single quotes: an apostrophe has a word character on BOTH sides (owner's) and is skipped
+  let open = -1;
+  for (let i = start - 1; i >= lo; i--) {
+    if (text[i] !== "'") continue;
+    const before = isWordChar(text[i - 1]), after = isWordChar(text[i + 1]);
+    if (before && after) continue;
+    if (!before) open = i; // opening shape
+    break; // a closing shape (word before, none after) ends the search
+  }
+  if (open < 0) return -1;
+  for (let j = end; j < hi; j++) if (text[j] === "'" && !isWordChar(text[j + 1]) && text[j - 1] !== ' ') return open;
+  return -1;
+}
+/** quotedMention(text, start, end) -> true when [start,end) sits inside ONE quoted phrase of its own sentence ("…", “…”,
+ *  „…“, «…», ‘…’, or word-bounded '…') and no execution verb stands right before the opening quote. Bounded window. */
+function quotedMention(text, start, end) {
+  const [lo, hi] = quoteSentenceBounds(text, start, end);
+  const open = openingQuote(text, start, end, lo, hi);
+  return open >= 0 && !MENTION_EXEC_RE.test(text.slice(Math.max(lo, open - DESCRIPTION_LEFT_CHARS), open));
+}
+
+/** isDescriptionMatch(cues, text, start, end) -> true when the arm match [start,end) reads as a description/mention. */
+function isDescriptionMatch(cues, text, start, end) {
+  const left = clauseLeft(text, start);
+  for (const re of cues.before) if (re.test(left)) return true;
+  if (cues.through.length) {
+    const win = left + text.slice(start, end);
+    for (const re of cues.through) if (re.test(win)) return true;
+  }
+  return quotedMention(text, start, end);
+}
+
 let _cache = null; // { path, data } — cached across calls in the SAME process; tests override via opts.configPath
 function loadGates(configPath) {
   const p = configPath || CONFIG_PATH;
@@ -124,9 +324,10 @@ function loadGates(configPath) {
     if (!g.id || !g.class || !g.match || !g.match.kind) {
       throw new Error('forge-actiongate: gate entry missing id/class/match.kind in ' + p + ': ' + JSON.stringify(g));
     }
-    if (g.match.kind === 'command' && !g.match.pattern && !g.match.pattern_line) {
-      throw new Error('forge-actiongate: command gate "' + g.id + '" has neither match.pattern nor match.pattern_line in ' + p);
+    if (g.match.kind === 'command' && !g.match.pattern && !g.match.pattern_line && !g.match.line_all_of) {
+      throw new Error('forge-actiongate: command gate "' + g.id + '" has neither match.pattern, match.pattern_line nor match.line_all_of in ' + p);
     }
+    if (g.match.line_all_of !== undefined) validateLineAllOf(g, p);
     // An except valve that is silently ignored would turn a typo into a permanent over-warn, and one that
     // is silently MISREAD is a bypass. Since round 4 there is exactly one legal form, so anything else —
     // including the old string-regex form — is refused at load time.
@@ -140,17 +341,67 @@ function loadGates(configPath) {
         throw new Error('forge-actiongate: gate "' + g.id + '" match.except needs non-empty command_prefixes and argument_tails in ' + p);
       }
     }
+    if (g.match.phrases !== undefined) validatePhrases(g, p);
   }
+  const cues = validateDescriptionCues(data, p);
+  if (cues) for (const g of data.gates) if (g.match.descriptions === 'skip') _descCueByMatch.set(g.match, cues);
   _cache = { path: p, data };
   return data;
 }
 
+/** _armCache — compiled arms per gate.match object (WeakMap, so a throwaway test config does not leak). */
+const _armCache = new WeakMap();
+
+/** textGateArms(gate) -> [{arm, lang, index, re}] — WP 3.3. The ordered regex arms of a text gate: `pattern`
+ *  first (arm 'pattern'), then every `match.phrases[lang][i]` (arm '<lang>[<i>]'). [] for a non-regex gate. */
+function textGateArms(gate) {
+  const m = gate && gate.match;
+  if (!m || m.kind !== 'regex') return [];
+  const hit = _armCache.get(m);
+  if (hit) return hit;
+  const flags = armFlags(m.flags);
+  const arms = [];
+  if (m.pattern) arms.push({ arm: 'pattern', lang: null, index: null, re: new RegExp(m.pattern, flags) });
+  for (const [lang, list] of Object.entries(m.phrases || {})) {
+    if (lang.startsWith('_') || !Array.isArray(list)) continue;
+    list.forEach((src, index) => arms.push({ arm: lang + '[' + index + ']', lang, index, re: new RegExp(src, flags) }));
+  }
+  _armCache.set(m, arms);
+  return arms;
+}
+
+/** matchedTextArm(gate, text) -> the first arm name that matches ('pattern', 'en[3]', 'nl[0]', ...) or null. Raw arm
+ *  matching: it ignores `match.descriptions` (instructionTextArm() below is the verdict testTextGate() uses). */
+function matchedTextArm(gate, text) {
+  if (!text) return null;
+  for (const a of textGateArms(gate)) if (a.re.test(text)) return a.arm;
+  return null;
+}
+
+/** instructionTextArm(gate, text) -> the first arm with at least one occurrence that is NOT a description/mention, or
+ *  null. Same as matchedTextArm() for a gate without `descriptions:"skip"` or without compiled cues (stricter). */
+function instructionTextArm(gate, text) {
+  if (!text) return null;
+  const cues = gate && gate.match && gate.match.descriptions === 'skip' ? _descCueByMatch.get(gate.match) : null;
+  if (!cues) return matchedTextArm(gate, text);
+  const s = String(text);
+  let seen = 0;
+  for (const a of textGateArms(gate)) {
+    if (!a.re.test(s)) continue; // cheap pre-check: most text never matches an arm at all
+    if (!a.reG) a.reG = new RegExp(a.re.source, a.re.flags + 'g');
+    a.reG.lastIndex = 0;
+    let m;
+    while ((m = a.reG.exec(s)) !== null) {
+      if (m[0].length === 0) { a.reG.lastIndex++; continue; }
+      if (++seen > DESCRIPTION_MAX_OCCURRENCES) return a.arm; // too much to judge: fail closed
+      if (!isDescriptionMatch(cues, s, m.index, m.index + m[0].length)) return a.arm;
+    }
+  }
+  return null;
+}
+
 function testTextGate(gate, text) {
-  if (!text) return false;
-  const m = gate.match;
-  if (m.kind !== 'regex' || !m.pattern) return false;
-  const re = new RegExp(m.pattern, m.flags || 'i');
-  return re.test(text);
+  return instructionTextArm(gate, text) !== null;
 }
 
 /** SHELL_SPLIT_RE — the separators that end one command and begin another in a shell/PowerShell string.
@@ -199,7 +450,7 @@ function isIntactSegment(entry) {
  *  inside a quoted argument still splits. That direction fails SAFE for detection — splitting more can only
  *  ever produce MORE segments to test, never fewer — and since 2026-08-01 it no longer weakens the valve
  *  either, because a cut segment is marked `intact:false` and can never be excused. */
-function splitCommandsDetailed(text) {
+function splitCommandsDetailed(text, quoteMask) {
   if (!text) return [];
   const s = String(text);
   const re = new RegExp(SHELL_SPLIT_RE.source, 'g');
@@ -208,10 +459,14 @@ function splitCommandsDetailed(text) {
   const leadTrim = (raw) => raw.length - raw.replace(/^\s+/, '').length;
   while ((m = re.exec(s)) !== null) {
     if (m[0].length === 0) { re.lastIndex++; continue; } // defensive: never spin on a zero-width match
+    // G-FP1: with a quote mask, a plain separator INSIDE quotes is pattern text, not a new command.
+    // A substitution opener ($( or a backtick) always splits: it runs code even inside double quotes.
+    if (quoteMask && m[0] !== '$(' && m[0] !== '`' && quoteMask.inside(m.index)) continue;
     const raw = s.slice(last, m.index);
     entries.push({
       raw,
       segment: raw.trim(),
+      start: last,
       offset: last + leadTrim(raw),
       sepBefore: prevSep,
       sepAfter: m[0],
@@ -223,7 +478,7 @@ function splitCommandsDetailed(text) {
   }
   const tail = s.slice(last);
   entries.push({
-    raw: tail, segment: tail.trim(), offset: last + leadTrim(tail), sepBefore: prevSep, sepAfter: null,
+    raw: tail, segment: tail.trim(), start: last, offset: last + leadTrim(tail), sepBefore: prevSep, sepAfter: null,
     gluedAfter: false, hasFollowing: false,
   });
 
@@ -525,6 +780,12 @@ const DANGER_TRIGGER = {
     // Select-String…), which keeps `grep -rn "Stop-Process -Name" docs` silent.
     patternInertToolOnly: true,
     pattern_line: /\b(?:Stop-Process|spps|kill|pkill|killall)\b|\.Kill\s*\(\s*\)/i,
+  },
+  // an API word that sits only inside quoted data (a grep/rg/Select-String pattern, an echo literal, a
+  // commit message) is a mention. No patternInertToolOnly: the executing forms (`powershell -c "..."`, `python -c`,
+  // Add-Type source) are caught by the gate's line_all_of rule, which needs the interpreter word OUTSIDE quotes.
+  'global-input-command': {
+    pattern: /SendKeys|SendWait|SendInput|keybd_event|mouse_event|AppActivate/i,
   },
   'destructive-delete': {
     pattern: /\b(?:Remove-Item|ri|rm|del|erase|rd|rmdir|rimraf)\b/i,
@@ -948,17 +1209,62 @@ function commandGateFiresOn(gate, full, useExcept) {
   const mask = QUOTES.scanQuotes(full);
   const trig = DANGER_TRIGGER[gate.id];
   if (m.pattern_line && patternLineFires(m.pattern_line, flags, full, mask, trig && trig.pattern_line)) return true;
+  if (m.line_all_of && lineAllOfFires(m, full, mask)) return true;
   const extra = COMMAND_EXTRA_FIRE[gate.id];
   if (extra && extra(full)) return true;
   if (!m.pattern) return false;
   const re = new RegExp(m.pattern, flags);
-  for (const entry of splitCommandsDetailed(full)) {
+  const whole = gate.id === 'secret-print' ? quoteAwareCommands(full, mask) : null;
+  const entries = whole ? splitCommandsDetailed(full).concat(whole) : splitCommandsDetailed(full);
+  for (const entry of entries) {
     const cands = commandPositionCandidates(entry, mask);
     if (!cands.some((c) => re.test(c))) continue;
     if (useExcept && entry.intact && isExcusedSegment(m, entry.segment)) continue;
     if (!segmentTriggerClears(trig, entry, mask)) continue;
-    if (gate.id === 'secret-print' && secretPrintPatternExempt(entry.segment)) continue;
+    if (gate.id === 'secret-print' && (secretPrintPatternExempt(entry.segment) || enclosingCommandExempt(whole, entry))) continue;
     return true;
+  }
+  return false;
+}
+
+/** quoteAwareCommands(full, mask) -> entries | null — G-FP1, secret-print only. The real commands of
+ *  the text, split only on separators OUTSIDE quotes (splitCommandsDetailed with the mask). Tested IN ADDITION to
+ *  the quote-blind fragments, so a grep whose quoted pattern holds a pipe and whose FILE is a secret is still seen
+ *  (its quote-blind tail fragment has no command head). null when the quotes do not close (no help, as before). */
+function quoteAwareCommands(full, mask) {
+  if (!mask || mask.unterminated) return null;
+  return splitCommandsDetailed(full, mask);
+}
+
+/** enclosingCommandExempt(whole, entry) -> boolean — a quote-blind fragment (the head of a grep cut at a pipe inside
+ *  its quoted pattern) is excused when the real command around it is a search whose every secret-shaped word is
+ *  its PATTERN. Never when that command holds a substitution ($( or a backtick): those run code. */
+function enclosingCommandExempt(whole, entry) {
+  if (!whole || !entry || typeof entry.offset !== 'number') return false;
+  const enc = whole.find((q) => q.start <= entry.offset && entry.offset < q.start + q.raw.length);
+  if (!enc || /\$\(|`/.test(enc.segment)) return false;
+  return secretPrintPatternExempt(enc.segment);
+}
+
+/** _allOfCache — compiled line_all_of regexes per gate.match (WeakMap; [first with 'g', ...rest]). */
+const _allOfCache = new WeakMap();
+/** lineAllOfFires(m, full, mask) -> true when every match.line_all_of regex matches somewhere in `full` and the FIRST
+ *  one has an occurrence outside quoted data (`echo "node -e fs.writeFileSync(...)"` is data, not an interpreter).
+ *  An unresolvable mask counts every occurrence (stricter). Linear: one scan per regex. Pure, never throws. */
+function lineAllOfFires(m, full, mask) {
+  let res = _allOfCache.get(m);
+  if (!res) {
+    const f = armFlags(m.flags);
+    res = m.line_all_of.map((src, i) => new RegExp(src, i === 0 ? f + 'g' : f));
+    _allOfCache.set(m, res);
+  }
+  for (let i = 1; i < res.length; i++) if (!res[i].test(full)) return false;
+  const first = res[0];
+  first.lastIndex = 0;
+  let hit;
+  while ((hit = first.exec(full)) !== null) {
+    if (mask.unterminated || !mask.inside(hit.index)) return true;
+    if (hit[0].length === 0) first.lastIndex++;
   }
   return false;
 }
@@ -1065,6 +1371,13 @@ function listGates(opts) {
 }
 
 const KNOWN_GATES = ['deploy', 'git-push', 'spend', 'dns-change', 'prod-activate', 'credential-attach', 'credential-rotate', 'workflow-activate', 'outbound-sms',
+  // WP 3.3 — the TEXT twin of destructive-delete: deleting/wiping a folder, files, a database, a branch
+  // or backups, in English or Dutch. A text gate (never hook-enforced); see the PHRASES note in the header.
+  'data-delete',
+  // WP 3.3b — two more TEXT gates (never hook-enforced): installing/enabling a Claude Code plugin or adding
+  // a marketplace, and editing the Claude Code settings that grant permissions or register hooks. Their command twins
+  // (plugin-install-command, settings-edit-command) are listed with the command gates below.
+  'plugin-install', 'settings-edit',
   // the three COMMAND gates (match.kind:'command'). They cover the destructive commands the
   // owner's global Orchestration-Safety HARD MUST names, which the nine free-text gates above could never
   // see because they describe spoken intent, not a command line.
@@ -1078,10 +1391,25 @@ const KNOWN_GATES = ['deploy', 'git-push', 'spend', 'dns-change', 'prod-activate
   // reaches the same secrets settings.json's permissions.deny already blocks Claude's own Read tool from,
   // by a route the deny rules cannot see (a shell command, not a tool call).
   'secret-print',
+  // WP 3.3b — a SIXTH and SEVENTH command gate (hook-enforced): `claude plugin install|enable|update` /
+  // `claude plugin marketplace add`, and a shell write/replace/move/delete of .claude/settings(.local).json or
+  // ~/.claude/settings.json (redirect, tee, sed -i, Set-Content/Out-File, cp/mv onto it, inline node/python code) plus
+  // `claude config set`. Reading the file, `claude plugin list|validate|eval` and Forge's own tools stay allowed.
+  'plugin-install-command', 'settings-edit-command',
+  // W1 (category tests round 6) — an EIGHTH command gate (hook-enforced): a command whose own code sends
+  // global keyboard/mouse input (SendKeys, SendInput, keybd_event, mouse_event, WScript.Shell SendKeys/AppActivate).
+  // In windows-game-v6 a launch check typed Enter/Esc/b into the owner's other terminal that way.
+  'global-input-command',
   'write-outside-root'];
 
 module.exports = {
   classify, listGates, loadGates, isPathEscape, testTextGate, testCommandGate, testCommandGateRaw, splitCommands, normalizeInput,
+  // WP 3.3 — the text gates' phrase arms, exported so the suite can prove every arm is exercised.
+  textGateArms, matchedTextArm, PHRASE_LANG_RE,
+  // WP 3.3b — the description/mention filter of text gates with match.descriptions:"skip", and the linear
+  // whole-line check of command gates with match.line_all_of, exported for direct unit and mutation tests.
+  instructionTextArm, isDescriptionMatch, quotedMention, clauseLeft, lineAllOfFires,
+  DESCRIPTION_MAX_OCCURRENCES, DESCRIPTION_LEFT_CHARS,
   // the quote-aware pattern_line matcher, exported for direct unit testing
   patternLineFires,
   // the trigger-vs-quote-mask check and its per-gate table, exported for direct unit

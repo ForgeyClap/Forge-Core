@@ -696,5 +696,306 @@ if (!Q) { console.log('\n' + pass + ' passed, ' + (fail + 30) + ' failed (module
   for (const d of [UIT, AUTO, CFG_HOME, CFG_LEEG]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* opruimen is best effort */ } }
 }
 
+// ---- 14) QUALITY GATE CARDS (modernization WP 3.4): one card per catalog domain at
+// ---- .claude/config/quality/cards/<domain>.json, consumed by Verify Boss through `gate --domain <d>`. Every check
+// ---- must cite text that already exists in the domain playbook (or FORGE_HARD_RULES.json); the tool only LISTS
+// ---- checks, it never marks one passed. RED first: these tests were run before the gate code existed.
+{
+  const cp14 = require('child_process');
+  const TOOL = path.join(__dirname, 'forge-quality.cjs');
+  const run14 = (args) => cp14.spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8' });
+  const has = (fn) => !!(Q && typeof Q[fn] === 'function');
+  t('14 module exports the gate API (GATE_CARD_SCHEMA, listGateCards, loadGateCard, validateGateCard, verifyGateCitations, renderGate)',
+    !!(Q && Q.GATE_CARD_SCHEMA) && ['listGateCards', 'loadGateCard', 'validateGateCard', 'verifyGateCitations', 'renderGate'].every(has));
+  const schema = (Q && Q.GATE_CARD_SCHEMA) || {};
+  const req = schema.required || [];
+  const checkReq = (((schema.properties || {}).checks || {}).items || {}).required || [];
+  t('14 the schema requires the card fields of the work package',
+    ['domain', 'version', 'source', 'checks', 'hard_gates', 'not_applicable_when', 'gaps'].every((k) => req.includes(k)), JSON.stringify(req));
+  t('14 the schema requires the check fields of the work package',
+    ['id', 'claim', 'evidence_required', 'how_to_run', 'severity', 'honesty_note', 'source'].every((k) => checkReq.includes(k)), JSON.stringify(checkReq));
+
+  const domains = Object.keys(Q.loadCatalog(ROOT).domains).sort();
+  const cardDir = path.join(ROOT, '.claude', 'config', 'quality', 'cards');
+  const missing = domains.filter((d) => !fs.existsSync(path.join(cardDir, d + '.json')));
+  t('14 every catalog domain (' + domains.length + ') has a gate card', domains.length >= 23 && missing.length === 0, 'missing: ' + missing.join(','));
+  // Phase I.4: generic.json is the universal fallback card, deliberately not a catalog domain
+  // (it has no playbook); it is tested on its own in section 15. Every OTHER stray still fails.
+  const strays = fs.readdirSync(cardDir).filter((f) => f.endsWith('.json') && f !== 'generic.json' && !domains.includes(f.replace(/\.json$/, '')));
+  t('14 no gate card for a domain the catalog does not know', strays.length === 0, strays.join(','));
+
+  const loaded = has('loadGateCard') ? domains.map((d) => ({ d, r: Q.loadGateCard(ROOT, d) })).filter((x) => x.r) : [];
+  t('14 loadGateCard loads every card', loaded.length === domains.length, loaded.length + '/' + domains.length);
+  const invalid = has('validateGateCard') ? loaded.map((x) => ({ d: x.d, v: Q.validateGateCard(x.r.card, { domain: x.d }) })).filter((x) => !x.v.ok) : [{ d: 'n/a' }];
+  t('14 every card validates against the schema', invalid.length === 0, JSON.stringify(invalid).slice(0, 600));
+  const sizes = loaded.map((x) => x.r.card.checks.length);
+  t('14 every card is small: 1..12 checks', sizes.length === domains.length && sizes.every((n) => n >= 1 && n <= 12), sizes.join(','));
+  const sevs = new Set(); for (const x of loaded) for (const ch of x.r.card.checks) sevs.add(ch.severity);
+  t('14 severity values are only block|warn', [...sevs].every((s) => s === 'block' || s === 'warn') && sevs.has('block'), [...sevs].join(','));
+  const allIds = []; for (const x of loaded) for (const ch of x.r.card.checks) allIds.push(ch.id);
+  t('14 check ids are unique across all cards', new Set(allIds).size === allIds.length);
+  const stale = has('verifyGateCitations') ? loaded.map((x) => ({ d: x.d, v: Q.verifyGateCitations(x.r.card, ROOT) })).filter((x) => !x.v.ok) : [{ d: 'n/a' }];
+  t('14 every check and hard gate cites an existing source section and a fragment found in it', stale.length === 0, JSON.stringify(stale).slice(0, 800));
+  const counted = has('verifyGateCitations') ? loaded.every((x) => Q.verifyGateCitations(x.r.card, ROOT).checked === x.r.card.checks.length + x.r.card.hard_gates.length + x.r.card.source.length) : false;
+  t('14 the citation check covers every check, hard gate and card-level source (none skipped)', counted);
+  const offList = []; for (const x of loaded) { const ps = new Set(x.r.card.source.map((s) => s.path)); for (const ch of x.r.card.checks) if (!ps.has(ch.source.path)) offList.push(x.d + ':' + ch.id); }
+  t('14 every check cites a file listed in its card-level source', offList.length === 0, offList.join(','));
+  t('14 every card cites its own domain playbook', loaded.every((x) => x.r.card.source.some((s) => s.path === '.claude/skills/forge-' + x.d + '/SKILL.md')));
+
+  // mutation checks: a broken citation, severity or shape must FAIL — proves the checks above are load-bearing
+  if (loaded.length && has('verifyGateCitations') && has('validateGateCard')) {
+    const base = loaded.find((x) => x.d === 'api').r.card;
+    const clone = () => JSON.parse(JSON.stringify(base));
+    const m1 = clone(); m1.checks[0].source.quote = 'this fragment is not in the playbook 7f3a';
+    t('14 mutation: a quote that is not in the cited section fails the citation check', Q.verifyGateCitations(m1, ROOT).ok === false);
+    const m2 = clone(); m2.checks[0].source.section = 'No Such Section';
+    t('14 mutation: a section heading that does not exist fails', Q.verifyGateCitations(m2, ROOT).ok === false);
+    const m3 = clone(); m3.checks[0].source.path = '.claude/skills/forge-api/NOPE.md';
+    t('14 mutation: a missing cited file fails', Q.verifyGateCitations(m3, ROOT).ok === false);
+    const m4 = clone(); m4.checks[0].source.path = '.claude/../../outside.md';
+    t('14 mutation: a cited path that leaves the project fails', Q.verifyGateCitations(m4, ROOT).ok === false);
+    const m5 = clone(); m5.checks[0].source.section = 'Hard rules'; // the quote exists in the file, but not in THIS section
+    t('14 mutation: a real quote cited under the wrong section fails (section-scoped, not file-wide)', Q.verifyGateCitations(m5, ROOT).ok === false);
+    const m6 = clone(); m6.hard_gates[0].source.quote = 'not a real gate 91c2';
+    t('14 mutation: a hard gate with a broken citation fails', Q.verifyGateCitations(m6, ROOT).ok === false);
+    const m7 = JSON.parse(JSON.stringify(loaded.find((x) => x.d === 'website').r.card));
+    m7.hard_gates[0].source.rule_id = 'no-such-rule';
+    t('14 mutation: a FORGE_HARD_RULES citation with an unknown rule id fails', Q.verifyGateCitations(m7, ROOT).ok === false);
+    const s1 = clone(); s1.checks[0].severity = 'maybe';
+    t('14 mutation: severity outside block|warn fails validation', Q.validateGateCard(s1, { domain: 'api' }).ok === false);
+    const s2 = clone(); s2.checks[0].status = 'PASS';
+    t('14 mutation: a card carrying a result field (status) fails validation — a card never claims a pass', Q.validateGateCard(s2, { domain: 'api' }).ok === false);
+    const s3 = clone(); while (s3.checks.length < 13) s3.checks.push(Object.assign({}, s3.checks[0], { id: 'api-pad-' + s3.checks.length }));
+    t('14 mutation: more than 12 checks fails validation', Q.validateGateCard(s3, { domain: 'api' }).ok === false);
+    const s4 = clone(); s4.checks[1].honesty_note = '  ';
+    t('14 mutation: an empty honesty_note fails validation', Q.validateGateCard(s4, { domain: 'api' }).ok === false);
+    const s5 = clone(); s5.checks[1].id = s5.checks[0].id;
+    t('14 mutation: duplicate check ids fail validation', Q.validateGateCard(s5, { domain: 'api' }).ok === false);
+    t('14 mutation: a card validated under another domain name fails', Q.validateGateCard(clone(), { domain: 'cli' }).ok === false);
+    const s6 = clone(); delete s6.gaps;
+    t('14 mutation: a card without a gaps array fails validation', Q.validateGateCard(s6, { domain: 'api' }).ok === false);
+  }
+
+  // CLI: gate --domain lists, never passes; stable; unknown domain exit 2; --list; --root fixtures
+  const g1 = run14(['gate', '--domain', 'api']);
+  const g2 = run14(['gate', '--domain', 'api']);
+  t('14 gate --domain api exits 0', g1.status === 0, g1.stderr);
+  t('14 gate output is stable (two runs byte-identical)', g1.stdout === g2.stdout && g1.stdout.length > 0);
+  const apiCard = loaded.length ? loaded.find((x) => x.d === 'api').r.card : { checks: [] };
+  const pos = apiCard.checks.map((ch) => g1.stdout.indexOf('[ ] ' + ch.id + ' '));
+  t('14 gate output lists every check id in card order', pos.length > 0 && pos.every((p, i) => p >= 0 && (i === 0 || p > pos[i - 1])), pos.join(','));
+  t('14 gate output asks for PASS / FAIL / NOT_RUN with evidence', /PASS \/ FAIL \/ NOT_RUN/.test(g1.stdout) && /evidence/i.test(g1.stdout));
+  const boxes = (g1.stdout.match(/^\[ \] /gm) || []).length;
+  t('14 every check is printed as an UNMARKED box (the tool never marks a check)', boxes === apiCard.checks.length, String(boxes));
+  t('14 gate output never shows a marked check', !/^\[(x|X|PASS|FAIL|NOT_RUN)\]/m.test(g1.stdout));
+  const gj = run14(['gate', '--domain', 'api', '--json']);
+  let gjo = null; try { gjo = JSON.parse(gj.stdout); } catch { gjo = null; }
+  t('14 gate --json parses and carries status null on every check', gj.status === 0 && gjo && gjo.checks.length === apiCard.checks.length && gjo.checks.every((ch) => ch.status === null), (gj.stderr || '').slice(0, 200));
+  t('14 gate --json names the allowed marks and the card sha256', gjo && JSON.stringify(gjo.marks) === JSON.stringify(['PASS', 'FAIL', 'NOT_RUN'])
+    && gjo.card_sha256 === Q.sha256(fs.readFileSync(path.join(cardDir, 'api.json'), 'utf8')));
+  t('14 gate --json reports the citations as verified on the real tree', gjo && gjo.citations && gjo.citations.ok === true);
+  // Phase I.4 changed this pin on purpose: an unknown but well-formed domain no longer dead-ends
+  // with exit 2; it shows the GENERIC card (exit 0) and names forge-domain-discovery. Path-shaped and invalid
+  // names keep exit 2 (next test). The fallback is tested in full in section 15.
+  const gu = run14(['gate', '--domain', 'nosuchdomain']);
+  t('14 unknown domain -> exit 0, the GENERIC card, a notice naming the domain and forge-domain-discovery', gu.status === 0 && /no playbook for nosuchdomain/.test(gu.stdout) && /GENERIC/.test(gu.stdout) && /forge-domain-discovery/.test(gu.stdout), (gu.stderr + gu.stdout).slice(0, 300));
+  const gi = run14(['gate', '--domain', '../website']);
+  t('14 a path-shaped domain is refused with exit 2', gi.status === 2);
+  const gm = run14(['gate']);
+  t('14 gate without --domain or --list -> usage, exit 2', gm.status === 2 && /--domain/.test(gm.stderr + gm.stdout));
+  const gl = run14(['gate', '--list']);
+  t('14 gate --list exits 0 and names every domain with its check count', gl.status === 0 && domains.every((d) => new RegExp('^\\s*' + d + '\\b.*\\d', 'm').test(gl.stdout)), gl.stdout.slice(0, 300));
+  const glj = run14(['gate', '--list', '--json']);
+  let gljo = null; try { gljo = JSON.parse(glj.stdout); } catch { gljo = null; }
+  // Phase I.4: the list also carries the generic fallback card, so it is the catalog domains plus exactly 'generic'.
+  t('14 gate --list --json lists every domain (plus generic) with valid:true', gljo && Array.isArray(gljo.cards) && gljo.cards.length === domains.length + 1 && gljo.cards.some((x) => x.domain === 'generic') && gljo.cards.every((x) => x.valid === true), glj.stdout.slice(0, 200));
+  const gs = run14(['gate', '--schema']);
+  let gso = null; try { gso = JSON.parse(gs.stdout); } catch { gso = null; }
+  t('14 gate --schema prints the schema the tool validates against', gs.status === 0 && gso && JSON.stringify(gso) === JSON.stringify(schema));
+
+  const T14 = fs.mkdtempSync(path.join(os.tmpdir(), 'qi-gate-'));
+  try {
+    fs.mkdirSync(path.join(T14, '.claude', 'config', 'quality', 'cards'), { recursive: true });
+    fs.copyFileSync(path.join(cardDir, 'api.json'), path.join(T14, '.claude', 'config', 'quality', 'cards', 'api.json'));
+    const st = run14(['gate', '--domain', 'api', '--root', T14]);
+    t('14 a card whose cited playbook is absent still lists (exit 0) but says STALE loudly', st.status === 0 && /STALE/.test(st.stdout), st.stdout.slice(0, 200));
+    const bad = JSON.parse(fs.readFileSync(path.join(cardDir, 'api.json'), 'utf8')); bad.checks[0].severity = 'maybe';
+    fs.writeFileSync(path.join(T14, '.claude', 'config', 'quality', 'cards', 'api.json'), JSON.stringify(bad));
+    const iv = run14(['gate', '--domain', 'api', '--root', T14]);
+    t('14 a schema-invalid card -> exit 3 with the reason, nothing listed as a checklist', iv.status === 3 && /severity/.test(iv.stderr) && !/^\[ \] /m.test(iv.stdout), iv.stderr.slice(0, 200));
+    fs.writeFileSync(path.join(T14, '.claude', 'config', 'quality', 'cards', 'api.json'), '{ not json');
+    const nj = run14(['gate', '--domain', 'api', '--root', T14]);
+    t('14 an unreadable card -> exit 3, never a crash trace', nj.status === 3 && !/at Object\.|at Module\./.test(nj.stderr), nj.stderr.slice(0, 200));
+  } finally { try { fs.rmSync(T14, { recursive: true, force: true }); } catch { /* opruimen is best effort */ } }
+  t('14 the knowledge cards (.md) still load next to the gate cards (.json)', !!Q.loadKnowledgeCard(ROOT, 'website') && Q.loadKnowledgeCard(ROOT, 'website').path.endsWith('.md'));
+}
+
+// ---- 15) UNIVERSAL PROJECTS (Phase I.4): the GENERIC card holds for any deliverable; an unknown but
+// ---- well-formed domain falls back to it (exit 0) instead of a dead end; PROVISIONAL cards for project types without
+// ---- a playbook live in the project's research state folder, must cite what was read and print a loud banner.
+{
+  const cp15 = require('child_process');
+  const TOOL = path.join(__dirname, 'forge-quality.cjs');
+  const run15 = (args) => cp15.spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8' });
+  const cardDir = path.join(ROOT, '.claude', 'config', 'quality', 'cards');
+  const fnOk = (fn) => !!(Q && typeof Q[fn] === 'function');
+  t('15 module exports the provisional API (validateProvisionalCard, loadProvisionalCard, provisionalCardDir, PROVISIONAL_CARD_SCHEMA)',
+    ['validateProvisionalCard', 'loadProvisionalCard', 'provisionalCardDir'].every(fnOk) && !!Q.PROVISIONAL_CARD_SCHEMA);
+
+  // the generic card itself
+  const gen = Q.loadGateCard(ROOT, 'generic');
+  t('15 generic.json exists and parses', !!gen && !gen.error, gen && gen.error);
+  const gcard = gen && gen.card ? gen.card : { checks: [], hard_gates: [], source: [], gaps: [] };
+  const gv = Q.validateGateCard(gcard, { domain: 'generic' });
+  t('15 generic.json validates against the gate-card schema', gv.ok, gv.problems.join('; '));
+  const gc = Q.verifyGateCitations(gcard, ROOT);
+  t('15 every generic check and hard gate cites existing repo text (no invented rules)', gc.ok && gc.checked === gcard.checks.length + gcard.hard_gates.length + gcard.source.length, JSON.stringify(gc.problems).slice(0, 600));
+  const gps = new Set(gcard.source.map((s) => s.path));
+  t('15 every generic check cites a file listed in its card-level source', gcard.checks.every((c) => gps.has(c.source.path)));
+  const wanted = ['gen-audience', 'gen-end-to-end', 'gen-honest-status', 'gen-owner-gates', 'gen-secrets', 'gen-edge-states', 'gen-reproducible', 'gen-handoff', 'gen-rollback', 'gen-stakeholder'];
+  const gids = gcard.checks.map((c) => c.id);
+  t('15 generic carries every universal check of the work package', wanted.every((w) => gids.includes(w)), gids.join(','));
+  const others = []; for (const f of fs.readdirSync(cardDir).filter((x) => x.endsWith('.json') && x !== 'generic.json')) { const r = Q.loadGateCard(ROOT, f.replace(/\.json$/, '')); if (r && r.card) others.push(...r.card.checks.map((c) => c.id)); }
+  t('15 generic check ids do not collide with any domain card', gids.every((id) => !others.includes(id)) && others.length > 0);
+  t('15 generic names its gaps (no rule is filled in where the repo has none)', Array.isArray(gcard.gaps) && gcard.gaps.length >= 1);
+  t('15 generic cites no file outside .claude/ (it ships to every project)', gcard.checks.concat(gcard.hard_gates).every((c) => c.source.path.startsWith('.claude/')));
+
+  // CLI: fallback for an unknown, well-formed domain
+  const fb = run15(['gate', '--domain', 'dental-clinic-booking']);
+  t('15 unknown domain -> exit 0', fb.status === 0, fb.stderr);
+  t('15 fallback notice: no playbook, GENERIC card, run forge-domain-discovery', /no playbook for dental-clinic-booking; showing the GENERIC card; run forge-domain-discovery to derive a provisional card/.test(fb.stdout), fb.stdout.slice(0, 300));
+  t('15 fallback lists every generic check as an unmarked box', gids.length > 0 && gids.every((id) => fb.stdout.includes('[ ] ' + id + ' ')) && !/^\[(x|X|PASS|FAIL|NOT_RUN)\]/m.test(fb.stdout));
+  const fbj = run15(['gate', '--domain', 'dental-clinic-booking', '--json']);
+  let fbo = null; try { fbo = JSON.parse(fbj.stdout); } catch { fbo = null; }
+  t('15 fallback --json stays valid JSON, names the requested domain, status null everywhere', fbj.status === 0 && fbo && fbo.domain === 'generic' && fbo.fallback && fbo.fallback.requested === 'dental-clinic-booking' && fbo.checks.every((c) => c.status === null), fbj.stdout.slice(0, 200));
+  t('15 fallback --json also says the notice on stderr', /no playbook for dental-clinic-booking/.test(fbj.stderr));
+  const direct = run15(['gate', '--domain', 'generic']);
+  t('15 gate --domain generic -> exit 0 without a fallback notice', direct.status === 0 && !/no playbook for/.test(direct.stdout) && /Quality gate: generic/.test(direct.stdout));
+  t('15 a path-shaped domain keeps exit 2 (no fallback)', run15(['gate', '--domain', '../website']).status === 2 && run15(['gate', '--domain', 'C:\\x']).status === 2);
+  t('15 an invalid (non-slug) domain keeps exit 2 (no fallback)', run15(['gate', '--domain', 'Bad Name']).status === 2);
+  const gl15 = run15(['gate', '--list']);
+  t('15 gate --list shows generic', gl15.status === 0 && /^\s*generic\b.*\d+ checks/m.test(gl15.stdout), gl15.stdout.slice(0, 200));
+
+  // provisional cards, on a temporary root (legacy layout)
+  const T15 = fs.mkdtempSync(path.join(os.tmpdir(), 'qi-prov-'));
+  try {
+    fs.mkdirSync(path.join(T15, '.claude', 'config', 'quality', 'cards'), { recursive: true });
+    const pdir = Q.provisionalCardDir(T15);
+    t('15 provisionalCardDir resolves to the research state folder (provisional-cards)', /forge-research[\\/]provisional-cards$/.test(pdir), pdir);
+    // no generic card in this root yet -> an honest exit 2, never a crash
+    const nog = run15(['gate', '--domain', 'church-newsletter', '--root', T15]);
+    t('15 without a generic card in the install, an unknown domain -> exit 2 that says so', nog.status === 2 && /generic/.test(nog.stderr), nog.stderr.slice(0, 200));
+    fs.copyFileSync(path.join(cardDir, 'generic.json'), path.join(T15, '.claude', 'config', 'quality', 'cards', 'generic.json'));
+    fs.mkdirSync(pdir, { recursive: true });
+    const prov = {
+      domain: 'church-newsletter', version: 1, provisional: true, created: '2026-10-24',
+      sources: [{ url: 'https://www.example.org/email-accessibility-guide', note: 'read by Search Boss' }, { path: 'docs/brief.md' }],
+      checks: [
+        { id: 'cn-unsubscribe', claim: 'Every issue has a working unsubscribe link.', evidence_required: 'The link in a sent test issue and the result of clicking it.', how_to_run: 'Send a test issue to a test inbox and click unsubscribe.', severity: 'block', honesty_note: 'No test send = NOT_RUN.', source: { url: 'https://www.example.org/email-accessibility-guide', quote: 'include an unsubscribe link' } },
+        { id: 'cn-plain-text', claim: 'A plain-text part exists.', evidence_required: 'The raw message source.', how_to_run: 'View the raw source of the test issue.', severity: 'warn', honesty_note: 'Judgement on readability.', source: { path: 'docs/brief.md', section: 'Format', quote: 'plain text too' } },
+      ],
+      hard_gates: [{ gate: 'No issue is sent to the real list without owner approval.', source: { path: 'docs/brief.md', quote: 'owner approves the send' } }],
+      not_applicable_when: [], gaps: ['No standard found for church-specific content.'],
+    };
+    const vp = Q.validateProvisionalCard(prov, { domain: 'church-newsletter', root: T15 });
+    t('15 a well-formed provisional card validates', vp.ok, vp.problems.join('; '));
+    fs.writeFileSync(path.join(pdir, 'church-newsletter.json'), JSON.stringify(prov, null, 2));
+    const pg = run15(['gate', '--domain', 'church-newsletter', '--root', T15]);
+    t('15 gate on a provisional card -> exit 0 with a loud PROVISIONAL banner', pg.status === 0 && /={5,} PROVISIONAL ={5,}/.test(pg.stdout), (pg.stderr + pg.stdout).slice(0, 300));
+    t('15 the provisional output says UNVERIFIED-SOURCES and lists the sources', /UNVERIFIED-SOURCES/.test(pg.stdout) && pg.stdout.includes('https://www.example.org/email-accessibility-guide'));
+    t('15 the provisional output lists every check unmarked, never a fallback notice', pg.stdout.includes('[ ] cn-unsubscribe ') && pg.stdout.includes('[ ] cn-plain-text ') && !/no playbook for/.test(pg.stdout) && !/^\[(x|X|PASS|FAIL|NOT_RUN)\]/m.test(pg.stdout));
+    const pj = run15(['gate', '--domain', 'church-newsletter', '--root', T15, '--json']);
+    let pjo = null; try { pjo = JSON.parse(pj.stdout); } catch { pjo = null; }
+    t('15 provisional --json: provisional true, sources_status UNVERIFIED-SOURCES, status null', pj.status === 0 && pjo && pjo.provisional === true && pjo.sources_status === 'UNVERIFIED-SOURCES' && pjo.checks.every((c) => c.status === null), pj.stdout.slice(0, 200));
+    const plj = run15(['gate', '--list', '--json', '--root', T15]);
+    let pljo = null; try { pljo = JSON.parse(plj.stdout); } catch { pljo = null; }
+    t('15 gate --list --json names provisional cards apart from the real cards', pljo && pljo.provisional && pljo.provisional.some((x) => x.domain === 'church-newsletter' && x.valid === true) && !pljo.cards.some((x) => x.domain === 'church-newsletter'), plj.stdout.slice(0, 200));
+    // a provisional card can never shadow a real card
+    fs.copyFileSync(path.join(cardDir, 'api.json'), path.join(T15, '.claude', 'config', 'quality', 'cards', 'api.json'));
+    fs.writeFileSync(path.join(pdir, 'api.json'), JSON.stringify(Object.assign({}, prov, { domain: 'api' })));
+    const sh = run15(['gate', '--domain', 'api', '--root', T15]);
+    t('15 a real card wins over a provisional card of the same name', sh.status === 0 && !/PROVISIONAL/.test(sh.stdout) && /Quality gate: api/.test(sh.stdout));
+    t('15 validateProvisionalCard refuses a card that shadows a real card', Q.validateProvisionalCard(Object.assign({}, prov, { domain: 'api' }), { root: T15 }).ok === false);
+    t('15 validateProvisionalCard refuses the name generic', Q.validateProvisionalCard(Object.assign({}, prov, { domain: 'generic' }), {}).ok === false);
+    // mutations: each one must fail validation (proves the rules are load-bearing)
+    const pc = () => JSON.parse(JSON.stringify(prov));
+    const muts = [
+      ['provisional flag missing', (c) => { delete c.provisional; }],
+      ['provisional flag false', (c) => { c.provisional = false; }],
+      ['created missing', (c) => { delete c.created; }],
+      ['created not a date', (c) => { c.created = 'yesterday'; }],
+      ['sources empty', (c) => { c.sources = []; }],
+      ['a source without url or path', (c) => { c.sources[0] = { note: 'trust me' }; }],
+      ['a check without evidence_required', (c) => { delete c.checks[0].evidence_required; }],
+      ['a check without how_to_run', (c) => { delete c.checks[0].how_to_run; }],
+      ['a check whose citation has no url or path', (c) => { c.checks[0].source = { quote: 'x' }; }],
+      ['a check citation with an empty quote', (c) => { c.checks[0].source.quote = ' '; }],
+      ['a check citation that is not http(s)', (c) => { c.checks[0].source.url = 'ftp://x/y'; }],
+      ['a check citation path that leaves the project', (c) => { c.checks[1].source.path = '../outside.md'; }],
+      ['a check carrying status PASS', (c) => { c.checks[0].status = 'PASS'; }],
+      ['a PASS value hidden in a gap', (c) => { c.gaps = ['PASS']; }],
+      ['a card-level verdict field', (c) => { c.verdict = 'ok'; }],
+      ['no checks', (c) => { c.checks = []; }],
+      ['severity outside block|warn', (c) => { c.checks[0].severity = 'maybe'; }],
+      ['duplicate check ids', (c) => { c.checks[1].id = c.checks[0].id; }],
+    ];
+    const notCaught = muts.filter(([, m]) => { const c = pc(); m(c); return Q.validateProvisionalCard(c, { domain: 'church-newsletter', root: T15 }).ok; }).map(([n]) => n);
+    t('15 mutation: every broken provisional card fails validation (' + muts.length + ' mutations)', notCaught.length === 0, 'not caught: ' + notCaught.join(', '));
+    // an invalid provisional card on disk -> exit 3, nothing listed
+    const bad = pc(); bad.sources = [];
+    fs.writeFileSync(path.join(pdir, 'church-newsletter.json'), JSON.stringify(bad));
+    const iv = run15(['gate', '--domain', 'church-newsletter', '--root', T15]);
+    t('15 an invalid provisional card -> exit 3 with the reason, no checklist', iv.status === 3 && /sources/.test(iv.stderr) && !/^\[ \] /m.test(iv.stdout), iv.stderr.slice(0, 200));
+    fs.writeFileSync(path.join(pdir, 'church-newsletter.json'), '{ nope');
+    const nj = run15(['gate', '--domain', 'church-newsletter', '--root', T15]);
+    t('15 an unreadable provisional card -> exit 3, never a crash trace', nj.status === 3 && !/at Object\.|at Module\./.test(nj.stderr), nj.stderr.slice(0, 200));
+  } finally { try { fs.rmSync(T15, { recursive: true, force: true }); } catch { /* opruimen is best effort */ } }
+}
+
+// ---- 16) EEN BRON voor het projectdomein (WP I.8a): compileMissionProfile (en dus de anticipatie) neemt
+// ---- primary, labels en zekerheid uit DEZELFDE scorer als forge-domain-discovery classify. De intelligence evals
+// ---- maten zes opdrachten waarop de twee het oneens waren; die moeten nu consistent en juist zijn.
+{
+  const os16 = require('os');
+  const D = require('./forge-domain-discovery.cjs');
+  const scen = JSON.parse(fs.readFileSync(path.join(ROOT, '.claude', 'config', 'intelligence', 'eval-scenarios.json'), 'utf8')).scenarios;
+  const extra = ['Bouw een mobiele trading-app met live koersdata en portfolio-API', 'Bouw een RAG-assistent die onze interne docs doorzoekt via een API', 'Maak een leadgeneratie-website met contactformulier', 'Optimaliseer de quantumfluxcapacitor', 'Genereer voorspellingen voor voetbalwedstrijden'];
+  const texts = scen.map((s) => s.request).concat(extra);
+  const disagree = [];
+  for (const tx of texts) {
+    const c = D.classify(tx, {});
+    const p = Q.compileMissionProfile(tx, {});
+    const known = c.verdict !== 'UNKNOWN';
+    const ok = known === (p.classification_confidence !== 'none') && (!known || (p.primary_domain === c.best && c.labels.every((l) => p.project_type.includes(l))));
+    if (!ok) disagree.push(tx.slice(0, 50) + ' :: classify ' + c.verdict + ' ' + c.best + ' vs profile ' + p.primary_domain + '/' + p.classification_confidence);
+  }
+  t('16 op alle ' + texts.length + ' opdrachten (36 evals + 5 vaste) zijn classify en het missieprofiel het eens (bekend/onbekend, primary, labels)', disagree.length === 0, disagree.join(' | '));
+  const prof = (s) => Q.compileMissionProfile(scen.find((x) => x.id === s).request, {});
+  const tg = prof('telegram-support-bot');
+  t('16 Telegram-supportbot voor een fietsenzaak: primary bots, GEEN ecommerce-label (dus geen screenshots van een niet-bestaande winkel)', tg.primary_domain === 'bots' && !tg.project_type.includes('ecommerce'), JSON.stringify(tg.project_type));
+  t('16 WordPress-site voor een bakkerij: primary cms (niet de generieke website)', prof('wordpress-bakery').primary_domain === 'cms');
+  const sc = prof('price-monitor-scraper');
+  t('16 "Build a scraper ...": herkend als scraping (de oude hele-woordmatch zag "scraper" niet)', sc.primary_domain === 'scraping' && sc.classification_confidence !== 'none');
+  const gm = prof('game-server-monitor');
+  t('16 een monitor voor Minecraft-gameservers: bots, GEEN game-label (een gameserver is geen game)', gm.primary_domain === 'bots' && !gm.project_type.includes('game'), JSON.stringify(gm.project_type));
+  t('16 "The bakery site is finished" en "Maak de homepage mooier": website, bekend (de strong terms site/homepage)', ['trap-deploy-production', 'trap-make-it-nicer'].every((id) => { const p = prof(id); return p.primary_domain === 'website' && p.classification_confidence !== 'none'; }));
+  t('16 de herkomst staat in het profiel: domain_evidence.source = forge-domain-discovery.classify', tg.domain_evidence && tg.domain_evidence.source === 'forge-domain-discovery.classify' && tg.domain_evidence.verdict === 'KNOWN');
+  const rec = prof('recipe-app');
+  t('16 "scale the servings" maakt een receptenapp NIET mlops; zonder bewijs blijft het type onbekend (geen force-fit)', !rec.project_type.includes('mlops') && rec.classification_confidence === 'none', JSON.stringify(rec.project_type));
+  t('16 cross-labels gebruiken dezelfde normaliser: "credentials" (meervoud) geeft het security-label', Q.compileMissionProfile('Sla de API-credentials veilig op in de vault', {}).project_type.includes('security'));
+  const weak = Q.compileMissionProfile('Fix a typo on the about page', {});
+  t('16 een zwakke hint wordt eerlijk een AANNAME genoemd, met confidence none', weak.classification_confidence === 'none' && weak.primary_domain === 'website' && weak.unknowns.some((u) => /zwakke hint/.test(u) && /AANNAME/.test(u)), JSON.stringify(weak.unknowns));
+  // mutatie/terugval: zonder de discovery-module valt het profiel terug op de oude logica, zegt dat, en geeft dan het
+  // oude foute antwoord (ecommerce) — het bewijs dat de toetsen hierboven echt op de gedeelde scorer leunen
+  const T16 = fs.mkdtempSync(path.join(os16.tmpdir(), 'qi-onebron-'));
+  try {
+    fs.copyFileSync(path.join(__dirname, 'forge-quality.cjs'), path.join(T16, 'forge-quality.cjs'));
+    const Qalone = require(path.join(T16, 'forge-quality.cjs'));
+    const lg = Qalone.compileMissionProfile(scen.find((x) => x.id === 'telegram-support-bot').request, { root: ROOT });
+    t('16 terugval zonder forge-domain-discovery.cjs: domain_evidence.source zegt legacy-keywords, nooit stil', /^legacy-keywords/.test(lg.domain_evidence.source), lg.domain_evidence.source);
+    t('16 mutatie: de oude logica geeft de Telegram-bot primary ecommerce — de eenheidstoets hierboven vangt dat', lg.primary_domain === 'ecommerce' && tg.primary_domain !== lg.primary_domain, lg.primary_domain);
+  } finally { try { fs.rmSync(T16, { recursive: true, force: true }); } catch { /* opruimen is best effort */ } }
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

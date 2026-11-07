@@ -1,0 +1,122 @@
+{
+  "skill": "forge-autoresearch",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "every description must stay <=200 chars"
+    },
+    {
+      "id": "name-is-folder",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "name: forge-autoresearch",
+      "why": "frontmatter name must equal the folder name"
+    },
+    {
+      "id": "user-invoked-flag",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "disable-model-invocation: true",
+      "why": "a loop that costs many runs starts only by hand"
+    },
+    {
+      "id": "user-invoked-wording",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "description: \"User-invoked only: /forge-autoresearch.",
+      "why": "doctor skillInvocationConflict"
+    },
+    {
+      "id": "not-source-research",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "It is not source research",
+      "why": "verdict: autoresearch is a metric loop, the deep-research Workflow stays the route for sourced research"
+    },
+    {
+      "id": "frozen-harness",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "Build, prove and freeze the harness",
+      "why": "karpathy: the metric harness is fixed and never edited by the experiments"
+    },
+    {
+      "id": "budget-bounded",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "never runs\n\"forever\"",
+      "why": "Forge bounds the loop by budget, lane budget and usage guard, unlike upstream NEVER STOP"
+    },
+    {
+      "id": "independent-measurer",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "never the agent that made the change",
+      "why": "the editing agent never measures its own change"
+    },
+    {
+      "id": "revert-not-reset",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "git revert --no-edit <commit>",
+      "why": "rollback keeps history; discarding work is a gate-hook hard gate"
+    },
+    {
+      "id": "no-reset-hard",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "reset --hard",
+      "why": "never advise the destructive reset"
+    },
+    {
+      "id": "worktree-isolation",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "autoresearch/<tag>",
+      "why": "each run in its own worktree and branch"
+    },
+    {
+      "id": "log-outside-git",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "_scratch/autoresearch-<tag>/decision.tsv",
+      "why": "decision log outside git, in scratch"
+    },
+    {
+      "id": "no-push",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "pushing is owner-only",
+      "why": "no auto-push"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "needle": "| karpathy/autoresearch |",
+      "why": "provenance table with SHA and licence"
+    },
+    {
+      "id": "lane-budget-tool-exists",
+      "type": "file_exists",
+      "path": ".claude/forge-bin/forge-lane-budget.cjs",
+      "why": "the skill points at the lane budget tool; the pointer must not be false"
+    },
+    {
+      "id": "body-under-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-autoresearch/SKILL.md",
+      "n": 500,
+      "why": "doctor skill_hygiene body budget"
+    }
+  ]
+}

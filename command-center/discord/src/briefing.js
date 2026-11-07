@@ -1,4 +1,4 @@
-import { SubscriptionUsage } from './subscription-usage.js';
+import { LocalUsage as SubscriptionUsage } from './local-usage.js';
 import { scanRecent } from './project-diff.js';
 
 // Idee D: één ochtendbericht per project — wat is er gedaan, wat staat open, wat

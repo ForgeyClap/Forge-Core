@@ -9,7 +9,7 @@ correction. Never invent an entry — an unsupported "lesson" is worse than no l
   explicit "what it does" + "when to use" + concrete trigger phrases). This is the reason this protocol's
   Part 1 (activation test) exists at all — without measuring trigger vs. near-miss phrases, a low
   activation rate is invisible; a skill can sit unused in `.claude/skills/` indefinitely while everyone
-  assumes it works. Source: `.claude/forge-research/YT-SWEEP-2026-07-31.md`, "Globale lessen" section,
+  assumes it works. Source: the maintainer research note YT-SWEEP-2026-07-31 (local research folder, not shipped), "Globale lessen" section,
   first bullet — source video ids wQ0duoTeAAU, D9auszpVMQY, jzf7DQa2CAc, 7s9Fnorg3eI (cross-referenced
   against backlog item 8's own source set: 7s9Fnorg3eI, O_z9vDLgvoY, UtGszoiwrsQ, wQ0duoTeAAU). Honest
   status: this is a SEEDED community lesson, not yet validated against any real skill in THIS project via

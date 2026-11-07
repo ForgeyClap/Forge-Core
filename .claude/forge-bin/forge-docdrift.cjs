@@ -72,10 +72,32 @@ const http = require('http');
 const dns = require('dns');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1: state and ledger live in the project's ACTIVE research folder (forge-paths stateDir: .claude/forge-research
+// in a legacy project, .forge/research once <root>/.forge/ exists). forge-paths.cjs is optional: without it (a copied
+// tool, an older install) every path is the legacy one, exactly as before. A plugin copy finds the project from
+// CLAUDE_PROJECT_DIR / the cwd (scriptRoot), never its own folder; none found -> null and the CLI asks for --root.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+function researchDir(root) {
+  const legacy = path.join(root, '.claude', 'forge-research');
+  if (!forgePaths) return legacy;
+  try { return forgePaths.stateDir(root, 'research'); } catch { return legacy; }
+}
+const PROJECT_ROOT_DEFAULT = defaultRoot();
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'docdrift-sources.json');
-function defaultStatePath(root) { return path.join(root, '.claude', 'forge-research', 'docdrift-state.json'); }
-function defaultLedgerPath(root) { return path.join(root, '.claude', 'forge-research', 'docdrift-ledger.jsonl'); }
+function defaultStatePath(root) { return path.join(researchDir(root), 'docdrift-state.json'); }
+function defaultLedgerPath(root) { return path.join(researchDir(root), 'docdrift-ledger.jsonl'); }
+/** readStatePath(root) -> where the drift memory is READ from: the active file, or, in a project that just switched to
+ *  .forge/, the legacy .claude/forge-research copy until the active one exists (it is then written to the active one). */
+function readStatePath(root) {
+  const active = defaultStatePath(root);
+  const legacy = path.join(root, '.claude', 'forge-research', 'docdrift-state.json');
+  return !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
 
 // ---------------------------------------------------------------------------
 // SSRF hardening — every real network attempt this file ever
@@ -410,6 +432,7 @@ function logDriftEvents(root, runId, results) {
  *  plus the optional event log) — every real invocation persists its findings, never a dry-run-only read. */
 async function checkAll(opts) {
   opts = opts || {};
+  if (!opts.root && !PROJECT_ROOT_DEFAULT) throw configError('no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>');
   const root = path.resolve(opts.root || PROJECT_ROOT_DEFAULT);
   const configPath = opts.configPath || DEFAULT_CONFIG_PATH;
   const statePath = opts.statePath || defaultStatePath(root);
@@ -419,7 +442,7 @@ async function checkAll(opts) {
   const targets = opts.sourceId ? sources.filter((s) => s.id === opts.sourceId) : sources;
   if (opts.sourceId && targets.length === 0) throw configError('unknown source id "' + opts.sourceId + '"');
 
-  const state = loadState(statePath);
+  const state = loadState(opts.statePath ? statePath : readStatePath(root));
   const results = [];
   for (const source of targets) {
     const prevRecord = state[source.id] || null;
@@ -448,7 +471,7 @@ async function checkAll(opts) {
 module.exports = {
   loadSources, loadState, saveState, appendLedgerEntry, readLedger,
   defaultFetcher, checkOne, checkAll, tally, logDriftEvents,
-  DEFAULT_CONFIG_PATH, defaultStatePath, defaultLedgerPath, PROJECT_ROOT_DEFAULT,
+  DEFAULT_CONFIG_PATH, defaultStatePath, defaultLedgerPath, readStatePath, PROJECT_ROOT_DEFAULT,
   // SSRF-hardening seams — exported for direct hermetic unit testing.
   isPrivateOrLoopbackIp, checkHostAllowed, defaultResolver, MAX_BODY_BYTES, DEFAULT_DEADLINE_MS,
 };

@@ -37,6 +37,12 @@ t('tool without test', () => eq(r.tools.without_test, ['tool-b.cjs']));
 t('version contradiction vs canon', () => {
   if (!r.versions.contradictions.some((c) => c.kind === 'major-vs-canon' && c.found === 'v2')) throw new Error('no v2 contradiction');
 });
+t('a later section table (global plugins) is not read as skill rows', () => {
+  const r2 = fs.mkdtempSync(path.join(os.tmpdir(), 'regen-sec-'));
+  w(r2, '.claude/skills/alpha/SKILL.md', '---\nname: alpha\ndescription: Use when testing.\n---\n');
+  w(r2, '.claude/FORGE_SKILL_REGISTRY.md', '# Registry\n\n| Skill | Path |\n|---|---|\n| alpha | .claude/skills/alpha/SKILL.md |\n\n## Global plugins Forge calls\n\n| Plugin | Skills |\n|---|---|\n| some-plugin@market | x |\n');
+  try { eq(g.registryEntries(r2).rows.map((x) => x.name), ['alpha']); } finally { fs.rmSync(r2, { recursive: true, force: true }); }
+});
 t('semver spread reported', () => {
   if (!r.versions.contradictions.some((c) => c.kind === 'semver-spread' && c.highest === '2.9.0')) throw new Error('missing');
 });
@@ -86,6 +92,16 @@ t('codeCalls: a spawn with path.join on the line (or the line before) is a call'
 t('codeCalls: a name only in a comment or in a printed message is NOT a call', () => {
   const m = g.codeCalls("// require('./a')\n/* spawnSync b.cjs */\nconsole.log('run node .claude/forge-bin/c.cjs to fix it');\n", TOOLS.set);
   eq(m.size, 0);
+});
+t('codeCalls: a local require wrapper (tryRequire) called with a tool name is a require (A6 F1)', () => {
+  // forge-routing-stats.cjs loads forge-stats.cjs this way; the old scanner missed it and called forge-stats dormant.
+  const src = "const tryRequire = (name) => { try { return require(path.join(__dirname, name)); } catch { return null; } };\n" +
+    "const S = tryRequire('a.cjs');\n" +
+    "function load(n) { return require('./' + n); }\n" +
+    "const B = load('b.cjs');\n" +
+    "const msg = describe('c.cjs');\n";
+  const m = g.codeCalls(src, TOOLS.set);
+  eq([m.get('a.cjs'), m.get('b.cjs'), m.has('c.cjs')], ['require', 'require', false]);
 });
 t('stripJsComments keeps strings that contain // (URLs) intact', () => {
   ok(g.stripJsComments("const u = 'http://x/a.cjs'; // gone\n").includes("'http://x/a.cjs'"));
@@ -238,6 +254,80 @@ t('CLI: dry run writes nothing; --write writes the registry; a malformed registr
 });
 t('the doctor, the test runner and this generator are the only non-callers', () => eq([...g.NOT_A_CALLER].sort(), ['forge-doctor.cjs', 'forge-registry-gen.cjs', 'forge-testrun.cjs']));
 fs.rmSync(fr, { recursive: true, force: true });
+
+// ---- WP 1.5: `agents` — agents.generated.json from the agent frontmatter (logic in forge-policy.cjs) ----
+{
+  const REPO = path.resolve(__dirname, '..', '..');
+  const GEN_REL = '.claude/config/agents/agents.generated.json';
+  const minimal = (name, extra) => '---\nname: ' + name + '\ndescription: fixture\ntools: Read, Grep, Glob\nmodel: sonnet\neffort: low\nmaxTurns: 60\ncolor: cyan\n' + (extra || '') + '---\nbody\n';
+  const run = (args) => {
+    const out = []; const err = [];
+    const o = process.stdout.write; const e = process.stderr.write;
+    process.stdout.write = (s) => { out.push(String(s)); return true; };
+    process.stderr.write = (s) => { err.push(String(s)); return true; };
+    try { return { code: g.main(args), out: out.join(''), err: err.join('') }; } finally { process.stdout.write = o; process.stderr.write = e; }
+  };
+  const mk = (dev) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'regen-agents-'));
+    w(d, '.claude/agents/search-boss.md', minimal('search-boss'));
+    w(d, '.claude/agents/zeta-helper.md', minimal('zeta-helper'));
+    if (dev) w(d, '.claude/config/forge-dev-tree.json', JSON.stringify({ dev_tree: true }));
+    return d;
+  };
+  const dev = mk(true);
+  const inst = mk(false);
+  try {
+    t('agents: a dry run writes nothing and counts bosses/specialists', () => {
+      const r = run(['agents', '--root', dev]);
+      eq(r.code, 0); ok(/2 agents from frontmatter \(1 bosses, 1 specialists\)/.test(r.out), r.out);
+      ok(!fs.existsSync(path.join(dev, GEN_REL)));
+    });
+    t('agents --write: writes in the dev tree; a second write is byte-identical (deterministic, sorted, no timestamp)', () => {
+      eq(run(['agents', '--write', '--root', dev]).code, 0);
+      const first = fs.readFileSync(path.join(dev, GEN_REL), 'utf8');
+      eq(run(['agents', '--write', '--root', dev]).code, 0);
+      eq(fs.readFileSync(path.join(dev, GEN_REL), 'utf8'), first);
+      const j = JSON.parse(first);
+      eq(j.agents.map((a) => a.name), ['search-boss', 'zeta-helper']);
+      eq(j.agents.map((a) => a.bossOrSpecialist), ['boss', 'specialist']);
+      eq(j.agents[0].roleClass, 'read-only-audit'); eq(j.agents[0].route, 'quick'); eq(j.agents[0].maxTurns, 60);
+    });
+    t('agents --write: refused (exit 2) outside the development tree — the file is a shipped template file', () => {
+      const r = run(['agents', '--write', '--root', inst]);
+      eq(r.code, 2); ok(/refused/.test(r.err)); ok(!fs.existsSync(path.join(inst, GEN_REL)));
+    });
+    t('agents --check: exit 0 in sync; exit 1 after a frontmatter change, naming the drifted field and the fix', () => {
+      eq(run(['agents', '--check', '--root', dev]).code, 0);
+      w(dev, '.claude/agents/zeta-helper.md', minimal('zeta-helper').replace('maxTurns: 60', 'maxTurns: 70'));
+      const r = run(['agents', '--check', '--root', dev]);
+      eq(r.code, 1); ok(/DRIFT/.test(r.out) && /drift-field: zeta-helper\.maxTurns/.test(r.out) && /agents --write/.test(r.out), r.out);
+      const j = JSON.parse(run(['agents', '--check', '--json', '--root', dev]).out);
+      ok(j.ok === false && j.violations.some((x) => x.kind === 'drift-field'));
+      eq(run(['agents', '--write', '--root', dev]).code, 0);
+      eq(run(['agents', '--check', '--root', dev]).code, 0);
+    });
+    t('agents --check: n/a and exit 0 in an installed project without the generated file', () => {
+      const r = run(['agents', '--check', '--root', inst]);
+      eq(r.code, 0); ok(/n\/a/.test(r.out), r.out);
+    });
+    t('agents --write: refused (exit 2) when an agent file has no frontmatter — never generated from unreadable input', () => {
+      const before = fs.readFileSync(path.join(dev, GEN_REL), 'utf8');
+      w(dev, '.claude/agents/broken.md', 'no frontmatter\n');
+      const r = run(['agents', '--write', '--root', dev]);
+      eq(r.code, 2); ok(/broken\.md/.test(r.err), r.err);
+      eq(fs.readFileSync(path.join(dev, GEN_REL), 'utf8'), before);
+      fs.unlinkSync(path.join(dev, '.claude/agents/broken.md'));
+    });
+    t('agents --check on the REAL repo: exit 0 (the shipped agents.generated.json matches the frontmatter)', () => {
+      const r = run(['agents', '--check', '--root', REPO]);
+      eq(r.code, 0); ok(/IN SYNC · 20 agent\(s\) checked/.test(r.out), r.out);
+    });
+    t('the usage line names the agents command', () => { const r = run(['nope']); eq(r.code, 2); ok(/agents \[--check\] \[--write\] \[--json\]/.test(r.err)); });
+  } finally {
+    fs.rmSync(dev, { recursive: true, force: true });
+    fs.rmSync(inst, { recursive: true, force: true });
+  }
+}
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(passed + ' passed, ' + failed + ' failed');

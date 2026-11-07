@@ -1,63 +1,65 @@
 /*
- * Forge Workspace — the shell grid.
+ * Forge Systeem — the shell grid (redesign 1C, DESIGN.md §2).
  *
- * Three tracks, three rows, driven entirely by the layout tokens:
+ * Three tracks, three rows:
  *
- *   --forge-layout-sidebar / -sidebar-collapsed   left track
- *   --forge-layout-inspector                      right track
- *   --forge-layout-header                         top row (via --fw-header-h)
- *   --forge-layout-dock                           bottom row, sized by the dock
+ *   --fs-sidebar (248 px; 220 px at 1000 px or less)   left track
+ *   340 px side pane (Hulp, or Details in Uitgebreid)  right track, 0 while closed
+ *   56 px bar / auto notice row / main                 rows
  *
- * The middle track is minmax(0, 1fr). That single declaration is what stops a
- * wide table or a mission graph from widening the page: it can never grow the
- * track, so it has to scroll inside its own container.
+ * The middle track is minmax(0, 1fr): a wide table or graph can never widen the page; it scrolls inside
+ * <main>. The notice row is 0 px while no banner is rendered (the pairing notice, errors.css).
  */
 
 .fw-shell {
-  --fw-sidebar-w: var(--forge-layout-sidebar);
-  --fw-inspector-w: var(--forge-layout-inspector);
+  --fw-sidebar-w: var(--fs-sidebar);
+  --fw-pane-w: 340px;
 
   position: relative;
   display: grid;
-  grid-template-columns: var(--fw-sidebar-w) minmax(0, 1fr) var(--fw-inspector-w);
-  grid-template-rows: var(--fw-header-h) minmax(0, 1fr) auto;
+  grid-template-columns: var(--fw-sidebar-w) minmax(0, 1fr) var(--fw-pane-w);
+  grid-template-rows: 56px auto minmax(0, 1fr);
   grid-template-areas:
-    'sidebar topbar    topbar'
-    'sidebar main      inspector'
-    'sidebar dock      inspector';
+    'sidebar topbar    pane'
+    'sidebar notice    pane'
+    'sidebar main      pane';
   block-size: 100%;
   min-block-size: 0;
   min-inline-size: 0;
   overflow: hidden;
-  background: var(--forge-color-bg);
+  background: var(--fs-bg);
+  color: var(--fs-ink);
 }
 
+/* Ctrl+B: the rail keeps the icons only. */
 .fw-shell[data-sidebar='rail'] {
-  --fw-sidebar-w: var(--forge-layout-sidebar-collapsed);
+  --fw-sidebar-w: calc(var(--fs-control-md) + var(--fs-space-5));
 }
 
-.fw-shell[data-inspector='closed'] {
-  --fw-inspector-w: 0px;
+.fw-shell[data-pane='closed'] {
+  --fw-pane-w: 0px;
 }
 
 /* --------------------------------------------------------------- skip link */
 
 .fw-shell__skip {
   position: absolute;
-  inset-block-start: var(--forge-space-2);
-  inset-inline-start: var(--forge-space-2);
-  z-index: var(--forge-z-tooltip);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-raised);
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
-  transform: translateY(calc(-100% - var(--forge-space-4)));
+  inset-block-start: var(--fs-space-2);
+  inset-inline-start: var(--fs-space-2);
+  z-index: 60;
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  transform: translateY(calc(-100% - var(--fs-space-4)));
 }
 
 .fw-shell__skip:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
   transform: none;
 }
 
@@ -77,39 +79,31 @@
   min-block-size: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  background: var(--forge-color-bg);
+  background: var(--fs-bg);
 }
 
 .fw-shell__main:focus {
   outline: none;
 }
 
-.fw-shell__inspector {
-  grid-area: inspector;
+.fw-shell__pane {
+  grid-area: pane;
   min-inline-size: 0;
   min-block-size: 0;
-  overflow: hidden;
-  border-inline-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-surface-1);
-}
-
-.fw-shell__dock {
-  grid-area: dock;
-  min-inline-size: 0;
   overflow: hidden;
 }
 
 /* Scrims exist only where a panel is an overlay. Both are hidden by default. */
 .fw-shell__scrim,
-.fw-shell__inspector-scrim {
+.fw-shell__pane-scrim {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: calc(var(--forge-z-overlay) - 1);
+  z-index: 39;
   border: 0;
-  background: var(--forge-color-scrim);
+  background: var(--fs-scrim);
   cursor: pointer;
-  animation: fw-shell-fade var(--forge-motion-fast) var(--forge-motion-ease-enter) both;
+  animation: fw-shell-fade var(--fs-dur-2) var(--fs-ease) both;
 }
 
 @keyframes fw-shell-fade {
@@ -119,7 +113,7 @@
 }
 
 /* =========================================================================
-   <=1180px — the inspector detaches
+   <=1180px — the side pane detaches into an overlay
    ========================================================================= */
 
 @media (max-width: 1180px) {
@@ -127,22 +121,21 @@
     grid-template-columns: var(--fw-sidebar-w) minmax(0, 1fr);
     grid-template-areas:
       'sidebar topbar'
-      'sidebar main'
-      'sidebar dock';
+      'sidebar notice'
+      'sidebar main';
   }
 
-  .fw-shell__inspector {
+  .fw-shell__pane {
     position: fixed;
     inset-block: 0;
     inset-inline-end: 0;
-    z-index: var(--forge-z-overlay);
-    inline-size: min(var(--forge-layout-inspector), 92vw);
-    border-inline-start: var(--forge-border-hair) solid var(--forge-color-line);
-    box-shadow: var(--forge-shadow-lg);
-    animation: fw-shell-slide-in var(--forge-motion-base) var(--forge-motion-ease-enter) both;
+    z-index: 40;
+    inline-size: min(340px, 92vw);
+    box-shadow: var(--fs-shadow-3);
+    animation: fw-shell-slide-in var(--fs-dur-2) var(--fs-ease) both;
   }
 
-  .fw-shell__inspector-scrim {
+  .fw-shell__pane-scrim {
     display: block;
   }
 
@@ -153,8 +146,15 @@
   }
 }
 
+/* 220 px sidebar at 1000 px or less (DESIGN.md §2). */
+@media (max-width: 1000px) {
+  .fw-shell {
+    --fw-sidebar-w: 220px;
+  }
+}
+
 /* =========================================================================
-   <=860px — the sidebar becomes a drawer, the inspector a bottom sheet
+   <=860px — the sidebar becomes a drawer
    ========================================================================= */
 
 @media (max-width: 860px) {
@@ -162,55 +162,35 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       'topbar'
-      'main'
-      'dock';
+      'notice'
+      'main';
   }
 
   .fw-shell__sidebar {
     position: fixed;
     inset-block: 0;
     inset-inline-start: 0;
-    z-index: var(--forge-z-overlay);
-    inline-size: min(var(--forge-layout-sidebar), 86vw);
+    z-index: 40;
+    inline-size: min(var(--fs-sidebar), 86vw);
     max-inline-size: 100vw;
-    border-inline-end: var(--forge-border-hair) solid var(--forge-color-line);
-    background: var(--forge-color-surface-1);
-    box-shadow: var(--forge-shadow-lg);
+    box-shadow: var(--fs-shadow-3);
     transform: translateX(-101%);
     visibility: hidden;
-    transition: transform var(--forge-motion-base) var(--forge-motion-ease-exit),
-      visibility 0s linear var(--forge-motion-base);
+    transition:
+      transform var(--fs-dur-2) var(--fs-ease),
+      visibility 0s linear var(--fs-dur-2);
   }
 
   .fw-shell[data-drawer='open'] .fw-shell__sidebar {
     transform: none;
     visibility: visible;
-    transition: transform var(--forge-motion-base) var(--forge-motion-ease-enter),
+    transition:
+      transform var(--fs-dur-2) var(--fs-ease),
       visibility 0s linear 0s;
   }
 
   .fw-shell[data-drawer='open'] .fw-shell__scrim {
     display: block;
-  }
-
-  /* Bottom sheet: same element, different edge. */
-  .fw-shell__inspector {
-    inset-block-start: auto;
-    inset-block-end: 0;
-    inset-inline: 0;
-    inline-size: auto;
-    max-block-size: 72vh;
-    max-block-size: 72dvh;
-    border-inline-start: 0;
-    border-block-start: var(--forge-border-hair) solid var(--forge-color-line);
-    border-radius: var(--forge-radius-xl) var(--forge-radius-xl) 0 0;
-    animation-name: fw-shell-sheet-in;
-  }
-
-  @keyframes fw-shell-sheet-in {
-    from {
-      transform: translateY(100%);
-    }
   }
 }
 
@@ -220,9 +200,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .fw-shell__sidebar,
-  .fw-shell__inspector,
+  .fw-shell__pane,
   .fw-shell__scrim,
-  .fw-shell__inspector-scrim {
+  .fw-shell__pane-scrim {
     transition: none !important;
     animation: none !important;
   }

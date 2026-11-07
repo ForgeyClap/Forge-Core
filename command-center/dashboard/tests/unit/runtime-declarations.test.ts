@@ -49,7 +49,7 @@ import {
   unprovenDeclarations,
 } from '@/shared/declarations';
 import type { DeclarationInputs } from '@/shared/declarations';
-import { BIND_ADDRESS, FROZEN_ENV_VARS, LAN_MODE, loadConfig, REMOTE_ACCESS } from '@/bridge/config.ts';
+import { BIND_ADDRESS, FROZEN_ENV_VARS, LAN_MODE, loadConfig, REMOTE_ACCESS } from '@archive/bridge/config.ts';
 
 /* ========================================================================== */
 /*  Source scanning                                                            */
@@ -57,7 +57,8 @@ import { BIND_ADDRESS, FROZEN_ENV_VARS, LAN_MODE, loadConfig, REMOTE_ACCESS } fr
 
 const ROOT = process.cwd();
 const SRC = join(ROOT, 'src');
-const BRIDGE = join(SRC, 'bridge');
+// The legacy bridge was archived out of src/ (WP A9); its zone is still scanned.
+const BRIDGE = join(ROOT, 'archive', 'bridge');
 const THIS_TEST = join(ROOT, 'tests', 'unit', 'runtime-declarations.test.ts');
 
 interface SourceFile {
@@ -84,7 +85,7 @@ function collect(dir: string, acc: SourceFile[] = []): SourceFile[] {
   return acc;
 }
 
-const FILES = collect(SRC);
+const FILES = collect(BRIDGE, collect(SRC));
 const BRIDGE_FILES = FILES.filter((f) => f.zone === 'bridge');
 const CLAUDE_FILES = FILES.filter((f) => f.rel.includes(join('bridge', 'claude')));
 
@@ -209,8 +210,11 @@ describe('INVARIANT REQUIRES_ANTHROPIC_API_KEY=false', () => {
     // about a VENDOR/Anthropic API key; a Discord bot-token field is a different, unrelated,
     // owner-approved secret and does not make REQUIRES_ANTHROPIC_API_KEY=false untrue).
     const APPROVED_NON_VENDOR_SECRET_FIELD = 'src\\views\\discord\\ConnectWizard.tsx';
+    // WP B2 part 2: the one OPTIONAL vendor-key field; it hands the key only to the desktop vault
+    // (its rules are enforced in no-runtime-contact.test.ts). Optional, so the invariant stays false.
+    const APPROVED_VAULT_KEY_FIELD = 'src\\views\\onboarding\\KeyField.tsx';
     const passwordHits = scan(FILES, /type\s*=\s*["']password["']/).filter(
-      (hit) => !hit.startsWith(APPROVED_NON_VENDOR_SECRET_FIELD),
+      (hit) => !hit.startsWith(APPROVED_NON_VENDOR_SECRET_FIELD) && !hit.startsWith(APPROVED_VAULT_KEY_FIELD),
     );
     expect(passwordHits, `a password input control exists outside the approved exemption:\n${passwordHits.join('\n')}`).toEqual([]);
   });
@@ -218,7 +222,7 @@ describe('INVARIANT REQUIRES_ANTHROPIC_API_KEY=false', () => {
   it('the probe reports the NAME of a credential source and never a credential', () => {
     // `locate.ts` carries an `apiKeySource` field. It is the name of a source
     // ("none" on this machine), and the health path must never surface a value.
-    const locate = fileFor('src/bridge/claude/locate.ts');
+    const locate = fileFor('archive/bridge/claude/locate.ts');
     expect(locate.text).toMatch(/apiKeySource/);
     // Nothing may put captured child output into a result by default.
     expect(scan(FILES, /includeDiagnosticExcerpt\s*:\s*true/)).toEqual([]);
@@ -233,7 +237,7 @@ describe('INVARIANT USES_LOCAL_CLAUDE_CODE=true', () => {
   it('the only runtime the bridge invokes is a local executable started from an argv array with no shell', () => {
     expect(INVARIANT_DECLARATIONS.USES_LOCAL_CLAUDE_CODE).toBe(true);
 
-    const locate = fileFor('src/bridge/claude/locate.ts');
+    const locate = fileFor('archive/bridge/claude/locate.ts');
     expect(locate.text, 'locate.ts must spawn through node:child_process').toMatch(
       /from\s+['"]node:child_process['"]/,
     );
@@ -251,7 +255,7 @@ describe('INVARIANT USES_LOCAL_CLAUDE_CODE=true', () => {
   });
 
   it('discovers the executable at run time instead of hardcoding a machine', () => {
-    const locate = fileFor('src/bridge/claude/locate.ts');
+    const locate = fileFor('archive/bridge/claude/locate.ts');
     expect(locate.text, 'the install root must be read from the environment at run time').toMatch(
       /process\.env\.APPDATA/,
     );
@@ -300,7 +304,7 @@ describe('INVARIANT LAN_MODE=false', () => {
       INVARIANT_DECLARATIONS.LAN_MODE,
     );
 
-    const config = fileFor('src/bridge/config.ts');
+    const config = fileFor('archive/bridge/config.ts');
     expect(config.text).toMatch(/export const LAN_MODE = false;/);
 
     // Not merely ignored — REFUSED. A variable that appears to work and does
@@ -326,7 +330,7 @@ describe('INVARIANT REMOTE_ACCESS=false', () => {
     expect(INVARIANT_DECLARATIONS.REMOTE_ACCESS).toBe(false);
     expect(REMOTE_ACCESS).toBe(INVARIANT_DECLARATIONS.REMOTE_ACCESS);
 
-    const config = fileFor('src/bridge/config.ts');
+    const config = fileFor('archive/bridge/config.ts');
     expect(config.text).toMatch(/export const REMOTE_ACCESS = false;/);
 
     for (const name of ['FORGE_BRIDGE_REMOTE', 'FORGE_BRIDGE_TUNNEL', 'FORGE_BRIDGE_EXPOSE']) {
@@ -354,7 +358,7 @@ describe('INVARIANT BIND_ADDRESS=127.0.0.1', () => {
 
     // `listen` is called with the contract constant, never with a config value
     // that something upstream could have changed.
-    const server = fileFor('src/bridge/server.ts');
+    const server = fileFor('archive/bridge/server.ts');
     expect(server.text).toMatch(/listen\(this\.config\.port,\s*REQUIRED_BIND_ADDRESS/);
     // And the address the OS reported is checked against it afterwards.
     expect(server.text).toMatch(/address\.address !== REQUIRED_BIND_ADDRESS/);

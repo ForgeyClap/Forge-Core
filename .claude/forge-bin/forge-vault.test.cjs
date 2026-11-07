@@ -411,6 +411,44 @@ console.log('forge-vault (WP-E) offline tests');
   t('11c a section in the live FORGE_MEMORY.md wins; the archive is only a fallback', r2.decisions.length === 1 && dn2.includes('live summary text') && !dn2.includes('archived decision text'), dn2.slice(0, 400));
 }
 
+// ---- 12) WP 1.9: the archive-name lookup. WP 1.3 wrote a DAY-dated memory archive
+// (FORGE_MEMORY_ARCHIVE_2026-10-24.md) and forge-memory-consolidate.cjs (WP 1.4) rotates FORGE_DECISIONS.md into
+// FORGE_DECISIONS_ARCHIVE_<yyyy-mm>[-b].md. The old month-only regex never saw the day archive (12b fails on it) and
+// the decisions log had no archive fallback at all (12d fails on it). ----
+{
+  const ROOT = newRoot('vault-12');
+  const cd = path.join(ROOT, '.claude');
+  for (const n of ['FORGE_MEMORY_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'FORGE_MEMORY_ARCHIVE_2026-09.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24-b.md',
+    'FORGE_MEMORY_ARCHIVE_notes.md', 'FORGE_MEMORY_ARCHIVE_2026-10.txt', 'XFORGE_MEMORY_ARCHIVE_2026-11.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md']) fs.writeFileSync(path.join(cd, n), '# x\n');
+  t('12a memoryArchiveNames: only real rotation names, newest first (day after month, -b after its base)',
+    JSON.stringify(V.memoryArchiveNames(ROOT)) === JSON.stringify(['FORGE_MEMORY_ARCHIVE_2026-10-24-b.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'FORGE_MEMORY_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_2026-09.md']),
+    JSON.stringify(V.memoryArchiveNames(ROOT)));
+  t('12b the day-dated archive WP 1.3 wrote is found at all', V.memoryArchiveNames(ROOT).includes('FORGE_MEMORY_ARCHIVE_2026-10-24.md'));
+  t('12c archiveNames: a base outside FORGE_MEMORY/FORGE_DECISIONS is never looked up', V.archiveNames(ROOT, 'FORGE_OWNER_PROFILE').length === 0 && JSON.stringify(V.archiveNames(ROOT, 'FORGE_DECISIONS')) === JSON.stringify(['FORGE_DECISIONS_ARCHIVE_2026-10.md']));
+  t('12c2 a missing .claude folder is [] (never throws)', V.archiveNames(path.join(ROOT, 'no-such'), 'FORGE_MEMORY').length === 0);
+
+  const ROOT2 = newRoot('vault-12d');
+  const RUN = 'forge-2026-08-09-rotated-decisions';
+  writeRunJson(ROOT2, RUN, { started_at: '2026-08-09T00:00:00.000Z', mission: 'An old run whose decisions log was rotated.' });
+  log(ROOT2, RUN, 'run_started', { note: 'begin' });
+  fs.writeFileSync(path.join(ROOT2, '.claude', 'FORGE_DECISIONS.md'), '# Decisions\n\n## 2026-10-23 — newest (run forge-2026-10-23-other)\n- unrelated\n');
+  fs.writeFileSync(path.join(ROOT2, '.claude', 'FORGE_DECISIONS_ARCHIVE_2026-10.md'),
+    '# archive\n\n## 2026-08-09 — Rotated decision (run ' + RUN + ')\n- rotated decision text for the old run\n\n## 2026-08-08 — other (run forge-2026-08-08-y)\n- other\n');
+  fs.writeFileSync(path.join(ROOT2, '.claude', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md'),
+    '# archive\n\n## 2026-08-09 — memory entry (run ' + RUN + ')\n- day-archive memory text\n');
+  const r = V.updateVault(ROOT2, RUN, {});
+  const notes = (r.decisions || []).map((d) => readNote(ROOT2, 'decisions', d + '.md'));
+  t('12d the rotated decisions section of an old run still becomes a decision (FORGE_DECISIONS_ARCHIVE fallback)',
+    r.ok === true && notes.some((n) => n.includes('rotated decision text for the old run') && !n.includes('forge-2026-08-08-y')), JSON.stringify(r.decisions));
+  t('12e the memory section in the DAY-dated archive is found too', notes.some((n) => n.includes('day-archive memory text')), JSON.stringify(r.decisions));
+
+  fs.writeFileSync(path.join(ROOT2, '.claude', 'FORGE_DECISIONS.md'), '# Decisions\n\n## 2026-08-09 — live (run ' + RUN + ')\n- live decisions text\n');
+  const r2 = V.updateVault(ROOT2, RUN, {});
+  const notes2 = (r2.decisions || []).map((d) => readNote(ROOT2, 'decisions', d + '.md'));
+  t('12f a section in the live FORGE_DECISIONS.md wins; its archive is only a fallback',
+    notes2.some((n) => n.includes('live decisions text')) && !notes2.some((n) => n.includes('rotated decision text')), JSON.stringify(r2.decisions));
+}
+
 console.log(pass + ' passed, ' + fail + ' failed');
 for (const r of TMP_ROOTS) { try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* best-effort cleanup */ } }
 process.exitCode = fail ? 1 : 0;

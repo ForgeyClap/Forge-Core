@@ -873,6 +873,307 @@ t('applySettingsMerge carries added_detail on would-merge, merged and noop resul
   assert.deepStrictEqual(again.added_detail, []);
 });
 
+// 16) plan item 1.6: the REAL .claude/settings.json (read-only) — prose keys gone, the three new hooks
+// wired fail-safe, every pre-existing hook byte-identical in event / matcher / command / timeout, every command
+// pointing at a script that exists. FORGE_SETTINGS_UNDER_TEST points the checks at a draft before it goes live.
+console.log('\n16) the real settings.json after plan item 1.6');
+const REAL_SETTINGS = process.env.FORGE_SETTINGS_UNDER_TEST || path.join(__dirname, '..', 'settings.json');
+const rawSettings = () => JSON.parse(fs.readFileSync(REAL_SETTINGS, 'utf8'));
+/** Portability (2026-11-02: a synced project kept the `_doc` / `_matcher_doc` prose keys of an older template in its
+ *  own settings.json and turned 16a/16b red). This tree's settings.json is the template SOURCE only in the development
+ *  tree (.claude/config/forge-dev-tree.json) or for a draft under test: there every check is byte-strict. In a synced
+ *  project settings.json belongs to its owner (forge-settings-merge keeps owner keys, hooks and prose), so the checks
+ *  judge the Forge-owned part: forgeOwnedView keeps only the hook commands Forge owns (isForgeHookCommand) in their
+ *  entries, without the owner's prose keys, plus permissions; every left-out item is named in `notes`. */
+const isDevTreeRoot = (root) => { try { return JSON.parse(fs.readFileSync(path.join(root, '.claude', 'config', 'forge-dev-tree.json'), 'utf8')).dev_tree === true; } catch { return false; } };
+const SETTINGS_STRICT = !!process.env.FORGE_SETTINGS_UNDER_TEST || isDevTreeRoot(path.resolve(__dirname, '..', '..'));
+function forgeOwnedView(s) {
+  const notes = [], hooks = {};
+  for (const k of Object.keys(s)) if (k !== 'hooks' && k !== 'permissions') notes.push('owner key $.' + k);
+  for (const ev of Object.keys(s.hooks || {})) (s.hooks[ev] || []).forEach((e, i) => {
+    const at = '$.hooks.' + ev + '[' + i + ']', entry = {}, own = (e.hooks || []).filter((h) => mod.isForgeHookCommand(h && h.command));
+    for (const h of e.hooks || []) if (!own.includes(h)) notes.push('owner hook ' + at + ': ' + (h && h.command));
+    for (const k of Object.keys(e)) { if (k.startsWith('_')) notes.push('owner prose key ' + at + '.' + k); else entry[k] = k === 'hooks' ? own : e[k]; }
+    if (own.length) (hooks[ev] = hooks[ev] || []).push(entry);
+  });
+  return { settings: JSON.parse(JSON.stringify(Object.assign({ hooks }, s.permissions ? { permissions: s.permissions } : {}))), notes };
+}
+/** Top-level keys Claude Code itself writes into a project settings.json on an OWNER action (2026-11-05: /plugin added
+ *  enabledPlugins and re-ordered the file). They belong to the owner even in the development tree, so the strict checks
+ *  leave them out; every other top-level key besides hooks + permissions still fails 16a. */
+const OWNER_UI_TOP_LEVEL_KEYS = new Set(mod.OWNER_UI_TOP_LEVEL_KEYS); // one list with the merger's create path, which strips them
+const forgeOwnedStrict = (s) => JSON.parse(JSON.stringify(Object.assign({ hooks: s.hooks }, s.permissions ? { permissions: s.permissions } : {})));
+const realSettings = () => (SETTINGS_STRICT ? forgeOwnedStrict(rawSettings()) : forgeOwnedView(rawSettings()).settings);
+const underscoreKeys = (v, p, out) => { if (v && typeof v === 'object') for (const k of Object.keys(v)) { if (k.startsWith('_')) out.push(p + '.' + k); underscoreKeys(v[k], p + '.' + k, out); } return out; };
+/** check16a(raw, strict) -> notes. Strict: no `_` key anywhere and only hooks + permissions at the top. Synced: no `_` key
+ *  inside a Forge hook object (the merger never writes one there), a shape the merger accepts, a clean Forge-owned view. */
+function check16a(raw, strict) {
+  if (strict) {
+    assert.deepStrictEqual(underscoreKeys(raw, '$', []), []);
+    assert.deepStrictEqual(Object.keys(raw).filter((k) => !OWNER_UI_TOP_LEVEL_KEYS.has(k)).sort(), ['hooks', 'permissions']);
+    return [];
+  }
+  const inForgeHook = [];
+  for (const ev of Object.keys(raw.hooks || {})) for (const e of raw.hooks[ev] || []) for (const h of e.hooks || []) if (mod.isForgeHookCommand(h && h.command)) underscoreKeys(h, '$.hooks.' + ev + ' ' + h.command, inForgeHook);
+  assert.deepStrictEqual(inForgeHook, [], 'a prose key inside a Forge hook object');
+  assert.strictEqual(mod.fullyValidShape(raw), true, 'settings.json is not a shape forge-settings-merge accepts');
+  const view = forgeOwnedView(raw);
+  assert.deepStrictEqual(underscoreKeys(view.settings, '$', []), []);
+  return view.notes;
+}
+const Q = (s) => 'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/' + s + '"';
+/** the hooks that existed before item 1.6, pinned literally: [event, matcher|null, command, timeout] in file order */
+const PRE_1_6_HOOKS = [
+  ['PreCompact', 'manual', Q('forge-snapshot-marker.cjs'), 15],
+  ['PreCompact', 'auto', Q('forge-snapshot-marker.cjs'), 15],
+  ['SessionStart', 'compact', Q('forge-snapshot-reinject.cjs'), 15],
+  ['SessionStart', 'startup|resume|clear', Q('forge-resume-brief.cjs'), 10],
+  ['PostToolUse', 'Write|Edit|MultiEdit|NotebookEdit|Bash', Q('forge-toolhook.cjs'), 10],
+  ['PostToolUse', 'PowerShell', Q('forge-toolhook.cjs'), 10],
+  ['PreToolUse', 'Bash|PowerShell', Q('forge-gate-hook.cjs'), 10],
+  ['Stop', null, Q('forge-stop-obligations.cjs'), 5],
+  ['Stop', null, Q('forge-scribe-stop.cjs'), 5],
+  ['UserPromptSubmit', null, Q('forge-scribe-hook.cjs'), 5],
+];
+const NEW_1_6_HOOKS = [
+  ['SubagentStop', null, Q('forge-subagent-stop.cjs'), 5, undefined],
+  ['SessionEnd', null, Q('forge-session-end.cjs'), 5, true],
+  ['PostToolUseFailure', null, Q('forge-tool-failure.cjs'), 5, undefined],
+];
+const flatHooks = (s, events) => {
+  const out = [];
+  for (const ev of events) for (const e of (s.hooks[ev] || [])) for (const h of e.hooks) out.push({ ev, matcher: e.matcher === undefined ? null : e.matcher, h, entryKeys: Object.keys(e) });
+  return out;
+};
+t('16a no prose key (_doc / _matcher_doc / any _-key) is left anywhere in settings.json (synced project: none inside a Forge hook; owner prose noted)', () => {
+  const notes = check16a(rawSettings(), SETTINGS_STRICT);
+  if (notes.length) console.log('    note (synced project, owner-owned, not judged): ' + notes.join('; '));
+});
+/** the WP A2 harness-proof hooks (owner-approved settings diff section 1, commit cc43b9a), pinned literally */
+const A2_HOOK_CMDS = new Set([Q('forge-subagent-start.cjs'), Q('forge-agent-tool-hook.cjs')]);
+const A2_HOOKS = [
+  ['SubagentStart', null, Q('forge-subagent-start.cjs'), 5],
+  ['PostToolUse', 'Agent', Q('forge-agent-tool-hook.cjs'), 5],
+  ['PreToolUse', 'Agent', Q('forge-agent-tool-hook.cjs'), 5],
+];
+/** check16b(settings): every pre-1.6 hook byte-identical (event, matcher, command, timeout, order), no `if`/`async`, entries hold only matcher + hooks. */
+function check16b(s) {
+  const got = flatHooks(s, ['PreCompact', 'SessionStart', 'PostToolUse', 'PreToolUse', 'Stop', 'UserPromptSubmit'])
+    .filter((x) => !A2_HOOK_CMDS.has(x.h.command));
+  assert.deepStrictEqual(got.map((x) => [x.ev, x.matcher, x.h.command, x.h.timeout]), PRE_1_6_HOOKS);
+  for (const x of got) {
+    assert.deepStrictEqual(Object.keys(x.h).sort(), ['command', 'timeout', 'type'], x.h.command);
+    assert.ok(x.entryKeys.every((k) => k === 'matcher' || k === 'hooks'), x.ev + ' entry keys ' + x.entryKeys);
+  }
+}
+t('16b every pre-1.6 hook is byte-identical (event, matcher, command, timeout, order) and has no `if`/`async` (synced project: the Forge-owned part)', () => check16b(realSettings()));
+// 16h-16j PORTABLE: a synced-project-shaped settings.json — the clean Forge-owned settings decorated the way
+// 26h2 kept them (prose keys of an older template beside matcher/hooks) plus an owner hook and an owner top-level key.
+function syncedShapeSettings() {
+  const s = JSON.parse(JSON.stringify(realSettings()));
+  for (const e of s.hooks.PostToolUse) if (e.matcher !== 'Agent') e._matcher_doc = 'older template prose';
+  for (const ev of ['PreToolUse', 'Stop', 'UserPromptSubmit']) s.hooks[ev][0]._doc = 'older template prose';
+  s.hooks.PreToolUse.unshift({ matcher: 'Bash', hooks: [{ type: 'command', command: 'node my-own-guard.js', timeout: 3 }] });
+  s.model = 'sonnet';
+  return s;
+}
+t('16h PORTABLE: the byte-strict 16a/16b refuse a synced-shaped settings.json (what turned 26h2 red), the synced judgement accepts it and names every owner item', () => {
+  const shaped = syncedShapeSettings();
+  assert.throws(() => check16a(shaped, true));
+  assert.throws(() => check16b(shaped), /entry keys|deepStrictEqual|Expected/);
+  const notes = check16a(shaped, false);
+  assert.strictEqual(notes.filter((n) => n.startsWith('owner prose key')).length, 5, notes.join('; '));
+  assert.ok(notes.includes('owner key $.model') && notes.some((n) => n.startsWith('owner hook $.hooks.PreToolUse[0]: node my-own-guard.js')), notes.join('; '));
+  check16b(forgeOwnedView(shaped).settings);
+});
+t('16i PORTABLE: forgeOwnedView of the synced shape is exactly the clean Forge-owned settings (nothing Forge owns is dropped or changed)', () => {
+  assert.deepStrictEqual(forgeOwnedView(syncedShapeSettings()).settings, realSettings());
+});
+t('16k DEV TREE: the strict judgement accepts the owner-owned top-level keys Claude Code writes itself (enabledPlugins from /plugin) in any key order, and still refuses any other top-level key', () => {
+  const clean = JSON.parse(JSON.stringify(realSettings()));
+  const owner = { enabledPlugins: { 'some-plugin@some-market': false }, permissions: clean.permissions, hooks: clean.hooks };
+  assert.deepStrictEqual(check16a(owner, true), []);
+  assert.deepStrictEqual(forgeOwnedStrict(owner), clean);
+  assert.throws(() => check16a(Object.assign({ model: 'sonnet' }, clean), true));
+  assert.throws(() => check16a(Object.assign({}, clean, { enabledPlugins: { _doc: 'prose' } }), true));
+});
+t('16j PORTABLE: the synced judgement still refuses a prose key INSIDE a Forge hook object and an unknown key on a Forge hook (16b)', () => {
+  const shaped = syncedShapeSettings();
+  shaped.hooks.Stop[0].hooks[0]._doc = 'prose inside the hook';
+  assert.throws(() => check16a(shaped, false), /prose key inside a Forge hook object/);
+  const withIf = syncedShapeSettings(); withIf.hooks.Stop[0].hooks[0].if = 'Bash(*)';
+  assert.throws(() => check16b(forgeOwnedView(withIf).settings));
+});
+t('16c the three new hooks are wired once each, no matcher, timeout 5 s, SessionEnd async', () => {
+  const got = flatHooks(realSettings(), ['SubagentStop', 'SessionEnd', 'PostToolUseFailure']);
+  assert.deepStrictEqual(got.map((x) => [x.ev, x.matcher, x.h.command, x.h.timeout, x.h.async]), NEW_1_6_HOOKS);
+  for (const x of got) assert.strictEqual(x.h.type, 'command');
+});
+t('16d every hook command in settings.json names a forge-bin script that exists and is a known Forge hook command', () => {
+  const s = realSettings();
+  for (const ev of Object.keys(s.hooks)) for (const e of s.hooks[ev]) for (const h of e.hooks) {
+    const m = /forge-bin\/(forge-[a-z0-9-]+\.cjs)"$/.exec(h.command);
+    assert.ok(m, ev + ': unexpected command shape ' + h.command);
+    assert.ok(fs.existsSync(path.join(__dirname, m[1])), ev + ': script missing ' + m[1]);
+    assert.ok(mod.isForgeHookCommand(h.command), ev + ': not in FORGE_HOOK_COMMANDS ' + h.command);
+  }
+});
+t('16e the real settings.json is a valid merge source: merge into {} keeps async, unmerge removes all 3 new hooks', () => {
+  const s = realSettings();
+  assert.strictEqual(mod.fullyValidShape(s), true);
+  const merged = mod.mergeForgeSettings({}, s).settings;
+  assert.strictEqual(merged.hooks.SessionEnd[0].hooks[0].async, true);
+  const un = mod.unmergeForgeSettings(merged, s, {}).settings;
+  for (const ev of ['SubagentStop', 'SessionEnd', 'PostToolUseFailure']) assert.ok(!un.hooks || !un.hooks[ev] || un.hooks[ev].length === 0, ev + ' left after unmerge');
+  assert.strictEqual(mod.mergeForgeSettings(merged, s).added.length, 0, 'a second merge must add nothing');
+});
+
+t('16f the three WP A2 harness-proof hooks are wired once each (SubagentStart, PostToolUse Agent, PreToolUse Agent), timeout 5 s, not async', () => {
+  const got = flatHooks(realSettings(), ['SubagentStart', 'PostToolUse', 'PreToolUse']).filter((x) => A2_HOOK_CMDS.has(x.h.command));
+  assert.deepStrictEqual(got.map((x) => [x.ev, x.matcher, x.h.command, x.h.timeout]), A2_HOOKS);
+  for (const x of got) {
+    assert.deepStrictEqual(Object.keys(x.h).sort(), ['command', 'timeout', 'type'], x.h.command);
+    assert.ok(x.entryKeys.every((k) => k === 'matcher' || k === 'hooks'), x.ev + ' entry keys ' + x.entryKeys);
+  }
+});
+t('16g merge of the real settings.json into {} adds the A2 hooks; unmerge removes them and keeps a user Agent hook', () => {
+  const s = realSettings();
+  const user = { hooks: { PreToolUse: [{ matcher: 'Agent', hooks: [{ type: 'command', command: 'node my-agent-audit.js', timeout: 3 }] }] } };
+  const merged = mod.mergeForgeSettings(user, s).settings;
+  const cmds = (o, ev) => ((o.hooks && o.hooks[ev]) || []).flatMap((e) => e.hooks.map((h) => h.command));
+  assert.ok(cmds(merged, 'SubagentStart').includes(Q('forge-subagent-start.cjs')));
+  assert.ok(cmds(merged, 'PreToolUse').includes(Q('forge-agent-tool-hook.cjs')));
+  assert.ok(cmds(merged, 'PostToolUse').includes(Q('forge-agent-tool-hook.cjs')));
+  const un = mod.unmergeForgeSettings(merged, s, {}).settings;
+  for (const ev of ['SubagentStart', 'PreToolUse', 'PostToolUse']) assert.ok(!cmds(un, ev).some((c) => A2_HOOK_CMDS.has(c)), ev + ' still has an A2 hook after unmerge');
+  assert.deepStrictEqual(cmds(un, 'PreToolUse'), ['node my-agent-audit.js']);
+});
+
+// 17) work package 2.9: the rotator Path A StopFailure hook, merged from
+// config/orchestration/rotator-hooks.fragment.json. Inert unless the owner turns on `rotator-auto-resume` (default
+// off). Synchronous on purpose (no `async`): `claude -p` kills async hooks at teardown. Removable by unmerge.
+console.log('\n17) the rotator StopFailure hook (work package 2.9)');
+const ROTATOR_HOOK_CMD = Q('forge-rotator-hook.cjs');
+const ROTATOR_FRAGMENT = path.join(__dirname, '..', 'config', 'orchestration', 'rotator-hooks.fragment.json');
+t('17a StopFailure is wired once: matcher rate_limit|overloaded, command hook, timeout 5 s, not async', () => {
+  const got = flatHooks(realSettings(), ['StopFailure']);
+  assert.deepStrictEqual(got.map((x) => [x.ev, x.matcher, x.h.command, x.h.timeout, x.h.async]), [['StopFailure', 'rate_limit|overloaded', ROTATOR_HOOK_CMD, 5, undefined]]);
+  assert.deepStrictEqual(Object.keys(got[0].h).sort(), ['command', 'timeout', 'type']);
+  assert.strictEqual(got[0].h.type, 'command');
+  assert.deepStrictEqual(got[0].entryKeys.sort(), ['hooks', 'matcher']);
+});
+t('17b the settings.json StopFailure block equals the shipped rotator fragment (no drift between the two)', () => {
+  const frag = JSON.parse(fs.readFileSync(ROTATOR_FRAGMENT, 'utf8'));
+  assert.deepStrictEqual(realSettings().hooks.StopFailure, frag.hooks.StopFailure);
+});
+t('17c the rotator hook command is a known Forge hook command (unmerge removes it, a user command naming it is never touched)', () => {
+  assert.strictEqual(mod.isForgeHookCommand(ROTATOR_HOOK_CMD), true);
+  assert.strictEqual(mod.isForgeHookCommand('node my-wrapper.js && ' + ROTATOR_HOOK_CMD), false);
+});
+t('17d merge next to a user StopFailure hook keeps it; unmerge removes only the Forge one; merge into {} then unmerge leaves no StopFailure', () => {
+  const s = realSettings();
+  const userHook = { type: 'command', command: 'node my-own-limit-alert.js', timeout: 3 };
+  const project = { hooks: { StopFailure: [{ matcher: 'rate_limit', hooks: [userHook] }] } };
+  const merged = mod.mergeForgeSettings(project, s).settings;
+  assert.deepStrictEqual(merged.hooks.StopFailure[0], { matcher: 'rate_limit', hooks: [userHook] }, 'the user entry is untouched');
+  assert.ok(merged.hooks.StopFailure.some((e) => e.matcher === 'rate_limit|overloaded' && e.hooks.some((h) => h.command === ROTATOR_HOOK_CMD)), 'the Forge entry is added');
+  assert.strictEqual(mod.mergeForgeSettings(merged, s).added.length, 0, 'a second merge adds nothing');
+  const un = mod.unmergeForgeSettings(merged, s, {}).settings;
+  assert.deepStrictEqual(un.hooks.StopFailure, [{ matcher: 'rate_limit', hooks: [userHook] }], 'only the Forge StopFailure hook is removed');
+  const fresh = mod.unmergeForgeSettings(mod.mergeForgeSettings({}, s).settings, s, {}).settings;
+  assert.ok(!fresh.hooks || !fresh.hooks.StopFailure, 'StopFailure left after unmerge: ' + JSON.stringify(fresh.hooks && fresh.hooks.StopFailure));
+});
+
+// 18) WP A13 (fleet rollout): the harness proof hooks of WP A2 — SubagentStart, PreToolUse(Agent),
+// PostToolUse(Agent) (the settings diff proposal, section 1). The source is the real settings.json
+// plus exactly those three entries (what the template ships once the owner applies the proposal), so the test stays
+// valid before AND after that owner step.
+console.log('\n18) the harness proof hooks (WP A2 / A13)');
+const START_CMD = Q('forge-subagent-start.cjs');
+const AGENT_CMD = Q('forge-agent-tool-hook.cjs');
+function harnessSource() {
+  const s = realSettings();
+  const has = (ev, m, cmd) => (s.hooks[ev] || []).some((e) => e.matcher === m && e.hooks.some((h) => h.command === cmd));
+  const add = (ev, m, cmd) => { if (!has(ev, m, cmd)) (s.hooks[ev] = s.hooks[ev] || []).push(Object.assign(m === undefined ? {} : { matcher: m }, { hooks: [{ type: 'command', command: cmd, timeout: 5 }] })); };
+  add('SubagentStart', undefined, START_CMD);
+  add('PreToolUse', 'Agent', AGENT_CMD);
+  add('PostToolUse', 'Agent', AGENT_CMD);
+  return s;
+}
+const harnessCount = (s) => {
+  let n = 0;
+  for (const ev of ['SubagentStart', 'PreToolUse', 'PostToolUse']) for (const e of ((s.hooks || {})[ev] || [])) for (const h of e.hooks) if (h.command === START_CMD || h.command === AGENT_CMD) n++;
+  return n;
+};
+t('18a both harness hook commands are known Forge hook commands; a user command naming one is not', () => {
+  assert.strictEqual(mod.isForgeHookCommand(START_CMD), true);
+  assert.strictEqual(mod.isForgeHookCommand(AGENT_CMD), true);
+  assert.strictEqual(mod.isForgeHookCommand('node my-audit.js && ' + AGENT_CMD), false);
+  for (const f of ['forge-subagent-start.cjs', 'forge-agent-tool-hook.cjs']) assert.ok(fs.existsSync(path.join(__dirname, f)), f + ' missing');
+});
+t('18b merge into {} adds exactly SubagentStart, PreToolUse(Agent) and PostToolUse(Agent); a second merge adds nothing', () => {
+  const src = harnessSource();
+  const r = mod.mergeForgeSettings({}, src);
+  assert.strictEqual(harnessCount(r.settings), 3);
+  assert.ok(r.settings.hooks.SubagentStart.some((e) => e.matcher === undefined && e.hooks[0].command === START_CMD));
+  for (const ev of ['PreToolUse', 'PostToolUse']) assert.strictEqual(r.settings.hooks[ev].filter((e) => e.matcher === 'Agent').length, 1, ev + ' Agent entries');
+  const again = mod.mergeForgeSettings(r.settings, src);
+  assert.strictEqual(again.added.length, 0, 'a second merge must add nothing: ' + JSON.stringify(again.added));
+  assert.deepStrictEqual(again.settings, r.settings);
+});
+t('18c owner hooks on SubagentStart / PreToolUse(Agent) / PostToolUse survive byte-for-byte; the Forge hook tops up the SAME Agent entry', () => {
+  const ownStart = { type: 'command', command: 'node my-own-start-logger.js', timeout: 2 };
+  const ownAgent = { type: 'command', command: 'node my-agent-audit.js', timeout: 3 };
+  const ownPost = { matcher: 'Write', hooks: [{ type: 'command', command: 'node my-formatter.js' }] };
+  const project = { hooks: { SubagentStart: [{ hooks: [ownStart] }], PreToolUse: [{ matcher: 'Agent', hooks: [ownAgent] }], PostToolUse: [ownPost] }, model: 'sonnet' };
+  const before = JSON.stringify(project);
+  const r = mod.mergeForgeSettings(project, harnessSource());
+  assert.strictEqual(JSON.stringify(project), before, 'the input is never mutated');
+  assert.deepStrictEqual(r.settings.hooks.SubagentStart[0].hooks[0], ownStart, 'owner SubagentStart hook first and unchanged');
+  assert.ok(r.settings.hooks.SubagentStart[0].hooks.some((h) => h.command === START_CMD), 'Forge start hook topped up into the matcher-less entry');
+  const agentPre = r.settings.hooks.PreToolUse.filter((e) => e.matcher === 'Agent');
+  assert.strictEqual(agentPre.length, 1, 'no second PreToolUse(Agent) entry');
+  assert.deepStrictEqual(agentPre[0].hooks[0], ownAgent);
+  assert.ok(agentPre[0].hooks.some((h) => h.command === AGENT_CMD));
+  assert.deepStrictEqual(r.settings.hooks.PostToolUse[0], ownPost, 'owner PostToolUse entry stays first and unchanged');
+  assert.strictEqual(r.settings.model, 'sonnet');
+  assert.strictEqual(mod.mergeForgeSettings(r.settings, harnessSource()).added.length, 0, 'idempotent next to owner hooks');
+  const un = mod.unmergeForgeSettings(r.settings, harnessSource(), {}).settings;
+  assert.strictEqual(harnessCount(un), 0, 'unmerge removes the Forge harness hooks');
+  assert.deepStrictEqual(un.hooks.SubagentStart, [{ hooks: [ownStart] }]);
+  assert.deepStrictEqual(un.hooks.PreToolUse, [{ matcher: 'Agent', hooks: [ownAgent] }]);
+  assert.deepStrictEqual(un.hooks.PostToolUse, [ownPost]);
+});
+t('18d MUTANT: a copy of the merger without the two new FORGE_HOOK_COMMANDS entries leaves the hooks after unmerge (18a/18c bite)', () => {
+  const dir = freshDir('fsm-a13-mutant');
+  try {
+    const srcText = fs.readFileSync(path.join(__dirname, 'forge-settings-merge.cjs'), 'utf8');
+    const mutText = srcText.replace(/  'forge-subagent-start\.cjs': \[\r?\n[^\]]*\],\r?\n  'forge-agent-tool-hook\.cjs': \[\r?\n[^\]]*\],\r?\n/, '');
+    assert.notStrictEqual(mutText, srcText, 'the mutation did not apply');
+    fs.writeFileSync(path.join(dir, 'forge-settings-merge.cjs'), mutText);
+    fs.copyFileSync(path.join(__dirname, 'forge-settings-merge-guards.cjs'), path.join(dir, 'forge-settings-merge-guards.cjs'));
+    const mut = require(path.join(dir, 'forge-settings-merge.cjs'));
+    assert.strictEqual(mut.isForgeHookCommand(START_CMD), false);
+    const merged = mut.mergeForgeSettings({}, harnessSource()).settings;
+    assert.strictEqual(harnessCount(mut.unmergeForgeSettings(merged, harnessSource(), {}).settings), 3, 'the mutant must leave all three behind');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+t('18e check (CLI) on a target merged from the harness source reports nothing to merge (exit 0)', () => {
+  const dir = freshDir('fsm-a13');
+  try {
+    const src = path.join(dir, 'source.json'), tgt = path.join(dir, 'settings.json');
+    writeJson(src, harnessSource());
+    writeJson(tgt, { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'node my-guard.js' }] }] } });
+    const ap = spawnSync(process.execPath, [path.join(__dirname, 'forge-settings-merge.cjs'), 'apply', '--target', tgt, '--source', src, '--backup-dir', dir], { encoding: 'utf8' });
+    assert.strictEqual(ap.status, 0, ap.stdout + ap.stderr);
+    const after = JSON.parse(fs.readFileSync(tgt, 'utf8'));
+    assert.strictEqual(harnessCount(after), 3);
+    assert.deepStrictEqual(after.hooks.PreToolUse[0], { matcher: 'Bash', hooks: [{ type: 'command', command: 'node my-guard.js' }] });
+    const ck = spawnSync(process.execPath, [path.join(__dirname, 'forge-settings-merge.cjs'), 'check', '--target', tgt, '--source', src], { encoding: 'utf8' });
+    assert.strictEqual(ck.status, 0, ck.stdout + ck.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

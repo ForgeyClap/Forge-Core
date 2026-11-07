@@ -8,6 +8,7 @@
  */
 
 import { Icon, IconButton, Machine } from '@/components/primitives';
+import { useLocale } from '@/i18n/use-locale';
 
 import type { QueuedMessage } from './message-queue';
 
@@ -17,9 +18,10 @@ export interface ComposerQueuePanelProps {
 }
 
 export function ComposerQueuePanel({ queue, onRemove }: ComposerQueuePanelProps) {
+  const { t } = useLocale();
   if (queue.length === 0) return null;
   return (
-    <ul className="fw-chat-composer__queue" aria-label="Queued messages">
+    <ul className="fw-chat-composer__queue" aria-label={t('chat.queue.label')}>
       {queue.map((item) => (
         <li
           key={item.id}
@@ -34,8 +36,8 @@ export function ComposerQueuePanel({ queue, onRemove }: ComposerQueuePanelProps)
             <Machine className="fw-chat-composer__queue-body fw-truncate">{item.body}</Machine>
             {item.error !== null ? <span className="fw-chat-composer__queue-error">{item.error}</span> : null}
           </span>
-          <span className="fw-chat-composer__queue-status">{item.error !== null ? 'Not sent' : 'Waiting'}</span>
-          <IconButton icon="X" label="Remove queued message" size="sm" onClick={() => onRemove(item.id)} />
+          <span className="fw-chat-composer__queue-status">{item.error !== null ? t('chat.queue.notSent') : t('chat.queue.waiting')}</span>
+          <IconButton icon="X" label={t('chat.queue.remove')} size="sm" onClick={() => onRemove(item.id)} />
         </li>
       ))}
     </ul>

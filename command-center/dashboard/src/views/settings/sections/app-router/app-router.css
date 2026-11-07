@@ -1,0 +1,723 @@
+/*
+ * Settings › Accounts › "Als je limiet op is" (APP-ROUTER-DESIGN.md §6.2; v1.0 redesign DESIGN.md §3.4).
+ * v1.0 tokens only. The mode is one row with a select (Eenvoudig) or the option cards of ChoiceList
+ * (Uitgebreid); what the chosen mode needs sits under it in quiet surfaces. Motion: transform/opacity
+ * only, none under reduced motion. Narrow layouts follow the block's own width (container queries).
+ */
+
+.fs-router {
+  container-type: inline-size;
+  scroll-margin-top: var(--fs-space-5);
+}
+
+/* --------------------------------------------------------------- shared text */
+
+.fs-router__label {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fs-router__hint,
+.fs-router__fine {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+  line-height: 1.5;
+}
+
+.fs-router__fine {
+  font-size: var(--fs-text-12);
+}
+
+.fs-router__fine:empty {
+  display: none;
+}
+
+.fs-router__error {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-danger);
+}
+
+.fs-router__note,
+.fs-router__notice {
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fs-router__notice {
+  background: var(--fs-warn-soft);
+  color: var(--fs-ink);
+}
+
+.fs-router__problem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+}
+
+.fs-router__problem p {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+}
+
+/* ------------------------------------- loading: static skeleton rows, no shimmer */
+
+.fs-router__skeleton {
+  display: grid;
+  gap: var(--fs-space-2);
+}
+
+.fs-router__skeleton span {
+  block-size: 44px;
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+}
+
+.fs-router__skeleton span:nth-child(2) {
+  inline-size: 82%;
+}
+
+.fs-router__skeleton span:nth-child(3) {
+  inline-size: 64%;
+}
+
+
+/* ----------------------------------------------------------------- blocks */
+
+.fs-router__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  padding: var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+}
+
+.fs-router__block-title {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink-2);
+}
+
+.fs-router__sub {
+  margin: var(--fs-space-2) 0 0;
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+/* --------------------------------------------------------------- accounts */
+
+.fs-router__accts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-router__acct {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: var(--fs-space-3) var(--fs-space-4);
+  align-items: start;
+  padding: var(--fs-space-3) 0;
+}
+
+.fs-router__acct + .fs-router__acct {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-router__acct[data-greyed] .fs-router__acct-name,
+.fs-router__acct[data-enabled='false'] .fs-router__acct-name {
+  color: var(--fs-ink-3);
+}
+
+.fs-router__plate {
+  inline-size: 32px;
+  block-size: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px 3px 9px 9px;
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font: 600 14px / 1 var(--fs-font-display);
+}
+
+.fs-router__acct-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+.fs-router__acct-top {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2) var(--fs-space-3);
+  flex-wrap: wrap;
+}
+
+.fs-router__acct-name {
+  font-weight: 600;
+}
+
+.fs-router__acct-sub {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-inline-size: 0;
+}
+
+.fs-router__acct-ctl {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: center;
+}
+
+.fs-router__usage {
+  margin-top: 4px;
+  max-inline-size: 420px;
+}
+
+.fs-router__usage .fs-meter__track i {
+  transition: transform var(--fs-dur-3) var(--fs-ease);
+}
+
+.fs-router__usage .fs-meter__track i[data-high] {
+  background: var(--fs-warn);
+}
+
+.fs-router__add {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+}
+
+@container (max-width: 520px) {
+  .fs-router__acct {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .fs-router__acct-ctl {
+    grid-column: 2;
+  }
+}
+
+/* ------------------------------------------------- rows (v1.0 fix round FX-C) */
+
+/* One surface of rows (DESIGN.md §3.4): a name, one sub-line, "Meer info" beside the name; what it hides opens
+   in place under the row. The rows reuse the Settings row layout (.fs-set__row / .fs-set__text). */
+.fs-router__rows .fs-set__text > .fs-set__more > .fw-disclosure__panel {
+  justify-self: stretch;
+  inline-size: 100%;
+}
+
+/* A block inside "Meer info" has no frame of its own: the row (or the Volgorde block) is the frame. */
+.fs-router__block--bare {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* ------------------------------------------------- multi-account consent row */
+
+/* The one visible risk line (D6): the risk in the row-name weight, the covered accounts quieter. It
+   stays above the checkbox; "Meer info" sits beside it and opens the long warning under the box. */
+.fs-router__consent-risk {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-2);
+  margin: 0;
+}
+
+.fs-router__consent-risk > .fs-router__consent-icon {
+  /* Optical centre of the first text line (14 px text on the snug leading). */
+  margin-block-start: 2px;
+}
+
+.fs-router__consent-names {
+  font-weight: 500;
+  color: var(--fs-ink-2);
+}
+
+.fs-router__consent-icon {
+  flex: none;
+  color: var(--fs-warn);
+}
+
+.fs-router__consent[data-acknowledged='true'] .fs-router__consent-icon {
+  color: var(--fs-ink-3);
+}
+
+.fs-router__consent .fs-set__text > .fs-router__consent-check {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-block-start: var(--fs-space-2);
+}
+
+.fs-router__consent .fs-set__text > .fs-set__more > .fw-disclosure__panel {
+  grid-row: 3;
+  margin-block-start: var(--fs-space-2);
+}
+
+/* The risk line takes the width; "Meer info" keeps its own size at the end of its first line. */
+.fs-router__consent .fs-set__text {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.fs-router__consent .fs-set__text > .fs-set__more > .fw-disclosure__trigger {
+  white-space: nowrap;
+}
+
+.fs-router__consent-more {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+}
+
+/* ----------------------------------------------------- Volgorde "Meer info" */
+
+.fs-router__chain-more > .fw-disclosure__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+}
+
+.fs-router__chain-more > .fw-disclosure__panel[hidden] {
+  display: none;
+}
+
+.fs-router__chain-more .fs-router__block--bare {
+  padding-block-start: var(--fs-space-3);
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fs-router__multi-text {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  line-height: 1.6;
+  color: var(--fs-ink);
+  max-inline-size: 72ch;
+}
+
+.fs-router__multi-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-1) var(--fs-space-3);
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-router__link {
+  color: var(--fs-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--fs-ink-3);
+  text-underline-offset: 3px;
+  border-radius: 2px;
+}
+
+.fs-router__link:hover {
+  text-decoration-color: currentColor;
+}
+
+.fs-router__link:active {
+  color: var(--fs-ink-2);
+}
+
+.fs-router__link:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+.fs-router__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-3);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+  cursor: pointer;
+}
+
+.fs-router__check input {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 1px 0 0;
+  flex: none;
+  accent-color: var(--fs-accent);
+  cursor: pointer;
+}
+
+.fs-router__check input:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------- fallback model */
+
+.fs-router__pick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--fs-space-3);
+  align-items: end;
+}
+
+@container (min-width: 620px) {
+  .fs-router__pick {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+}
+
+.fs-router__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-inline-size: 0;
+}
+
+.fs-router__field .fs-set__select {
+  inline-size: 100%;
+}
+
+.fs-router__pick-ctl {
+  display: flex;
+  gap: var(--fs-space-2);
+}
+
+.fs-router__status {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2) var(--fs-space-3);
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.fs-router__status:empty {
+  display: none;
+}
+
+.fs-router__capability {
+  margin: 0;
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-info-soft);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+}
+
+/* ------------------------------------------------------------ chain editor */
+
+.fs-router__chain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+}
+
+.fs-router__link-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: var(--fs-space-3);
+  align-items: start;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-bg);
+}
+
+/* Switched off = the quietest row in both themes: no fill, a dashed hairline (sunken is near-black in dark). */
+.fs-router__link-row[data-enabled='false'] {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--fs-line);
+}
+
+.fs-router__link-row[data-enabled='false'] .fs-router__link-name b {
+  color: var(--fs-ink-3);
+}
+
+.fs-router__pos {
+  inline-size: 24px;
+  block-size: 24px;
+  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-sunken);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
+}
+
+.fs-router__link-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  min-inline-size: 0;
+}
+
+.fs-router__link-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fs-space-2);
+  flex-wrap: wrap;
+}
+
+.fs-router__kind {
+  font-size: var(--fs-text-12);
+  font-weight: 500;
+  color: var(--fs-ink-3);
+}
+
+.fs-router__link-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2) var(--fs-space-5);
+}
+
+.fs-router__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fs-router__unit {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fs-router__link-ctl {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+}
+
+.fs-router__move {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.fs-router__input {
+  block-size: 32px;
+  padding: 0 10px;
+  border-radius: var(--fs-radius-xs);
+  border: 1px solid var(--fs-line-strong);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+}
+
+.fs-router__input:hover:not(:disabled) {
+  border-color: var(--fs-ink-3);
+}
+
+.fs-router__input:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-router__input[aria-invalid='true'] {
+  border-color: var(--fs-danger);
+}
+
+.fs-router__input--num {
+  inline-size: 76px;
+  font-family: var(--fs-font-mono);
+}
+
+.fs-router__input--wide-num {
+  inline-size: 104px;
+}
+
+.fs-router__input--wide {
+  inline-size: 100%;
+  block-size: 36px;
+}
+
+.fs-router__globals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--fs-space-3) var(--fs-space-5);
+}
+
+@container (min-width: 620px) {
+  .fs-router__globals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.fs-router__global {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fs-router__global .fs-set__select {
+  max-inline-size: 260px;
+}
+
+@container (max-width: 520px) {
+  .fs-router__link-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .fs-router__link-ctl {
+    grid-column: 2;
+  }
+}
+
+/* ---------------------------------------------------------------- save bar */
+
+.fs-router__savebar {
+  position: sticky;
+  bottom: var(--fs-space-3);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3) var(--fs-space-4);
+  flex-wrap: wrap;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  box-shadow: var(--fs-shadow-2);
+}
+
+.fs-router__savebar-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  min-inline-size: 0;
+}
+
+.fs-router__dirty {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fs-router__issues p {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fs-router__issues ul {
+  margin: 4px 0 0;
+  padding-inline-start: 18px;
+  font-size: var(--fs-text-13);
+  color: var(--fs-danger);
+}
+
+.fs-router__savebar-ctl {
+  display: flex;
+  gap: var(--fs-space-2);
+  margin-inline-start: auto;
+}
+
+/* ------------------------------------------------------------------ dialog */
+
+.fs-router-dialog__form,
+.fs-router-dialog__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+}
+
+.fs-router-dialog__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+}
+
+.fs-router-dialog__list li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+}
+
+.fs-router-dialog__other summary {
+  cursor: pointer;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-router-dialog__other summary:hover {
+  color: var(--fs-ink);
+}
+
+.fs-router-dialog__other[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+}
+
+.fs-router-dialog__other p {
+  margin: var(--fs-space-2) 0 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fs-router-dialog__note {
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+  color: var(--fs-ink);
+}
+
+.fs-router-dialog__result {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+}
+
+.fs-router-dialog__result:empty {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-router__usage .fs-meter__track i {
+    transition: none;
+  }
+}

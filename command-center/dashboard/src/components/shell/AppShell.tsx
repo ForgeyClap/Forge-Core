@@ -1,13 +1,16 @@
 /**
- * Forge Workspace — the application shell.
+ * Forge Systeem — the application shell (redesign 1C, DESIGN.md §2).
  *
- * One CSS grid, driven by the layout tokens. It owns the chrome and nothing
- * else: a view renders into <main> and never draws the sidebar, topbar,
- * inspector or dock itself.
+ * One CSS grid. It owns the chrome and nothing else: a view renders into <main> and never draws the
+ * sidebar, the bar or the side pane itself.
  *
- *   >1180px   sidebar | main | inspector, dock under main
- *   <=1180px  the inspector detaches into an overlay with a scrim
- *   <=860px   the sidebar detaches into a drawer, the inspector into a sheet
+ *   >1180px   sidebar | bar + main | side pane (Hulp, or Details in Uitgebreid)
+ *   <=1180px  the side pane detaches into an overlay with a scrim
+ *   <=860px   the sidebar detaches into a drawer
+ *
+ * Gone from the chrome (DESIGN.md "Removed from the always-visible chrome"): the dock row (its tabs live
+ * in the Details pane) and the corner usage pill (the usage line above the composer, `UsageLine`, which
+ * the chat view mounts).
  *
  * The document never scrolls sideways at any width: the grid's middle track is
  * minmax(0, 1fr) and <main> is its own scroll container, so wide content scrolls
@@ -20,14 +23,16 @@ import { useLocation } from 'react-router-dom';
 
 import { CommandPalette } from '@/components/shell/CommandPalette';
 import { ConnectionBanner } from '@/components/shell/ConnectionBanner';
-import { Dock } from '@/components/shell/Dock';
-import { Inspector } from '@/components/shell/Inspector';
+import Bar from '@/components/shell/Bar';
 import { skipToMain } from '@/components/shell/skip-link';
 import Sidebar from '@/components/shell/Sidebar';
+import { SidePane } from '@/components/shell/SidePane';
+import { setHelpView, useHelpView } from '@/components/shell/side-pane';
 import { Toasts } from '@/components/shell/Toasts';
-import Topbar from '@/components/shell/Topbar';
-import { AccountUsagePressure } from '@/components/usage/AccountUsagePressure';
 import { usePrototype } from '@/prototype/state/prototype-store';
+import { PairingNotice } from '@/views/chat/errors/PairingCard';
+import { useLocale } from '@/i18n/use-locale';
+import { useUiMode } from '@/state/ui-mode';
 
 import './app-shell.css';
 
@@ -36,6 +41,8 @@ const FOCUSABLE =
 
 /** Below this the sidebar is a drawer, not a column. Mirrors app-shell.css. */
 const DRAWER_QUERY = '(max-width: 860px)';
+/** At or above this the side pane is a docked column; below it, an overlay. Mirrors app-shell.css (1180px). */
+const DOCKED_INSPECTOR_QUERY = '(min-width: 1181px)';
 
 export interface AppShellProps {
   children?: ReactNode;
@@ -44,6 +51,15 @@ export interface AppShellProps {
 export default function AppShell({ children }: AppShellProps) {
   const { state, dispatch } = usePrototype();
   const location = useLocation();
+  const { t } = useLocale();
+  const { isAdvanced } = useUiMode();
+  const helpView = useHelpView();
+  const paneOpen = helpView !== 'closed' || (isAdvanced && state.inspectorOpen);
+
+  const closePane = useCallback(() => {
+    setHelpView('closed');
+    dispatch({ type: 'inspector/set', open: false });
+  }, [dispatch]);
 
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -94,6 +110,28 @@ export default function AppShell({ children }: AppShellProps) {
 
     const handle = (event: MediaQueryListEvent) => {
       if (!event.matches) dispatch({ type: 'drawer/set', open: false });
+    };
+    query.addEventListener('change', handle);
+    return () => query.removeEventListener('change', handle);
+  }, [dispatch]);
+
+  /* B8-3: shrinking from a docked side-pane column into overlay mode closes the pane. An open column
+     must never re-appear as an overlay with a scrim over the view the person was using; they can open
+     it again from the bar. Growing back does not reopen it. */
+  useEffect(() => {
+    let query: MediaQueryList | null = null;
+    try {
+      query = typeof window.matchMedia === 'function' ? window.matchMedia(DOCKED_INSPECTOR_QUERY) : null;
+    } catch {
+      query = null;
+    }
+    if (!query) return;
+
+    const handle = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        dispatch({ type: 'inspector/set', open: false });
+        setHelpView('closed');
+      }
     };
     query.addEventListener('change', handle);
     return () => query.removeEventListener('change', handle);
@@ -164,69 +202,53 @@ export default function AppShell({ children }: AppShellProps) {
     <div
       className="fw-shell"
       data-sidebar={state.sidebarCollapsed ? 'rail' : 'full'}
-      data-inspector={state.inspectorOpen ? 'open' : 'closed'}
+      data-pane={paneOpen ? 'open' : 'closed'}
       data-drawer={drawerOpen ? 'open' : 'closed'}
-      data-dock={state.dockOpen ? 'open' : 'closed'}
     >
       {/* WP-8d: the app uses a HashRouter, so following `#fw-main` would be read as an unknown
           route and bounce to Home. The click handler keeps the route and moves focus instead. */}
       <a className="fw-shell__skip" href="#fw-main" onClick={skipToMain}>
-        Skip to content
+        {t('shell.skipToContent')}
       </a>
 
-      <div
-        ref={drawerRef}
-        className="fw-shell__sidebar"
-        onKeyDown={handleDrawerKeyDown}
-      >
+      <div ref={drawerRef} className="fw-shell__sidebar" onKeyDown={handleDrawerKeyDown}>
         <Sidebar />
       </div>
 
       {drawerOpen ? (
-        <button
-          type="button"
-          className="fw-shell__scrim"
-          aria-label="Close drawer"
-          onClick={closeDrawer}
-        />
+        <button type="button" className="fw-shell__scrim" aria-label={t('shell.closeDrawer')} onClick={closeDrawer} />
       ) : null}
 
-      <Topbar />
+      <Bar />
 
       <main id="fw-main" className="fw-shell__main" tabIndex={-1}>
         {children}
       </main>
 
-      {state.inspectorOpen ? (
+      {paneOpen ? (
         <button
           type="button"
-          className="fw-shell__inspector-scrim"
-          aria-label="Close inspector"
-          onClick={() => dispatch({ type: 'inspector/set', open: false })}
+          className="fw-shell__pane-scrim"
+          aria-label={t('rd.bar.paneClose')}
+          onClick={closePane}
         />
       ) : null}
 
-      {state.inspectorOpen ? (
-        <div className="fw-shell__inspector">
-          <Inspector />
+      {paneOpen ? (
+        <div className="fw-shell__pane">
+          <SidePane />
         </div>
       ) : null}
-
-      <div className="fw-shell__dock">
-        <Dock />
-      </div>
 
       <CommandPalette />
       <Toasts />
 
-      {/* Shows only while the bridge connection is not healthy; portals to <body>
-          and renders nothing when connected. Never a full-screen blocker. */}
+      {/* Shows only while the gateway connection is not healthy; never a full-screen blocker. */}
       <ConnectionBanner />
 
-      {/* WP7c: the account-wide Forge usage-pressure strip. Always on (unlike
-          ConnectionBanner, which hides when healthy) — a small, honest, fixed
-          corner pill, never a blocker. See AccountUsagePressure's own header. */}
-      <AccountUsagePressure />
+      {/* FU-STEP2: "Koppel dit venster opnieuw". Renders nothing unless the gateway says this window is
+          not paired. Takes the grid's notice row under the bar. */}
+      <PairingNotice />
     </div>
   );
 }

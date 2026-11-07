@@ -4,9 +4,11 @@
  * forge-killswitch.cjs — ONE handle that stops all autonomous execution in this project.
  * Zero-dependency, CommonJS, Windows-first.
  *
- * BUILT, NOT USED. This file was written while the owner was asleep, on a delegated decision. It has been
- * proven with a dry run against the real live processes and with tests against simulated ones. It has NOT
- * been fired.
+ * Written on 2026-08-01 while the owner was asleep, on a delegated decision; proven with a dry run against
+ * the real live processes and with tests against simulated ones. FIRED FOR REAL once, on 2026-08-02 (the
+ * first live --confirm): it stopped everything correctly, and the two defects that firing exposed are fixed
+ * and pinned in forge-killswitch.test.cjs ("FOUND BY FIRING IT FOR REAL"). Entry point for the Lead:
+ * /forge killswitch status|stop|restore (A6); --confirm stays owner-triggered and terminal-only.
  *
  * ── WHAT IT STOPS ─────────────────────────────────────────────────────────────────────────────────────
  * Four layers, in this order (the order is data — see TARGET_KINDS — because it is load-bearing):
@@ -80,9 +82,23 @@ const SIGNATURES = {
   discord: 'command-center/discord/src/main.js',
 };
 
-const DEFAULT_ROOT = path.join(__dirname, '..', '..');
+// WP 2.1 (opt-in .forge layout): the default root and the state ledger come from forge-paths.cjs. The ledger
+// FORGE_KILLSWITCH_STATE.json is a memory-class file: .forge/memory in a project with a .forge folder (or
+// FORGE_STATE_DIR), otherwise exactly .claude/FORGE_KILLSWITCH_STATE.json. `stop` writes the active path; `restore`
+// reads (and clears) the read path, so a ledger written before the switch is still found. Guarded: an older or missing
+// forge-paths.cjs keeps the legacy literals. A plugin copy outside any project has no DEFAULT_ROOT (null).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.memoryFile === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const DEFAULT_ROOT = viaForgePaths((P) => P.scriptRoot(__dirname), () => path.join(__dirname, '..', '..'));
+const STATE_FILE_NAME = 'FORGE_KILLSWITCH_STATE.json';
+const NO_ROOT = 'no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — pass --root <project>';
 
-function defaultStateFile(root) { return path.join(root || DEFAULT_ROOT, '.claude', 'FORGE_KILLSWITCH_STATE.json'); }
+function defaultStateFile(root, opts) {
+  const r = root || DEFAULT_ROOT;
+  if (!r) throw new Error(NO_ROOT);
+  const read = !!(opts && opts.read);
+  return viaForgePaths((P) => P.memoryFile(r, STATE_FILE_NAME, { read }), () => path.join(r, '.claude', STATE_FILE_NAME));
+}
 
 function norm(s) { return String(s || '').replace(/\\/g, '/').toLowerCase(); }
 
@@ -464,7 +480,7 @@ function readState(file) {
 function restore(opts) {
   const o = opts || {};
   const root = o.root || DEFAULT_ROOT;
-  const stateFile = o.stateFile || defaultStateFile(root);
+  const stateFile = o.stateFile || defaultStateFile(root, { read: true });
   const st = readState(stateFile);
   if (!st) {
     return { ok: false, dry_run: o.confirm !== true, steps: [], state_file: stateFile,
@@ -531,7 +547,9 @@ if (require.main === module) {
   const confirm = argv.includes('--confirm');
   const json = argv.includes('--json');
   function arg(name, dflt) { const i = argv.indexOf('--' + name); return (i > -1 && argv[i + 1] !== undefined) ? argv[i + 1] : dflt; }
-  const base = { root: path.resolve(arg('root', DEFAULT_ROOT)), stateFile: arg('state', undefined), confirm };
+  const rootArg = arg('root', DEFAULT_ROOT);
+  if (!rootArg) { console.error('forge-killswitch: ' + NO_ROOT); process.exit(2); }
+  const base = { root: path.resolve(rootArg), stateFile: arg('state', undefined), confirm };
 
   function printTargets(r) {
     console.log('TARGETS (project root: ' + r.root + ', gateway port: ' + r.port + ')');

@@ -29,7 +29,7 @@
  *   SWARM EXECUTION (Lead-Agent studio): mission_packet_created · mission_blueprint_created · role_map_created ·
  *     skill_discovery · skill_map_created · custom_skill_created · skill_assigned ·
  *     agent_work_package_created · custom_subagent_created · subagent_started · subagent_completed · subagent_failed ·
- *     subagent_output_created · subagent_artifact_created · agent_artifact_created · agent_handoff ·
+ *     subagent_output_created · subagent_artifact_created · agent_artifact_created · agent_handoff · agent_message ·
  *     lead_review_started · lead_review_completed · rework_task_created · rework_assigned · rework_started · rework_completed ·
  *     merge_started · merge_completed · codex_review_started · codex_review_completed · codex_finding · codex_blocked · codex_not_invoked ·
  *     fix_started · fix_completed · retest_started · retest_completed · quality_gate_passed · quality_gate_blocked · final_output_created
@@ -261,8 +261,40 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const CLAUDE_DIR = path.resolve(__dirname, '..');
-const RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
+// WP 2.1 (opt-in .forge layout): forge-paths.cjs decides which project this writer acts on and where its runtime
+// state lives. Guarded (installed copy: ../forge-bin/forge-paths.cjs, a flat plugin copy: ./forge-paths.cjs): a
+// missing or older forge-paths.cjs keeps every legacy answer - CLAUDE_DIR = this folder's parent, runs in
+// .claude/forge-runs - and never crashes. An installed copy (<project>/.claude/forge-dashboard) keeps exactly the
+// old CLAUDE_DIR; a copy elsewhere acts on the project discovered from the working folder, and with no project at
+// all PROJECT_ROOT/RUNS_DIR are null and every write is refused with a clear message (never beside the script).
+const FORGE_PATHS = (() => {
+  for (const rel of [path.join('..', 'forge-bin', 'forge-paths.cjs'), 'forge-paths.cjs']) {
+    try {
+      const m = require(path.join(__dirname, rel));
+      if (m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function') return m;
+    } catch { /* try the next location */ }
+  }
+  return null;
+})();
+const INSTALL_CLAUDE_DIR = path.resolve(__dirname, '..');
+const PROJECT_ROOT = FORGE_PATHS ? FORGE_PATHS.scriptRoot(__dirname) : path.dirname(INSTALL_CLAUDE_DIR);
+const CLAUDE_DIR = PROJECT_ROOT && PROJECT_ROOT !== path.dirname(INSTALL_CLAUDE_DIR) ? path.join(PROJECT_ROOT, '.claude') : INSTALL_CLAUDE_DIR;
+/** layoutDir(root, key, read, legacy) -> the state folder of key for that project: `legacy` (the caller's exact old
+ *  literal) in the legacy layout or without forge-paths; in the forge layout the active folder (read=true: the
+ *  existing one, legacy fallback). A canon forge-paths cannot read only fails loudly in an opted-in project. */
+function layoutDir(root, key, read, legacy) {
+  if (!FORGE_PATHS || !root) return legacy;
+  try { return FORGE_PATHS.layout(root) !== 'forge' ? legacy : (read ? FORGE_PATHS.resolveExisting(root, key) : FORGE_PATHS.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** scribeDirOf(claudeDir) -> the scribe store of the project that owns this .claude folder, for READING (the scribe
+ *  tool writes it): legacy <claudeDir>/forge-scribe exactly as before, .forge/scribe when it exists in an opted-in
+ *  project. */
+function scribeDirOf(claudeDir) {
+  return layoutDir(path.resolve(claudeDir, '..'), 'scribe', true, path.join(claudeDir, 'forge-scribe'));
+}
+const LEGACY_RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
+const RUNS_DIR = PROJECT_ROOT ? layoutDir(PROJECT_ROOT, 'runs', false, LEGACY_RUNS_DIR) : null;
 // lesson fix: reuse forge-runcontract.cjs's OWN isReviewDispatch()/REVIEW_ROLE_RE/
 // ROL_VELDEN so the "does this dispatch read as review-only" question is answered by exactly one set of
 // rules — never a second, re-typed copy here that could quietly drift from the contract's own judgement.
@@ -270,6 +302,23 @@ const RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
 // at its own top level, so this top-level require here creates no load-time cycle either direction.
 let RUNCONTRACT = null;
 try { RUNCONTRACT = require(path.join(CLAUDE_DIR, 'forge-bin', 'forge-runcontract.cjs')); } catch { RUNCONTRACT = null; }
+// A2 2026-11-01: the harness matcher (soft): judges a dispatch START event against the records the harness wrote.
+let HARNESS = null;
+try { HARNESS = require(path.join(CLAUDE_DIR, 'forge-bin', 'forge-harness-match.cjs')); } catch { HARNESS = null; }
+// Category tests 2026-11-07 (O21): three /forge runs never ran `forge-active-run.cjs set` after run_started, so no hook line
+// carried the run and every harness proof was empty. The writer now points the project at the run it just started
+// (best-effort: a pointer that cannot be written never blocks the event; FORGE_AUTO_ACTIVE_RUN=off skips it).
+let ACTIVE_RUN = null;
+try { ACTIVE_RUN = require(path.join(CLAUDE_DIR, 'forge-bin', 'forge-active-run.cjs')); } catch { ACTIVE_RUN = null; }
+function pointActiveRun(evs) {
+  if (!ACTIVE_RUN || /^(off|0|false|no)$/i.test(String(process.env.FORGE_AUTO_ACTIVE_RUN || ''))) return;
+  const started = (evs || []).filter((e) => e && e.event_type === 'run_started').pop();
+  if (!started) return;
+  try {
+    const r = ACTIVE_RUN.setActiveRun(PROJECT_ROOT, started.run_id, { session: process.env.CLAUDE_SESSION_ID || undefined });
+    if (!r.ok) console.error('forge-log-event: NOTE the run pointer was not set (' + r.reason + '); run node .claude/forge-bin/forge-active-run.cjs set ' + started.run_id);
+  } catch (e) { console.error('forge-log-event: NOTE the run pointer was not set (' + ((e && e.message) || e) + ')'); }
+}
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -281,8 +330,12 @@ function nowIso() { return new Date().toISOString(); }
 function resolveRunDir(runId) {
   if (!runId) return { ok: false, message: 'run_id is required' };
   if (!/^[A-Za-z0-9_-]+$/.test(runId)) return { ok: false, message: 'invalid run_id (allowed: A-Z a-z 0-9 _ -): ' + runId };
-  const runDir = path.join(RUNS_DIR, runId);
-  const base = path.resolve(RUNS_DIR), resolved = path.resolve(runDir);
+  if (!RUNS_DIR) return { ok: false, message: 'no project root found (no .claude, .forge or .git above the current folder) — refused, nothing is written beside this script' };
+  // WP 2.1: a run that already exists only in the legacy folder keeps being written there (one run - one hash
+  // chain - never spans two folders); a new run goes to the active runs folder. Legacy layout: .claude/forge-runs.
+  const runsBase = RUNS_DIR !== LEGACY_RUNS_DIR && !fs.existsSync(path.join(RUNS_DIR, runId)) && fs.existsSync(path.join(LEGACY_RUNS_DIR, runId)) ? LEGACY_RUNS_DIR : RUNS_DIR;
+  const runDir = path.join(runsBase, runId);
+  const base = path.resolve(runsBase), resolved = path.resolve(runDir);
   if (resolved !== base && !resolved.startsWith(base + path.sep)) return { ok: false, message: 'run_id escapes forge-runs — refused' };
   return { ok: true, runDir };
 }
@@ -393,6 +446,9 @@ const WORKING_AGENT_EVENTS = new Set(['subagent_started', 'subagent_completed', 
 // (rework-trigger), niet als goedkeuring — het is geen onafhankelijk reviewprotocol.
 const REVIEW_IDENTITY_EVENTS = new Set(['review_started', 'review_completed', 'codex_review_started', 'codex_review_completed']);
 const DISPATCH_PROOF_EVENTS = new Set(['subagent_started', 'agent_started', 'custom_subagent_created']);
+/** Verifier-class agents (normalised: lowercase, letters only). Their dispatch starts are checked against the one
+ *  shape wp-verified-per-wp accepts; see the W2-repeat note in verifyEvent(). */
+const VERIFIER_CLASS_AGENTS = new Set(['verifyboss', 'verifier', 'reviewboss', 'codexreviewer', 'securityboss']);
 // Canonical vocabulary — the exact set documented in the header comment above, incl. back-compat names.
 const KNOWN_EVENT_TYPES = new Set([
   'run_started', 'project_scanned', 'profile_loaded', 'memory_loaded', 'memory_updated', 'decision_logged',
@@ -406,6 +462,9 @@ const KNOWN_EVENT_TYPES = new Set([
   'custom_skill_created', 'skill_assigned', 'agent_work_package_created', 'custom_subagent_created',
   'subagent_started', 'subagent_completed', 'subagent_failed', 'subagent_output_created', 'subagent_artifact_created',
   'agent_artifact_created', 'agent_handoff', 'lead_review_started', 'lead_review_completed',
+  // agent_message (WP A1): one Team chat line (SendMessage between Bosses or a Lead relay), mirrored
+  // by forge-bin/forge-say.cjs --event from <run>/team-chat.jsonl. One-shot informational fact like agent_note.
+  'agent_message',
   'rework_task_created', 'rework_assigned', 'rework_started', 'rework_completed', 'merge_started', 'merge_completed',
   'codex_review_started', 'codex_review_completed', 'codex_finding', 'codex_blocked', 'codex_not_invoked',
   'fix_started', 'fix_completed', 'retest_started', 'retest_completed', 'quality_gate_passed', 'quality_gate_blocked', 'final_output_created',
@@ -589,7 +648,15 @@ function verifyEvent(ev) {
     else if (!isBoss && !isGeneric && isProjectAgent) { v.agent_kind = 'project-agent'; v.agent_source = '.claude/agents/'; }
     // Only the parent-logged START/creation events must carry a dispatch id (proof of a real Agent call);
     // self-logged progress/output/completion events are name-checked only (see DISPATCH_PROOF_EVENTS note).
-    if (DISPATCH_PROOF_EVENTS.has(et) && !ev.dispatch_id && !internalRole) v.dispatch_unverified = true;
+    if (DISPATCH_PROOF_EVENTS.has(et) && !ev.dispatch_id && !internalRole) { v.dispatch_unverified = true; v.dispatch_unverified_reason = 'no-dispatch-id'; }
+    /** A2 2026-11-01 — backfill is a LABELLED EXCEPTION: once the harness recorded this run (a hook line stamped with it
+     *  through the run pointer, forge-active-run.cjs), a dispatch START event whose dispatch_id no harness record backs
+     *  (forge-harness-match.cjs: unmatched) is still WRITTEN — strict mode included — but stamped dispatch_unverified with
+     *  its reason and dispatch_unverified_accepted. Before the harness recorded the run nothing changes. */
+    else if (HARNESS && et !== 'custom_subagent_created' && DISPATCH_PROOF_EVENTS.has(et) && !internalRole) {
+      const h = HARNESS.harnessProofFor({ root: PROJECT_ROOT, runId: ev.run_id, event: ev });
+      if (h && h.status === 'unmatched') { v.dispatch_unverified = true; v.dispatch_unverified_reason = 'no-harness-proof: ' + String(h.reason).slice(0, 200); v.dispatch_unverified_accepted = true; }
+    }
   }
   /** lesson fix — a real incident: the Lead logged `subagent_started` for a
    *  reviewer with `role:"reviewer"` and `task:"independent read-only verification review of "`.
@@ -616,6 +683,20 @@ function verifyEvent(ev) {
        *  never additionally repeated inside this warning text. */
       const flaggedFieldNames = rolVelden.filter((f) => typeof ev[f] === 'string');
       v.review_dispatch_warning = 'this ' + et + ' has a reviewer-shaped role (fields: ' + flaggedFieldNames.join(', ') + ') but forge-runcontract.cjs::isReviewDispatch() says its task/mission is not on the strict review-word allowlist — this dispatch counts as WORK, so this agent cannot review this run. Use only review words in task/mission (see forge-runcontract.cjs REVIEW_WOORDEN). / deze dispatch heeft een reviewrol maar de taak/mission-tekst staat niet op de strikte reviewwoorden-toelaatlijst van forge-runcontract.cjs::isReviewDispatch() — deze dispatch telt als WERK, dus deze agent kan geen reviewer van deze run zijn. Gebruik alleen reviewwoorden in task/mission.';
+    }
+    /** W2 repeat: verify-boss starts were logged with wp_id (a keyed dispatch makes
+     *  the verifier a WORKER on that package, so its PASS is a self-close) and then with verifies_wp but no
+     *  role/task (an unkeyed work dispatch, so independence is "unresolved"). The check above stayed silent
+     *  because neither carried a reviewer-shaped role. A verifier-class agent's start now warns unless it has
+     *  the one shape wp-verified-per-wp accepts: no wp_id, and isReviewDispatch() true. Warn only, never refuse. */
+    const agentKey = typeof ev.agent === 'string' ? ev.agent.toLowerCase().replace(/[^a-z]/g, '') : '';
+    if (VERIFIER_CLASS_AGENTS.has(agentKey)) {
+      const keyed = ev.wp_id !== undefined && ev.wp_id !== null && String(ev.wp_id).trim() !== '';
+      const review = RUNCONTRACT.isReviewDispatch(ev);
+      if (keyed || !review) {
+        v.verifier_dispatch_counts_as_work = true;
+        v.verifier_dispatch_warning = 'this ' + et + ' starts a verifier-class agent but ' + (keyed ? 'carries wp_id (a keyed start makes the verifier a worker on that package, so its PASS is a self-close)' : 'is not a review dispatch per forge-runcontract.cjs::isReviewDispatch() (it counts as work)') + '. Log it without wp_id, with role:"verify", a review-only task such as "independent verification of the work package", and verifies_wp for the reader. / deze verifier-start telt als WERK: log zonder wp_id, met role:"verify" en een taak uit alleen reviewwoorden.';
+      }
     }
   }
   if (PROOF_EVENTS[et]) {
@@ -739,7 +820,10 @@ const WRITER_VALIDATED = new WeakSet();
  *  .claude for anything else (the CLI path's baseline root). */
 function claudeDirOfRunDir(runDir) {
   const parent = path.dirname(path.resolve(runDir));
-  return path.basename(parent) === 'forge-runs' ? path.dirname(parent) : CLAUDE_DIR;
+  if (path.basename(parent) === 'forge-runs') return path.dirname(parent);
+  // WP 2.1: a run folder of the opt-in layout, <root>/.forge/runs/<id>, belongs to <root>/.claude as well
+  if (path.basename(parent) === 'runs' && path.basename(path.dirname(parent)) === '.forge') return path.join(path.dirname(path.dirname(parent)), '.claude');
+  return CLAUDE_DIR;
 }
 /** stampLibraryEvent(ev, runDir) — R2/N10: the writer-owned stamps the CLI path applies, for an event that skipped
  *  validateForWrite(): a run_started gets the writer's file_hashes baseline (a caller-supplied one is replaced and
@@ -784,6 +868,45 @@ function stampWriterTime(ev, nowIsoValue) {
   if (claimed !== undefined && claimed !== null && String(claimed) !== '' && String(claimed) !== now) ev.claimed_ts = claimed;
   return ev;
 }
+let SKILLMAP = null;
+try { SKILLMAP = require(path.join(CLAUDE_DIR, 'forge-bin', 'forge-skillmap.cjs')); } catch { SKILLMAP = null; }
+/** skillMapShapeRefusal(ev) -> refusal message, or null when the event is not a skill map or the map is usable. */
+function skillMapShapeRefusal(ev) {
+  try {
+    if (!SKILLMAP || !ev || ev.event_type !== 'skill_map_created') return null;
+    const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
+    const map = [ev.map, ev.skill_map, ev.skills, isObj(ev.payload) ? ev.payload.map : null, isObj(ev.details) ? ev.details.map : null].find(isObj);
+    const known = SKILLMAP.knownSkillNames(PROJECT_ROOT);
+    if (!known || !known.size) return null;
+    // SK5: restaurant-v6 put the map in `summary`, android-v6 in `message` — no map object at all, so no agent
+    // got its skills. A skill_map_created without a map object is refused too (a free-text note goes in `note`).
+    if (map && Object.keys(SKILLMAP.normalizeSkillMap(map, known)).length) return null;
+    return 'REFUSED skill_map_created — ' + (map ? 'the map assigns no installed skill to any agent type' : 'there is no map object (field `map`); a map written as text in summary/message cannot be read')
+      + ', so no agent can be handed its skills. '
+      + 'Log it as {"map":{"<agent-type>":["<skill-folder>", ...]}} — the key is the agent you dispatch (e.g. ui-boss, build-boss, test-boss), '
+      + 'each value names folders under .claude/skills (e.g. forge-website, frontend-design). Work-package notes belong in agent_work_package_created.';
+  } catch { return null; }
+}
+
+// windows-v6's Review Boss logged review_verdict "APPROVE" twice; forge-runcontract.cjs counts
+// only this closed list (POSITIEVE_REVIEW_VERDICTS there), so both approvals counted for nothing. A verdict that READS as
+// approval but is not on the list is refused here with the word to use; rejections and listed verdicts pass through.
+const COUNTED_APPROVALS = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd']);
+const APPROVAL_IN_OTHER_WORDS_RE = /^(approve|approves|approval|accept|accepted|accepts|lgtm|looks good( to me)?|good|fine|green|success|succeeded|okay|yes|ja|prima|goed)$/;
+function reviewVerdictRefusal(ev) {
+  if (!ev || (ev.event_type !== 'review_completed' && ev.event_type !== 'codex_review_completed')) return null;
+  for (const field of ['review_verdict', 'verdict']) {
+    const raw = ev[field];
+    if (typeof raw !== 'string') continue;
+    const v = raw.trim().toLowerCase().replace(/[.!]+$/, '');
+    if (COUNTED_APPROVALS.has(v) || !APPROVAL_IN_OTHER_WORDS_RE.test(v)) continue;
+    return 'REFUSED ' + ev.event_type + ' — ' + field + ' "' + raw.slice(0, 40) + '" reads as an approval, but the run contract only counts '
+      + [...COUNTED_APPROVALS].join(', ') + '; log it again with ' + field + ':"approved" (a rejection stays as it is, e.g. "changes_required").';
+  }
+  return null;
+}
+
+const HAND_WORK_TYPES = new Set(['wp_completed', 'wp_failed', 'decision_logged']);
 function validateForWrite(ev) {
   stampWriterTime(ev);
   // Canonicalize agent-referencing fields to the registry's display name BEFORE verify + write, so a slug
@@ -805,9 +928,29 @@ function validateForWrite(ev) {
   if (!STRICT && v && v.agent_registered === false && REVIEW_IDENTITY_EVENTS.has(ev.event_type)) {
     return { ok: false, exitCode: 2, message: 'REFUSED ' + ev.event_type + ' — ' + (v.agent_warning || 'onbekende reviewer') + ' (identiteit op review-events is NIET opt-out: FORGE_STRICT_EVENTS=0 verandert hier niets)' };
   }
-  if (STRICT && v && (v.agent_registered === false || v.proof_verified === false || v.dispatch_unverified || v.event_type_unknown || v.model_unverified)) {
+  // Category tests L1: the category-test Lead logged decision_logged and wp_completed with no agent; the
+  // contract's independent-verification then failed for good (anonymous work, fail-closed) and an append-only ledger
+  // cannot be repaired. Refused at the door instead, whatever FORGE_STRICT_EVENTS says (identity is not opt-out).
+  if (HAND_WORK_TYPES.has(ev.event_type) && !(typeof ev.agent === 'string' && ev.agent.trim())) {
+    return { ok: false, exitCode: 2, message: 'REFUSED ' + ev.event_type + ' — a work event needs an agent: add "agent":"<who did it>" (the Lead itself: "orchestrator"); work logged without an agent makes independent-verification fail for the whole run' };
+  }
+  if (STRICT && v && (v.agent_registered === false || v.proof_verified === false || (v.dispatch_unverified && !v.dispatch_unverified_accepted) || v.event_type_unknown || v.model_unverified)) {
     return { ok: false, exitCode: 2, message: 'STRICT REFUSED ' + ev.event_type + ' — ' + (v.event_type_warning || v.agent_warning || v.proof_reason || v.model_reason || 'unproven dispatch (no dispatch_id, runtime not internal/native)') + ' (set FORGE_STRICT_EVENTS=0 to opt out of strict mode — not recommended)' };
   }
+  // Category tests O24: an owner_override is the OWNER's act clearing one named rule. A Lead logged its own
+  // fixes as owner_override (no rule, no by); the contract never counted it, but the ledger read as an owner approval.
+  // Shape only here (rule + by present); whether `by` is a configured owner stays the contract's job. Not opt-out.
+  if (ev.event_type === 'owner_override' && !(typeof ev.rule === 'string' && ev.rule.trim() && typeof ev.by === 'string' && ev.by.trim())) {
+    return { ok: false, exitCode: 2, message: 'REFUSED owner_override — owner_override needs `rule` (the exact rule id) and `by` (the owner who said yes); a decision of your own belongs in decision_logged' };
+  }
+  // Category tests round 5: windows-game-v5's Lead logged its skill map keyed by work package with free text
+  // and no agent type, so no agent could be handed its skills and the contract only failed at the end. A map that assigns
+  // no real skill to any agent type is refused here, with the shape to log, BEFORE the Lead dispatches. Soft: no module,
+  // no installed skills, or no map field at all -> no refusal (the contract still judges the run).
+  const shapeRefusal = skillMapShapeRefusal(ev);
+  if (shapeRefusal) return { ok: false, exitCode: 2, message: shapeRefusal };
+  const verdictRefusal = reviewVerdictRefusal(ev);
+  if (verdictRefusal) return { ok: false, exitCode: 2, message: verdictRefusal };
   WRITER_VALIDATED.add(ev); // appendChainedLocked will not stamp this event a second time
   return { ok: true, verify: v };
 }
@@ -1266,7 +1409,7 @@ function readEventsClassified(file, opts) {
 
 function flagsTag(v) {
   // only emit a tag when there is real flag content — otherwise accepted events printed a confusing ' []'
-  const flags = v ? [v.event_type_unknown ? 'UNKNOWN-TYPE' : '', v.agent_registered === false ? 'UNREGISTERED' : '', v.proof_verified === false ? 'UNVERIFIED' : '', v.dispatch_unverified ? 'NO-DISPATCH-ID' : '', v.model_unverified ? 'MODEL-UNVERIFIED' : '', v.review_dispatch_counts_as_work ? 'REVIEW-DISPATCH-COUNTS-AS-WORK' : '', v.file_hashes_replaced ? 'FILE-HASHES-REPLACED' : '', v.claimed_ts_backdated ? 'CLAIMED-TS-BACKDATED' : ''].filter(Boolean) : [];
+  const flags = v ? [v.event_type_unknown ? 'UNKNOWN-TYPE' : '', v.agent_registered === false ? 'UNREGISTERED' : '', v.proof_verified === false ? 'UNVERIFIED' : '', v.dispatch_unverified ? (v.dispatch_unverified_accepted ? 'NO-HARNESS-PROOF' : 'NO-DISPATCH-ID') : '', v.model_unverified ? 'MODEL-UNVERIFIED' : '', v.review_dispatch_counts_as_work ? 'REVIEW-DISPATCH-COUNTS-AS-WORK' : '', v.verifier_dispatch_counts_as_work ? 'VERIFIER-DISPATCH-COUNTS-AS-WORK' : '', v.file_hashes_replaced ? 'FILE-HASHES-REPLACED' : '', v.claimed_ts_backdated ? 'CLAIMED-TS-BACKDATED' : ''].filter(Boolean) : [];
   return flags.length ? ' [' + flags.join(' ') + ']' : '';
 }
 /** printRunBaselineNotice(ev) — part B. One stderr NOTE when a run_started baseline is degraded or was
@@ -1284,6 +1427,9 @@ function printRunBaselineNotice(ev) {
  *  consequence impossible to miss on the terminal, in both languages, right when it happens. */
 function printReviewDispatchWarning(v) {
   if (v && v.review_dispatch_counts_as_work) console.error('forge-log-event: WARNING — ' + v.review_dispatch_warning);
+  if (v && v.verifier_dispatch_counts_as_work) console.error('forge-log-event: WARNING — ' + v.verifier_dispatch_warning);
+  // A2 2026-11-01: the labelled-exception stamp is never silent either
+  if (v && v.dispatch_unverified && v.dispatch_unverified_accepted) console.error('forge-log-event: WARNING — dispatch_unverified (' + v.dispatch_unverified_reason + '): written as a labelled exception; check it with node .claude/forge-bin/forge-harness-match.cjs --run <run_id>');
 }
 
 /** ================= COMPLETION GATE =================
@@ -1414,7 +1560,7 @@ function evaluateScribeReconciliation(ev, opts) {
   let SC = opts.scribe;
   if (SC === undefined) {
     const tool = path.join(claudeDir, 'forge-bin', 'forge-scribe.cjs');
-    const store = path.join(claudeDir, 'forge-scribe');
+    const store = scribeDirOf(claudeDir);
     // SC-07: an inbox without a ledger (a crash between the two appends) is the scribe IN USE, never "nothing captured"
     const inUse = fs.existsSync(path.join(store, 'ledger.jsonl')) || fs.existsSync(path.join(store, 'inbox.jsonl'));
     if (!fs.existsSync(tool) || !inUse) {
@@ -1475,7 +1621,7 @@ function gateScribeEvent(ev, opts) {
  *  Codex R3 SC-06. The definition forge-scribe.cjs (checkAnchors) checks: the non-empty lines of each file up to its last
  *  newline (a write in flight is not anchored), head = sha256 of the last such line. Pure reading, no project code. */
 function scribeHeadOf(claudeDir) {
-  const dir = path.join(claudeDir, 'forge-scribe');
+  const dir = scribeDirOf(claudeDir);
   const one = (f) => {
     let txt;
     try { txt = fs.readFileSync(path.join(dir, f), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? { lines: 0, head: null, bytes: 0 } : null; }
@@ -1495,6 +1641,14 @@ function runClosed(entries) {
   let last = -1;
   for (let i = 0; i < entries.length; i++) if (entries[i] && entries[i].event_type === 'run_completed') last = i;
   return last >= 0 && entries.slice(last + 1).every((e) => e && RUN_CLOSED_AUDIT.has(e.event_type));
+}
+
+/** shownEventsPath(runDir) -> the events file named for the owner: a legacy run folder prints exactly as before
+ *  (forge-runs/<id>/events.jsonl); a run folder of the .forge layout prints project-relative (.forge/runs/<id>/...). */
+function shownEventsPath(runDir) {
+  const parent = path.dirname(path.resolve(runDir)), id = path.basename(runDir);
+  if (path.basename(parent) === 'forge-runs' || !PROJECT_ROOT) return path.join('forge-runs', id, 'events.jsonl');
+  return path.relative(PROJECT_ROOT, path.join(runDir, 'events.jsonl'));
 }
 
 // ---- CLI ----
@@ -1569,8 +1723,9 @@ function mainCli() {
     const w = appendChainedLocked(rd.runDir, accepted, txnId ? { txnId } : undefined);
     if (!w.ok) { console.error(w.message); process.exit(w.refused ? 2 : 1); }
     if (w.backdated) console.error('forge-log-event: NOTE ' + w.backdated.length + ' event(s) carry a claimed_ts earlier than their predecessor was ingested (' + w.backdated.join(', ') + ') — flagged claimed_ts_backdated; ordering and cutoffs use ingested_at');
-    if (w.alreadyApplied) console.log('txn already applied (' + txnId + ') — 0 written, exact-once bevestigd -> ' + path.join('forge-runs', runId, 'events.jsonl'));
-    else console.log('logged ' + accepted.length + ' event(s) (batch' + (txnId ? ', txn ' + txnId : '') + ') -> ' + path.join('forge-runs', runId, 'events.jsonl'));
+    if (w.alreadyApplied) console.log('txn already applied (' + txnId + ') — 0 written, exact-once bevestigd -> ' + shownEventsPath(rd.runDir));
+    else console.log('logged ' + accepted.length + ' event(s) (batch' + (txnId ? ', txn ' + txnId : '') + ') -> ' + shownEventsPath(rd.runDir));
+    if (!w.alreadyApplied) pointActiveRun(accepted);
     process.exit(0);
   }
 
@@ -1622,10 +1777,12 @@ function mainCli() {
   const w = appendChainedLocked(rd.runDir, [ev]);
   if (!w.ok) { console.error(w.message); process.exit(w.refused ? 2 : 1); }
   if (w.backdated) console.error('forge-log-event: NOTE ' + ev.event_type + ' carries a claimed_ts earlier than the previous event was ingested — kept as claimed_ts, flagged claimed_ts_backdated; ordering and cutoffs use the writer-stamped ingested_at');
-  console.log('logged ' + ev.event_type + ' -> ' + path.join('forge-runs', ev.run_id, 'events.jsonl') + flagsTag(ev._forge_verify || val.verify));
+  console.log('logged ' + ev.event_type + ' -> ' + shownEventsPath(rd.runDir) + flagsTag(ev._forge_verify || val.verify));
+  pointActiveRun([ev]);
 }
 
 module.exports = {
+  pointActiveRun,
   validateForWrite, appendChainedLocked, acquireEventsLock, releaseEventsLock, chainTail,
   readEventsClassified, resolveRunDir, verifyEvent, canonicalAgent, KNOWN_EVENT_TYPES,
   stillOwnsLock, walRecover,

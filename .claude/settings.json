@@ -1,106 +1,4 @@
 {
-  "hooks": {
-    "PreCompact": [
-      {
-        "matcher": "manual",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-marker.cjs\"",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-marker.cjs\"",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "matcher": "compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-reinject.cjs\"",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-toolhook.cjs\"",
-            "timeout": 10
-          }
-        ],
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
-        "_matcher_doc": "2026-09-23 (external audit II-D): shipped without a matcher, so it fired on EVERY tool call of every agent (461 in one audited session, ~56 ms each) and logged 320 paths outside the project. The ledger exists to record what CHANGED; reads are noise. Opt out entirely by deleting this entry — nothing else depends on it."
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-toolhook.cjs\"",
-            "timeout": 10
-          }
-        ],
-        "matcher": "PowerShell",
-        "_matcher_doc": "v2.8.0 (fresh-laptop audit N8): the tool ledger missed every Windows shell call because the matcher above has Bash but not PowerShell. A SEPARATE entry (not an edit of the matcher above) so an upgrade merges cleanly and nothing fires twice."
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-gate-hook.cjs\"",
-            "timeout": 10
-          }
-        ],
-        "_doc": "2026-09-24 (WP16 + security wp9b + review wp9a): the GATE HOOK. Before every Bash or PowerShell tool call it asks forge-actiongate.cjs whether the command trips one of FIVE command hard gates (a classifier, not a proof) — destructive-delete (rm -rf, rm -r, Remove-Item -Recurse, rd /s, rimraf), kill-by-name (taskkill /IM or a non-PID /FI, Stop-Process -Name, pkill, kill $(pgrep …)) git-destructive (reset --hard, clean -f, checkout -f / . / -- <path>, restore <path>, switch -f, stash drop/clear), opaque-exec (a pipe into a shell, eval/iex, sh -c on a variable, an encoded PowerShell command), or secret-print (printing the CONTENTS of a .env/key/.claude/.credentials.json/secrets/**-shaped file via cat/type/Get-Content/grep/etc. — the shell-command route the permissions.deny block below cannot see) — or tries to switch the gate itself off. Exit 2 = blocked with a plain NL+EN reason and Claude must ask the owner; exit 1 = not blocked but VISIBLE (gate is off, or the hook could not check the call); exit 0 = allowed. Quoted data (writer heredocs, echo/commit-message/log-event/search-tool literals) is not treated as a command, and a delete whose every target is provably inside _scratch/, node_modules/, dist/ or the temp dir passes. The owner-approved one-off off-switch is `node .claude/forge-bin/forge-config.cjs set gate-hook off --once \"<owner's words>\"` (10 minutes); the owner can also run a command himself with `!`. Timeouts in this file are SECONDS (Claude Code hook contract). The permissions.deny block keeps .env variants, keys and secrets out of Claude's Read TOOL; secret-print closes the same gap for a shell COMMAND; .env.example stays readable either way. Details and honest limits: config/orchestration/HOOKS_OPT_IN.md section 6."
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-stop-obligations.cjs\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-scribe-stop.cjs\"",
-            "timeout": 5
-          }
-        ],
-        "_doc": "ADVISORY Stop hook. When Claude stops while a Forge run is active, it shows the owner that run's outstanding obligations (what `node .claude/forge-bin/forge-runcontract.cjs plan --run <id>` marks overdue or due now) as a short systemMessage. This obligations hook never blocks a stop; it prints nothing while stop_hook_active is set, when no run is active, or when nothing is due, and finishes in well under 1 s (silent failsafe at 900 ms). Opt out: env FORGE_STOP_OBLIGATIONS=off, or delete this entry — nothing else depends on it. The scribe stop hook in this same entry (forge-scribe-stop.cjs) is the one exception: it blocks a stop at most once per captured owner request per session (exit 2, three plain lines naming the open item and the command to plan, ack or defer it) and never twice in a row. Opt out: env FORGE_SCRIBE_STOP=off."
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-scribe-hook.cjs\"",
-            "timeout": 5
-          }
-        ],
-        "_doc": "2026-10-10 (part ii): the SCRIBE capture hook. Every owner prompt is kept word for word (secrets scrubbed) in .claude/forge-scribe/ as a tracked item R-n, in-process through forge-scribe.cjs capture (no LLM call, no network, fail-open: any error exits 0 silently, it never blocks a prompt). It skips text that is not the owner talking (a background agent's task-notification turn, tool results, slash-command expansions, bare slash commands, Forge tool subcommands) and machine-generated text (counted in a skip counter, not recorded). Plain questions and acks are now captured as items to answer (they are no longer dropped). It adds at most two short lines of context: the receipt naming the R-id, and the open-items digest only when it changed for this session. Fires in claude -p mode too (probed 2026-10-10). Opt out: env FORGE_SCRIBE_HOOK=off, or delete this entry. Details: config/orchestration/HOOKS_OPT_IN.md section 7."
-      }
-    ]
-  },
   "permissions": {
     "deny": [
       "Read(./.env)",
@@ -134,5 +32,192 @@
       "Read(~/.ssh/**)",
       "Read(./.claude/config/forge-owner-grant.txt)"
     ]
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-marker.cjs\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-marker.cjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-reinject.cjs\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-resume-brief.cjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-toolhook.cjs\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-toolhook.cjs\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-agent-tool-hook.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-gate-hook.cjs\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-agent-tool-hook.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-stop-obligations.cjs\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-scribe-stop.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-scribe-hook.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-subagent-stop.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-session-end.cjs\"",
+            "timeout": 5,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-tool-failure.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit|overloaded",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-rotator-hook.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-subagent-start.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "cowork-memory@anthropic-plugin-directory": false
   }
 }

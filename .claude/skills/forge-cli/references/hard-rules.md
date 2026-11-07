@@ -1,0 +1,9 @@
+# forge-cli — hard rules (full text)
+
+## Hard rules (non-negotiable)
+- **Real arg parser + `--help` + `--version`.** Use the stack's established parser (argparse/click, commander/yargs, clap, cobra) — not hand-rolled `argv` slicing. `--help` and `--version` always work and exit `0`; usage is clear and shows at least one example; unknown flags fail with a helpful message, not a stack trace.
+- **Correct exit codes.** `0` = success only; distinct non-zero codes for distinct failure classes (usage error, not-found, permission, runtime). **Never exit `0` on failure** — pipelines and CI branch on the exit code. Document the code table.
+- **Pipe / stdio discipline.** Machine output → **stdout**; diagnostics, logs, prompts, progress → **stderr** (so `cmd | other` stays clean). Read **stdin** when piped / when the input arg is `-`. Offer a `--json` (or `--quiet`) mode for scripting. Respect non-TTY and `NO_COLOR`: no colors, spinners, or interactive prompts when output is piped or `stdin` is not a terminal. Don't crash on `SIGPIPE`/broken pipe (`head` closing early is normal).
+- **No destructive default.** Any irreversible action (delete, overwrite, force-push, truncate, mass-rename) is NEVER the default: require an explicit flag or an interactive confirmation, offer `--dry-run` to preview, and gate override behind `--force`/`--yes`. A bare invocation must be safe.
+- **Testable — I/O separated from logic.** Core behavior lives in pure functions callable without spawning a process; the thin CLI layer wires args → core → streams. Ship real tests that assert **exit codes, stdout, stderr, and pipe round-trips** (not just one happy path).
+- **Cross-platform.** Use the platform path API (no hardcoded `/` or `\`), tolerate CRLF/LF, don't assume a POSIX-only shell or GNU-only flags, and handle Ctrl-C (SIGINT) cleanly. Secrets/tokens come from env or a config file — never echoed to stdout/stderr or baked into the binary.

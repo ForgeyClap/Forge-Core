@@ -19,6 +19,16 @@ process.on('exit', () => {
   if (okDir) { try { fs.rmSync(TMPH_RUN_DIR, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* tolerated */ } }
 });
 const D = require('./forge-doctor.cjs');
+// WP A11 part 2: the doctor is forge-doctor.cjs (composition root) + doctor/*.cjs (the checks).
+// DOCTOR_ALL_SRC is every module in load order followed by the root, for the static source assertions below;
+// copyDoctorInto() copies the root and its doctor/ folder, for the isolated-copy fixtures.
+const DOCTOR_ALL_SRC = D.DOCTOR_MODULES.map((rel) => fs.readFileSync(path.join(__dirname, ...rel.split('/')), 'utf8')).concat(fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8')).join('\n');
+function copyDoctorInto(destBin) {
+  fs.copyFileSync(path.join(__dirname, 'forge-doctor.cjs'), path.join(destBin, 'forge-doctor.cjs'));
+  fs.cpSync(path.join(__dirname, 'doctor'), path.join(destBin, 'doctor'), { recursive: true });
+}
+// since WP A11 part 2 a check-table row reads `key: ({ root, ... }) => call(...)`
+const ROW = String.raw`\s*(?:\([^)]*\)\s*=>\s*)?`;
 
 let pass = 0, fail = 0, skipped = 0;
 const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } else { fail++; console.error('  FAIL ' + name); } };
@@ -445,8 +455,8 @@ tFn('rebindingGuardCombined: structural passes but behavioural fails -> overall 
 // function — proving the fix is actually load-bearing, not just present-but-uncalled again.
 // ---------------------------------------------------------------------------------------------------------
 tFn('runDoctor() static wiring: checks.rebinding_guard is built from rebindingGuardCombined(), not the bare structural rebindingGuard()', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8');
-  assert.ok(/rebinding_guard:\s*rebindingGuardCombined\(root\)/.test(src), 'expected runDoctor() to assign checks.rebinding_guard from rebindingGuardCombined(root)');
+  const src = DOCTOR_ALL_SRC;
+  assert.ok(new RegExp('rebinding_guard:' + ROW + String.raw`rebindingGuardCombined\(root\)`).test(src), 'expected runDoctor() to assign checks.rebinding_guard from rebindingGuardCombined(root)');
 });
 tFn('runDoctor(): the real gateway shape -> checks.rebinding_guard.ok:true, carrying both structural and behavioral sub-verdicts', () => {
   const rep = D.runDoctor(RG_GOOD);
@@ -566,7 +576,9 @@ t('nodeCheckAll: a syntax error is still caught (existing behavior preserved)', 
   // 8 at a time in one throwaway child so this stays a few seconds, not one spawn after another.
   const REAL_TREE = path.resolve(__dirname, '..', '..');
   const treeFiles = [
-    ...fs.readdirSync(path.join(REAL_TREE, '.claude', 'forge-bin')).filter((n) => n.endsWith('.cjs')).map((n) => path.join(REAL_TREE, '.claude', 'forge-bin', n)),
+    // nodeCheckAll walks forge-bin's sub-folders too (never node_modules), so this list does as well.
+    ...fs.readdirSync(path.join(REAL_TREE, '.claude', 'forge-bin'), { recursive: true }).map(String)
+      .filter((n) => n.endsWith('.cjs') && !n.split(/[\\/]/).includes('node_modules')).map((n) => path.join(REAL_TREE, '.claude', 'forge-bin', n)),
     ...(fs.existsSync(path.join(REAL_TREE, '.claude', 'forge-dashboard')) ? fs.readdirSync(path.join(REAL_TREE, '.claude', 'forge-dashboard')).filter((n) => n.endsWith('.cjs')).map((n) => path.join(REAL_TREE, '.claude', 'forge-dashboard', n)) : []),
   ];
   const parityRunner = path.join(SB, 'parity-runner.cjs');
@@ -1119,7 +1131,7 @@ t('runDoctor GREEN fixture: an advisory warning does NOT flip doctor.ok to false
 // drifted value turns the whole doctor red; an owner override is visible, never silent.
 // =====================================================================================================
 t('model_routing: runDoctor() wires checks.model_routing through applyDoctorOverride(modelRoutingCheck(root))',
-  /model_routing:\s*applyDoctorOverride\(overrideMap,\s*'model_routing',\s*modelRoutingCheck\(root\)\)/.test(fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8')));
+  new RegExp('model_routing:' + ROW + String.raw`applyDoctorOverride\(overrideMap,\s*'model_routing',\s*modelRoutingCheck\(root\)\)`).test(DOCTOR_ALL_SRC));
 t('model_routing: the REAL project is consistent (frontmatter == agent-model-map == tool-policy)', (() => { const r = D.modelRoutingCheck(REAL_ROOT); return r.ok === true && r.applicable === true && r.checked >= 19; })());
 t('model_routing: GREEN fixture without routing files -> applicable:false, ok:true, and it says so on its summary line',
   greenRep.checks.model_routing && greenRep.checks.model_routing.applicable === false && greenRep.checks.model_routing.ok === true && /model routing\s+n\/a/.test(D.printSummary(greenRep)));
@@ -1138,6 +1150,9 @@ t('model_routing: a fixture WITH the real routing files is green and the doctor 
 const mrRedRep = D.runDoctor(MR_ROOT);
 t('model_routing DRIFT: one claudeEffort out of line with the frontmatter -> checks.model_routing red AND doctor.ok false',
   mrRedRep.ok === false && mrRedRep.checks.model_routing.ok === false && mrRedRep.checks.model_routing.violations.some((v) => v.kind === 'effort-drift' && v.agent === 'build-boss'));
+t('skill_adapters: a fixture root is n/a (the machine adapters never run for it) and prints a ✓ n/a line', greenRep.checks.skill_adapters && greenRep.checks.skill_adapters.applicable === false && /✓ skill adapters\s+n\/a/.test(D.printSummary(greenRep)));
+t('skill_adapters: a broken adapter prints a ✗ line naming it', /✗ skill adapters\s+graphify: forge-graphify\.cjs exit 1/.test(D.printSummary({ root: 'x', ok: false, checks: Object.assign({}, greenRep.checks, { skill_adapters: { ok: false, applicable: true, enforced: true, broken: ['graphify'], adapters: [], reason: 'graphify: forge-graphify.cjs exit 1 (x)' } }), advisory: {} })));
+t('skill_adapters: a stale-session warning (claude-mem launcher only on the user PATH) is PRINTED on the ✓ line, never hidden (2026-11-05 review M1)', /✓ skill adapters\s+claude-mem ok \(0 ms\) · WARN claude-mem: .*record nothing/.test(D.printSummary({ root: 'x', ok: true, checks: Object.assign({}, greenRep.checks, { skill_adapters: { ok: true, applicable: true, enforced: true, broken: [], warnings: ['claude-mem: claude-mem hook launcher is on the user PATH but not on this process PATH: this Claude Code session started before it was added, so its claude-mem hooks record nothing'], adapters: [{ id: 'claude-mem', applicable: true, ok: true, ms: 0 }], reason: 'warn: x' } }), advisory: {} })));
 t('model_routing DRIFT: printSummary names the violation on a ✗ line', /✗ model routing\s+.*effort-drift/.test(D.printSummary(mrRedRep)));
 fs.mkdirSync(path.join(MR_ROOT, '.claude', 'config', 'orchestration'), { recursive: true });
 fs.writeFileSync(path.join(MR_ROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({ doctor_check_overrides: [{ check: 'model_routing', reason: 'fixture: owner accepted a temporary drift', by: 'test' }] }));
@@ -1341,7 +1356,7 @@ const REALCODE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor-issue1
 const REALCODE_BIN = path.join(REALCODE_ROOT, '.claude', 'forge-bin');       // real repo-relative path (4th round: exemption is path-gated)
 fs.mkdirSync(REALCODE_BIN, { recursive: true });
 fs.copyFileSync(path.join(__dirname, 'forge-store.cjs'), path.join(REALCODE_BIN, 'forge-store.cjs'));
-fs.copyFileSync(path.join(__dirname, 'forge-doctor.cjs'), path.join(REALCODE_BIN, 'forge-doctor.cjs'));
+copyDoctorInto(REALCODE_BIN);
 const realcodeLeak = D.leakScan(REALCODE_ROOT);
 t('ISSUE1 no false positive: leakScan on the REAL forge-store.cjs + forge-doctor.cjs (at their real .claude/forge-bin/ path) is clean (SECRET_PATTERNS sources + sk-/nvapi-key labels correctly exempted)', realcodeLeak.ok === true && realcodeLeak.hits.length === 0, JSON.stringify(realcodeLeak.hits));
 
@@ -1661,7 +1676,7 @@ const ROUND3_REALCODE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor
 const ROUND3_REALCODE_BIN = path.join(ROUND3_REALCODE_ROOT, '.claude', 'forge-bin');   // real repo-relative path (4th round)
 fs.mkdirSync(ROUND3_REALCODE_BIN, { recursive: true });
 fs.copyFileSync(path.join(__dirname, 'forge-store.cjs'), path.join(ROUND3_REALCODE_BIN, 'forge-store.cjs'));
-fs.copyFileSync(path.join(__dirname, 'forge-doctor.cjs'), path.join(ROUND3_REALCODE_BIN, 'forge-doctor.cjs'));
+copyDoctorInto(ROUND3_REALCODE_BIN);
 const round3RealcodeLeak = D.leakScan(ROUND3_REALCODE_ROOT);
 t('ROUND3 no false positive: the REAL forge-store.cjs + forge-doctor.cjs (post-fix, at their real path) are still clean', round3RealcodeLeak.ok === true && round3RealcodeLeak.hits.length === 0, JSON.stringify(round3RealcodeLeak.hits));
 
@@ -1966,6 +1981,11 @@ const CALLBACK_STYLE_SRC = [
 t('vacuousBooleanTHelperSites: a real callback-style t(name, fn) file (fn is genuinely invoked) is NEVER flagged', D.vacuousBooleanTHelperSites(CALLBACK_STYLE_SRC).length === 0, JSON.stringify(D.vacuousBooleanTHelperSites(CALLBACK_STYLE_SRC)));
 t('classifyTHelper: correctly names the planted boolean-style helper "boolean"', D.classifyTHelper(D.stripJsComments(PLANTED_VACUOUS_SRC)) === 'boolean');
 t('classifyTHelper: correctly names the real callback-style helper "callback"', D.classifyTHelper(D.stripJsComments(CALLBACK_STYLE_SRC)) === 'callback');
+// a node:test suite whose helper forwards its callback to test()/it() (`function t(name, fn) { test(name, fn); }`)
+// was read as boolean-style, so every `t('x', async () => {...})` became a false "bare, un-invoked function" no-op.
+const FORWARDING_SRC = "const { test } = require('node:test');\nconst assert = require('assert');\nt('a', async () => { assert.ok(true); });\nfunction t(name, fn) { test(name, fn); }\n";
+t('classifyTHelper: a helper that forwards its second parameter to test()/it() is "callback", and none of its call sites is a no-op', D.classifyTHelper(D.stripJsComments(FORWARDING_SRC)) === 'callback' && D.vacuousBooleanTHelperSites(FORWARDING_SRC).length === 0);
+t('classifyTHelper: a helper that only passes its second parameter to assert.ok() stays "boolean"', D.classifyTHelper("function t(name, cond) { assert.ok(cond, name); }\n") === 'boolean');
 
 // an IIFE-wrapped call (the FIX this whole package applies) must never be flagged, even in a boolean-style file
 const IIFE_FIXED_SRC = [
@@ -2324,8 +2344,15 @@ t('skillEvalsDoctorCheck: the real project\'s own wired skills (forge-intake/rou
 // wp-disclosure-ab added a 6th wired skill (forge-skill-testing, dogfooding its own protocol) —
 // this list grows again the next time a real skill opts into evals.json; that is expected drift, not a bug.
 // 2026-10-10 (overhaul): forge-scribe opted into evals.json (10 binary checks + activation fixture).
-devTreeOnly('skillEvalsDoctorCheck: the real project has exactly the 7 evaluated skills (6 wp-skill-evals/wp-disclosure-ab + forge-scribe; no silent drift)', () =>
-  t('skillEvalsDoctorCheck: the real project has exactly the 7 evaluated skills (6 wp-skill-evals/wp-disclosure-ab + forge-scribe; no silent drift)', realSkillEvalsCheck.skills.map((s) => s.skill).sort().join(',') === ['forge-code-review', 'forge-intake', 'forge-router', 'forge-scribe', 'forge-skill-testing', 'forge-snapshot', 'forge-verify'].sort().join(',')));
+// 2026-10-24 (modernization WP I.3, integrated in 2.9b): the new forge-craft skill ships its own evals.json.
+// 2026-11-02 (WP Q3-SKILLS): the new forge-auth and forge-database playbooks ship their own evals.json.
+// 2026-11-05 (batch A): 9 more skills ship evals.json: forge-context, forge-debug, forge-memory,
+// forge-plan-large, forge-security-review, forge-team-orchestration, forge-testing, forge-token-economy, ponytail.
+// 2026-11-05 (batch B): 15 more ship evals.json: claude-md-improver, forge-a11y, forge-autoresearch, forge-bots, forge-i18n-docs,
+// forge-integration, forge-long-form-writing, forge-mcp-clients, forge-n8n, forge-payments, forge-projectbrain, forge-skill-authoring,
+// forge-ui-polish, humanizer, poteto-mode.
+devTreeOnly('skillEvalsDoctorCheck: the real project has exactly the 43 evaluated skills (10 up to Q3-SKILLS 2026-11-02 + 9 wave 1 batch A + 15 wave 1 batch B + 6 wave 1 batch C 2026-11-05 + 2 W2-WIRE + 1 W2-GRAFTS (forge-data) 2026-11-06; no silent drift)', () =>
+  t('skillEvalsDoctorCheck: the real project has exactly the 43 evaluated skills (10 up to Q3-SKILLS 2026-11-02 + 9 wave 1 batch A + 15 wave 1 batch B + 6 wave 1 batch C 2026-11-05 + 2 W2-WIRE + 1 W2-GRAFTS (forge-data) 2026-11-06; no silent drift)', realSkillEvalsCheck.skills.map((s) => s.skill).sort().join(',') === ['claude-md-improver', 'forge-a11y', 'forge-auth', 'forge-autoresearch', 'forge-bots', 'forge-code-review', 'forge-context', 'forge-craft', 'forge-data', 'forge-database', 'forge-debug', 'forge-devops', 'forge-ecc-adapter', 'forge-i18n-docs', 'forge-intake', 'forge-integration', 'forge-long-form-writing', 'forge-mcp-clients', 'forge-memory', 'forge-n8n', 'forge-observability', 'forge-payments', 'forge-plan-large', 'forge-projectbrain', 'forge-release', 'forge-research-evidence', 'forge-router', 'forge-scraping', 'forge-scribe', 'forge-security-review', 'forge-skill-authoring', 'forge-skill-testing', 'forge-snapshot', 'forge-team-orchestration', 'forge-testing', 'forge-token-economy', 'forge-ui-polish', 'forge-verify', 'forge-windows-shell', 'humanizer', 'ponytail', 'poteto-mode', 'ship-readiness'].sort().join(','), JSON.stringify(realSkillEvalsCheck.skills.map((s) => s.skill).sort())));
 
 // ===========================================================================================================
 // V9-INTEGRATE: unregistered_event / check_the_checks are now ENFORCED (folded into `checks`/
@@ -2526,7 +2553,7 @@ fs.mkdirSync(strayDir, { recursive: true });
 const decoyEvents = [
   { event_type: 'memory_loaded', agent: 'orchestrator' },
   { event_type: 'owner_prefs_loaded', agent: 'orchestrator' },
-  { event_type: 'research_done', agent: 'orchestrator' },
+  { event_type: 'research_done', agent: 'orchestrator' }, { event_type: 'skill_map_created', agent: 'orchestrator' },
   { event_type: 'prd_generated', agent: 'orchestrator' },
   { event_type: 'agent_started', agent: 'Build Boss' },
   { event_type: 'zero_console_errors_noted', agent: 'UI Boss' },
@@ -2582,7 +2609,7 @@ t('DEFECT 4 repro: the doctor honestly reports the (correctly-selected) violatin
     const cd = path.join(root, '.claude');
     for (const d of ['forge-dashboard', 'forge-bin', path.join('config', 'orchestration'), path.join('config', 'agents'), 'agents', 'forge-runs']) fs.mkdirSync(path.join(cd, d), { recursive: true });
     fs.copyFileSync(path.join(REAL_ROOT, '.claude', 'forge-dashboard', 'log-event.cjs'), path.join(cd, 'forge-dashboard', 'log-event.cjs'));
-    for (const f of ['forge-runcontract.cjs', 'forge-finalize.cjs', 'forge-proof-gate.cjs']) fs.copyFileSync(path.join(__dirname, f), path.join(cd, 'forge-bin', f));
+    for (const f of ['forge-runcontract.cjs', 'forge-finalize.cjs', 'forge-proof-gate.cjs', 'forge-claim-check.cjs', 'forge-claim-reports.cjs']) fs.copyFileSync(path.join(__dirname, f), path.join(cd, 'forge-bin', f));
     fs.copyFileSync(path.join(REAL_ROOT, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), path.join(cd, 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
     fs.copyFileSync(path.join(REAL_ROOT, '.claude', 'config', 'agents', 'agent-registry.json'), path.join(cd, 'config', 'agents', 'agent-registry.json'));
     copyShippedAgents(path.join(cd, 'agents'));
@@ -2596,7 +2623,7 @@ t('DEFECT 4 repro: the doctor honestly reports the (correctly-selected) violatin
   /** a full L1 run through steps 1-3 of the completion sequence (gate evidence, report, green proof) */
   const greenRun = (root, run) => {
     const steps = [];
-    steps.push(wbatch(root, run, [{ event_type: 'run_started', agent: 'orchestrator' }, { event_type: 'memory_loaded', agent: 'orchestrator' }, { event_type: 'owner_prefs_loaded', agent: 'orchestrator' }, { event_type: 'research_done', agent: 'orchestrator', note: 'looked for an existing implementation' }]));
+    steps.push(wbatch(root, run, [{ event_type: 'run_started', agent: 'orchestrator' }, { event_type: 'memory_loaded', agent: 'orchestrator' }, { event_type: 'owner_prefs_loaded', agent: 'orchestrator' }, { event_type: 'research_done', agent: 'orchestrator', note: 'looked for an existing implementation' }, { event_type: 'skill_map_created', agent: 'orchestrator' }]));
     steps.push(wrc(root, ['check', '--run', run, '--phase', 'preview', '--log-event']));
     steps.push(wbatch(root, run, [
       { event_type: 'agent_work_package_created', agent: 'Build Boss', wp_id: 'WP-1', mission: 'build it' },
@@ -2934,6 +2961,22 @@ t('skillHygiene nested fixture: the flat sibling is still evaluated and still cl
 t('skillHygiene nested fixture: a nested finding is still ADVISORY — doctor.ok stays true', shNestedRep.ok === true);
 const shNestedSummary = D.printSummary(shNestedRep);
 t('printSummary: names the nested skill by its full skills/-relative id under "skill-hygiene:"', /skill-hygiene: bundle\/nested-child/.test(shNestedSummary), shNestedSummary);
+
+// (6b) 2026-11-05: a skill link into a gitignored, never-shipped folder resolved on the maintainer's machine and
+// dangled on a fresh clone (forge-security-review -> .claude/forge-research/.../round1.json, found by gating a
+// clean worktree). The file EXISTS in this fixture, and the link must still be red; a name our own code writes
+// there stays a generated ref.
+{
+  const LO_ROOT = makeCompletenessBase('forge-doctor-skillhygiene-localonly-');
+  fs.mkdirSync(path.join(LO_ROOT, '.claude', 'forge-research', 'notes'), { recursive: true });
+  fs.writeFileSync(path.join(LO_ROOT, '.claude', 'forge-research', 'notes', 'round1.json'), '{}\n');
+  fs.mkdirSync(path.join(LO_ROOT, '.claude', 'skills', 'cites-local'), { recursive: true });
+  fs.writeFileSync(path.join(LO_ROOT, '.claude', 'skills', 'cites-local', 'SKILL.md'),
+    '---\nname: cites-local\ndescription: A short, valid description.\n---\n\n# cites-local\n\nSee `.claude/forge-research/notes/round1.json`.\n');
+  const lo = D.skillHygiene(LO_ROOT).skills.find((s) => s.skill === 'cites-local');
+  t('skillHygiene: a link into .claude/forge-research/ is dangling even though the file exists here (local-only, never shipped)',
+    !!lo && lo.ok === false && /round1\.json \[local-only folder, not shipped\]/.test(JSON.stringify(lo.issues)), JSON.stringify(lo));
+}
 
 // (7) VENDORED skills: the two findings this check had left standing were `humanizer` (626
 // lines, upstream github.com/blader/humanizer @1b48564) and the 8 gsap sub-skills (upstream
@@ -3681,14 +3724,18 @@ function swWriteTemplate(dir, settings) {
 // THIS machine happens to have a real canonical template at ~/.claude/forge/template/.claude (it does on
 // the author's own machine — that is precisely the installer-written path settingsTemplatePath() now also
 // checks). Point HOME/USERPROFILE at a throwaway empty dir first, so "no template" means it here too.
+//"no template anywhere" also means no FORGE_SYNC_TEMPLATE_DIR: forge-sync passes its own environment to the
+// post-sync doctor, so a sync from a staging template (FORGE_SYNC_TEMPLATE_DIR set) turned the three cases below red.
 function swWithHome(fakeHome, fn) {
-  const prevHome = process.env.HOME, prevProfile = process.env.USERPROFILE;
+  const prevHome = process.env.HOME, prevProfile = process.env.USERPROFILE, prevTpl = process.env.FORGE_SYNC_TEMPLATE_DIR;
   process.env.HOME = fakeHome;
   process.env.USERPROFILE = fakeHome;
+  delete process.env.FORGE_SYNC_TEMPLATE_DIR;
   try { return fn(); }
   finally {
     if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
     if (prevProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevProfile;
+    if (prevTpl !== undefined) process.env.FORGE_SYNC_TEMPLATE_DIR = prevTpl;
   }
 }
 
@@ -3742,6 +3789,16 @@ t('settings-wired: with no injected source, no env var and no canonical template
   const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor-sw-home3-'));
   return swWithHome(fakeHome, () => D.settingsTemplatePath({}) === null);
 })());
+t('settings-wired PORTABLE: an inherited FORGE_SYNC_TEMPLATE_DIR (a sync from a staging template) is hidden inside swWithHome and restored after it', (() => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor-sw-home4-'));
+  const prev = process.env.FORGE_SYNC_TEMPLATE_DIR;
+  process.env.FORGE_SYNC_TEMPLATE_DIR = path.dirname(swTemplatePath);
+  try {
+    const outside = D.settingsTemplatePath({}) === swTemplatePath;
+    const inside = swWithHome(fakeHome, () => D.settingsTemplatePath({}) === null);
+    return outside && inside && process.env.FORGE_SYNC_TEMPLATE_DIR === path.dirname(swTemplatePath);
+  } finally { if (prev === undefined) delete process.env.FORGE_SYNC_TEMPLATE_DIR; else process.env.FORGE_SYNC_TEMPLATE_DIR = prev; }
+})());
 
 // wired into beginnerSetup(): the source is threaded through via opts.settingsSource
 const bsWithSettings = D.beginnerSetup(BS_SW_PRESENT, { env: bsEnv(BS_SW_PRESENT), settingsSource: swTemplatePath });
@@ -3789,10 +3846,12 @@ const bsOvSummary = D.printSummary(D.runDoctor(BS_VERDICT, { env: bsEnv(BS_NONOD
 t('printSummary: an overridden beginner warn prints ✓ with the [OVERRIDDEN by ...] tag, never silently', /✓ setup bypass-mode \(advisory\): .*\[OVERRIDDEN by owner: disposable CI VM, bypass is intended\]/.test(bsOvSummary), bsOvSummary.split('\n').filter((l) => /bypass-mode/.test(l)).join('\n'));
 
 // --- static guards: nothing new reads the real home; the probe can never become interactive; the CLI opts in ---
-const DOCTOR_SRC_TEXT = fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8');
-const bsStart = DOCTOR_SRC_TEXT.indexOf('// BEGINNER SETUP (wp17, 2026-09-24) — ADVISORY-ONLY');
-const bsEnd = DOCTOR_SRC_TEXT.indexOf('function runDoctor(');
-const bsSection = bsStart > 0 && bsEnd > bsStart ? DOCTOR_SRC_TEXT.slice(bsStart, bsEnd) : '';
+const DOCTOR_SRC_TEXT = DOCTOR_ALL_SRC;
+// the beginner-setup section is doctor/checks-setup.cjs from its banner up to its module.exports (WP A11 part 2)
+const SETUP_SRC_TEXT = fs.readFileSync(path.join(__dirname, 'doctor', 'checks-setup.cjs'), 'utf8');
+const bsStart = SETUP_SRC_TEXT.indexOf('// BEGINNER SETUP (wp17, 2026-09-24) — ADVISORY-ONLY');
+const bsEnd = SETUP_SRC_TEXT.indexOf('module.exports = {');
+const bsSection = bsStart > 0 && bsEnd > bsStart ? SETUP_SRC_TEXT.slice(bsStart, bsEnd) : '';
 t('beginner setup static: the section was located in the doctor source (guards below are not vacuous)', bsSection.length > 2000, 'length=' + bsSection.length);
 // N8 (2026-09-26 laptop re-audit): settingsTemplatePath() is now a DELIBERATE, reviewed exception — it
 // reads os.homedir() to find the installer's own canonical template (`<home>/.claude/forge/template/.claude`,
@@ -3894,6 +3953,51 @@ tFn('gateWatchdogHealth: end-to-end PASS via the fail-closed fallback (classifie
   assert.strictEqual(r.ok, true, JSON.stringify(r));
   assert.strictEqual(r.real_classifier_engaged, false);
   assert.ok(/fail-closed fallback/.test(r.detail), r.detail);
+});
+
+// FU-A7 (review medium): since FU-A7 a hook that cannot JUDGE a call still
+// refuses it when it shows a hard-gate keyword (gate id cannot-judge-risky), so a BROKEN hook also gives the canary
+// exit 2. That must read as unhealthy, never as "BLOCKED by the real classifier". The gate ids come from the first-line
+// header only: the cannot-judge reason repeats keyword ids and the error text (here even "classifier-unavailable") later.
+const GWH_CANNOT_JUDGE = 'FORGE GATE (cannot-judge-risky): Forge kan dit commando niet beoordelen en het lijkt riskant (destructive-delete; internal error (classifier-unavailable seam)), dus is het voor de zekerheid geweigerd; draai de doctor en probeer het daarna opnieuw. / Forge cannot judge this command and it looks risky (destructive-delete; internal error (classifier-unavailable seam)), so it was refused to be safe; run the doctor and try again.';
+const gwhCanaryStub = (canaryStderr) => (exe, args, opts) => {
+  const cmd = JSON.parse(opts.input).tool_input.command;
+  if (/^echo /.test(cmd)) return { status: 0, stderr: '', error: null, signal: null };
+  return { status: 2, stderr: canaryStderr, error: null, signal: null };
+};
+tFn('gateWatchdogHealth: a canary the hook could NOT judge (cannot-judge-risky, exit 2) -> warn, never "the real classifier" nor the fallback', () => {
+  const r = D.gateWatchdogHealth(GWH_ROOT, { spawnSyncImpl: gwhCanaryStub(GWH_CANNOT_JUDGE) });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.strictEqual(r.level, 'warn');
+  assert.strictEqual(r.real_classifier_engaged, false);
+  assert.deepStrictEqual(r.canary_gates, ['cannot-judge-risky']);
+  assert.ok(/could not judge/.test(r.detail) && !/BLOCKED \(exit 2\) by the real classifier/.test(r.detail), r.detail);
+});
+tFn('gateWatchdogHealth: a canary refused only as "too large / too slow to inspect" (command-too-large) -> warn, the classifier did not run', () => {
+  const r = D.gateWatchdogHealth(GWH_ROOT, { spawnSyncImpl: gwhCanaryStub('FORGE GATE (command-too-large):\n- ...') });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.strictEqual(r.real_classifier_engaged, false);
+  assert.deepStrictEqual(r.canary_gates, ['command-too-large']);
+});
+tFn('gateWatchdogHealth: REAL broken copy (forge-gate-messages.cjs loads, but its blockReason throws) -> warn, not "the real classifier"', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor-gwh-a7-'));
+  try {
+    const bin = path.join(root, '.claude', 'forge-bin');
+    const cfgDir = path.join(root, '.claude', 'config', 'orchestration');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(cfgDir, { recursive: true });
+    for (const f of D.GATE_HOOK_DEPENDENCY_FILES.concat(['forge-gate-classify-worker.cjs'])) fs.copyFileSync(path.join(__dirname, f), path.join(bin, f));
+    fs.copyFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'hard-gates.json'), path.join(cfgDir, 'hard-gates.json'));
+    fs.appendFileSync(path.join(bin, 'forge-gate-messages.cjs'), "\nmodule.exports.blockReason = () => { throw new Error('doctor-a7-broken-blockReason'); };\n", 'utf8');
+    const r = D.gateWatchdogHealth(root);
+    assert.strictEqual(r.harmless_exit, 0, 'the allow path never calls blockReason: ' + JSON.stringify(r));
+    assert.strictEqual(r.canary_exit, 2, JSON.stringify(r));
+    assert.strictEqual(r.ok, false, 'a hook that could not judge the canary is not healthy: ' + JSON.stringify(r));
+    assert.strictEqual(r.real_classifier_engaged, false);
+    assert.deepStrictEqual(r.canary_gates, ['cannot-judge-risky']);
+  } finally {
+    try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ }
+  }
 });
 
 tFn('gateWatchdogHealth: end-to-end FAIL when the harmless command does not exit 0 -> warn', () => {
@@ -4204,7 +4308,7 @@ const SM_DELIVERED = ['forge-bin/a.cjs', 'config/orchestration/FORGE_SHIP_MANIFE
 const smOpts = (root, extra) => ({ shipcheckOpts: Object.assign({ files: (function list() { const out = []; (function w(rel) { for (const e of fs.readdirSync(rel ? path.join(root, rel) : root, { withFileTypes: true })) { const r = rel ? rel + '/' + e.name : e.name; if (e.isDirectory()) w(r); else out.push(r); } })(''); return out; })(), delivered: SM_DELIVERED, seedDelivered: [] }, extra || {}) });
 
 t('ship_manifest: runDoctor() wires checks.ship_manifest through applyDoctorOverride(shipManifestCheck(root))',
-  /ship_manifest:\s*applyDoctorOverride\(overrideMap,\s*'ship_manifest',\s*shipManifestCheck\(root\)\)/.test(fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8')));
+  new RegExp('ship_manifest:' + ROW + String.raw`applyDoctorOverride\(overrideMap,\s*'ship_manifest',\s*shipManifestCheck\(root\)\)`).test(DOCTOR_ALL_SRC));
 tFn('ship_manifest: GREEN fixture (not the dev tree, no manifest) -> applicable:false, ok:true, "n/a" on its summary line', () => {
   const sm = greenRep.checks.ship_manifest;
   assert.ok(sm, 'checks.ship_manifest must exist');
@@ -4256,7 +4360,8 @@ tFn('ship_manifest: a known gap turns exactly that violation into a warning with
 });
 tFn('ship_manifest: the development tree WITHOUT forge-shipcheck.cjs beside the doctor fails closed (never a silent pass)', () => {
   const iso = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-doctor-sm-iso-'));
-  for (const f of ['forge-doctor.cjs', 'forge-store.cjs']) fs.copyFileSync(path.join(__dirname, f), path.join(iso, f));
+  fs.copyFileSync(path.join(__dirname, 'forge-store.cjs'), path.join(iso, 'forge-store.cjs'));
+  copyDoctorInto(iso);
   const isoDoctor = require(path.join(iso, 'forge-doctor.cjs'));
   const root = smRoot('forge-doctor-sm-nomod', SM_FILES, true);
   const sm = isoDoctor.shipManifestCheck(root);
@@ -4297,7 +4402,7 @@ pinned('ship_manifest: the REAL development tree passes, applicable, in under 5 
 // always_loaded_budget (advisory). Every fixture is a throwaway temp root; the real tree is only READ.
 // =====================================================================================================
 const RGEN = require('./forge-registry-gen.cjs');
-const DOC_SRC = fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8');
+const DOC_SRC = DOCTOR_ALL_SRC;
 function wf(root, rel, text) { const p = path.join(root, ...rel.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text); }
 function frRoot(prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'));
@@ -4318,9 +4423,9 @@ const writeReg = (root, mutate) => {
 const regEntry = (data, id) => data.features.find((f) => f.id === id);
 
 t('feature_registry: runDoctor() wires checks.feature_registry through applyDoctorOverride(featureRegistryCheck(root))',
-  /feature_registry:\s*applyDoctorOverride\(overrideMap,\s*'feature_registry',\s*featureRegistryCheck\(root\)\)/.test(DOC_SRC));
+  new RegExp('feature_registry:' + ROW + String.raw`applyDoctorOverride\(overrideMap,\s*'feature_registry',\s*featureRegistryCheck\(root\)\)`).test(DOC_SRC));
 t('skill_frontmatter: runDoctor() wires checks.skill_frontmatter through applyDoctorOverride(skillFrontmatterCheck(root))',
-  /skill_frontmatter:\s*applyDoctorOverride\(overrideMap,\s*'skill_frontmatter',\s*skillFrontmatterCheck\(root\)\)/.test(DOC_SRC));
+  new RegExp('skill_frontmatter:' + ROW + String.raw`applyDoctorOverride\(overrideMap,\s*'skill_frontmatter',\s*skillFrontmatterCheck\(root\)\)`).test(DOC_SRC));
 tFn('feature_registry: GREEN fixture (not the dev tree) -> applicable:false, ok:true, "n/a" on its summary line', () => {
   const fr = greenRep.checks.feature_registry;
   assert.ok(fr && fr.ok === true && fr.applicable === false, JSON.stringify(fr));
@@ -4466,6 +4571,54 @@ tFn('skill_frontmatter: outside the dev tree it never turns red, but the finding
   assert.ok(/✓ skill frontmatter\s+1 skill\(s\) with frontmatter\/catalog problems: colon/.test(out), out);
 });
 
+// --- WP 1.9: hyphenated keys, when_to_use, the 1,536-char listing entry and the on/off switches ---
+t('parseFrontmatter WP 1.9: hyphenated keys are read (the old [A-Za-z_]+ key regex skipped them); indented lines still never are',
+  (() => { const fm = D.parseFrontmatter('---\nname: x\ndisable-model-invocation: true\nuser-invocable: false\nargument-hint: [file]\nmodel2: y\n  indented: no\n---\nbody: not frontmatter\n'); return fm.name === 'x' && fm['disable-model-invocation'] === 'true' && fm['user-invocable'] === 'false' && fm['argument-hint'] === '[file]' && fm.model2 === 'y' && !('indented' in fm) && !('body' in fm); })());
+t('parseFrontmatter WP 1.9: an agent frontmatter still yields exactly its fields (agentsCheck input unchanged)',
+  (() => { const fm = D.parseFrontmatter('---\nname: build-boss\ndescription: "Use PROACTIVELY when: coding"\ntools: Read, Write\nmodel: opus\neffort: medium\nmemory: project\n---\n'); return JSON.stringify(Object.keys(fm)) === JSON.stringify(['name', 'description', 'tools', 'model', 'effort', 'memory']) && fm.description === '"Use PROACTIVELY when: coding"'; })());
+t('skillDescriptionIssues WP 1.9: the description messages are byte-identical; when_to_use gets the same rule under its own name',
+  D.skillDescriptionIssues(' Forge: x')[0] === 'the description contains ": " but is not quoted — YAML reads it as a nested key, so Claude Code drops it and shows the first heading instead; wrap the whole description in double quotes'
+  && /^when_to_use contains ": " but is not quoted/.test(D.skillDescriptionIssues(' Triggers: /forge, build', 'when_to_use')[0] || '')
+  && D.skillDescriptionIssues(' "Triggers: /forge, build"', 'when_to_use').length === 0
+  && /^the double-quoted when_to_use value is not closed/.test(D.skillDescriptionIssues(' "half', 'when_to_use')[0] || '')
+  && /^when_to_use contains " #"/.test(D.skillDescriptionIssues(' use it #now', 'when_to_use')[0] || ''));
+t('frontmatterScalarText WP 1.9: quotes are removed and escapes undone before counting', D.frontmatterScalarText(' "a \\"b\\" c" ') === 'a "b" c' && D.frontmatterScalarText("'it''s'") === "it's" && D.frontmatterScalarText('plain') === 'plain' && D.frontmatterScalarText(undefined) === '');
+tFn('skill_frontmatter WP 1.9: an unquoted ": " in when_to_use is red by name; the quoted form is green', () => {
+  const root = sfRoot('fd-sf-wtu', true);
+  wf(root, '.claude/skills/wtu-bad/SKILL.md', '---\nname: wtu-bad\ndescription: "Does one thing."\nwhen_to_use: Triggers: /forge, build\n---\n');
+  wf(root, '.claude/skills/wtu-ok/SKILL.md', '---\nname: wtu-ok\ndescription: "Does one thing."\nwhen_to_use: "Triggers: /forge, build. Not for one-line edits."\n---\n');
+  const sf = D.skillFrontmatterCheck(root);
+  assert.ok(sf.ok === false && JSON.stringify(sf.failing) === JSON.stringify(['wtu-bad']), JSON.stringify(sf.failing));
+  assert.ok(/^when_to_use contains ": " but is not quoted/.test(sf.skills.find((s) => s.skill === 'wtu-bad').issues[0]), JSON.stringify(sf.skills));
+});
+tFn('skill_frontmatter WP 1.9: description + when_to_use over 1,536 chars is red; exactly 1,536 is green; vendored is reported, never counted', () => {
+  assert.strictEqual(D.SKILL_LISTING_ENTRY_MAX_CHARS, 1536);
+  const root = sfRoot('fd-sf-listcap', true);
+  const desc = 'd'.repeat(150);
+  wf(root, '.claude/skills/at-cap/SKILL.md', '---\nname: at-cap\ndescription: "' + desc + '"\nwhen_to_use: "' + 'w'.repeat(1536 - 150) + '"\n---\n');
+  wf(root, '.claude/skills/over-cap/SKILL.md', '---\nname: over-cap\ndescription: "' + desc + '"\nwhen_to_use: "' + 'w'.repeat(1537 - 150) + '"\n---\n');
+  wf(root, '.claude/skills/vend-cap/SKILL.md', '---\nname: vend-cap\ndescription: "' + desc + '"\nwhen_to_use: "' + 'w'.repeat(1600) + '"\n---\n<!--\n  Source: https://github.com/x/y\n  Pinned commit: abcdef1234567\n-->\n');
+  const sf = D.skillFrontmatterCheck(root);
+  assert.deepStrictEqual(sf.failing, ['over-cap'], JSON.stringify(sf.skills.filter((s) => s.issues.length)));
+  assert.ok(/description \+ when_to_use is 1537 chars \(max 1536/.test(sf.skills.find((s) => s.skill === 'over-cap').issues[0]), JSON.stringify(sf.skills));
+  const v = sf.skills.find((s) => s.skill === 'vend-cap');
+  assert.ok(v.issues.length === 0 && /description \+ when_to_use is 1750 chars/.test((v.vendored_style || []).join(' ')), JSON.stringify(v));
+});
+tFn('skill_frontmatter WP 1.9: disable-model-invocation / user-invocable must be exactly true or false when present', () => {
+  const root = sfRoot('fd-sf-bool', true);
+  wf(root, '.claude/skills/b-true/SKILL.md', '---\nname: b-true\ndescription: "One."\ndisable-model-invocation: true\n---\n');
+  wf(root, '.claude/skills/b-false/SKILL.md', '---\nname: b-false\ndescription: "One."\nuser-invocable: false # only the model loads it\n---\n');
+  wf(root, '.claude/skills/b-quoted/SKILL.md', '---\nname: b-quoted\ndescription: "One."\ndisable-model-invocation: "true"\n---\n');
+  wf(root, '.claude/skills/b-yes/SKILL.md', '---\nname: b-yes\ndescription: "One."\nuser-invocable: yes\n---\n');
+  wf(root, '.claude/skills/b-empty/SKILL.md', '---\nname: b-empty\ndescription: "One."\ndisable-model-invocation:\n---\n');
+  wf(root, '.claude/skills/b-upper/SKILL.md', '---\nname: b-upper\ndescription: "One."\ndisable-model-invocation: True\n---\n');
+  const sf = D.skillFrontmatterCheck(root);
+  assert.deepStrictEqual(sf.failing.slice().sort(), ['b-empty', 'b-quoted', 'b-upper', 'b-yes'], JSON.stringify(sf.skills.filter((s) => s.issues.length)));
+  assert.ok(/^disable-model-invocation is "\\"true\\"" — it must be true or false/.test(sf.skills.find((s) => s.skill === 'b-quoted').issues[0]), sf.skills.find((s) => s.skill === 'b-quoted').issues[0]);
+  assert.ok(/^user-invocable is "yes"/.test(sf.skills.find((s) => s.skill === 'b-yes').issues[0]) && /^disable-model-invocation is empty/.test(sf.skills.find((s) => s.skill === 'b-empty').issues[0]));
+  assert.deepStrictEqual(D.SKILL_BOOLEAN_KEYS, ['disable-model-invocation', 'user-invocable']);
+});
+
 // --- advisories ---
 function scribeRoot(prefix, opts) {
   const o = opts || {};
@@ -4554,8 +4707,90 @@ tFn('always_loaded_budget: sizes are reported; over the budget is a warning; mir
   const out = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { always_loaded_budget: r } });
   assert.ok(/⚠ always-loaded budget \(advisory, non-blocking\): commands\/forge\.md 100 B, forge-router\/SKILL\.md 16385 B OVER/.test(out), out);
 });
-t('advisories: runDoctor() reports all four under report.advisory and never folds them into doctor.ok',
-  ['scribe_wiring', 'unpublished', 'structure', 'always_loaded_budget'].every((k) => greenRep.advisory[k] && typeof greenRep.advisory[k].ok === 'boolean') && greenRep.ok === true);
+tFn('plugin_validate (WP 3.7): n/a without a built plugin or without claude; the CLI exit code is the verdict; never part of doctor.ok', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-pv-'));
+  const calls = [];
+  const spawnOk = (file, args, env, ms, cwd) => { calls.push({ file, args, cwd }); return { status: 0, stdout: '✔ Validation passed', stderr: '' }; };
+  const noDist = D.pluginValidate(root, { spawnImpl: spawnOk });
+  assert.ok(noDist.ok === true && noDist.applicable === false && /no built plugin/.test(noDist.reason) && calls.length === 0, JSON.stringify(noDist));
+  wf(root, D.PLUGIN_DIST_REL + '/.claude-plugin/plugin.json', '{"name":"forge"}');
+  const binDir = path.join(root, 'bin');
+  const noClaude = D.pluginValidate(root, { env: { PATH: binDir, PATHEXT: '.EXE' }, spawnImpl: spawnOk });
+  assert.ok(noClaude.ok === true && noClaude.applicable === false && /not on PATH/.test(noClaude.reason) && calls.length === 0, JSON.stringify(noClaude));
+  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude';
+  wf(root, 'bin/' + exe, 'stub');
+  if (process.platform !== 'win32') fs.chmodSync(path.join(binDir, exe), 0o755);
+  const env = { PATH: binDir, PATHEXT: '.EXE' };
+  const pass = D.pluginValidate(root, { env, spawnImpl: spawnOk });
+  assert.ok(pass.ok === true && pass.applicable === true && pass.status === 'pass', JSON.stringify(pass));
+  assert.deepStrictEqual(calls[0].args, ['plugin', 'validate', 'dist/forge-plugin']);
+  assert.ok(calls[0].cwd === root, 'cwd must be the project root: ' + calls[0].cwd);
+  const failed = D.pluginValidate(root, { env, spawnImpl: () => ({ status: 1, stdout: '✘ Found 1 error:\n  ❯ plugin.json name: invalid', stderr: '' }) });
+  assert.ok(failed.ok === false && failed.applicable === true && failed.errors.some((l) => /error/.test(l)), JSON.stringify(failed));
+  const hung = D.pluginValidate(root, { env, spawnImpl: () => ({ status: null, error: Object.assign(new Error('t'), { code: 'ETIMEDOUT' }) }) });
+  assert.ok(hung.ok === true && hung.applicable === false && /timed out/.test(hung.reason), JSON.stringify(hung));
+  const odd = D.pluginValidate(root, { env, spawnImpl: () => ({ status: 2, stdout: '', stderr: '' }) });
+  assert.ok(odd.ok === true && odd.applicable === false && /exit 2/.test(odd.reason), JSON.stringify(odd));
+  const outFail = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { plugin_validate: failed } });
+  assert.ok(/⚠ plugin validate \(advisory, non-blocking\): `claude plugin validate dist\/forge-plugin` failed: .*error/.test(outFail), outFail);
+  const outSkip = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { plugin_validate: noClaude } });
+  assert.ok(/ℹ plugin validate \(advisory\): n\/a — the claude CLI is not on PATH/.test(outSkip), outSkip);
+  assert.ok(greenRep.advisory.plugin_validate && greenRep.advisory.plugin_validate.ok === true && greenRep.ok === true, JSON.stringify(greenRep.advisory.plugin_validate));
+});
+tFn('skill_lint + agent_lint (WP-E2, WP-A1): advisory summaries of the two linters; an error is ⚠, never part of doctor.ok', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-lint-'));
+  const none = D.skillLint(root), noneA = D.agentLint(root);
+  assert.ok(none.ok === true && none.applicable === false && /no skills/.test(none.reason), JSON.stringify(none));
+  assert.ok(noneA.ok === true && noneA.applicable === false && /no agents/.test(noneA.reason), JSON.stringify(noneA));
+  const missing = D.skillLint(root, { tool: null });
+  assert.ok(missing.applicable === false && /not installed/.test(missing.reason), JSON.stringify(missing));
+  wf(root, '.claude/skills/Bad-Name/SKILL.md', '---\nname: Bad-Name\ndescription: Reviews diffs. Use when asked.\n---\nbody\n');
+  wf(root, '.claude/agents/typo.md', '---\nname: typo\ndescription: x\nmaxTurn: 5\n---\nbody\n');
+  const sl = D.skillLint(root), al = D.agentLint(root);
+  assert.ok(sl.ok === false && sl.applicable === true && sl.checked === 1 && sl.counts.error >= 1 && sl.errors.some((e) => /lowercase/.test(e)), JSON.stringify(sl));
+  assert.ok(al.ok === false && al.applicable === true && al.checked === 1 && al.errors.some((e) => /unknown key "maxTurn"/.test(e)), JSON.stringify(al));
+  const out = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { skill_lint: sl, agent_lint: al } });
+  assert.ok(/⚠ skill lint \(advisory, non-blocking\): 1 checked · \d+ error/.test(out) && /⚠ agent lint \(advisory, non-blocking\): 1 checked .*maxTurn.*forge-agentlint\.cjs/.test(out), out);
+  const outNa = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { skill_lint: missing } });
+  assert.ok(/ℹ skill lint \(advisory\): n\/a — forge-skilllint\.cjs is not installed here/.test(outNa), outNa);
+  assert.throws(() => D.skillLint(root, { tool: { lintSkills: () => { throw new Error('boom'); } } }), /boom/, 'lintSummary does not swallow: runDoctor wraps it in advisorySafe');
+  assert.ok(greenRep.advisory.skill_lint && typeof greenRep.advisory.skill_lint.ok === 'boolean' && greenRep.advisory.agent_lint && typeof greenRep.advisory.agent_lint.ok === 'boolean' && greenRep.ok === true, JSON.stringify([greenRep.advisory.skill_lint, greenRep.advisory.agent_lint]));
+});
+tFn('config_scan + harness_score (WP-E3, package 2.9e): advisory, in-process; n/a when the tool is missing; a finding is ⚠, never part of doctor.ok', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fd-e3-'));
+  try {
+    const missing = D.configScan(root, { tool: null }), missingH = D.harnessScore(root, { tool: null });
+    assert.ok(missing.ok === true && missing.applicable === false && /forge-config-scan\.cjs is not installed/.test(missing.reason), JSON.stringify(missing));
+    assert.ok(missingH.ok === true && missingH.applicable === false && /forge-harness-score\.cjs is not installed/.test(missingH.reason), JSON.stringify(missingH));
+    const empty = D.configScan(root);
+    assert.ok(empty.ok === true && empty.applicable === false && /no Claude configuration files/.test(empty.reason), JSON.stringify(empty));
+    const noRubric = D.harnessScore(root, { rubricPath: path.join(root, 'absent-rubric.json') });
+    assert.ok(noRubric.ok === true && noRubric.applicable === false && /^rubric not found/.test(noRubric.reason), JSON.stringify(noRubric));
+    // a real error-level finding (an allow rule that grants every shell command) -> ⚠ with file:line rule, never the value
+    wf(root, '.claude/settings.json', JSON.stringify({ permissions: { allow: ['Bash(*)'] } }, null, 2) + '\n');
+    const cs = D.configScan(root);
+    assert.ok(cs.ok === false && cs.applicable === true && cs.checked >= 1 && cs.counts.error >= 1 && cs.errors.some((e) => /^\.claude\/settings\.json:\d+ perm-allow-all$/.test(e)), JSON.stringify(cs));
+    // the scorecard: the tool's own --strict verdict (overall >= HARNESS_MIN and no outright fail); a fail is named
+    const fake = { scoreHarness: () => ({ overall: 9, measured_categories: 2, total_categories: 3, categories: [{ checks: [{ id: 'a', status: 'pass' }, { id: 'b', status: 'fail' }] }], top_actions: [{ category: 'c', check: 'b', action: 'Fix b' }] }) };
+    const hs = D.harnessScore(root, { tool: fake });
+    assert.ok(hs.ok === false && hs.applicable === true && hs.overall === 9 && hs.failed[0] === 'b' && hs.top_actions[0] === 'c/b: Fix b', JSON.stringify(hs));
+    const allPass = D.harnessScore(root, { tool: { scoreHarness: () => ({ overall: D.HARNESS_MIN, measured_categories: 1, total_categories: 1, categories: [{ checks: [{ id: 'a', status: 'pass' }] }], top_actions: [] }) } });
+    assert.ok(allPass.ok === true && allPass.applicable === true, JSON.stringify(allPass));
+    const none = D.harnessScore(root, { tool: { scoreHarness: () => ({ overall: null, categories: [], top_actions: [] }) } });
+    assert.ok(none.ok === true && none.applicable === false && /could be measured/.test(none.reason), JSON.stringify(none));
+    assert.throws(() => D.harnessScore(root, { tool: { scoreHarness: () => { throw new Error('boom'); } } }), /boom/, 'only a missing rubric is n/a: runDoctor wraps any other throw in advisorySafe');
+    const out = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { config_scan: cs, harness_score: hs } });
+    assert.ok(/⚠ config scan \(advisory, non-blocking\): \d+ file\(s\) · \d+ error .*perm-allow-all.*forge-config-scan\.cjs/.test(out), out);
+    assert.ok(/⚠ harness score \(advisory, non-blocking\): overall 9\/10 over 2\/3 measured categories \(doctor checks not fed in\) · failed: b · first: c\/b: Fix b/.test(out), out);
+    const outNa = D.printSummary({ root, ok: true, checks: greenRep.checks, advisory: { config_scan: missing, harness_score: missingH } });
+    assert.ok(/ℹ config scan \(advisory\): n\/a — forge-config-scan\.cjs is not installed here/.test(outNa) && /ℹ harness score \(advisory\): n\/a — forge-harness-score\.cjs is not installed here/.test(outNa), outNa);
+    assert.ok(greenRep.advisory.config_scan && typeof greenRep.advisory.config_scan.ok === 'boolean' && greenRep.advisory.harness_score && typeof greenRep.advisory.harness_score.ok === 'boolean' && greenRep.ok === true, JSON.stringify([greenRep.advisory.config_scan, greenRep.advisory.harness_score]));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+t('advisories: runDoctor() reports all nine under report.advisory and never folds them into doctor.ok',
+  ['scribe_wiring', 'unpublished', 'structure', 'always_loaded_budget', 'skill_lint', 'agent_lint', 'plugin_validate', 'config_scan', 'harness_score'].every((k) => greenRep.advisory[k] && typeof greenRep.advisory[k].ok === 'boolean') && greenRep.ok === true);
 pinned('WP-8b: the REAL development tree — the feature registry is complete and every wired entry has a wired caller', () => {
   const fr = D.featureRegistryCheck(REAL_ROOT);
   t('feature_registry (real tree): applicable and ok', fr.applicable === true && fr.ok === true, fr.reason);
@@ -4563,6 +4798,47 @@ pinned('WP-8b: the REAL development tree — the feature registry is complete an
   t('feature_registry (real tree): finishes in under 5 s', typeof fr.ms === 'number' && fr.ms < 5000, 'ms=' + fr.ms);
   const sf = D.skillFrontmatterCheck(REAL_ROOT);
   t('skill_frontmatter (real tree): runs over every top-level skill and names each failing skill with a concrete issue', sf.checked >= 70 && sf.skills.filter((s) => s.issues.length).every((s) => sf.failing.includes(s.skill) && typeof s.issues[0] === 'string' && s.issues[0].length > 10));
+});
+
+// =====================================================================================================
+// WP A11 part 2: the doctor split into doctor/*.cjs. CONTRACT: the composition root's ordered
+// check tables equal this snapshot — a lost, duplicated, renamed or reordered check fails here (proven with
+// a temporary mutant that dropped a row and one that swapped two rows, in the A11 part 2 hand-off).
+// =====================================================================================================
+const DOCTOR_CHECK_ORDER_SNAPSHOT = {
+  checks: ['node_check', 'tests', 'strict_events', 'dashboard_spa', 'leak_scan', 'agents', 'chain', 'rebinding_guard',
+    'unregistered_event', 'check_the_checks', 'release_exclusions', 'model_routing', 'ship_manifest', 'run_contract',
+    'feature_registry', 'skill_frontmatter', 'skill_adapters', 'ecc_path', 'citations'],
+  advisory: ['command_center_location', 'backfill_continuity', 'run_liveness', 'context_budget', 'gate_watchdog_health',
+    'scribe_wiring', 'unpublished', 'claim_sealed_drift', 'structure', 'always_loaded_budget', 'global_forge_handover', 'eol_drift', 'plugin_validate', 'skill_lint', 'agent_lint',
+    'config_scan', 'harness_score', 'beginner_setup', 'completeness'],
+  completeness: ['sync_completeness', 'memory_discipline', 'mcp_dormancy', 'quality_catalog', 'skill_evals', 'skill_hygiene'],
+};
+tFn('A11 contract: DOCTOR_CHECK_ORDER (the composition root\'s ordered check tables) equals the snapshot', () => {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(D.DOCTOR_CHECK_ORDER)), DOCTOR_CHECK_ORDER_SNAPSHOT);
+});
+tFn('A11 contract: a real runDoctor() report carries exactly those keys in that order (checks, advisory, completeness)', () => {
+  assert.deepStrictEqual(Object.keys(greenRep.checks), DOCTOR_CHECK_ORDER_SNAPSHOT.checks);
+  assert.deepStrictEqual(Object.keys(greenRep.advisory), DOCTOR_CHECK_ORDER_SNAPSHOT.advisory);
+  assert.deepStrictEqual(Object.keys(greenRep.advisory.completeness), DOCTOR_CHECK_ORDER_SNAPSHOT.completeness);
+});
+tFn('A11 contract: every DOCTOR_MODULES file exists, parses, stays under 800 lines and is loaded by the root', () => {
+  assert.ok(D.DOCTOR_MODULES.length >= 10, 'expected the module list, got ' + D.DOCTOR_MODULES.length);
+  for (const rel of D.DOCTOR_MODULES) {
+    const abs = path.join(__dirname, ...rel.split('/'));
+    const lines = fs.readFileSync(abs, 'utf8').split('\n').length;
+    assert.ok(lines < 800, rel + ' has ' + lines + ' lines');
+    assert.ok(require.cache[require.resolve(abs)], rel + ' was not loaded by forge-doctor.cjs');
+  }
+  const onDisk = fs.readdirSync(path.join(__dirname, 'doctor')).filter((n) => n.endsWith('.cjs')).map((n) => 'doctor/' + n).sort();
+  assert.deepStrictEqual(onDisk, [...D.DOCTOR_MODULES].sort(), 'doctor/ holds exactly the listed modules');
+});
+tFn('A11 contract: the DOCTOR_SUITE_TIMEOUT_MS literal kept in forge-doctor.cjs (read by forge-sync.test.cjs) equals the value doctor/checks-core.cjs uses', () => {
+  const rootSrc = fs.readFileSync(path.join(__dirname, 'forge-doctor.cjs'), 'utf8');
+  const m = /const DOCTOR_SUITE_TIMEOUT_MS = (\d+);/.exec(rootSrc);
+  assert.ok(m, 'the literal is gone from forge-doctor.cjs');
+  assert.strictEqual(Number(m[1]), require('./doctor/checks-core.cjs').DOCTOR_SUITE_TIMEOUT_MS);
+  assert.strictEqual(D.DOCTOR_SUITE_TIMEOUT_MS, Number(m[1]));
 });
 
 console.log(pass + ' passed, ' + fail + ' failed' + (skipped ? ', ' + skipped + ' skipped' : ''));

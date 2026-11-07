@@ -1,0 +1,613 @@
+/*
+ * Forge Systeem — the guided primitives added in the v1.0 redesign:
+ * Mark, Disclosure ("Meer info"), ChoiceList, WorkStrip, ProofCard, CoachMark.
+ * Same rules as primitives.css: --fs-* tokens only, transform/opacity motion only,
+ * every control restates the two-layer focus ring.
+ */
+
+/* =========================================================================
+   Mark — the logo follows the theme
+   ========================================================================= */
+
+.fw-mark {
+  display: block;
+  flex: none;
+}
+.fw-mark-plate {
+  fill: var(--fs-ink);
+}
+.fw-mark-f {
+  fill: var(--fs-bg);
+}
+.fw-mark-ember {
+  fill: var(--fs-accent);
+}
+[data-theme='dark'] .fw-mark-ember {
+  fill: var(--fs-accent-active);
+}
+
+/* =========================================================================
+   Disclosure — "Meer info": a quiet text button with a chevron
+   ========================================================================= */
+
+.fw-disclosure {
+  display: grid;
+  gap: var(--fs-space-2);
+  justify-items: start;
+}
+
+.fw-disclosure__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-1);
+  min-block-size: 28px;
+  margin-inline-start: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--fs-radius-xs);
+  background: transparent;
+  color: var(--fs-accent-text);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  cursor: pointer;
+}
+
+.fw-disclosure__trigger:hover {
+  background: var(--fs-sunken);
+}
+
+.fw-disclosure__trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fw-disclosure__chevron {
+  transition: transform var(--fs-dur-2) var(--fs-ease);
+}
+
+.fw-disclosure.is-open .fw-disclosure__chevron {
+  transform: rotate(180deg);
+}
+
+.fw-disclosure__panel {
+  justify-self: stretch;
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-2);
+  animation: fw-fade-in var(--fs-dur-2) var(--fs-ease) both;
+}
+
+/* The [hidden] attribute must win over any display value a caller adds. */
+.fw-disclosure__panel[hidden] {
+  display: none;
+}
+
+/* =========================================================================
+   ChoiceList — radio option cards
+   ========================================================================= */
+
+.fw-choices {
+  display: grid;
+  gap: var(--fs-space-2);
+}
+
+.fw-choice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  column-gap: var(--fs-space-3);
+  row-gap: 2px;
+  align-items: center;
+  inline-size: 100%;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  text-align: start;
+  cursor: pointer;
+  transition: transform var(--fs-dur-1) var(--fs-ease-spring);
+}
+
+.fw-choice:hover:not(:disabled) {
+  border-color: var(--fs-line-strong);
+}
+
+.fw-choice:active:not(:disabled) {
+  transform: scale(0.995);
+}
+
+.fw-choice:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fw-choice:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.fw-choice__radio {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 20px;
+  block-size: 20px;
+  border: 1.5px solid var(--fs-line-strong);
+  border-radius: 50%;
+}
+
+.fw-choice__name {
+  min-inline-size: 0;
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+}
+
+.fw-choice__aside {
+  justify-self: end;
+}
+
+.fw-choice__sub {
+  grid-column: 2 / 4;
+  font-size: var(--fs-text-13);
+  line-height: 1.45;
+  color: var(--fs-ink-2);
+}
+
+.fw-choice__tile {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 10px 4px 10px 10px;
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font-family: var(--fs-font-display);
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* With a tile: radio | tile | name + sub | aside */
+.fw-choice--tile {
+  grid-template-columns: 20px 36px minmax(0, 1fr) auto;
+  column-gap: var(--fs-space-4);
+}
+.fw-choice--tile .fw-choice__radio,
+.fw-choice--tile .fw-choice__tile {
+  grid-row: 1 / 3;
+}
+.fw-choice--tile .fw-choice__name {
+  grid-column: 3;
+  align-self: end;
+}
+.fw-choice--tile .fw-choice__aside {
+  grid-column: 4;
+  grid-row: 1 / 3;
+}
+.fw-choice--tile .fw-choice__sub {
+  grid-column: 3 / 4;
+  align-self: start;
+}
+/* A tile card with no sub-line keeps the name centred on the tile. */
+.fw-choice--tile .fw-choice__name:last-child,
+.fw-choice--tile .fw-choice__name:has(+ .fw-choice__aside:last-child) {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.fw-choice[aria-checked='true'] {
+  background: var(--fs-accent-soft);
+  border-color: var(--fs-accent-line);
+}
+
+.fw-choice[aria-checked='true'] .fw-choice__radio {
+  border-color: var(--fs-accent);
+}
+
+.fw-choice[aria-checked='true'] .fw-choice__radio::after {
+  content: '';
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 50%;
+  background: var(--fs-accent);
+}
+
+.fw-choice[aria-checked='true'] .fw-choice__tile {
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+}
+
+/* =========================================================================
+   WorkStrip — Plannen, Bouwen, Controleren, Opleveren
+   ========================================================================= */
+
+.fw-work {
+  display: grid;
+  gap: var(--fs-space-2);
+}
+
+.fw-work__bar {
+  display: flex;
+  align-items: center;
+  min-block-size: 46px;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+}
+
+.fw-work__steps {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-work__step {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  flex: 1 1 0;
+  min-inline-size: 0;
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
+  white-space: nowrap;
+}
+
+.fw-work__step:first-child {
+  flex: none;
+}
+
+.fw-work__step[data-state='done'] {
+  color: var(--fs-ink-2);
+}
+
+.fw-work__step[data-state='now'],
+.fw-work__step[data-state='waiting'],
+.fw-work__step[data-state='failed'] {
+  color: var(--fs-ink);
+  font-weight: 600;
+}
+
+.fw-work__line {
+  flex: 1 1 auto;
+  min-inline-size: 12px;
+  block-size: 1px;
+  margin-inline: var(--fs-space-1) var(--fs-space-2);
+  background: var(--fs-line);
+}
+
+.fw-work__line[data-done='true'] {
+  background: var(--fs-ok);
+  opacity: 0.6;
+}
+
+.fw-work__mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  border: 1.5px solid var(--fs-line-strong);
+  border-radius: 50%;
+}
+
+.fw-work__mark .fw-icon {
+  inline-size: 11px;
+  block-size: 11px;
+}
+
+.fw-work__mark[data-state='done'] {
+  border-color: var(--fs-ok);
+  background: var(--fs-ok);
+  color: var(--fs-surface);
+}
+
+.fw-work__mark[data-state='now'] {
+  border-color: var(--fs-accent);
+}
+
+.fw-work__mark[data-state='now']::after {
+  content: '';
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: var(--fs-accent);
+  animation: fw-breathe 1.6s var(--fs-ease) infinite;
+}
+
+.fw-work__mark[data-state='waiting'] {
+  border-color: var(--fs-warn);
+  background: var(--fs-warn-soft);
+  color: var(--fs-warn);
+}
+
+.fw-work__mark[data-state='failed'] {
+  border-color: var(--fs-danger);
+  background: var(--fs-danger);
+  color: var(--fs-surface);
+}
+
+.fw-work__waiting {
+  color: var(--fs-warn);
+  font-weight: 600;
+}
+
+.fw-work__label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fw-work__meta {
+  flex: none;
+  margin-inline-start: var(--fs-space-4);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+  white-space: nowrap;
+}
+
+.fw-work__note {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  padding-inline: var(--fs-space-1);
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
+}
+
+.fw-work__note-icon {
+  color: var(--fs-danger);
+}
+
+.fw-work__note-action {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 1000px) {
+  .fw-work__meta {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-work__mark[data-state='now']::after {
+    animation: none !important;
+  }
+}
+
+/* =========================================================================
+   ProofCard — the struck plate with a stamp
+   ========================================================================= */
+
+.fw-proof {
+  display: grid;
+  gap: var(--fs-space-4);
+  padding: var(--fs-space-5);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-struck);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  box-shadow: var(--fs-shadow-1);
+  --fw-proof-ink: var(--fs-ok);
+  --fw-proof-soft: var(--fs-ok-soft);
+}
+
+.fw-proof[data-tone='waiting'] {
+  --fw-proof-ink: var(--fs-warn);
+  --fw-proof-soft: var(--fs-warn-soft);
+}
+
+.fw-proof[data-tone='failed'] {
+  --fw-proof-ink: var(--fs-danger);
+  --fw-proof-soft: var(--fs-danger-soft);
+}
+
+.fw-proof__head {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+}
+
+.fw-proof__stamp {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 40px;
+  block-size: 40px;
+  border-radius: 12px 4px 12px 12px;
+  background: var(--fw-proof-soft);
+  color: var(--fw-proof-ink);
+}
+
+.fw-proof__heading {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+  flex: 1 1 auto;
+}
+
+.fw-proof__title {
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: var(--fs-text-18);
+  font-weight: 400;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+}
+
+.fw-proof__kicker {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fw-proof__badge {
+  flex: none;
+  align-self: flex-start;
+}
+
+.fw-proof__summary {
+  margin: 0;
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink);
+}
+
+.fw-proof__checks {
+  display: grid;
+  gap: var(--fs-space-2);
+  margin: 0;
+  padding: 0 0 0 2px;
+  list-style: none;
+}
+
+.fw-proof__checks li {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  font-size: var(--fs-text-14);
+  color: var(--fs-ink-2);
+}
+
+.fw-proof__check {
+  color: var(--fs-ok);
+}
+
+.fw-proof__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+}
+
+/* =========================================================================
+   CoachMark — scrim with a lit spot, Pauw ring, floating card
+   ========================================================================= */
+
+.fw-coach-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 450; /* above the modal layer (400), below toasts (500) */
+}
+
+.fw-coach-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--fs-scrim);
+  animation: fw-fade-in var(--fs-dur-2) var(--fs-ease) both;
+}
+
+/* The spot: a transparent box whose huge spread shadow is the scrim, so the anchor stays lit. */
+.fw-coach-spot {
+  position: fixed;
+  border-radius: 22px 10px 22px 22px;
+  box-shadow:
+    0 0 0 2px var(--fs-accent),
+    0 0 0 200vmax var(--fs-scrim);
+  pointer-events: auto;
+  animation: fw-fade-in var(--fs-dur-2) var(--fs-ease) both;
+}
+
+.fw-coach {
+  position: fixed;
+  padding: var(--fs-space-4);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  box-shadow: var(--fs-shadow-3);
+  animation: fw-rise var(--fs-dur-2) var(--fs-ease) both;
+}
+
+/* The card itself takes focus only so a screen reader starts at its title; it is a container,
+   not a control, so it shows no ring (its two buttons do). Round-1 shot showed a stray ring. */
+.fw-coach:focus,
+.fw-coach:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-shadow-3);
+}
+
+.fw-coach[data-side='below']::before,
+.fw-coach[data-side='above']::before {
+  content: '';
+  position: absolute;
+  left: var(--fw-coach-arrow, 32px);
+  inline-size: 14px;
+  block-size: 14px;
+  border-radius: 2px;
+  background: var(--fs-surface);
+  transform: rotate(45deg);
+}
+.fw-coach[data-side='below']::before {
+  top: -7px;
+}
+.fw-coach[data-side='above']::before {
+  bottom: -7px;
+}
+
+.fw-coach__step {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-accent-text);
+}
+
+.fw-coach__title {
+  margin: 6px 0 var(--fs-space-1);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+}
+
+.fw-coach__body {
+  margin: 0;
+  font-size: var(--fs-text-14);
+  line-height: 1.5;
+  color: var(--fs-ink-2);
+}
+
+.fw-coach__row {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  margin-block-start: var(--fs-space-4);
+}
+
+.fw-coach__dots {
+  display: flex;
+  gap: 5px;
+  margin-inline-end: auto;
+}
+
+.fw-coach__dots i {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+  background: var(--fs-line-strong);
+}
+
+.fw-coach__dots i.is-on {
+  inline-size: 16px;
+  border-radius: 3px;
+  background: var(--fs-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-coach,
+  .fw-coach-spot,
+  .fw-coach-scrim,
+  .fw-disclosure__panel {
+    animation: none !important;
+  }
+  .fw-disclosure__chevron {
+    transition: none !important;
+  }
+}

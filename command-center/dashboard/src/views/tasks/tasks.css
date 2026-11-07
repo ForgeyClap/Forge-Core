@@ -2,11 +2,11 @@
  * Tasks view — kanban board, table, work packages, phases.
  *
  * Rules obeyed here, without exception:
- *   - no raw hex / rgb() / hsl(). Every value is a var(--forge-*) token or a
+ *   - no raw hex / rgb() / hsl(). Every value is a var(--fs-*) token or a
  *     local --fw-* property derived from one.
  *   - the board and the table scroll inside their own containers. The page
  *     itself must never scroll sideways at any of the review widths.
- *   - status is carried by the status token trio plus an icon and an uppercase
+ *   - status is carried by the status token trio plus an icon and a sentence-case
  *     label. The drop target is signalled with weight and a dashed outline,
  *     not with a colour, because there is no second colour to spend.
  *   - the ember accent appears only where the primitives ration it: the focus
@@ -29,12 +29,12 @@
   overflow: hidden;
 
   --fw-tasks-col: 17rem;
-  --fw-tasks-pad: var(--forge-space-3);
+  --fw-tasks-pad: var(--fs-space-3);
 }
 
 :root[data-density='compact'] .fw-tasks {
   --fw-tasks-col: 15rem;
-  --fw-tasks-pad: var(--forge-space-2);
+  --fw-tasks-pad: var(--fs-space-2);
 }
 
 .fw-tasks__head {
@@ -49,22 +49,42 @@
 .fw-tasks__heading {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: 1 1 22rem;
   min-inline-size: 0;
 }
 
 .fw-tasks__title {
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: calc(var(--fs-text-13) * 2);
+  font-weight: 400;
+  font-stretch: 92%;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  color: var(--fs-ink);
 }
 
 .fw-tasks__subtitle {
-  max-inline-size: 52ch;
-  font-size: var(--forge-text-sm);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
+}
+
+/* Sentence-case labels and quiet values (v1.0: mono only for ids, never for names or numbers). */
+.fw-tasks-label {
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
+}
+
+.fw-tasks-quiet {
+  color: var(--fs-ink-3);
+}
+
+.fw-tasks-num {
+  font-variant-numeric: tabular-nums;
 }
 
 .fw-tasks__toolbar {
@@ -79,21 +99,21 @@
 .fw-tasks__note {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex: none;
   min-inline-size: 0;
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) dashed var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px dashed var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
 }
 
 .fw-tasks__note .fw-icon {
   flex: none;
-  margin-block-start: calc(var(--forge-space-px) * 2);
-  color: var(--forge-color-text-faint);
+  margin-block-start: calc(1px * 2);
+  color: var(--fs-ink-3);
 }
 
 .fw-tasks__body {
@@ -103,11 +123,11 @@
 }
 
 .fw-tasks-empty-line {
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) dashed var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  padding: var(--fs-space-3);
+  border: 1px dashed var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -122,7 +142,7 @@
   block-size: 100%;
   min-block-size: 0;
   min-inline-size: 0;
-  padding-block-end: var(--forge-space-2);
+  padding-block-end: var(--fs-space-2);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
@@ -131,44 +151,42 @@
 .fw-tasks-board__col {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex: 0 0 var(--fw-tasks-col);
   inline-size: var(--fw-tasks-col);
   min-block-size: 0;
   max-block-size: 100%;
   padding: var(--fw-tasks-pad);
-  background: var(--forge-color-sunken);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-lg);
+  background: var(--fs-sunken);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
 }
 
 /* Drop target: weight and a dashed outline, never a colour change. */
 .fw-tasks-board__col.is-over {
-  background: var(--forge-color-surface-2);
-  border-color: var(--forge-color-line-loud);
-  outline: var(--forge-border-hair) dashed var(--forge-color-line-loud);
-  outline-offset: calc(var(--forge-space-1) * -1);
+  background: var(--fs-surface-2);
+  border-color: var(--fs-ink-3);
+  outline: 1px dashed var(--fs-ink-3);
+  outline-offset: calc(var(--fs-space-1) * -1);
 }
 
 .fw-tasks-board__head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex: none;
   min-inline-size: 0;
-  padding-block-end: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  color: var(--forge-color-text-muted);
+  padding-block-end: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
+  color: var(--fs-ink-3);
 }
 
 .fw-tasks-board__title {
   flex: 1 1 auto;
   min-inline-size: 0;
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-semibold);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-2);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -179,21 +197,21 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  min-inline-size: var(--forge-space-5);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-color-surface-1);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-tight);
+  min-inline-size: var(--fs-space-5);
+  padding-inline: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-surface);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-tight);
   font-variant-numeric: tabular-nums;
 }
 
 .fw-tasks-board__cards {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex: 1 1 auto;
   min-block-size: 0;
   list-style: none;
@@ -202,11 +220,11 @@
 }
 
 .fw-tasks-board__empty {
-  padding: var(--forge-space-3) var(--forge-space-2);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  color: var(--forge-color-text-faint);
-  font-size: var(--forge-text-2xs);
+  padding: var(--fs-space-3) var(--fs-space-2);
+  border: 1px dashed var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
   text-align: center;
 }
 
@@ -220,32 +238,32 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
-  padding: var(--forge-space-2);
-  padding-inline-start: var(--forge-space-3);
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
+  padding: var(--fs-space-2);
+  padding-inline-start: var(--fs-space-3);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
   cursor: grab;
 }
 
 .fw-tasks-card::before {
   content: '';
   position: absolute;
-  inset-block: var(--forge-space-2);
+  inset-block: var(--fs-space-2);
   inset-inline-start: 0;
   inline-size: 0;
   border-inline-start: var(--fw-status-width) var(--fw-status-style) var(--fw-status-color);
 }
 
 .fw-tasks-card:hover {
-  background: var(--forge-color-surface-2);
+  background: var(--fs-surface-2);
 }
 
 .fw-tasks-card.is-selected {
-  background: var(--forge-color-selected);
-  border-color: var(--forge-color-line-strong);
+  background: var(--fs-accent-soft);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-tasks-card.is-dragging {
@@ -257,39 +275,49 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-tasks-card__id {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-tasks-card__hit,
 .fw-tasks-row__hit,
 .fw-tasks-table__hit {
   display: block;
+  min-inline-size: 16rem;
   max-inline-size: 100%;
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
-  line-height: var(--forge-leading-snug);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  line-height: var(--fs-leading-snug);
   text-align: start;
   cursor: pointer;
+}
+
+/* W3FX-BC: a card is narrower than 16rem, so its title wraps inside the card (no spill past the
+   card edge, the focus ring stays within the card padding); the table and row keep their minimum. */
+.fw-tasks-card__hit {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  inline-size: 100%;
+  overflow-wrap: anywhere;
 }
 
 .fw-tasks-card__hit:hover,
 .fw-tasks-row__hit:hover,
 .fw-tasks-table__hit:hover {
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
   text-decoration: underline;
-  text-underline-offset: calc(var(--forge-space-px) * 2);
+  text-underline-offset: calc(1px * 2);
 }
 
 .fw-tasks-card__meta {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
@@ -297,13 +325,13 @@
 .fw-tasks-card__meta-item {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-tasks-card__meta-item .fg-machine {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -312,7 +340,7 @@
 .fw-tasks-card__foot {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
@@ -327,7 +355,7 @@
 .fw-tasks-stats {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
@@ -335,49 +363,49 @@
 .fw-tasks-stat {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  block-size: var(--forge-control-xs);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-xs);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-2xs);
+  gap: var(--fs-space-1);
+  block-size: 22px;
+  padding-inline: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
   white-space: nowrap;
 }
 
 .fw-tasks-stat .fg-machine {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   font-variant-numeric: tabular-nums;
 }
 
 .fw-tasks-stat__word {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 /* A repair loop is worth more weight than a proof count. */
 .fw-tasks-stat.is-repair {
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
   border-style: dashed;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 /* fix-run-visibility: a task caught by the unrecognized-column fallback (TasksView.tsx's own
    `ColumnFallbackFlag`) — the same dashed, secondary treatment `.is-repair` already uses for "this
    needs a second look", never a new colour. */
 .fw-tasks-stat.is-unknown-column {
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
   border-style: dashed;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 /* WP-CCD (item 2): a task the run itself reported as 'stalled'/'ended_unknown' — the SAME
    dashed, secondary "needs a second look" treatment `.is-unknown-column`/`.is-repair` already use,
    never a new colour. */
 .fw-tasks-stat.is-stalled {
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
   border-style: dashed;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 /* =========================================================================
@@ -387,7 +415,7 @@
 .fw-tasks-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -398,37 +426,37 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
-  padding: var(--forge-space-2);
-  padding-inline-start: var(--forge-space-3);
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
+  padding: var(--fs-space-2);
+  padding-inline-start: var(--fs-space-3);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
 }
 
 .fw-tasks-row::before {
   content: '';
   position: absolute;
-  inset-block: var(--forge-space-2);
+  inset-block: var(--fs-space-2);
   inset-inline-start: 0;
   inline-size: 0;
   border-inline-start: var(--fw-status-width) var(--fw-status-style) var(--fw-status-color);
 }
 
 .fw-tasks-row:hover {
-  background: var(--forge-color-surface-2);
+  background: var(--fs-surface-2);
 }
 
 .fw-tasks-row.is-selected {
-  background: var(--forge-color-selected);
-  border-color: var(--forge-color-line-strong);
+  background: var(--fs-accent-soft);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-tasks-row__id {
   flex: none;
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-tasks-row__hit {
@@ -440,16 +468,16 @@
 .fw-tasks-row__agent {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   flex: none;
   min-inline-size: 0;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-tasks-row__column .fg-machine,
 .fw-tasks-row__agent .fg-machine {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -472,16 +500,16 @@
 .fw-tasks-table-shell {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-inline-size: 0;
 }
 
 .fw-tasks-table-wrap {
   min-inline-size: 0;
   max-inline-size: 100%;
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-lg);
-  background: var(--forge-color-surface-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
   overflow-x: auto;
   overscroll-behavior-inline: contain;
 }
@@ -489,61 +517,59 @@
 .fw-tasks-table {
   inline-size: 100%;
   min-inline-size: 78rem;
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-tasks-table th,
 .fw-tasks-table td {
-  padding: var(--forge-space-2) var(--forge-space-3);
+  padding: var(--fs-space-2) var(--fs-space-3);
   text-align: start;
   vertical-align: middle;
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-tasks-table thead th {
   position: sticky;
   inset-block-start: 0;
-  z-index: var(--forge-z-sticky);
+  z-index: 100;
   padding: 0;
-  background: var(--forge-color-surface-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line);
+  background: var(--fs-surface-2);
+  border-block-end: 1px solid var(--fs-line);
   white-space: nowrap;
 }
 
 .fw-tasks-table__sort {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   inline-size: 100%;
   block-size: var(--fw-row-h);
-  padding-inline: var(--forge-space-3);
-  color: var(--forge-color-text-secondary);
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-semibold);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
+  padding-inline: var(--fs-space-3);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
   cursor: pointer;
 }
 
 .fw-tasks-table__sort:hover {
-  color: var(--forge-color-text);
-  background: var(--forge-color-hover);
+  color: var(--fs-ink);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
 }
 
 .fw-tasks-table__sort .fw-icon {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-tasks-table tbody tr:hover {
-  background: var(--forge-color-hover);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
 }
 
 .fw-tasks-table tbody tr.is-selected {
-  background: var(--forge-color-selected);
+  background: var(--fs-accent-soft);
 }
 
 .fw-tasks-table td .fg-machine {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   white-space: nowrap;
 }
 
@@ -555,7 +581,7 @@
 .fw-tasks-table__detail span {
   display: block;
   max-inline-size: 26rem;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -570,25 +596,25 @@
 .fw-tasks-table__mobile-sort {
   display: none;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
 
 .fw-tasks-table__sort-label {
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
+  color: var(--fs-ink-2);
 }
 
 .fw-tasks-table__select {
   block-size: var(--fw-control-h);
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-sm);
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-13);
 }
 
 /* =========================================================================
@@ -620,7 +646,7 @@
 .fw-tasks-wp__facts {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-6);
+  gap: var(--fs-space-6);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
@@ -628,33 +654,33 @@
 .fw-tasks-wp__fact {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-tasks-wp__fact .fg-machine {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
 }
 
 .fw-tasks-wp__section {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-tasks-wp__section-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-tasks-wp__acceptance {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -664,17 +690,17 @@
 .fw-tasks-wp__criterion {
   display: flex;
   align-items: flex-start;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-2);
 }
 
 .fw-tasks-wp__criterion .fw-icon {
   flex: none;
-  margin-block-start: calc(var(--forge-space-px) * 3);
-  color: var(--forge-color-text-faint);
+  margin-block-start: calc(1px * 3);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -691,18 +717,18 @@
 .fw-tasks-phase {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-tasks-phase__head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
-  padding-block-end: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-end: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-tasks-phase__glyph {
@@ -710,40 +736,40 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  inline-size: var(--forge-control-md);
-  block-size: var(--forge-control-md);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-muted);
+  inline-size: 30px;
+  block-size: 30px;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-3);
 }
 
 .fw-tasks-phase__title {
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-semibold);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fs-ink-2);
 }
 
 .fw-tasks-phase__count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-inline-size: var(--forge-space-5);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-full);
-  color: var(--forge-color-text-muted);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-tight);
+  min-inline-size: var(--fs-space-5);
+  padding-inline: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-pill);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-tight);
   font-variant-numeric: tabular-nums;
 }
 
 .fw-tasks-phase__note {
   flex: 1 1 16rem;
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -753,26 +779,26 @@
 .fw-tasks-move {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-inline-size: 0;
 }
 
 .fw-tasks-move__task {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
-  padding: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text);
+  gap: var(--fs-space-1);
+  padding: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink);
 }
 
 .fw-tasks-move__list {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -789,6 +815,10 @@
    ========================================================================= */
 
 @media (max-width: 48rem) {
+  .fw-tasks-table__hit {
+    min-inline-size: 0;
+  }
+
   .fw-tasks-table__mobile-sort {
     display: flex;
   }
@@ -812,33 +842,30 @@
   .fw-tasks-table tbody {
     display: flex;
     flex-direction: column;
-    gap: var(--forge-space-2);
+    gap: var(--fs-space-2);
   }
 
   .fw-tasks-table tbody tr {
     display: block;
-    padding: var(--forge-space-3);
-    background: var(--forge-color-surface-1);
-    border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-    border-radius: var(--forge-radius-md);
+    padding: var(--fs-space-3);
+    background: var(--fs-surface);
+    border: 1px solid var(--fs-line);
+    border-radius: var(--fs-radius-sm);
   }
 
   .fw-tasks-table tbody td {
     display: grid;
     grid-template-columns: 7rem minmax(0, 1fr);
     align-items: baseline;
-    gap: var(--forge-space-2);
-    padding: var(--forge-space-1) 0;
+    gap: var(--fs-space-2);
+    padding: var(--fs-space-1) 0;
     border-block-end: 0;
   }
 
   .fw-tasks-table tbody td::before {
     content: attr(data-label);
-    font-family: var(--forge-font-mono);
-    font-size: var(--forge-text-2xs);
-    letter-spacing: var(--forge-tracking-eyebrow);
-    text-transform: uppercase;
-    color: var(--forge-color-text-faint);
+    font-size: var(--fs-text-12);
+    color: var(--fs-ink-3);
   }
 
   .fw-tasks-table__num {

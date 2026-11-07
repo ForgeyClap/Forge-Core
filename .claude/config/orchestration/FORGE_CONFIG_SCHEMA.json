@@ -84,6 +84,26 @@
       "consumers": [".claude/forge-bin/account-rotator.cjs (--interval)"],
       "aliases": { "nl": ["accountwissel meetinterval"], "en": ["account rotator interval"] }
     },
+    "rotator-auto-resume": {
+      "type": "bool", "default": false, "scope": "global", "group": "when-needed",
+      "desc": { "nl": "Laat een onbeheerde Claude-klus (claude -p, via de rotator-supervisor) na een gebruikslimiet vanzelf verdergaan op HETZELFDE account: wachten tot de reset (of een begrensde pauze als de resettijd onbekend is) en dan het gesprek hervatten met --resume. Wisselt nooit van account. Je eigen interactieve sessie doet dit al zelf (Claude Code's eigen 'automatisch doorgaan bij gebruikslimiet').", "en": "Lets an unattended Claude job (claude -p, through the rotator supervisor) carry on by itself after a usage limit on the SAME account: wait for the reset (or a bounded pause when the reset time is unknown), then resume the conversation with --resume. Never switches accounts. Your own interactive session already does this itself (Claude Code's own 'continue automatically at usage limit')." },
+      "off_means": { "nl": "Een onbeheerde klus stopt bij een gebruikslimiet; de supervisor meldt de resettijd en het commando om zelf te hervatten.", "en": "An unattended job stops at a usage limit; the supervisor reports the reset time and the command to resume it yourself." },
+      "disclosure": { "nl": "Start Claude Code opnieuw zonder dat je kijkt (na de reset, hooguit rotator-max-attempts keer per klus), en dat gebruikt je Claude-quota. Bewaart per klus een statusbestand zonder tokens of berichttekst in .claude/forge-runs/_rotator/.", "en": "Restarts Claude Code while you are not watching (after the reset, at most rotator-max-attempts times per job), and that uses your Claude quota. Keeps one status file per job, without tokens or message text, in .claude/forge-runs/_rotator/." },
+      "consumers": [".claude/forge-bin/forge-rotator-supervisor.cjs (wait + --resume)", ".claude/forge-bin/forge-rotator-hook.cjs (StopFailure marker)"],
+      "aliases": { "nl": ["automatisch hervatten", "hervat na limiet", "doorgaan na limiet"], "en": ["auto resume", "resume after limit", "continue after limit"] }
+    },
+    "rotator-max-waits": {
+      "type": "int", "min": 1, "max": 24, "default": 6, "scope": "global", "group": "advanced",
+      "desc": { "nl": "Hoe vaak de rotator-supervisor per klus hooguit op een limiet-reset wacht voordat hij opgeeft.", "en": "The most times the rotator supervisor waits for a limit reset in one job before it gives up." },
+      "consumers": [".claude/forge-bin/forge-rotator-supervisor.cjs (--max-waits)"],
+      "aliases": { "nl": ["maximaal wachten op reset"], "en": ["max waits", "resume max waits"] }
+    },
+    "rotator-max-attempts": {
+      "type": "int", "min": 1, "max": 30, "default": 8, "scope": "global", "group": "advanced",
+      "desc": { "nl": "Hoe vaak de rotator-supervisor Claude per klus hooguit start (de eerste start plus elke hervatting).", "en": "The most times the rotator supervisor starts Claude in one job (the first start plus every resume)." },
+      "consumers": [".claude/forge-bin/forge-rotator-supervisor.cjs (--max-attempts)"],
+      "aliases": { "nl": ["maximaal aantal pogingen"], "en": ["max attempts", "resume max attempts"] }
+    },
     "autonomy": {
       "type": "enum", "allowed": ["continue-within-mission", "ask-each-phase", "full-auto-within-mission"], "default": "continue-within-mission", "scope": "project", "group": "core",
       "desc": { "nl": "Werkt door tussen fases zonder steeds 'moet ik verder?' te vragen. STOP werkt altijd; deploy/push/geld/DNS/productie vragen altijd eerst.", "en": "Keeps working across phases without asking 'continue?' each time. STOP always works; deploy/push/spend/DNS/production always ask first." },
@@ -98,12 +118,32 @@
       "consumers": [".claude/commands/forge.md (BUILD BY DEFAULT)", ".claude/skills/forge-router/SKILL.md"],
       "aliases": { "nl": ["startpoort", "wacht op start"], "en": ["start gate", "wait for start"] }
     },
+    "plan-approval": {
+      "type": "enum", "allowed": ["auto", "gated", "always"], "default": "gated", "scope": "project", "group": "core",
+      "desc": { "nl": "Forge laat vóór het bouwen altijd een plankaart zien en legt die vast: doel, aannames, werkpakketten, verwachte parallelle lanes, risico's, wat het NIET doet, de harde poorten die jou nodig hebben en hoe 'klaar' bewezen wordt. gated (standaard): alleen de werkpakketten met een harde poort (push, deploy, geld, DNS, productie, credentials, iets versturen, buiten het project schrijven, destructief verwijderen) wachten op jouw akkoord; de rest loopt door.", "en": "Before building, Forge always shows and records a plan card: goal, assumptions, work packages, expected parallel lanes, risks, what it will NOT do, the hard gates that need you and how done is proven. gated (default): only the work packages that hold a hard gate (push, deploy, spending, DNS, production, credentials, sending anything out, writing outside the project, destructive deletes) wait for your OK; the rest keeps going." },
+      "off_means": { "nl": "auto: de kaart wordt nog steeds getoond en vastgelegd, maar Forge wacht nooit op een akkoord voor het plan (een harde poort stopt nog steeds bij de actie zelf). always: elk plan wacht op jouw akkoord voordat er iets gebouwd wordt.", "en": "auto: the card is still shown and recorded, but Forge never waits for plan approval (a hard gate still stops at the action itself). always: every plan waits for your OK before anything is built." },
+      "consumers": [".claude/forge-bin/forge-plan-card.cjs (render: needsApproval, stop, blocked/ready)", ".claude/skills/forge-intake/SKILL.md (plan card)", ".claude/commands/forge.md (C. Build flow)"],
+      "aliases": { "nl": ["plangoedkeuring", "plan goedkeuren", "plankaart", "akkoord op het plan"], "en": ["plan approval", "plan card", "approve the plan"] }
+    },
+    "anticipate": {
+      "type": "bool", "default": true, "scope": "project", "group": "core",
+      "desc": { "nl": "Forge zoekt vóór het bouwen zelf uit welke veilige schakelaars, skills en checks deze taak nodig heeft (bijvoorbeeld een lane-watchdog bij meerdere lanes, screenshots bij een webpagina) en gebruikt die zonder dat je erom hoeft te vragen; je krijgt één regel met wat en waarom. Iets wat geld of quota kost, iets verstuurt, credentials raakt, iets verwijdert of productie raakt, zet Forge nooit zelf aan: dat wacht op jou, gebundeld aan het eind. Een instelling die jij zelf uitzette, blijft uit.", "en": "Before building, Forge works out which safe switches, skills and checks this task needs (for example a lane watchdog for several lanes, screenshots for a web page) and uses them without you having to ask; you get one line saying what and why. Anything that costs money or quota, sends something out, touches credentials, deletes something or touches production is never turned on by Forge itself: it waits for you, batched at the end. A setting you turned off yourself stays off." },
+      "off_means": { "nl": "Forge plant geen extra schakelaars meer; alleen wat al standaard aan staat of wat jij vraagt.", "en": "Forge plans no extra switches; only what is already on by default or what you ask for." },
+      "consumers": [".claude/forge-bin/forge-anticipate.cjs (plan/apply: the kill switch)", ".claude/config/intelligence/switch-catalog.json", ".claude/commands/forge.md (C. Build flow)"],
+      "aliases": { "nl": ["anticipatie", "vooruitdenken", "meedenken"], "en": ["anticipation", "think ahead"] }
+    },
     "gate-hook": {
       "type": "bool", "default": true, "scope": "project", "group": "core", "ignore_global": true,
-      "desc": { "nl": "Een echte stop (geen advies) op gevaarlijke commando's: alles recursief verwijderen, processen op naam killen, git-commando's die onvastgelegd werk weggooien, commando's die verbergen wat ze uitvoeren (eval, een pipe naar een shell), en het tonen van de inhoud van een geheim bestand (.env, keys). Forge vraagt dan eerst.", "en": "A real stop (not advice) on dangerous commands: recursive deletes, killing processes by name, git commands that throw away uncommitted work, commands that hide what they run (eval, a pipe into a shell), and printing a secret file's contents (.env, keys). Forge asks first." },
+      "desc": { "nl": "Een echte stop (geen advies) op gevaarlijke commando's: alles recursief verwijderen, processen op naam killen, git-commando's die onvastgelegd werk weggooien, commando's die verbergen wat ze uitvoeren (eval, een pipe naar een shell), het tonen van de inhoud van een geheim bestand (.env, keys), een Claude Code-plugin of marketplace installeren, de Claude Code-instellingen (.claude/settings.json) schrijven, en globale toetsenbord- of muisinvoer sturen (SendKeys, SendInput). Forge vraagt dan eerst.", "en": "A real stop (not advice) on dangerous commands: recursive deletes, killing processes by name, git commands that throw away uncommitted work, commands that hide what they run (eval, a pipe into a shell), printing a secret file's contents (.env, keys), installing a Claude Code plugin or marketplace, writing the Claude Code settings (.claude/settings.json), and sending global keyboard or mouse input (SendKeys, SendInput). Forge asks first." },
       "off_means": { "nl": "De harde poorten blijven bestaan als classifier en regel, maar worden niet meer door de hook afgedwongen.", "en": "The hard gates still exist as classifier and rule, but the hook no longer enforces them." },
       "consumers": [".claude/forge-bin/forge-gate-hook.cjs", ".claude/settings.json (PreToolUse Bash)", ".claude/forge-bin/forge-actiongate.cjs"],
       "aliases": { "nl": ["gate hook", "poort-hook", "commando-stop"], "en": ["gate hook", "command guard"] }
+    },
+    "write-scope-mode": {
+      "type": "enum", "allowed": ["warn", "deny"], "default": "warn", "scope": "project", "group": "advanced",
+      "desc": { "nl": "Wat de schrijfgrens doet met een shell-commando dat buiten de gekozen map schrijft: warn (standaard) laat het door met een zichtbare waarschuwing, deny blokkeert het. Werkt alleen als de schrijfgrens aan staat, en die zet je met de omgevingsvariabele FORGE_WRITE_SCOPE=<map> bij het starten van Claude Code (de map zelf is geen instelling hier). Een doel dat Forge niet kan controleren krijgt altijd een melding, nooit een blokkade. FORGE_WRITE_SCOPE_MODE gaat voor deze instelling: zet daar deny als een agent het tijdens de sessie niet mag kunnen wijzigen.", "en": "What the write-scope freeze does with a shell command that writes outside the chosen folder: warn (the default) lets it run with a visible warning, deny blocks it. Only takes effect while the freeze is on, which you turn on with the environment variable FORGE_WRITE_SCOPE=<folder> when you start Claude Code (the folder itself is not a setting here). A target Forge cannot check always gets a notice, never a block. FORGE_WRITE_SCOPE_MODE wins over this setting: set deny there if an agent must not be able to change it during the session." },
+      "consumers": [".claude/forge-bin/forge-gate-hook.cjs (writeScopeSetting, read only while FORGE_WRITE_SCOPE is set)", ".claude/forge-bin/forge-gate-writescope.cjs"],
+      "aliases": { "nl": ["schrijfgrens", "schrijfgrens-modus"], "en": ["write scope", "write scope mode"] }
     },
     "git-checkpoint": {
       "type": "bool", "default": true, "scope": "project", "group": "core",
@@ -150,8 +190,9 @@
       "aliases": { "nl": ["discord automatisch starten", "discord autostart", "discord bot automatisch"], "en": ["discord autostart", "start discord automatically", "discord bot autostart"] }
     },
     "codex-review": {
-      "type": "enum", "allowed": ["auto", "on-request", "off"], "default": "auto", "scope": "project", "group": "core",
-      "desc": { "nl": "Laat een onafhankelijke tweede AI (OpenAI Codex) belangrijke code nakijken als de codex-CLI op je computer staat en is ingelogd. Nooit een blokkade.", "en": "Has an independent second AI (OpenAI Codex) review important code when the codex CLI is installed and logged in on your machine. Never a blocker." },
+      "type": "enum", "allowed": ["auto", "on-request", "off"], "default": "off", "scope": "project", "group": "core",
+      "_default_note": "default changed auto -> off on 2026-11-01 (owner: no Codex account; WP A5). Codex runs only when this key is not off AND review.enabled is true in the effective codex-review.json (forge-codexreview-config.cjs decide). While off, reviews run via Review Boss and the ECC code-reviewer/security-reviewer, labelled FALLBACK.",
+      "desc": { "nl": "Laat een onafhankelijke tweede AI (OpenAI Codex) belangrijke code nakijken als de codex-CLI op je computer staat en is ingelogd. Standaard uit (sinds 2026-11-01): reviews lopen dan via Review Boss en de ECC-reviewers. Nooit een blokkade.", "en": "Has an independent second AI (OpenAI Codex) review important code when the codex CLI is installed and logged in on your machine. Off by default (since 2026-11-01): reviews then run through Review Boss and the ECC reviewers. Never a blocker." },
       "off_means": { "nl": "Geen Codex-review; Forge meldt eerlijk dat die niet draaide.", "en": "No Codex review; Forge reports honestly that it did not run." },
       "disclosure": { "nl": "Stuurt code naar OpenAI via de codex-CLI die jij zelf hebt ingelogd; zonder codex gebeurt er niets.", "en": "Sends code to OpenAI through the codex CLI you logged in yourself; without codex nothing happens." },
       "flags": ["N", "$"],
@@ -249,6 +290,36 @@
       "consumers": [".claude/skills/forge-router/SKILL.md (classify)", "CLAUDE.md (fan-out levels)"],
       "aliases": { "nl": ["teamgrootte", "parallel", "aantal agents"], "en": ["team size", "parallel", "max agents"] }
     },
+    "lanes.max": {
+      "type": "int", "min": 1, "max": 32, "default": 10, "scope": "global", "group": "core",
+      "desc": { "nl": "Het hoogste aantal parallelle lanes (agents of workflow-onderdelen tegelijk) dat Forge gebruikt zolang je verbruik nog laag is. Naarmate je week- en 5-uursverbruik stijgt, gebruikt Forge vanzelf steeds minder lanes.", "en": "The highest number of parallel lanes (agents or workflow parts at once) Forge uses while your usage is still low. As your weekly and 5-hour usage rises, Forge automatically uses fewer and fewer lanes." },
+      "consumers": [".claude/forge-bin/forge-lane-budget.cjs"],
+      "aliases": { "nl": ["lanes", "maximaal lanes", "parallelle lanes"], "en": ["lanes", "max lanes", "parallel lanes"] }
+    },
+    "lanes.stop-at": {
+      "type": "int", "min": 10, "max": 100, "default": 80, "unit": "%", "scope": "global", "group": "core",
+      "desc": { "nl": "Vanaf dit verbruik (week of 5 uur, het hoogste telt) werkt Forge met het minimum aantal lanes, zodat je limiet niet te snel opgaat. Moet hoger zijn dan lanes.full-until.", "en": "From this usage (weekly or 5-hour, whichever is higher) Forge works with the minimum number of lanes, so your limit does not run out too fast. Must be higher than lanes.full-until." },
+      "consumers": [".claude/forge-bin/forge-lane-budget.cjs"],
+      "aliases": { "nl": ["lanes stoppen bij", "serieel vanaf"], "en": ["lanes stop at", "serial from"] }
+    },
+    "lanes.full-until": {
+      "type": "int", "min": 0, "max": 99, "default": 20, "unit": "%", "scope": "global", "group": "advanced",
+      "desc": { "nl": "Tot en met dit verbruik gebruikt Forge het volle aantal lanes (lanes.max); daarboven bouwt het steeds sneller af tot lanes.stop-at. Moet lager zijn dan lanes.stop-at.", "en": "Up to and including this usage Forge uses the full number of lanes (lanes.max); above it the count drops ever faster until lanes.stop-at. Must be lower than lanes.stop-at." },
+      "consumers": [".claude/forge-bin/forge-lane-budget.cjs"],
+      "aliases": { "nl": ["volle lanes tot"], "en": ["full lanes until"] }
+    },
+    "lanes.min": {
+      "type": "int", "min": 1, "max": 32, "default": 1, "scope": "global", "group": "advanced",
+      "desc": { "nl": "Het laagste aantal lanes, ook bij hoog verbruik of weinig geheugen of schijfruimte. Mag niet hoger zijn dan lanes.max.", "en": "The lowest number of lanes, even at high usage or low memory or disk space. May not be higher than lanes.max." },
+      "consumers": [".claude/forge-bin/forge-lane-budget.cjs"],
+      "aliases": { "nl": ["minimaal lanes"], "en": ["min lanes"] }
+    },
+    "lanes.unknown": {
+      "type": "int", "min": 1, "max": 32, "default": 4, "scope": "global", "group": "advanced",
+      "desc": { "nl": "Aantal lanes als Forge je verbruik niet kent (geen of een verouderde meting): een voorzichtig midden, tot je het verbruik ververst.", "en": "Number of lanes when Forge does not know your usage (no measurement or an outdated one): a careful middle, until you refresh the usage." },
+      "consumers": [".claude/forge-bin/forge-lane-budget.cjs"],
+      "aliases": { "nl": ["lanes onbekend verbruik"], "en": ["lanes unknown usage"] }
+    },
     "tournament": {
       "type": "enum", "allowed": ["auto", "off"], "default": "auto", "scope": "project", "group": "when-needed",
       "desc": { "nl": "Bouwt meerdere varianten en kiest de beste als er geen duidelijke aanpak is (kost N keer zoveel).", "en": "Builds several variants and picks the best when no approach is clearly right (costs N times as much)." },
@@ -333,7 +404,7 @@
     { "id": "outreach-draft-only", "nl": "E-mails en berichten worden alleen als concept gemaakt, nooit verstuurd.", "en": "Emails and messages are drafted only, never sent.", "source": ".claude/FORGE_OWNER_PROFILE.json (outreach_draft_only)" }
   ],
   "product_default_map": {
-    "_doc": "Config keys whose product-default layer is an existing owner-profile pref (forge-prefs.cjs, read-only). forge-config.cjs maps the pref VALUE onto the config key's value space; it never writes a pref. codex-review is deliberately NOT mapped (review-boss M1): the shipped profile's codex_on_high_risk=optional-on-request would silently turn the everything-on default `auto` into `on-request` on every fresh install; the owner changes it with /forge config set codex-review on-request if wanted.",
+    "_doc": "Config keys whose product-default layer is an existing owner-profile pref (forge-prefs.cjs, read-only). forge-config.cjs maps the pref VALUE onto the config key's value space; it never writes a pref. codex-review is deliberately NOT mapped (review-boss M1): the shipped profile's codex_on_high_risk=optional-on-request would silently turn the everything-on default `auto` into `on-request` on every fresh install; the owner changes it with /forge config set codex-review on-request if wanted. Updated 2026-11-01: the schema default is now `off` (owner: no Codex account), so this note explains why the pref stays unmapped, not the current default.",
     "autonomy": { "pref": "autonomy_default" },
     "ui-quality": { "pref": "ui_quality_default" },
     "real-file-testing": { "pref": "real_file_testing_for_correctness_critical" },

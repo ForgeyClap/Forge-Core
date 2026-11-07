@@ -1,0 +1,6 @@
+{
+  "code": "cli_missing",
+  "details": "spawn claude ENOENT (searched PATH in C:\\Users\\iemand\\AppData\\Roaming\\npm)",
+  "expect_title": "Claude Code staat niet op deze pc",
+  "expect_action": "Claude Code installeren"
+}

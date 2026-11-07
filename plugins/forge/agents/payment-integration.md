@@ -5,6 +5,8 @@ tools: Read, Write, Edit, Bash, PowerShell, Grep, Glob
 model: opus
 effort: xhigh
 memory: project
+maxTurns: 200
+color: orange
 ---
 
 # Payment Integration (specialist)

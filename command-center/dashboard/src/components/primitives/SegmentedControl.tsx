@@ -2,9 +2,8 @@
  * SegmentedControl — a small set of mutually exclusive options.
  *
  * Real radiogroup semantics: roving tabindex, arrow keys move and select,
- * Home/End jump to the ends. The selected segment is the one control on screen
- * allowed to carry the ember accent, and it does so as a 2px underline rather
- * than a fill.
+ * Home/End jump to the ends. Look: a sunken track; the chosen segment is a
+ * raised surface with shadow 1 (mockups .seg), so the choice reads without colour.
  */
 
 import { useRef } from 'react';

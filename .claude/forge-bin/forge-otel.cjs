@@ -19,11 +19,24 @@ const path = require('path');
 const crypto = require('crypto');
 
 const SEMCONV = '1.30.0'; // pinned OTel semconv version this mapping targets
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const RUNS_DIR = path.join(PROJECT_ROOT, '.claude', 'forge-runs');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
 
 function safeRead(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
-function readEvents(id) { const raw = safeRead(path.join(RUNS_DIR, id, 'events.jsonl')); if (!raw) return []; const out = []; for (const l of raw.split(/\r?\n/)) { const t = l.trim(); if (!t) continue; try { const v = JSON.parse(t); if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v); } catch {} } return out; }
+function readEvents(id) { const raw = safeRead(path.join(runDirOf(PROJECT_ROOT, id), 'events.jsonl')); if (!raw) return []; const out = []; for (const l of raw.split(/\r?\n/)) { const t = l.trim(); if (!t) continue; try { const v = JSON.parse(t); if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v); } catch {} } return out; }
 function traceIdFor(runId) { return crypto.createHash('sha256').update('forge-trace:' + runId).digest().slice(0, 16).toString('hex'); }
 function spanIdFor(runId, key) { return crypto.createHash('sha256').update('forge-span:' + runId + ':' + key).digest().slice(0, 8).toString('hex'); }
 function nanos(ms) { return Number.isFinite(ms) ? String(BigInt(Math.round(ms)) * 1000000n) : '0'; } // ms→ns (BigInt: avoids 2^53 precision loss)
@@ -82,6 +95,7 @@ if (require.main === module) {
   const doPost = args.includes('--post');
   const outIdx = args.indexOf('--out');
   if (!runId || !/^[A-Za-z0-9_-]+$/.test(runId)) { console.error('usage: node forge-otel.cjs <run_id> [--out <file>] [--post]'); process.exit(2); }
+  if (!PROJECT_ROOT) { console.error('forge-otel: no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)'); process.exit(1); }
   const events = readEvents(runId);
   if (!events.length) { console.error('no events for run ' + runId); process.exit(2); }
   const otlp = toOtlp(runId, events);

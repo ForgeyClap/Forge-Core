@@ -1,6 +1,7 @@
 ---
 name: resolving-merge-conflicts
-description: "Use when you need to resolve an in-progress git merge/rebase conflict."
+description: "Use when resolving an in-progress git merge or rebase conflict."
+# W2-BUDGET original description (listing budget): "Use when you need to resolve an in-progress git merge/rebase conflict."
 license: MIT
 ---
 

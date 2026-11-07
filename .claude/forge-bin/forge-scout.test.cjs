@@ -483,6 +483,156 @@ t('N4 fix: the shipped baseline\'s frontend-design entry is corrected to approve
   assert.strictEqual(original.verdict, 'approve', 'the stale hard-pass must be corrected now that frontend-design is vendored into the product');
 });
 
+// ---------------------------------------------------------------------------
+// 9) rank() —: name match, then description, source, maintenance; web-only mentions last;
+//    capped at 10; a prior HARD-PASS is skipped, never re-ranked. adoptPlan() — a fresh branch + reviewed diff.
+// ---------------------------------------------------------------------------
+console.log('\n9) rank() + adoptPlan() (WP-S5)');
+
+const NOW = Date.parse('2026-10-24T00:00:00Z');
+const daysAgo = (n) => new Date(NOW - n * 86400000).toISOString().slice(0, 10);
+const names = (r) => r.ranked.map((x) => x.name);
+
+t('name match beats description: "n8n-workflow-builder" outranks a better-described "flow-helper"', () => {
+  const r = scout.rank([
+    { name: 'flow-helper', description: 'n8n workflow builder for n8n flows', url: 'https://github.com/a/flow-helper', updated: daysAgo(5) },
+    { name: 'n8n-workflow-builder', description: 'builds things', url: 'https://github.com/b/n8n-workflow-builder', updated: daysAgo(5) },
+  ], { query: 'claude n8n workflow skill', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['n8n-workflow-builder', 'flow-helper']);
+});
+
+t('generic words (claude, skill, plugin, mcp, code) never count as a name match', () => {
+  const r = scout.rank([
+    { name: 'claude-skill-pack', description: 'misc', url: 'https://github.com/x/p', updated: daysAgo(5) },
+    { name: 'astro-kit', description: 'misc', url: 'https://github.com/x/a', updated: daysAgo(5) },
+  ], { query: 'claude astro skill', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['astro-kit', 'claude-skill-pack']);
+  assert.strictEqual(r.ranked[1].scores.name, 0);
+});
+
+t('equal name: description match decides', () => {
+  const r = scout.rank([
+    { name: 'astro-a', description: 'unrelated', url: 'https://github.com/x/1', updated: daysAgo(5) },
+    { name: 'astro-b', description: 'astro content collections helper', url: 'https://github.com/x/2', updated: daysAgo(5) },
+  ], { query: 'astro content collection', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['astro-b', 'astro-a']);
+});
+
+t('equal name + description: source decides (official > curated > repo > listing)', () => {
+  const base = { description: 'slides', updated: daysAgo(5) };
+  const r = scout.rank([
+    { ...base, name: 'slides-l', source_kind: 'listing', url: 'https://skills.sh/x' },
+    { ...base, name: 'slides-r', source_kind: 'repo', url: 'https://github.com/x/r' },
+    { ...base, name: 'slides-o', source_kind: 'official', url: 'https://github.com/anthropics/x' },
+    { ...base, name: 'slides-c', source_kind: 'curated', url: 'https://github.com/x/c' },
+  ], { query: 'slides', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['slides-o', 'slides-c', 'slides-r', 'slides-l']);
+});
+
+t('source kind is derived from the url when not given (github repo = repo, skills.sh = listing)', () => {
+  assert.strictEqual(scout.sourceKind({ url: 'https://github.com/a/b' }), 'repo');
+  assert.strictEqual(scout.sourceKind({ url: 'https://www.npmjs.com/package/x' }), 'repo');
+  assert.strictEqual(scout.sourceKind({ url: 'https://skills.sh/a' }), 'listing');
+  assert.strictEqual(scout.sourceKind({ url: 'https://someblog.example/post' }), 'web');
+  assert.strictEqual(scout.sourceKind({}), 'web');
+});
+
+t('equal up to source: maintenance decides (recent > within a year > unknown > stale)', () => {
+  const base = { description: 'game', url: 'https://github.com/x/y' };
+  const r = scout.rank([
+    { ...base, name: 'game-stale', updated: daysAgo(800) },
+    { ...base, name: 'game-unknown' },
+    { ...base, name: 'game-year', updated: daysAgo(200) },
+    { ...base, name: 'game-fresh', updated: daysAgo(10) },
+  ], { query: 'game', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['game-fresh', 'game-year', 'game-unknown', 'game-stale']);
+});
+
+t('web-only mentions rank after every candidate with a source, even with a better name match', () => {
+  const r = scout.rank([
+    { name: 'voice-agent', description: 'voice agent', web_only: true, url: 'https://someblog.example/voice' },
+    { name: 'phone-thing', description: 'misc', url: 'https://github.com/x/p', updated: daysAgo(900) },
+  ], { query: 'voice agent', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['phone-thing', 'voice-agent']);
+  assert.strictEqual(r.ranked[1].web_only, true);
+});
+
+t('a candidate with no url at all counts as a web-only mention', () => {
+  const r = scout.rank([{ name: 'x-rag' }, { name: 'y', url: 'https://github.com/a/y' }], { query: 'rag', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['y', 'x-rag']);
+});
+
+t('capped at 10: the rest is listed in dropped, never silently lost; a larger cap is clamped to 10', () => {
+  const many = Array.from({ length: 14 }, (_, i) => ({ name: 'tool-' + String(i).padStart(2, '0'), url: 'https://github.com/x/' + i }));
+  const r = scout.rank(many, { query: 'tool', now: NOW, vettingPath: NOWHERE, cap: 50 });
+  assert.strictEqual(r.ranked.length, 10);
+  assert.strictEqual(r.dropped.length, 4);
+  assert.strictEqual(r.cap, 10);
+  const r3 = scout.rank(many, { query: 'tool', now: NOW, vettingPath: NOWHERE, cap: 3 });
+  assert.strictEqual(r3.ranked.length, 3);
+});
+
+t('ranking is deterministic: full ties are broken by name, and rank numbers start at 1', () => {
+  const r = scout.rank([{ name: 'b', url: 'https://github.com/x/b' }, { name: 'a', url: 'https://github.com/x/a' }], { query: 'zzz', now: NOW, vettingPath: NOWHERE });
+  assert.deepStrictEqual(names(r), ['a', 'b']);
+  assert.deepStrictEqual(r.ranked.map((x) => x.rank), [1, 2]);
+});
+
+t('a prior HARD-PASS is skipped (never re-ranked); a prior approve is ranked and marked already vetted', () => {
+  const p = freshLedgerPath('forge-scout-rank');
+  scout.record({ capability: 'junk-tool', verdict: 'hard-pass', reason: 'vaporware' }, { vettingPath: p });
+  scout.record({ capability: 'good-tool', verdict: 'approve', reason: 'useful' }, { vettingPath: p });
+  const r = scout.rank([{ name: 'junk-tool', url: 'https://github.com/x/j' }, { name: 'good-tool', url: 'https://github.com/x/g' }], { query: 'tool', now: NOW, vettingPath: p });
+  assert.deepStrictEqual(names(r), ['good-tool']);
+  assert.strictEqual(r.ranked[0].prior_verdict, 'approve');
+  assert.deepStrictEqual(r.skipped_hard_pass, ['junk-tool']);
+});
+
+t('rank() validates input: a non-list or a candidate without a name throws', () => {
+  assert.throws(() => scout.rank('x', { query: 'q', vettingPath: NOWHERE }), /list/);
+  assert.throws(() => scout.rank([{ description: 'no name' }], { query: 'q', vettingPath: NOWHERE }), /name/);
+});
+
+t('adoptPlan() for an APPROVED capability: a fresh scout/adopt-<slug>-<date> branch, a reviewed diff, owner merge', () => {
+  const p = freshLedgerPath('forge-scout-adopt');
+  scout.record({ capability: 'Astro Kit (x/astro-kit)', verdict: 'approve', reason: 'fits' }, { vettingPath: p });
+  const plan = scout.adoptPlan('Astro Kit (x/astro-kit)', { vettingPath: p, now: NOW });
+  assert.strictEqual(plan.branch, 'scout/adopt-astro-kit-x-astro-kit-20261024');
+  assert.ok(plan.steps.some((s) => /git switch -c scout\/adopt-astro-kit-x-astro-kit-20261024/.test(s)), JSON.stringify(plan.steps));
+  assert.ok(plan.steps.some((s) => /diff/.test(s) && /forge-code-review|Review Boss/.test(s)), JSON.stringify(plan.steps));
+  assert.ok(plan.steps.some((s) => /owner/.test(s) && /merge/.test(s)), JSON.stringify(plan.steps));
+});
+
+t('adoptPlan() refuses a hard-passed or never-vetted capability (throws with the reason)', () => {
+  const p = freshLedgerPath('forge-scout-adopt-refuse');
+  scout.record({ capability: 'bad', verdict: 'hard-pass', reason: 'security risk' }, { vettingPath: p });
+  assert.throws(() => scout.adoptPlan('bad', { vettingPath: p, now: NOW }), /hard-pass/);
+  assert.throws(() => scout.adoptPlan('never-seen', { vettingPath: p, now: NOW }), /not vetted/);
+});
+
+t('CLI rank --candidates <file> --json ranks and caps; a bad file exits 2', () => {
+  const dir = freshDir('forge-scout-rank-cli');
+  const f = path.join(dir, 'cands.json');
+  fs.writeFileSync(f, JSON.stringify({ candidates: [{ name: 'misc', url: 'https://github.com/x/m' }, { name: 'n8n-kit', url: 'https://github.com/x/n' }] }));
+  const r = runCLI(['rank', '--query', 'n8n', '--candidates', f, '--json'], { ...process.env, FORGE_SCOUT_VETTING_PATH: NOWHERE });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.stdout).ranked.map((x) => x.name), ['n8n-kit', 'misc']);
+  fs.writeFileSync(f, '{not json');
+  const bad = runCLI(['rank', '--query', 'n8n', '--candidates', f], { ...process.env, FORGE_SCOUT_VETTING_PATH: NOWHERE });
+  assert.strictEqual(bad.status, 2);
+});
+
+t('CLI adopt-plan exits 3 for a capability that is not approved, 0 with the plan for an approved one', () => {
+  const p = freshLedgerPath('forge-scout-adopt-cli');
+  scout.record({ capability: 'ok-tool', verdict: 'approve', reason: 'fits' }, { vettingPath: p });
+  const env = { ...process.env, FORGE_SCOUT_VETTING_PATH: p };
+  const ok = runCLI(['adopt-plan', '--capability', 'ok-tool', '--json'], env);
+  assert.strictEqual(ok.status, 0, ok.stderr);
+  assert.ok(/^scout\/adopt-ok-tool-\d{8}$/.test(JSON.parse(ok.stdout).branch), ok.stdout);
+  const no = runCLI(['adopt-plan', '--capability', 'other'], env);
+  assert.strictEqual(no.status, 3, no.stdout + no.stderr);
+});
+
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

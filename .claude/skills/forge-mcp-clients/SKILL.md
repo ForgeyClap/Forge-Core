@@ -1,6 +1,8 @@
 ---
 name: forge-mcp-clients
-description: Forge doctrine for using MCP servers as a client — opt-in, tiered, least-privilege. Use when a Boss needs an external tool grant or when installing/discussing an MCP server.
+description: "Use when a Boss needs an MCP server (opt-in), or when building one (MCP koppelen)."
+# A10 original description (listing budget): "Use when a Boss needs an external tool or MCP server (MCP koppelen): opt-in, tiered, least-privilege."
+# W2-BUDGET original description (listing budget): "Use when a Boss needs an external tool or MCP server, or when building an MCP server (MCP koppelen): opt-in, least-privilege."
 ---
 
 # Forge playbook — MCP-as-client doctrine (dormant, opt-in)
@@ -50,6 +52,30 @@ sandboxed browser session is exactly the doctrine's tier-2 definition; an action
 effect (a live form submission, a publish, a payment) is write-shaped and must be routed through
 `forge-actiongate.cjs` like any other tier-3 write, never assumed covered by the tier-2 grant.
 
+## Supply-chain pin-check (no grant without a verified pin)
+Every upstream MCP install line floats: a bare package name, a moving dist-tag, an unversioned
+launcher, or a mutable container tag. Whatever resolves at launch runs with the agent's own rights. So:
+- Every registry entry carries `pin` (an exact version verified from the project's own package page,
+  or the literal `UNVERIFIED`), `launch` (the exact pinned command, or `null`) and `enabled: false`.
+- `forge-bin/forge-mcp-pin.cjs` classifies npx, npm exec, bunx, pnpm dlx, yarn dlx, uvx, pipx and
+  container references. An exact version, a full commit sha or an image digest is **SAFE**. A version
+  range is **MEDIUM**. A bare name, a moving tag, a missing version or a mutable image tag is **HIGH**.
+- `forge-mcp-gate.cjs::validateGrant()` refuses any grant on a **HIGH** or **UNVERIFIED** entry. The
+  refusal comes before the tier-3 branch, so not even a verified owner grant authorises a floating
+  launch. MEDIUM is allowed but named as a warning in the result.
+- Check the registry with `node .claude/forge-bin/forge-mcp-pin.cjs check`, and an owner's host file
+  with `node .claude/forge-bin/forge-mcp-pin.cjs scan-config <file>`. Exit 3 means something floats.
+- Never copy an upstream install line verbatim. Verifying a new pin is a read-only lookup of the
+  package page; recording it is a registry edit with sources. Turning the server on stays the owner's.
+- Some dangerous tools have no server-side switch (for example Playwright's RCE-equivalent code tool).
+  The entry's `host_policy` names what the owner's host config must deny or allow.
+
+## Picking a server for a task
+A Boss may **name** the server that fits a task in its plan or report: read `use_when` / `not_for`
+in `config/orchestration/mcp-registry.json`, or the table in `references/server-picker.md`. Naming is
+not enabling. Until the owner opts it in, and while its pin is UNVERIFIED, the Boss uses its honest
+native fallback and says which server would have helped.
+
 ## Per-Boss least-privilege model
 Each of the 12 permanent Bosses (`config/agents/agent-registry.json`) has a **max tier** and an explicit
 **allow-list** of server ids in `config/orchestration/mcp-grants.json`. Both conditions are checked
@@ -62,6 +88,12 @@ search-boss and integration-boss get tier-1 docs/search; review-boss gets tier-1
 test-boss and ui-boss get tier-2 sandboxed browser-QA; build-boss gets tier-0 local LSP only. No Boss gets
 tier 3 by default — Boss, head-chef, seo-boss, security-boss, skill-boss, and docs-boss have no default
 MCP grant at all in the current matrix.
+
+**Read-only within a server (tool-level guard).** A server grant still exposes every tool on that server.
+When a Boss only needs to read, narrow it further with an allow/deny pattern on tool names: allow the read
+set (`read_*`, `list_*`, `get_*`, `search_*`), deny the write set (`create_*`, `update_*`, `write_*`,
+`delete_*`), and deny wins on overlap. Record the pattern with the grant; a tool that matches neither list
+is denied until someone looks at it.
 
 ## "mcp-write is a write-primitive" → hard-gate
 A tier-3 MCP tool call (e.g. `github-write` creating a commit/PR, or any MCP tool that writes files,
@@ -113,7 +145,11 @@ exist, when a fallback was actually used.
 ## Skills / commands / MCP
 `config/orchestration/mcp-registry.json` (catalog), `config/orchestration/mcp-grants.json` (per-Boss
 matrix), `forge-bin/forge-actiongate.cjs` (tier-3 hard-gate, reused not duplicated),
-`config/mcp/.mcp.json.example` (dormant worked example — never a live `.mcp.json`).
+`forge-bin/forge-mcp-pin.cjs` (supply-chain pin-check), `references/server-picker.md` (which server
+fits which task), `config/mcp/.mcp.json.example` (dormant worked example — never a live `.mcp.json`).
+**Building an MCP server** (not using one): `references/mcp-server-patterns.md` — tools/resources/prompts,
+stdio vs Streamable HTTP, schema first, idempotent tools, structured errors, dormant registration; for the
+`mcp-developer` specialist or `build-boss`.
 
 ## Fan-out & flow
 No dedicated team — this is a cross-cutting doctrine every Boss consults inline before attempting an MCP
@@ -123,4 +159,12 @@ call. No fan-out of its own; it does not spawn agents.
 Zero-dep default provably unbroken (no new runtime dependency, no auto-started connection); every tier-3
 attempt is provably routed through `forge-actiongate.cjs`; no Boss ever exceeds its `max_tier` or
 `allow_servers`; every MCP absence is reported as a labeled native fallback, never silently dropped or
-falsely claimed as success.
+falsely claimed as success; `forge-mcp-pin.cjs check` exits 0 (every entry SAFE with sourced pins, or
+UNVERIFIED and refused, all `enabled: false`, no floating tag anywhere in the registry).
+
+## References
+- `references/server-picker.md` — which server fits which task.
+- `references/mcp-server-patterns.md` — building an MCP server (adapted from the ECC pin, MIT).
+
+## Provenance
+`references/mcp-server-patterns.md` is adapted in Forge words from the pinned local ECC catalog (affaan-m/ECC, skills/mcp-server-patterns/SKILL.md, commit e2b8a51cea2228e515e1c3653effbeb62a2800fa, MIT; taken: server building blocks, transports, tool design rules; excluded: the npm install line, the code sample, a dangling docs link). The tool-level allow/deny guard above is an idea from obra/superpowers-lab mcp-cli (read and rejected as a whole because it builds a Go binary and runs servers with tokens; idea only, no text taken). MIT notice and detail: inside the reference file.

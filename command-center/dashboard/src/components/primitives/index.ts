@@ -1,13 +1,15 @@
 /**
- * The Forge Workspace primitive layer.
+ * The Forge Systeem primitive layer (v1.0 redesign).
  *
  * Import everything from here:
  *   import { Button, Panel, StatusBadge } from '@/components/primitives';
  *
- * This module also pulls in primitives.css, so a view never has to remember to.
+ * This module also pulls in primitives.css and primitives-guided.css, so a view never has to
+ * remember to.
  */
 
 import './primitives.css';
+import './primitives-guided.css';
 
 export { Icon } from './Icon';
 export type { IconProps, IconSize } from './Icon';
@@ -71,3 +73,24 @@ export type { ModalProps } from './Modal';
 
 export { ExampleTag } from './ExampleTag';
 export type { ExampleTagProps } from './ExampleTag';
+
+// v1.0 redesign: the guided primitives.
+export { Mark } from './Mark';
+export { MARK_MONO_BELOW, PROOF_MAX_CHECKS, WORK_STEP_STATES } from './guided-constants';
+export type { WorkStepState } from './guided-constants';
+export type { MarkProps } from './Mark';
+
+export { Disclosure } from './Disclosure';
+export type { DisclosureProps } from './Disclosure';
+
+export { ChoiceList } from './ChoiceList';
+export type { ChoiceListProps, ChoiceOption } from './ChoiceList';
+
+export { WorkStrip } from './WorkStrip';
+export type { WorkStripProps, WorkStep } from './WorkStrip';
+
+export { ProofCard } from './ProofCard';
+export type { ProofCardProps, ProofTone } from './ProofCard';
+
+export { CoachMark } from './CoachMark';
+export type { CoachMarkProps } from './CoachMark';

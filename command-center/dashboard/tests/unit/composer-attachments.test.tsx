@@ -18,7 +18,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { PrototypeContext } from '@/prototype/state/prototype-store';
 import type { PrototypeState, StoreValue } from '@/prototype/state/prototype-store';
 import { EMPTY_DATASET } from '@/prototype/state/store-adapter';
-import { GATEWAY_ORIGIN } from '@/prototype/state/gateway-client';
+import { EXEC_TOKEN_HEADER, EXEC_TOKEN_META_NAME, GATEWAY_ORIGIN, gatewayUrl } from '@/prototype/state/gateway-client';
 import { Composer } from '@/views/chat/Composer';
 
 function buildState(overrides: Partial<PrototypeState> = {}): PrototypeState {
@@ -66,13 +66,17 @@ function renderComposer(state: PrototypeState, onSend = vi.fn(() => true)) {
       }),
     ),
   );
+  // Redesign 2A: attach, mode, model and effort live in the composer's "+" tray now; open it.
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
   return { ...utils, onSend };
 }
 
 function installUploadFetchMock(attachment: Record<string, unknown>) {
   const calls: unknown[] = [];
   const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
-    calls.push({ url: String(input), init });
+    // Only upload calls count: the Composer also reads the gateway connection state (POL-B), whose
+    // health poll goes through the same fetch. A duplicate upload would still show up as 2 calls here.
+    if (String(input).includes('/attachments')) calls.push({ url: String(input), init });
     return { ok: true, status: 201, json: async () => ({ ok: true, attachment }) } as Response;
   });
   vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
@@ -193,5 +197,40 @@ describe('Composer — real "Attach" upload', () => {
       ),
     );
     expect(screen.queryByText('huge.txt')).toBeNull();
+  });
+});
+
+describe('Composer — drag and drop upload (WP B3)', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    document.querySelector(`meta[name="${EXEC_TOKEN_META_NAME}"]`)?.remove();
+    delete (globalThis as { forge?: unknown }).forge;
+  });
+
+  it('a dropped file is POSTed to gatewayUrl(.../attachments) with the exec-token header', async () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', EXEC_TOKEN_META_NAME);
+    meta.setAttribute('content', 'tok-drop-123');
+    document.head.appendChild(meta);
+    // The desktop app's own gateway port: the upload must follow gatewayUrl(), never the 4100 literal.
+    (globalThis as { forge?: unknown }).forge = { gatewayOrigin: () => 'http://127.0.0.1:49519' };
+    const calls = installUploadFetchMock({
+      id: 'att-9', fileName: 'logo.txt', size: 4, isText: true,
+      textPreview: 'logo', textTruncated: false, storedPath: 'C:\\data\\attachments\\conv-1\\att-9-logo.txt',
+    });
+    renderComposer(buildState({ activeConversationId: 'conv-1' }));
+
+    const file = new File(['logo'], 'logo.txt', { type: 'text/plain' });
+    const composer = document.querySelector('.fw-chat-composer') as HTMLElement;
+    fireEvent.drop(composer, { dataTransfer: { types: ['Files'], files: [file] } });
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const call = calls[0] as { url: string; init: RequestInit };
+    expect(call.url).toBe(gatewayUrl('/api/conversations/conv-1/attachments'));
+    expect(call.url).toBe('http://127.0.0.1:49519/api/conversations/conv-1/attachments');
+    expect(call.init.method).toBe('POST');
+    expect((call.init.headers as Record<string, string>)[EXEC_TOKEN_HEADER]).toBe('tok-drop-123');
+    expect(await screen.findByText('logo.txt')).toBeInTheDocument();
   });
 });

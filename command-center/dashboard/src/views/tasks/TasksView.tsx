@@ -20,7 +20,6 @@ import type { ChangeEvent } from 'react';
 import {
   Button,
   EmptyState,
-  Eyebrow,
   ExampleTag,
   Icon,
   Machine,
@@ -39,37 +38,40 @@ import type {
   WorkPackage,
 } from '@/prototype/types/prototype-types';
 import { selectTaskColumn, usePrototype } from '@/prototype/state/prototype-store';
+import { useLocale } from '@/i18n/use-locale';
 import './tasks.css';
 
 /* ------------------------------------------------------------------ tables */
 
-const LAYOUTS: readonly { value: TaskLayout; label: string; icon: string }[] = [
-  { value: 'kanban', label: 'Kanban', icon: 'Columns3' },
-  { value: 'table', label: 'Table', icon: 'Table' },
-  { value: 'work-packages', label: 'Work packages', icon: 'Layers' },
-  { value: 'phases', label: 'Phases', icon: 'ListChecks' },
+// W3FX-BC: every label and note below lives in the pending copy (`rd.tasks.view|column|phase|phaseNote.*`,
+// Dutch first); this file keeps only the icons.
+const LAYOUTS: readonly { value: TaskLayout; icon: string }[] = [
+  { value: 'kanban', icon: 'Columns3' },
+  { value: 'table', icon: 'Table' },
+  { value: 'work-packages', icon: 'Layers' },
+  { value: 'phases', icon: 'ListChecks' },
 ];
 
-const COLUMN_META: Readonly<Record<TaskColumn, { label: string; icon: string }>> = {
-  backlog: { label: 'Backlog', icon: 'Inbox' },
-  planned: { label: 'Planned', icon: 'CalendarClock' },
-  running: { label: 'Running', icon: 'Loader' },
-  'self-review': { label: 'Self-review', icon: 'Eye' },
-  verify: { label: 'Verify', icon: 'SearchCheck' },
-  review: { label: 'Review', icon: 'ClipboardCheck' },
-  blocked: { label: 'Blocked', icon: 'Lock' },
-  completed: { label: 'Completed', icon: 'Check' },
+const COLUMN_META: Readonly<Record<TaskColumn, { icon: string }>> = {
+  backlog: { icon: 'Inbox' },
+  planned: { icon: 'CalendarClock' },
+  running: { icon: 'Loader' },
+  'self-review': { icon: 'Eye' },
+  verify: { icon: 'SearchCheck' },
+  review: { icon: 'ClipboardCheck' },
+  blocked: { icon: 'Lock' },
+  completed: { icon: 'Check' },
 };
 
 const PHASES: readonly TaskPhase[] = ['intake', 'plan', 'build', 'verify', 'review', 'handoff'];
 
-const PHASE_META: Readonly<Record<TaskPhase, { label: string; icon: string; note: string }>> = {
-  intake: { label: 'INTAKE', icon: 'Inbox', note: 'Understand the request before anything is written.' },
-  plan: { label: 'PLAN', icon: 'Map', note: 'Cut the work into packages with owners and acceptance.' },
-  build: { label: 'BUILD', icon: 'Hammer', note: 'Write the implementation and the edge cases.' },
-  verify: { label: 'VERIFY', icon: 'SearchCheck', note: 'Check the claim against the evidence attached.' },
-  review: { label: 'REVIEW', icon: 'Gavel', note: 'The last read before anything reaches the owner.' },
-  handoff: { label: 'HANDOFF', icon: 'PackageCheck', note: 'Leave the owner able to run and change it.' },
+const PHASE_META: Readonly<Record<TaskPhase, { icon: string }>> = {
+  intake: { icon: 'Inbox' },
+  plan: { icon: 'Map' },
+  build: { icon: 'Hammer' },
+  verify: { icon: 'SearchCheck' },
+  review: { icon: 'Gavel' },
+  handoff: { icon: 'PackageCheck' },
 };
 
 type SortKey =
@@ -90,24 +92,24 @@ type SortKey =
 
 interface TableColumnDef {
   readonly key: SortKey;
-  readonly label: string;
 }
 
+/** The heading of each column is `rd.tasks.th.<key>` in the pending copy. */
 const TABLE_COLUMNS: readonly TableColumnDef[] = [
-  { key: 'id', label: 'ID' },
-  { key: 'title', label: 'Task' },
-  { key: 'status', label: 'Status' },
-  { key: 'column', label: 'Column' },
-  { key: 'phase', label: 'Phase' },
-  { key: 'agent', label: 'Agent' },
-  { key: 'wp', label: 'WP' },
-  { key: 'progress', label: 'Progress' },
-  { key: 'proof', label: 'Proof' },
-  { key: 'repairs', label: 'Repairs' },
-  { key: 'deps', label: 'Depends on' },
-  { key: 'created', label: 'Created' },
-  { key: 'updated', label: 'Updated' },
-  { key: 'detail', label: 'Detail' },
+  { key: 'id' },
+  { key: 'title' },
+  { key: 'status' },
+  { key: 'column' },
+  { key: 'phase' },
+  { key: 'agent' },
+  { key: 'wp' },
+  { key: 'progress' },
+  { key: 'proof' },
+  { key: 'repairs' },
+  { key: 'deps' },
+  { key: 'created' },
+  { key: 'updated' },
+  { key: 'detail' },
 ];
 
 const SORT_KEYS: ReadonlySet<string> = new Set(TABLE_COLUMNS.map((column) => column.key));
@@ -204,14 +206,15 @@ function sortValue(row: Row, key: SortKey): string | number {
 /* --------------------------------------------------------------- fragments */
 
 function TaskStats({ task }: { task: Task }) {
+  const { t } = useLocale();
   if (task.proofCount === 0 && task.repairAttempts === 0) return null;
   return (
     <span className="fw-tasks-stats">
       {task.proofCount > 0 ? (
         <span className="fw-tasks-stat" title={`${task.proofCount} proof entries attached`}>
           <Icon name="FileCheck" size="xs" />
-          <Machine>{task.proofCount}</Machine>
-          <span className="fw-tasks-stat__word">proof</span>
+          <span className="fw-tasks-num">{task.proofCount}</span>
+          <span className="fw-tasks-stat__word">{t('rd.tasks.stat.proof')}</span>
         </span>
       ) : null}
       {task.repairAttempts > 0 ? (
@@ -220,8 +223,8 @@ function TaskStats({ task }: { task: Task }) {
           title={`${task.repairAttempts} repair attempts opened by the verify loop`}
         >
           <Icon name="Wrench" size="xs" />
-          <Machine>{task.repairAttempts}</Machine>
-          <span className="fw-tasks-stat__word">repairs</span>
+          <span className="fw-tasks-num">{task.repairAttempts}</span>
+          <span className="fw-tasks-stat__word">{t('rd.tasks.stat.repairs')}</span>
         </span>
       ) : null}
     </span>
@@ -313,11 +316,11 @@ function TaskCard({ row, selected, onSelect }: EntryProps) {
       <div className="fw-tasks-card__meta">
         <span className="fw-tasks-card__meta-item">
           <Icon name="UserRound" size="xs" />
-          <Machine muted>{row.agentName}</Machine>
+          <span className="fw-tasks-quiet">{row.agentName}</span>
         </span>
         <span className="fw-tasks-card__meta-item">
           <Icon name="Layers" size="xs" />
-          <Machine muted>{row.wpLabel}</Machine>
+          <span className="fw-tasks-quiet">{row.wpLabel}</span>
         </span>
       </div>
 
@@ -344,6 +347,7 @@ interface RowProps {
 }
 
 function TaskRow({ row, selected, onSelect }: RowProps) {
+  const { t } = useLocale();
   const { task } = row;
   return (
     <li
@@ -368,12 +372,12 @@ function TaskRow({ row, selected, onSelect }: RowProps) {
 
       <span className="fw-tasks-row__column">
         <Icon name={COLUMN_META[row.column].icon} size="xs" />
-        <Machine muted>{COLUMN_META[row.column].label.toUpperCase()}</Machine>
+        <span className="fw-tasks-quiet">{t(`rd.tasks.column.${row.column}`)}</span>
       </span>
 
       <span className="fw-tasks-row__agent">
         <Icon name="UserRound" size="xs" />
-        <Machine muted>{row.agentName}</Machine>
+        <span className="fw-tasks-quiet">{row.agentName}</span>
       </span>
 
       <span className="fw-tasks-row__meter">
@@ -396,6 +400,7 @@ function TaskRow({ row, selected, onSelect }: RowProps) {
 
 export default function TasksView() {
   const { state, dispatch } = usePrototype();
+  const { t } = useLocale();
   const layout = state.taskLayout;
 
   const [sortKey, setSortKey] = useState<SortKey>('id');
@@ -543,24 +548,28 @@ export default function TasksView() {
     <div className="fw-tasks">
       <header className="fw-tasks__head">
         <div className="fw-tasks__heading">
-          <Eyebrow>Mission work</Eyebrow>
-          <h1 className="fw-tasks__title">Tasks</h1>
+          <h1 className="fw-tasks__title">{t('nav.tasks.label')}</h1>
           <p className="fw-tasks__subtitle">
-            {state.data.tasks.length} task{state.data.tasks.length === 1 ? '' : 's'} across{' '}
-            {state.data.workPackages.length} work package{state.data.workPackages.length === 1 ? '' : 's'} and
-            six phases. <ExampleTag />
+            {state.data.tasks.length === 1
+              ? t('rd.tasks.tasksOne')
+              : t('rd.tasks.tasksMany', { count: state.data.tasks.length })}
+            {' · '}
+            {state.data.workPackages.length === 1
+              ? t('rd.tasks.packagesOne')
+              : t('rd.tasks.packagesMany', { count: state.data.workPackages.length })}{' '}
+            <ExampleTag />
           </p>
         </div>
 
-        <Toolbar label="Task view controls" className="fw-tasks__toolbar">
+        <Toolbar label={t('rd.tasks.toolbarLabel')} className="fw-tasks__toolbar">
           <SegmentedControl
             className="fw-tasks__layout"
-            label="Task layout"
+            label={t('rd.tasks.viewLabel')}
             size="sm"
             value={layout}
             options={LAYOUTS.map((option) => ({
               value: option.value,
-              label: option.label,
+              label: t(`rd.tasks.view.${option.value}`),
               icon: option.icon,
             }))}
             onChange={(value) => {
@@ -570,11 +579,10 @@ export default function TasksView() {
         </Toolbar>
       </header>
 
-      {layout === 'kanban' ? (
+      {layout === 'kanban' && rows.length > 0 ? (
         <p className="fw-tasks__note">
           <Icon name="Info" size="xs" />
-          This board mirrors the real run state. Select a card to see its detail — moving a card
-          between columns is not available here.
+          {t('rd.tasks.note')}
         </p>
       ) : null}
 
@@ -582,25 +590,26 @@ export default function TasksView() {
         {rows.length === 0 ? (
           <EmptyState
             icon="Inbox"
-            title="No tasks yet"
-            detail="No tasks are recorded for this project yet."
+            title={t('rd.tasks.empty.title')}
+            detail={t('rd.tasks.empty.detail')}
           />
         ) : layout === 'kanban' ? (
-          <div className="fw-tasks-board" aria-label="Task board">
+          <div className="fw-tasks-board" aria-label={t('rd.tasks.board')}>
             {TASK_COLUMNS.map((column) => {
               const list = byColumn.get(column) ?? [];
               const meta = COLUMN_META[column];
+              const columnLabel = t(`rd.tasks.column.${column}`);
               return (
                 <section
                   key={column}
                   ref={registerColumnSection(column)}
                   className="fw-tasks-board__col"
-                  aria-label={`${meta.label} — ${list.length} tasks`}
+                  aria-label={t('rd.tasks.columnLabel', { column: columnLabel, count: list.length })}
                 >
                   <header className="fw-tasks-board__head">
                     <Icon name={meta.icon} size="sm" />
-                    <h2 className="fw-tasks-board__title fg-machine">{meta.label}</h2>
-                    <span className="fw-tasks-board__count fg-machine">{list.length}</span>
+                    <h2 className="fw-tasks-board__title">{columnLabel}</h2>
+                    <span className="fw-tasks-board__count fw-tasks-num">{list.length}</span>
                   </header>
 
                   <ul className="fw-tasks-board__cards fw-scroll">
@@ -608,7 +617,7 @@ export default function TasksView() {
                       <TaskCard key={row.task.id} {...cardProps(row)} />
                     ))}
                     {list.length === 0 ? (
-                      <li className="fw-tasks-board__empty">Nothing in this column.</li>
+                      <li className="fw-tasks-board__empty">{t('rd.tasks.columnEmpty')}</li>
                     ) : null}
                   </ul>
                 </section>
@@ -619,7 +628,7 @@ export default function TasksView() {
           <div className="fw-tasks-table-shell">
             <div className="fw-tasks-table__mobile-sort">
               <label className="fw-tasks-table__sort-label" htmlFor="fw-tasks-sort">
-                Sort by
+                {t('rd.tasks.sortBy')}
               </label>
               <select
                 id="fw-tasks-sort"
@@ -629,7 +638,7 @@ export default function TasksView() {
               >
                 {TABLE_COLUMNS.map((column) => (
                   <option key={column.key} value={column.key}>
-                    {column.label}
+                    {t(`rd.tasks.th.${column.key}`)}
                   </option>
                 ))}
               </select>
@@ -638,7 +647,7 @@ export default function TasksView() {
                 icon={sortDir === 'asc' ? 'ArrowUp' : 'ArrowDown'}
                 onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
               >
-                {sortDir === 'asc' ? 'Ascending' : 'Descending'}
+                {sortDir === 'asc' ? t('rd.tasks.ascending') : t('rd.tasks.descending')}
               </Button>
             </div>
 
@@ -666,7 +675,7 @@ export default function TasksView() {
                           className="fw-tasks-table__sort"
                           onClick={() => toggleSort(column.key)}
                         >
-                          <span>{column.label}</span>
+                          <span>{t(`rd.tasks.th.${column.key}`)}</span>
                           <Icon
                             name={
                               sortKey === column.key
@@ -688,10 +697,10 @@ export default function TasksView() {
                     const selected = task.id === selectedId;
                     return (
                       <tr key={task.id} className={selected ? 'is-selected' : undefined}>
-                        <td data-label="ID">
+                        <td data-label={t('rd.tasks.th.id')}>
                           <Machine muted>{task.id}</Machine>
                         </td>
-                        <td data-label="Task">
+                        <td data-label={t('rd.tasks.th.title')}>
                           <button
                             type="button"
                             className="fw-tasks-table__hit"
@@ -702,48 +711,48 @@ export default function TasksView() {
                           </button>
                           <VerdictChip task={task} />
                         </td>
-                        <td data-label="Status">
+                        <td data-label={t('rd.tasks.th.status')}>
                           <StatusBadge status={task.status} size="sm" />
                           <StalledFlag task={task} />
                         </td>
-                        <td data-label="Column">
-                          <Machine muted>{COLUMN_META[row.column].label.toUpperCase()}</Machine>
+                        <td data-label={t('rd.tasks.th.column')}>
+                          <span className="fw-tasks-quiet">{t(`rd.tasks.column.${row.column}`)}</span>
                           <ColumnFallbackFlag row={row} />
                         </td>
-                        <td data-label="Phase">
-                          <Machine muted>{PHASE_META[task.phase].label}</Machine>
+                        <td data-label={t('rd.tasks.th.phase')}>
+                          <span className="fw-tasks-quiet">{t(`rd.tasks.phase.${task.phase}`)}</span>
                         </td>
-                        <td data-label="Agent">
-                          <Machine muted>{row.agentName}</Machine>
+                        <td data-label={t('rd.tasks.th.agent')}>
+                          <span className="fw-tasks-quiet">{row.agentName}</span>
                         </td>
-                        <td data-label="WP">
-                          <Machine muted>{row.wpLabel}</Machine>
+                        <td data-label={t('rd.tasks.th.wp')}>
+                          <span className="fw-tasks-quiet">{row.wpLabel}</span>
                         </td>
-                        <td data-label="Progress">
+                        <td data-label={t('rd.tasks.th.progress')}>
                           <Meter
                             value={task.progress}
                             tone={task.status === 'running' ? 'accent' : 'default'}
                             showValue
                           />
                         </td>
-                        <td data-label="Proof" className="fw-tasks-table__num">
-                          <Machine muted>{task.proofCount}</Machine>
+                        <td data-label={t('rd.tasks.th.proof')} className="fw-tasks-table__num">
+                          <span className="fw-tasks-quiet fw-tasks-num">{task.proofCount}</span>
                         </td>
-                        <td data-label="Repairs" className="fw-tasks-table__num">
-                          <Machine muted>{task.repairAttempts}</Machine>
+                        <td data-label={t('rd.tasks.th.repairs')} className="fw-tasks-table__num">
+                          <span className="fw-tasks-quiet fw-tasks-num">{task.repairAttempts}</span>
                         </td>
-                        <td data-label="Depends on">
+                        <td data-label={t('rd.tasks.th.deps')}>
                           <Machine muted>
                             {task.dependencies.length > 0 ? task.dependencies.join(', ') : '—'}
                           </Machine>
                         </td>
-                        <td data-label="Created">
-                          <Machine muted>{task.createdAt}</Machine>
+                        <td data-label={t('rd.tasks.th.created')}>
+                          <span className="fw-tasks-quiet fw-tasks-num">{task.createdAt}</span>
                         </td>
-                        <td data-label="Updated">
-                          <Machine muted>{task.updatedAt}</Machine>
+                        <td data-label={t('rd.tasks.th.updated')}>
+                          <span className="fw-tasks-quiet fw-tasks-num">{task.updatedAt}</span>
                         </td>
-                        <td data-label="Detail" className="fw-tasks-table__detail">
+                        <td data-label={t('rd.tasks.th.detail')} className="fw-tasks-table__detail">
                           <span title={task.detail}>{task.detail}</span>
                         </td>
                       </tr>
@@ -768,26 +777,26 @@ export default function TasksView() {
                 >
                   <div className="fw-tasks-wp__facts">
                     <span className="fw-tasks-wp__fact">
-                      <Eyebrow>Owner</Eyebrow>
-                      <Machine>{owner}</Machine>
+                      <span className="fw-tasks-label">{t('rd.tasks.pkg.owner')}</span>
+                      <span>{owner}</span>
                     </span>
                     <span className="fw-tasks-wp__fact">
-                      <Eyebrow>Phase</Eyebrow>
-                      <Machine>{PHASE_META[pkg.phase].label}</Machine>
+                      <span className="fw-tasks-label">{t('rd.tasks.pkg.phase')}</span>
+                      <span>{t(`rd.tasks.phase.${pkg.phase}`)}</span>
                     </span>
                     <span className="fw-tasks-wp__fact">
-                      <Eyebrow>Tasks</Eyebrow>
-                      <Machine>{list.length}</Machine>
+                      <span className="fw-tasks-label">{t('rd.tasks.pkg.tasks')}</span>
+                      <span className="fw-tasks-num">{list.length}</span>
                     </span>
                     <span className="fw-tasks-wp__fact">
-                      <Eyebrow>Id</Eyebrow>
+                      <span className="fw-tasks-label">{t('rd.tasks.pkg.id')}</span>
                       <Machine muted>{pkg.id}</Machine>
                     </span>
                   </div>
 
                   <section className="fw-tasks-wp__section">
                     <header className="fw-tasks-wp__section-head">
-                      <Eyebrow>Acceptance criteria</Eyebrow>
+                      <span className="fw-tasks-label">{t('rd.tasks.pkg.acceptance')}</span>
                       <ExampleTag detail="Example acceptance criteria. Nothing was evaluated — the marks follow the work package's example status." />
                     </header>
                     <ul className="fw-tasks-wp__acceptance">
@@ -805,10 +814,10 @@ export default function TasksView() {
 
                   <section className="fw-tasks-wp__section">
                     <header className="fw-tasks-wp__section-head">
-                      <Eyebrow>Tasks</Eyebrow>
+                      <span className="fw-tasks-label">{t('rd.tasks.pkg.tasks')}</span>
                     </header>
                     {list.length === 0 ? (
-                      <p className="fw-tasks-empty-line">This package owns no tasks yet.</p>
+                      <p className="fw-tasks-empty-line">{t('rd.tasks.pkg.noTasks')}</p>
                     ) : (
                       <ul className="fw-tasks-rows">
                         {list.map((row) => (
@@ -836,14 +845,14 @@ export default function TasksView() {
                     <span className="fw-tasks-phase__glyph">
                       <Icon name={meta.icon} size="sm" />
                     </span>
-                    <h2 id={`tasks-phase-${phase}`} className="fw-tasks-phase__title fg-machine">
-                      {meta.label}
+                    <h2 id={`tasks-phase-${phase}`} className="fw-tasks-phase__title">
+                      {t(`rd.tasks.phase.${phase}`)}
                     </h2>
-                    <span className="fw-tasks-phase__count fg-machine">{list.length}</span>
-                    <p className="fw-tasks-phase__note">{meta.note}</p>
+                    <span className="fw-tasks-phase__count fw-tasks-num">{list.length}</span>
+                    <p className="fw-tasks-phase__note">{t(`rd.tasks.phaseNote.${phase}`)}</p>
                   </header>
                   {list.length === 0 ? (
-                    <p className="fw-tasks-empty-line">No task sits in this phase.</p>
+                    <p className="fw-tasks-empty-line">{t('rd.tasks.phaseEmpty')}</p>
                   ) : (
                     <ul className="fw-tasks-rows">
                       {list.map((row) => (

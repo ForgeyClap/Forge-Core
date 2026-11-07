@@ -1,0 +1,161 @@
+{
+  "domain": "prediction",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-prediction/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-prediction/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-prediction/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "pred-data-quality",
+      "claim": "Data sources and their quality are verified.",
+      "evidence_required": "The source list with a quality check result per source.",
+      "how_to_run": "Run the data checks and quote missing/duplicate counts per source.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Data sources + quality verified"
+      }
+    },
+    {
+      "id": "pred-backtest",
+      "claim": "A backtest was done before trusting the model, with the sample size shown.",
+      "evidence_required": "The backtest output with sample size and metrics.",
+      "how_to_run": "Run the backtest and quote the sample size and result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Backtest before trusting any model; show sample size."
+      }
+    },
+    {
+      "id": "pred-labels",
+      "claim": "Every output carries a confidence/risk label.",
+      "evidence_required": "Sample outputs each with a label, and the code that adds it.",
+      "how_to_run": "Generate sample outputs and check each for the label.",
+      "severity": "block",
+      "honesty_note": "Never claim certainty.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Domain gates",
+        "quote": "confidence/risk labels on every output"
+      }
+    },
+    {
+      "id": "pred-assumptions",
+      "claim": "Assumptions are documented.",
+      "evidence_required": "The assumptions list.",
+      "how_to_run": "Read the assumptions document.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Domain gates",
+        "quote": "assumptions documented"
+      }
+    },
+    {
+      "id": "pred-freshness",
+      "claim": "A data freshness check is present.",
+      "evidence_required": "The freshness check and one run of it.",
+      "how_to_run": "Run the freshness check and quote the latest timestamp.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Domain gates",
+        "quote": "data freshness check"
+      }
+    },
+    {
+      "id": "pred-no-auto-bet",
+      "claim": "No automatic real-money betting and no auto-stake code path.",
+      "evidence_required": "A search of the code for bet/stake/order placement calls with no automatic path.",
+      "how_to_run": "Search the code for bookmaker/exchange API calls and stake logic.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Hard rules",
+        "quote": "No automatic real-money betting / no auto-stake code path."
+      }
+    },
+    {
+      "id": "pred-telegram",
+      "claim": "The Telegram token is in env and there is one tested message format.",
+      "evidence_required": "The format test output and the env-based token read.",
+      "how_to_run": "Run the message-format test; search for a hardcoded token.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Telegram token in env only; one message format, tested."
+      }
+    },
+    {
+      "id": "pred-stats-review",
+      "claim": "The statistical logic is reviewed.",
+      "evidence_required": "A review note naming what was checked.",
+      "how_to_run": "Manual review of the model/statistics code.",
+      "severity": "warn",
+      "honesty_note": "A review is judgement, not a test; report who reviewed and what.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Domain gates",
+        "quote": "statistical logic reviewed"
+      }
+    },
+    {
+      "id": "pred-odds-value",
+      "claim": "Odds/value are checked.",
+      "evidence_required": "A note of how odds/value were checked.",
+      "how_to_run": "Manual check of the odds/value computation.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Domain gates",
+        "quote": "odds/value checked"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "No automatic real-money betting / no auto-stake code path.",
+      "source": {
+        "path": ".claude/skills/forge-prediction/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no automatic real-money betting / no auto-stake code path."
+      }
+    },
+    {
+      "gate": "Correctness-critical domains (prediction) prove real fixtures were used, or carry an explicit logged waiver.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "correctness-critical-fixtures",
+        "quote": "must prove real fixtures were used, or carry an explicit logged waiver"
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "pred-telegram does not apply when there is no Telegram delivery."
+  ],
+  "gaps": [
+    "\"statistical logic reviewed\" and \"odds/value checked\" (Domain gates) name no evidence form or method; the card carries them as warn with a manual review."
+  ]
+}

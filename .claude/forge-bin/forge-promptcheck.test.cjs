@@ -454,5 +454,38 @@ const ASK_EN_CLEAR = 'Add a search button to src/components/Header.astro in the 
   t('ask22: scoreAsk is deterministic in-process too', JSON.stringify(mod.scoreAsk('maak het beter')) === JSON.stringify(mod.scoreAsk('maak het beter')));
 }
 
+// ---- 23) plan-input (modernization WP 3.2): the ask result re-shaped for forge-plan-card.cjs ----
+{
+  const mod = require('./forge-promptcheck.cjs');
+  const ASKM = require('./forge-promptcheck-ask.cjs');
+  const BUG = 'de app werkt niet meer';
+  const bugAsk = mod.scoreAsk(BUG);
+  const pi = mod.planInputFromAsk(bugAsk);
+  t('pi1: planInputFromAsk is exported and the re-exports of the ask module are still the same objects', typeof mod.planInputFromAsk === 'function' && mod.scoreAsk === ASKM.scoreAsk);
+  t('pi1: a symptom-less bug -> the ONE question is F9 with its own choices, recommended A and its own default (no invented text)', !!pi.question && pi.question.id === 'F9'
+    && pi.question.text.nl === ASKM.GAPS.F9.q.nl && pi.question.choices.length === bugAsk.nextQuestion.options.length
+    && pi.question.choices[pi.question.choices.length - 1].nl === 'iets anders' && pi.question.recommended === 0
+    && pi.question.default.nl === ASKM.GAPS.F9.assume.nl && pi.question.source === 'promptcheck-ask' && pi.free_question === null);
+  t('pi1: every assumption keeps its id + both languages and is tagged with its source', pi.assumptions.length === bugAsk.assumptions.length
+    && pi.assumptions.every((a, i) => a.id === bugAsk.assumptions[i].id && a.nl === bugAsk.assumptions[i].nl && a.en === bugAsk.assumptions[i].en && a.source === 'promptcheck-ask'));
+  const KAP = 'Bouw een one-page site voor kapsalon Knip in Utrecht voor buurtklanten, zodat ze via WhatsApp een afspraak maken. Klaar als de preview op mobiel werkt en de belknop werkt. Niet: online betalen.';
+  const kapPi = mod.planInputFromAsk(mod.scoreAsk(KAP));
+  t('pi2: a clear request -> no question, no free question', kapPi.question === null && kapPi.free_question === null);
+  const free = mod.planInputFromAsk({ assumptions: [], nextQuestion: null, suggested_question: { nl: 'Welk deel?', en: 'Which part?' } });
+  t('pi3: the VAGUE dimension fallback becomes free_question, never the plan question (it has no choices and no default)', free.question === null && free.free_question.nl === 'Welk deel?' && free.free_question.en === 'Which part?');
+  t('pi3: a missing or odd result never throws', JSON.stringify(mod.planInputFromAsk(null)) === JSON.stringify({ assumptions: [], question: null, free_question: null }));
+  const c1 = runCli(['plan-input', BUG]);
+  const c2 = runCli(['plan-input', BUG]);
+  let cj = null; try { cj = JSON.parse(c1.stdout); } catch { /* fails below */ }
+  t('pi4: CLI plan-input exits 0 and prints exactly planInputFromAsk(scoreAsk(text))', c1.status === 0 && !!cj && JSON.stringify(cj) === JSON.stringify(pi));
+  t('pi4: CLI plan-input is byte-identical on a re-run', c1.stdout.length > 0 && c1.stdout === c2.stdout);
+  const pf = writePrompt('pi', BUG);
+  const viaFile = runCli(['plan-input', '--file', pf]);
+  t('pi4: --file gives the same JSON as inline text', viaFile.status === 0 && viaFile.stdout === c1.stdout);
+  t('pi5: empty request -> exit 2 (usage), nothing printed on stdout', (() => { const r = runCli(['plan-input', '   ']); return r.status === 2 && r.stdout === ''; })());
+  t('pi5: text AND --file -> exit 2', runCli(['plan-input', 'x', '--file', pf]).status === 2);
+  t('pi5: the dispatch-lint mode is untouched (a plain prompt file still scores X/7)', (() => { const r = runCli([writePrompt('d', STRONG_PROMPT), '--json']); try { return r.status === 0 && JSON.parse(r.stdout).total === 7; } catch { return false; } })());
+}
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

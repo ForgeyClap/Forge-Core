@@ -37,6 +37,7 @@ import type { ConnectionState } from '@/prototype/state/bridge-client';
 import type { GatewayLatency } from '@/prototype/state/gateway-adapter';
 
 import ChatView from '@/views/chat/ChatView';
+import { setUiMode } from '@/state/ui-mode';
 import { Composer } from '@/views/chat/Composer';
 import Inspector from '@/components/shell/Inspector';
 import { useGatewayConversations, useGatewayChatSendController } from '@/prototype/state/gateway-chat';
@@ -252,6 +253,9 @@ describe('item 4 — ChatView "+ New" starts a real conversation, no page reload
       stop: async () => ({ ok: true, error: null }),
     };
 
+    // Redesign 2A: the chat's "+ New" button sits in Uitgebreid's tools row; Eenvoudig starts a new
+    // conversation from the sidebar ("Nieuw gesprek") or the /new command.
+    setUiMode('uitgebreid');
     const dispatch = vi.fn();
     const value: StoreValue = { state, dispatch };
     render(
@@ -273,6 +277,7 @@ describe('item 4 — ChatView "+ New" starts a real conversation, no page reload
     );
     expect(created).toBe(true);
     expect(dispatch).toHaveBeenCalledWith({ type: 'conversation/activate', id: 'c-brand-new' });
+    setUiMode('eenvoudig');
   });
 });
 
@@ -318,6 +323,7 @@ describe('item 5 — the composer menu popover is height-bounded and skill items
     };
     const state = buildState({ data: { ...EMPTY_DATASET, projects: [project] }, activeProjectId: 'proj-1' });
 
+    setUiMode('uitgebreid');
     renderWithState(
       createElement(Composer, {
         onSend: () => true,
@@ -329,9 +335,12 @@ describe('item 5 — the composer menu popover is height-bounded and skill items
       state,
     );
 
+    // Redesign 2A: Skills is an Uitgebreid control inside the composer's "+" tray.
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     fireEvent.click(screen.getByRole('button', { name: 'Choose a skill' }));
     expect(await screen.findByText('Bare Skill')).toBeInTheDocument();
     expect(screen.queryByText(/No description recorded/i)).toBeNull();
+    setUiMode('eenvoudig');
   });
 });
 

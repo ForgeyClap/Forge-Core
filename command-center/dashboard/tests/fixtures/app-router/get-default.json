@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "provenance": "DEFAULT",
+  "config": {
+    "version": 1,
+    "revision": 0,
+    "mode": "off",
+    "multi_account": { "enabled": false, "acknowledged_at": null },
+    "defaults": {
+      "threshold_pct": 92,
+      "cooldown_min": 10,
+      "strategy": "in-order",
+      "return": "new-conversation",
+      "handover_turns": 12
+    },
+    "entries": [
+      { "id": "main", "kind": "claude-account", "label": "Hoofdaccount", "profile": null, "enabled": true, "threshold_pct": null }
+    ],
+    "updated_at": null
+  },
+  "terms": {
+    "checked_at": "2026-11-02",
+    "sources": [
+      { "title": "Consumer Terms", "url": "https://www.anthropic.com/legal/consumer-terms" },
+      { "title": "Usage Policy", "url": "https://www.anthropic.com/legal/aup" },
+      { "title": "Claude Code legal and compliance", "url": "https://code.claude.com/docs/en/legal-and-compliance" }
+    ]
+  },
+  "warnings": [],
+  "profiles_root_display": "~\\.forge-router\\profiles",
+  "captured_at": "2026-11-02T14:00:05.000Z"
+}

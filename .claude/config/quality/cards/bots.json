@@ -1,0 +1,130 @@
+{
+  "domain": "bots",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "bots-verify-raw-body",
+      "claim": "Every inbound webhook or interaction verifies the platform auth on the raw body; unsigned, expired and forged events are rejected.",
+      "evidence_required": "Proof both ways: a forged or replayed event rejected and a genuine one accepted.",
+      "how_to_run": "Run the verification tests (or send a signed and a forged event to the dev endpoint) and quote both outcomes.",
+      "severity": "block",
+      "honesty_note": "Never call a bot verified unless a signed event was accepted and a forged one rejected.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "verifies the platform's auth on the raw body"
+      }
+    },
+    {
+      "id": "bots-fast-ack",
+      "claim": "The ack is returned within the platform deadline and heavy logic runs in the background.",
+      "evidence_required": "A timing measurement of the ack path, or a test showing deferral of long work.",
+      "how_to_run": "Run the ack-timing test and quote the measured time.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Ack returned within the platform deadline"
+      }
+    },
+    {
+      "id": "bots-dedupe",
+      "claim": "Redelivered events are deduped on the platform id with a uniqueness guarantee.",
+      "evidence_required": "A test where the same interaction/event/update id delivered twice acts once.",
+      "how_to_run": "Run the redelivery test and quote the single side effect.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Redelivered events deduped on"
+      }
+    },
+    {
+      "id": "bots-send-retries",
+      "claim": "Outbound calls honor rate limits, retry with bounded backoff and dead-letter permanent failures.",
+      "evidence_required": "A test with a 429 + Retry-After response and a permanent failure landing in the dead-letter store.",
+      "how_to_run": "Run the send-side tests and quote the backoff and dead-letter cases.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "retry with bounded backoff, and dead-letter permanent failures"
+      }
+    },
+    {
+      "id": "bots-minimal-scopes",
+      "claim": "Scopes, intents and permissions are minimal.",
+      "evidence_required": "The list of requested scopes/intents with a reason for each.",
+      "how_to_run": "Read the app manifest or install URL and compare with what the code uses.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Scopes/intents/permissions minimal"
+      }
+    },
+    {
+      "id": "bots-safe-logging",
+      "claim": "No token, signing secret or PII in logs; secrets in env.",
+      "evidence_required": "A search of log calls and error paths for token/secret/PII output, with no hits.",
+      "how_to_run": "git diff plus a search of logging statements.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No token / signing secret / PII in logs; secrets in env."
+      }
+    },
+    {
+      "id": "bots-no-outreach",
+      "claim": "No unsolicited DM, broadcast or mass-mention; outreach is drafted only until the owner approves.",
+      "evidence_required": "The send paths reviewed: every outreach path ends in a draft or an approval step.",
+      "how_to_run": "Read the send code paths and quote the draft/approval gate.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No unsolicited DM / broadcast / mass-mention"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "No unsolicited DMs, mass-mentions or broadcasts without explicit owner approval; outreach drafted only.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no unsolicited DMs, mass-mentions or broadcasts without explicit owner approval; outreach drafted only."
+      }
+    },
+    {
+      "gate": "Privileged Discord intents or broad Slack scopes only when truly needed and owner-approved.",
+      "source": {
+        "path": ".claude/skills/forge-bots/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "privileged Discord intents or broad Slack scopes only when truly needed and owner-approved."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "The bot runs through n8n: use the n8n card.",
+    "The work is only the shared OAuth/secret/webhook backbone: use the integration card."
+  ],
+  "gaps": []
+}

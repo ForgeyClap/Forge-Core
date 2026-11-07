@@ -1,0 +1,170 @@
+{
+  "domain": "n8n",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "section": "Workflow"
+    },
+    {
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "section": "Ship-readiness"
+    },
+    {
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "n8n-validate",
+      "claim": "validate_node / validate_workflow ran clean, with real errors resolved.",
+      "evidence_required": "The validate_workflow output with zero real errors (false positives named).",
+      "how_to_run": "Run validate_workflow through the n8n MCP (n8n-validation-expert) and quote the result.",
+      "severity": "block",
+      "honesty_note": "Never claim production-ready without passing validation.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Workflow",
+        "quote": "Gate: run validate_node / validate_workflow via n8n-validation-expert"
+      }
+    },
+    {
+      "id": "n8n-input-checks",
+      "claim": "Webhook method, input schema, credentials and auth are validated before production-ready is claimed.",
+      "evidence_required": "The webhook node settings and the input validation step.",
+      "how_to_run": "Read the workflow JSON for the webhook node and the validation node.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Validate before claiming production-ready: webhook method, input schema, credentials, auth/security"
+      }
+    },
+    {
+      "id": "n8n-webhook-auth",
+      "claim": "Webhook auth is enabled.",
+      "evidence_required": "The webhook node authentication setting.",
+      "how_to_run": "Read the webhook node parameters in the workflow JSON.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "webhook auth enabled"
+      }
+    },
+    {
+      "id": "n8n-credentials",
+      "claim": "Credentials live in the n8n credential store or env, never hardcoded in nodes.",
+      "evidence_required": "A search of the workflow JSON for tokens/keys with no hits; credentials referenced by id.",
+      "how_to_run": "Search the exported workflow JSON for secret patterns.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Credentials live in n8n credential store / env — never hardcoded in nodes."
+      }
+    },
+    {
+      "id": "n8n-error-retry",
+      "claim": "Error and retry paths exist.",
+      "evidence_required": "The error branch / error workflow and retry settings in the workflow JSON.",
+      "how_to_run": "Read the workflow JSON for the error branch and retryOnFail settings.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "error + retry paths exist"
+      }
+    },
+    {
+      "id": "n8n-test-prod",
+      "claim": "Test and prod URLs are separated.",
+      "evidence_required": "The test and production webhook URLs or environments.",
+      "how_to_run": "Read the workflow and environment config.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "test vs prod URLs separated"
+      }
+    },
+    {
+      "id": "n8n-manual-execution",
+      "claim": "A manual test execution is shown.",
+      "evidence_required": "The execution id and its output.",
+      "how_to_run": "Run one manual execution in the test environment and quote the execution result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "a manual test execution shown"
+      }
+    },
+    {
+      "id": "n8n-inactive",
+      "claim": "Imported or new workflows stay inactive until the owner approves activation.",
+      "evidence_required": "The workflow active flag set to false.",
+      "how_to_run": "Read the active field in the workflow JSON or the n8n UI.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Imported/new workflows stay inactive until the owner approves activation."
+      }
+    },
+    {
+      "id": "n8n-null-safe",
+      "claim": "Expressions are null-safe: optional chaining, ?? for defaults, Array.isArray() before looping.",
+      "evidence_required": "A read of the expressions and Code nodes.",
+      "how_to_run": "Search the workflow JSON expressions for || defaults and unguarded loops.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Expressions are null-safe"
+      }
+    },
+    {
+      "id": "n8n-respond-early",
+      "claim": "Webhook-triggered workflows answer early with a Respond to Webhook node and do slow work afterwards.",
+      "evidence_required": "The node order showing Respond to Webhook before slow nodes.",
+      "how_to_run": "Read the workflow connections.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Webhook-triggered workflows answer early with a Respond to Webhook node"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Imported/new workflows stay inactive; no live activation without owner approval.",
+      "source": {
+        "path": ".claude/skills/forge-n8n/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "imported/new workflows stay inactive; no live activation without owner approval."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "n8n-respond-early and n8n-webhook-auth do not apply to workflows without a webhook trigger."
+  ],
+  "gaps": [
+    "forge-n8n has no \"## Domain gates\" section (template heading 7); its gate lives in \"## Workflow\" step 4 and \"## Ship-readiness\". The card cites those sections."
+  ]
+}

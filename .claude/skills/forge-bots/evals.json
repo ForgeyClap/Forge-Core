@@ -1,0 +1,67 @@
+{
+  "skill": "forge-bots",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "needle": "Use when building a Discord, Slack or Telegram bot in code",
+      "why": "description carries a when-trigger"
+    },
+    {
+      "id": "self-loop",
+      "type": "contains",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "needle": "no self-loop",
+      "why": "bot self-loop rule"
+    },
+    {
+      "id": "webhooks-link",
+      "type": "contains",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "needle": "forge-integration/references/webhooks.md",
+      "why": "links the shared webhook section"
+    },
+    {
+      "id": "persist-before-ack",
+      "type": "contains",
+      "path": ".claude/skills/forge-bots/references/hard-rules.md",
+      "needle": "Persist before you ack",
+      "why": "Forge addition in the full rules"
+    },
+    {
+      "id": "outreach-gate",
+      "type": "contains",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "needle": "Outreach drafted only",
+      "why": "owner gate stays"
+    },
+    {
+      "id": "provenance",
+      "type": "contains",
+      "path": ".claude/skills/forge-bots/SKILL.md",
+      "needle": "## Provenance",
+      "why": "provenance block present"
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+{
+  "domain": "website",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-website/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-website/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-website/SKILL.md",
+      "section": "Ship-readiness"
+    },
+    {
+      "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+      "section": "rules"
+    }
+  ],
+  "checks": [
+    {
+      "id": "web-responsive",
+      "claim": "The layout is verified by screenshot at about 360, 768 and 1280 px (mobile, tablet, desktop).",
+      "evidence_required": "Three screenshots from the built site on localhost, one per breakpoint.",
+      "how_to_run": "Serve the site on localhost and capture screenshots at 360/768/1280 (project screenshot script or Playwright).",
+      "severity": "block",
+      "honesty_note": "Never screenshot a file:// URL; a missing breakpoint is NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Domain gates",
+        "quote": "responsive at ~360/768/1280"
+      }
+    },
+    {
+      "id": "web-console-errors",
+      "claim": "Zero console errors on the core pages.",
+      "evidence_required": "The browser console capture with no errors.",
+      "how_to_run": "Capture the console while loading each core page.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "web-responsive-evidence",
+        "quote": "a zero-console-errors note"
+      }
+    },
+    {
+      "id": "web-a11y",
+      "claim": "An accessibility pass.",
+      "evidence_required": "An accessibility checker result on the built pages.",
+      "how_to_run": "Run axe or Lighthouse accessibility on the built site.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Accessibility pass"
+      }
+    },
+    {
+      "id": "web-meta",
+      "claim": "Every page has a unique title and meta description, a canonical URL, Open Graph tags and JSON-LD where it fits, checked in the built HTML.",
+      "evidence_required": "The head tags extracted from the built HTML of each page.",
+      "how_to_run": "Build, then read the head of each built HTML page.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Hard rules",
+        "quote": "every page has a unique title and meta description, a canonical URL, Open Graph title/description/image"
+      }
+    },
+    {
+      "id": "web-performance",
+      "claim": "Lighthouse or PageSpeed on the built site reports LCP, CLS and INP.",
+      "evidence_required": "The report with the three numbers.",
+      "how_to_run": "npx lighthouse <url> --output json and quote LCP, CLS and INP.",
+      "severity": "block",
+      "honesty_note": "Numbers measured on localhost are labelled \"local, indicative\".",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Hard rules",
+        "quote": "run Lighthouse or PageSpeed on the built site and report LCP, CLS and INP"
+      }
+    },
+    {
+      "id": "web-links",
+      "claim": "No broken links; all CTAs and links resolve.",
+      "evidence_required": "A link-check run with zero broken links.",
+      "how_to_run": "Run a link checker against the served site.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no broken links"
+      }
+    },
+    {
+      "id": "web-no-placeholder",
+      "claim": "No placeholder, Lorem, test or mock content in anything headed for prod.",
+      "evidence_required": "A search of the built output for lorem/placeholder/test copy with no hits.",
+      "how_to_run": "Search the build output for lorem, placeholder, TODO and test strings.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Hard rules",
+        "quote": "No placeholder/Lorem/test/mock content in anything headed for prod."
+      }
+    },
+    {
+      "id": "web-forms",
+      "claim": "Forms validate input and hit a real endpoint, with clear error and success states.",
+      "evidence_required": "A submit test showing validation, a success state and an error state.",
+      "how_to_run": "Submit the form with valid and invalid input and screenshot both states.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Forms validate input and hit a real endpoint; clear error + success states."
+      }
+    },
+    {
+      "id": "web-keys-env",
+      "claim": "Analytics and form keys live in env, never in the committed bundle.",
+      "evidence_required": "A search of the committed files and built bundle for keys with no hits.",
+      "how_to_run": "git diff plus a search of the build output for key patterns.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Any analytics/form keys live in env, never in the committed bundle."
+      }
+    },
+    {
+      "id": "web-cta",
+      "claim": "CTA clarity.",
+      "evidence_required": "Screenshots showing the main CTA on mobile and desktop.",
+      "how_to_run": "Look at the breakpoint screenshots.",
+      "severity": "warn",
+      "honesty_note": "Judgement, not a test; say what was looked at.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Domain gates",
+        "quote": "CTA clarity"
+      }
+    },
+    {
+      "id": "web-404",
+      "claim": "A 404 route exists.",
+      "evidence_required": "The response for a non-existent path.",
+      "how_to_run": "Request a non-existent path on the served site.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-website/SKILL.md",
+        "section": "Ship-readiness",
+        "quote": "404 route"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "A web/website-domain run shows responsive screenshot evidence (mobile + tablet + desktop) and a zero-console-errors note before being called done.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "web-responsive-evidence",
+        "quote": "must show real responsive screenshot evidence (mobile + tablet + desktop)"
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "web-forms does not apply when the site has no forms."
+  ],
+  "gaps": [
+    "\"CTA clarity\" (Domain gates) names no evidence form; the card carries it as warn."
+  ]
+}

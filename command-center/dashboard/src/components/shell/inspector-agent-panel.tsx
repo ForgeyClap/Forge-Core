@@ -7,10 +7,12 @@
  */
 
 import { Icon, Machine, Meter } from '@/components/primitives';
+import { t } from '@/i18n';
 import { selectAgent } from '@/prototype/state/prototype-store';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { Chips, Fields, KIND_LABEL, Prose, Section } from './inspector-shared';
+import { Chips, Fields, KIND_LABEL, Prose, Section, Quiet } from './inspector-shared';
 import type { Detail, SelectFn } from './inspector-shared';
+import { catalogWord } from './inspector-format';
 
 export function buildAgentDetail(
   state: PrototypeState,
@@ -32,39 +34,39 @@ export function buildAgentDetail(
         <Prose>{agent.role}</Prose>
         {agent.status === 'running' ? (
           <div className="fw-inspector__block">
-            <Meter value={agent.progress} label="Progress" tone="accent" showValue />
+            <Meter value={agent.progress} label={t('rd.details.progress')} tone="accent" showValue />
           </div>
         ) : null}
         <Fields
           rows={[
-            { label: 'Group', value: <Machine>{agent.group}</Machine> },
-            { label: 'Permission', value: <Machine>{agent.permission}</Machine> },
-            { label: 'Effort', value: <Machine>{agent.effort}</Machine> },
-            { label: 'Runtime', value: <Machine>{agent.runtimeModel}</Machine> },
-            { label: 'Tool model', value: <Machine>{agent.toolModel}</Machine> },
+            { label: t('rd.details.field.group'), value: catalogWord('rd.agents.group', agent.group) },
+            { label: t('rd.details.field.permission'), value: catalogWord('rd.agents.permission', agent.permission) },
+            { label: t('rd.details.field.effort'), value: catalogWord('rd.agents.effort', agent.effort) },
+            { label: t('rd.details.field.runtime'), value: <Machine>{agent.runtimeModel}</Machine> },
+            { label: t('rd.details.field.toolModel'), value: <Machine>{agent.toolModel}</Machine> },
             // fix-cert-rest (item 2): verification is now `null` (an honest absence of
             // evidence) rather than a fabricated 'not-required' — '—' when so.
-            { label: 'Verification', value: <Machine>{agent.verification ?? '—'}</Machine> },
-            { label: 'Last activity', value: <Machine muted>{agent.lastActivity}</Machine> },
+            { label: t('rd.details.field.verification'), value: catalogWord('rd.agents.verification', agent.verification) },
+            { label: t('rd.details.field.lastActivity'), value: <Quiet>{agent.lastActivity}</Quiet> },
           ]}
         />
-        <Section title="Current task" defaultOpen>
+        <Section title={t('rd.details.section.currentTask')} defaultOpen>
           {agent.currentTask ? (
             <Prose>{agent.currentTask}</Prose>
           ) : (
             <p className="fw-inspector__none">
-              {production ? 'No task assigned.' : 'No task assigned in the example data.'}
+              {production ? t('rd.details.noTask') : t('rd.details.noTaskExample')}
             </p>
           )}
         </Section>
-        <Section title="Summary">
+        <Section title={t('rd.details.section.summary')}>
           <Prose>{agent.summary}</Prose>
         </Section>
-        <Section title="Skills" count={agent.skills.length}>
-          <Chips items={agent.skills} label="Agent skills" />
+        <Section title={t('rd.details.section.skills')} count={agent.skills.length}>
+          <Chips items={agent.skills} label={t('rd.details.agentSkills')} />
         </Section>
         {tasks.length > 0 ? (
-          <Section title="Tasks" count={tasks.length}>
+          <Section title={t('rd.details.section.tasks')} count={tasks.length}>
             <div className="fw-inspector__links">
               {tasks.slice(0, 8).map((task) => (
                 <button

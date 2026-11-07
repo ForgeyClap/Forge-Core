@@ -1,0 +1,121 @@
+{
+  "domain": "agent",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-agent/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-agent/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "agent-tool-schemas",
+      "claim": "Every tool has a validated input schema, the tool set is least-privilege, and destructive tools are confirmation- or human-gated.",
+      "evidence_required": "The tool definitions with their schemas, plus a test run where a malformed tool call is rejected before execution; the list of destructive tools with their gate.",
+      "how_to_run": "Read the tool registry; run the tool-dispatch tests with the project test command and quote the case that refuses invalid arguments.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Every tool has a validated input schema; the tool set is least-privilege"
+      }
+    },
+    {
+      "id": "agent-injection-structural",
+      "claim": "Injection defense is structural (plan-then-execute plus a capability-split reader) and no lethal-trifecta path is left unbroken.",
+      "evidence_required": "A design note naming which trifecta leg is severed, plus a test where injected text in retrieved content does not change the tool plan.",
+      "how_to_run": "Read the dispatch code and design note; run the injection test case and quote its output.",
+      "severity": "block",
+      "honesty_note": "Only the reader-side (weak) form can be enforced; never record doer-blindness as proven.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Injection defense is structural (plan-then-execute + capability-split reader)"
+      }
+    },
+    {
+      "id": "agent-eval-real",
+      "claim": "An eval set exists, runs, and reports a real pass rate; prompts are versioned.",
+      "evidence_required": "Eval run output naming the dataset, its size and the pass rate.",
+      "how_to_run": "Run the project eval command (the eval runner is opt-in) and quote the summary line with the exit code.",
+      "severity": "block",
+      "honesty_note": "The eval runner is opt-in: when it did not run, the check is NOT_RUN, never PASS.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "An eval set exists, runs, and reports a real pass rate"
+      }
+    },
+    {
+      "id": "agent-fallback",
+      "claim": "Fallback is verified for low-confidence, empty-retrieval and tool-unavailable cases, with no fabricated facts or citations.",
+      "evidence_required": "Test or transcript output for each of the three fallback cases.",
+      "how_to_run": "Run the fallback test cases (or drive the agent with an empty retrieval and a disabled tool) and quote the replies.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Fallback verified for low-confidence / empty-retrieval / tool-unavailable"
+      }
+    },
+    {
+      "id": "agent-handoff",
+      "claim": "A human-handoff path is defined and reachable.",
+      "evidence_required": "The handoff trigger in code or config plus one run that reaches it.",
+      "how_to_run": "Trigger the handoff condition (explicit request or repeated failure) and quote the result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Human-handoff path defined and reachable."
+      }
+    },
+    {
+      "id": "agent-guards",
+      "claim": "Token/cost budget, loop iteration cap, per-call timeout and rate-limit backoff are enforced and tested.",
+      "evidence_required": "A test showing a runaway loop stops at the cap, plus the configured budget, timeout and backoff values.",
+      "how_to_run": "Run the guard tests and quote the bounded-runaway case.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Token/cost budget, agent-loop iteration cap, per-call timeout, and rate-limit backoff are enforced and tested"
+      }
+    },
+    {
+      "id": "agent-secrets",
+      "claim": "Secrets live in env; no keys in prompts, logs or transcripts.",
+      "evidence_required": "A grep of the diff and prompt files for key-shaped strings with no hits, and a .env.example with placeholders.",
+      "how_to_run": "git diff plus a search for key patterns in prompts, logs and transcripts; read .env.example.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Secrets in env; no keys in prompts, logs, or transcripts."
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Destructive or irreversible tools (delete, deploy, pay, send, overwrite) are confirmation- or human-gated, never autonomous.",
+      "source": {
+        "path": ".claude/skills/forge-agent/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "destructive or irreversible tools (delete, deploy, pay, send, overwrite) are confirmation- or human-gated, never autonomous."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "The work is only the retrieval leg of an agent that grounds on documents: use the rag card (forge-agent defers to forge-rag)."
+  ],
+  "gaps": []
+}

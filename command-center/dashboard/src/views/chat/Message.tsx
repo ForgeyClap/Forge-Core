@@ -1,11 +1,13 @@
 /**
  * Message — one turn in the thread.
  *
- * User and Forge turns are told apart without a single coloured bubble:
- *   alignment    the user sits right and narrow, Forge runs the full column
- *   surface      the user gets a raised card, Forge sits on the canvas itself
- *   border       a hairline box against a single leading rule
- *   label        an explicit author eyebrow above each turn
+ * User and Forge turns are told apart the redesign way (DESIGN.md §3.2):
+ *   you      a sunken bubble on the right (radius 16 16 4 16), no visible header;
+ *            the author stays for screen readers, time and actions show on hover/focus
+ *   Forge    no bubble: plain text across the column, like a document, under a
+ *            small mark and the word "Forge"
+ *   routed   a Forge turn the router ran elsewhere carries its "via …" badge in the
+ *            header and, when something changed, the route notice above it
  *
  * Copy writes to the clipboard of this tab and nothing else. Regenerate re-sends
  * the preceding user turn through the real send path when `regenerate` is
@@ -16,9 +18,10 @@
  */
 
 import { useCallback } from 'react';
-import type { Attachment, ChatMessage } from '@/prototype/types/prototype-types';
+import { useLocale } from '@/i18n/use-locale';
+import type { ChatMessage } from '@/prototype/types/prototype-types';
 import { nextToastId, usePrototype } from '@/prototype/state/prototype-store';
-import type { ChatSendEffort, ChatSendMode, ChatSendOutcome } from '@/prototype/state/chat-send';
+import type { ChatSendOutcome } from '@/prototype/state/chat-send';
 import {
   readChatMessageEffort,
   readChatMessageFileEdits,
@@ -27,18 +30,33 @@ import {
   readChatMessageShellCommands,
   readChatMessageUsage,
 } from '@/prototype/state/gateway-chat';
-import type { ChatFileEdit, ChatShellCommand } from '@/prototype/state/gateway-chat';
+import type { ChatShellCommand } from '@/prototype/state/gateway-chat';
+import { readChatMessageRouteExhausted, readChatMessageRouteTurn } from '@/prototype/state/gateway-chat/live-activity';
+import { readChatMessageRoute } from '@/prototype/state/gateway-chat/turn-parsers';
 import {
   ExampleTag,
-  Eyebrow,
   Icon,
   IconButton,
   Machine,
+  Mark,
   Spacer,
   StatusBadge,
 } from '@/components/primitives';
 import { isFixtureMode } from '@/config/mode';
 import { renderMarkdown } from './markdown';
+import { FoldedAttempt, RouteBadge, RouteExhaustedNotice, RouteNotStartedNotice, RouteNotice } from './route-notice/RouteNotice';
+import { hasRouteNotice, routeFailed } from './route-notice/route-copy';
+import { RouteSkipLine } from './route-notice/RouteSkipLine';
+import {
+  ATTACHMENT_ICON,
+  EFFORT_CHIP_TEXT,
+  FOOTER_DETAIL,
+  MODE_CHIP_TEXT,
+  MODE_CHIP_TITLE,
+  buildEditDiffText,
+  displayTime,
+  stripContextWindowSuffix,
+} from './message-parts';
 
 export interface MessageProps {
   readonly message: ChatMessage;
@@ -63,75 +81,6 @@ export interface MessageProps {
   readonly requestedModel?: string | null;
 }
 
-const ATTACHMENT_ICON: Readonly<Record<Attachment['kind'], string>> = {
-  image: 'Image',
-  markdown: 'FileText',
-  code: 'FileCode',
-  log: 'ScrollText',
-  archive: 'FileArchive',
-};
-
-const FOOTER_DETAIL =
-  'Example response. The model and skill labels are display strings — nothing was generated and no session was contacted.';
-
-/**
- * feat-model-picker CORRECTION: a real, CLI-verified `--model` value can carry a
- * trailing context-window annotation (e.g. `claude-opus-5[1m]`) that the CLI's own `modelUsage`
- * report always strips back to its plain `canonicalModel` (`exec-stream-parse.mjs`'s
- * `extractResultUsage` already prefers `canonicalModel` over the raw, possibly-bracketed key — see
- * that function's own doc comment). Comparing the raw REQUESTED string against the canonical
- * ACTUALLY-RAN string without normalizing this would flag a genuine, fully-honored request (Opus
- * 1M asked for, Opus 1M ran) as a false "mismatch" on every single send, purely because of this
- * cosmetic naming difference — never for a real difference in what ran. Used ONLY to decide
- * whether a mismatch is real; the chip still DISPLAYS the raw, unaltered `requestedModel` text.
- */
-function stripContextWindowSuffix(model: string): string {
-  return model.replace(/\[[^\]]*\]$/, '');
-}
-
-/**
- * fix-stream-insights (checkup #6): a genuine added/removed diff is only possible for an Edit
- * (both `oldString`/`newString` are real) — a Write has no "before" state to diff against (it
- * replaces the whole file), so it never gets a fabricated diff, only its file path below. No line-
- * level diff algorithm is run: this is an honest presentation of the two real strings the CLI
- * itself reported (what it replaced, what it replaced it with), not a computed diff.
- */
-function buildEditDiffText(edit: ChatFileEdit): string | null {
-  if (edit.oldString === null || edit.newString === null) return null;
-  const removed = edit.oldString.split('\n').map((line) => `- ${line}`);
-  const added = edit.newString.split('\n').map((line) => `+ ${line}`);
-  return [...removed, ...added].join('\n');
-}
-
-/**
- * composer-modes-ui: a mode chip for every non-default mode the turn genuinely ran in — 'execute'
- * (the default) has no entry and therefore never shows a chip, exactly like before this feature
- * widened the mode set from Execute|Plan. Only ever read from `readChatMessageMode`'s own real,
- * gateway-carried value; never guessed from the composer's current selection (which only
- * describes the NEXT send, not a past one).
- */
-const MODE_CHIP_TEXT: Readonly<Partial<Record<ChatSendMode, string>>> = {
-  plan: 'PLAN',
-  'accept-edits': 'ACCEPT EDITS',
-  bypass: 'BYPASS',
-};
-
-const MODE_CHIP_TITLE: Readonly<Partial<Record<ChatSendMode, string>>> = {
-  plan: 'This turn ran in plan mode.',
-  'accept-edits': 'This turn ran with edits accepted automatically.',
-  bypass: 'This turn ran with permission prompts bypassed.',
-};
-
-/** composer-modes-ui: the effort chip's own display text, uppercased for the same chip style as
- *  the mode chips. Only ever read from `readChatMessageEffort`'s own real, gateway-carried value. */
-const EFFORT_CHIP_TEXT: Readonly<Record<ChatSendEffort, string>> = {
-  low: 'LOW',
-  medium: 'MEDIUM',
-  high: 'HIGH',
-  xhigh: 'EXTRA HIGH',
-  max: 'MAX',
-};
-
 export function Message({
   message,
   streaming = false,
@@ -141,8 +90,10 @@ export function Message({
   requestedModel = null,
 }: MessageProps) {
   const { dispatch } = usePrototype();
+  const { t, locale } = useLocale();
   const isUser = message.author === 'user';
-  const author = isUser ? 'You' : 'Forge';
+  const author = isUser ? t('chat.message.you') : 'Forge';
+  const time = displayTime(message.timestamp, locale);
 
   const toast = useCallback(
     (title: string, detail?: string, icon?: string) => {
@@ -153,21 +104,17 @@ export function Message({
 
   const handleRegenerate = useCallback(() => {
     if (!regenerate) {
-      toast(
-        'Nothing to regenerate',
-        'This reply has no preceding message to send again.',
-        'RefreshCw',
-      );
+      toast(t('chat.message.nothingToRegenerate'), t('chat.message.nothingToRegenerateDetail'), 'RefreshCw');
       return;
     }
     void regenerate().then((outcome) => {
       if (outcome.ok) {
-        toast('Regenerating', 'Re-sent your last message. The new reply streams in below.', 'RefreshCw');
+        toast(t('chat.message.regenerating'), t('chat.message.regeneratingDetail'), 'RefreshCw');
       } else if (outcome.error !== null) {
-        toast('Regenerate failed', outcome.error, 'TriangleAlert');
+        toast(t('chat.message.regenerateFailed'), outcome.error, 'TriangleAlert');
       }
     });
-  }, [regenerate, toast]);
+  }, [regenerate, toast, t]);
 
   const copy = useCallback(
     (text: string, what: string) => {
@@ -176,10 +123,17 @@ export function Message({
       } catch {
         /* No clipboard in this context — the toast still tells the truth below. */
       }
-      toast(`${what} copied`, 'Copied to this tab’s clipboard. Nothing left the browser.', 'Copy');
+      toast(t('chat.message.copied', { what }), t('chat.message.copiedDetail'), 'Copy');
     },
-    [toast],
+    [toast, t],
   );
+
+  // App router (APP-ROUTER-DESIGN.md §5.1): which account or own model answered, the notice of a switch,
+  // and what the turn's events add (a folded failed attempt 1, a failover that found nothing, the error).
+  const route = isUser ? null : readChatMessageRoute(message);
+  const exhausted = isUser ? null : readChatMessageRouteExhausted(message);
+  const routeTurn = isUser ? null : readChatMessageRouteTurn(message);
+  const failedAttempt = routeTurn?.failedAttempt ?? null;
 
   const steps = message.steps ?? [];
   const attachments = message.attachments ?? [];
@@ -201,10 +155,12 @@ export function Message({
   // current selection (which only describes the NEXT send, not a past one). 'execute' (the
   // default) has no chip text and therefore renders none.
   const turnMode = isUser ? readChatMessageMode(message) : null;
-  const modeChipText = turnMode !== null ? (MODE_CHIP_TEXT[turnMode] ?? null) : null;
-  const modeChipTitle = turnMode !== null ? (MODE_CHIP_TITLE[turnMode] ?? null) : null;
+  const modeChipKey = turnMode !== null ? (MODE_CHIP_TEXT[turnMode] ?? null) : null;
+  const modeChipTitleKey = turnMode !== null ? (MODE_CHIP_TITLE[turnMode] ?? null) : null;
+  const modeChipText = modeChipKey !== null ? t(modeChipKey) : null;
+  const modeChipTitle = modeChipTitleKey !== null ? t(modeChipTitleKey) : null;
   const turnEffort = isUser ? readChatMessageEffort(message) : null;
-  const effortChipText = turnEffort !== null ? EFFORT_CHIP_TEXT[turnEffort] : null;
+  const effortChipText = turnEffort !== null ? t(EFFORT_CHIP_TEXT[turnEffort]) : null;
 
   // The per-message footer differs by mode. In fixtures it is the showcase
   // footer verbatim — the theme showcase and screenshots depend on it. In the
@@ -231,14 +187,12 @@ export function Message({
   const modelText =
     usageModel !== null
       ? isMismatch
-        ? `gevraagd: ${requestedModel} · gedraaid: ${usageModel}`
+        ? t('chat.message.modelMismatch', { requested: requestedModel ?? '', used: usageModel })
         : usageModel
       : message.model && message.model.trim().length > 0
         ? message.model
         : null;
-  const modelTitle = isMismatch
-    ? 'A different model was requested than the one that actually generated this response.'
-    : 'Model that generated this response.';
+  const modelTitle = isMismatch ? t('chat.message.modelMismatchTitle') : t('chat.message.modelTitle');
   const skillText = skills.length > 0 ? skills.join(' · ') : null;
 
   const forgeFooter = isFixtureMode() ? (
@@ -267,7 +221,7 @@ export function Message({
         </span>
       ) : null}
       {skillText !== null ? (
-        <span className="fw-chat-meta" title="Skills recorded for this response.">
+        <span className="fw-chat-meta" title={t('chat.message.skillsTitle')}>
           <Icon name="Sparkles" size="xs" />
           <Machine muted>{skillText}</Machine>
         </span>
@@ -275,73 +229,130 @@ export function Message({
     </footer>
   ) : null;
 
+  const label = t('chat.message.label', { position, total, author, time });
+
+  // The router could not start this turn at all: the thread shows why, nothing else.
+  if (exhausted !== null) {
+    return (
+      <article className="fw-chat-msg fw-chat-msg--forge fw-chat-msg--notice" data-chat-message="" tabIndex={0} aria-label={label}>
+        <RouteExhaustedNotice notice={exhausted} turnSkipped={routeTurn?.skipped} />
+      </article>
+    );
+  }
+
+  // A failed attempt 1 the router retried elsewhere (`route_attempt_failed`): folded away under its reason,
+  // never hidden. It sits above the answer of the attempt that took over.
+  const folded =
+    failedAttempt !== null ? (
+      <FoldedAttempt route={failedAttempt.route}>
+        {failedAttempt.text.trim() !== '' ? (
+          <div className="fw-chat-md">
+            {renderMarkdown(failedAttempt.text, { idPrefix: `${message.id}-attempt`, caret: false, onCopy: (code, lang) => copy(code, t('chat.message.codeBlock', { lang })) })}
+          </div>
+        ) : null}
+      </FoldedAttempt>
+    ) : null;
+
+  // A turn whose only record is that folded attempt (attempt 2 left nothing), or only the steps the router
+  // skipped, or a turn the gateway could not start at all (Q7-FINISH: it says so, with the way out): never an
+  // empty Forge bubble.
+  const skippedOnly = routeTurn !== null && routeTurn.skipped.length > 0;
+  const notStarted = routeTurn?.notStarted === true;
+  const retry = regenerate ? handleRegenerate : null;
+  if (route === null && (folded !== null || skippedOnly || notStarted) && message.body.trim() === '' && !isLive) {
+    return (
+      <article className="fw-chat-msg fw-chat-msg--forge fw-chat-msg--folded" data-chat-message="" tabIndex={0} aria-label={label}>
+        {folded}
+        {notStarted ? <RouteNotStartedNotice skipped={routeTurn?.skipped ?? []} onRetry={retry} /> : <RouteSkipLine skipped={routeTurn?.skipped ?? []} />}
+      </article>
+    );
+  }
+
+  // An answer that failed says so in its notice; an empty body under it would only be an empty bubble, and its
+  // header (name, time, copy of nothing) a blank reply. The retry moves into the notice (Q7-FINISH).
+  const hideEmptyBody = route !== null && routeFailed(route) && message.body.trim() === '';
+
   return (
     <article
       className={`fw-chat-msg fw-chat-msg--${isUser ? 'user' : 'forge'}`}
       data-chat-message=""
       tabIndex={0}
-      aria-label={`Message ${position} of ${total}, from ${author}, ${message.timestamp}`}
+      aria-label={label}
       aria-busy={streaming || isLive || undefined}
     >
-      <header className="fw-chat-msg__head">
-        <Eyebrow className="fw-chat-msg__author">{author}</Eyebrow>
-        <Machine muted className="fw-chat-msg__time">
-          {message.timestamp}
-        </Machine>
+      {folded}
+      {route !== null ? <RouteNotice route={route} turn={routeTurn} isLast={position === total} onRetry={hideEmptyBody ? retry : null} /> : null}
+      {hideEmptyBody ? null : <header className="fw-chat-msg__head">
+        {isUser ? (
+          <span className="fw-chat-msg__author fw-visually-hidden">{author}</span>
+        ) : (
+          <span className="fw-chat-msg__who fw-chat-msg__author">
+            <Mark size={18} />
+            <span>{author}</span>
+          </span>
+        )}
         {message.edited ? (
           <Machine muted className="fw-chat-msg__edited">
-            edited
+            {t('chat.message.edited')}
           </Machine>
         ) : null}
         {isLive ? (
           <StatusBadge status="running" size="sm" className="fw-chat-msg__live-badge" />
         ) : null}
+        {route !== null ? <RouteBadge route={route} besideNotice={hasRouteNotice(route)} /> : null}
         {modeChipText !== null ? (
           <span className="fw-chat-msg__mode-chip" title={modeChipTitle ?? undefined}>
             {modeChipText}
           </span>
         ) : null}
         {effortChipText !== null ? (
-          <span className="fw-chat-msg__mode-chip" title="The effort level this turn ran with.">
+          <span className="fw-chat-msg__mode-chip" title={t('chat.message.effortTitle')}>
             {effortChipText}
           </span>
         ) : null}
         <Spacer />
+        {/* The hover time sits at the end (final review finding 2): at opacity 0 it still keeps its width, so
+            between the name and the "via …" badge it left a wide empty gap. */}
+        <Machine muted className="fw-chat-msg__time">
+          {time}
+        </Machine>
         <div className="fw-chat-msg__actions">
           <IconButton
             icon="Copy"
-            label="Copy this message"
+            label={t('chat.message.copy')}
             size="sm"
-            onClick={() => copy(message.body, 'Message')}
+            onClick={() => copy(message.body, t('chat.message.copyWhat'))}
           />
           {isUser ? null : (
             <IconButton
               icon="RefreshCw"
-              label="Regenerate this response"
+              label={t('chat.message.regenerate')}
               size="sm"
               onClick={handleRegenerate}
             />
           )}
         </div>
-      </header>
+      </header>}
 
-      <div className="fw-chat-msg__body fw-chat-md">
-        {renderMarkdown(message.body, {
-          idPrefix: message.id,
-          caret: streaming,
-          onCopy: (code, lang) => copy(code, `${lang} block`),
-        })}
-      </div>
+      {hideEmptyBody ? null : (
+        <div className="fw-chat-msg__body fw-chat-md">
+          {renderMarkdown(message.body, {
+            idPrefix: message.id,
+            caret: streaming,
+            onCopy: (code, lang) => copy(code, t('chat.message.codeBlock', { lang })),
+          })}
+        </div>
+      )}
 
       {steps.length > 0 ? (
         <details className="fw-chat-steps">
           <summary className="fw-chat-steps__summary">
             <Icon name="ChevronRight" size="sm" className="fw-chat-steps__chevron" />
             <Machine className="fw-chat-steps__count">
-              {steps.length} steps · {completed} completed
+              {t('chat.message.steps', { count: steps.length, completed })}
             </Machine>
             <Spacer />
-            <span className="fw-chat-steps__hint">progress</span>
+            <span className="fw-chat-steps__hint">{t('chat.message.progress')}</span>
           </summary>
           <ol className="fw-chat-steps__list">
             {steps.map((step) => (
@@ -367,10 +378,10 @@ export function Message({
           <summary className="fw-chat-steps__summary">
             <Icon name="ChevronRight" size="sm" className="fw-chat-steps__chevron" />
             <Machine className="fw-chat-steps__count">
-              {fileEdits.length} {fileEdits.length === 1 ? 'file' : 'files'} changed
+              {t(fileEdits.length === 1 ? 'chat.message.filesOne' : 'chat.message.filesMany', { count: fileEdits.length })}
             </Machine>
             <Spacer />
-            <span className="fw-chat-steps__hint">diff</span>
+            <span className="fw-chat-steps__hint">{t('chat.message.diff')}</span>
           </summary>
           <ul className="fw-chat-steps__list">
             {fileEdits.map((edit, index) => {
@@ -401,10 +412,10 @@ export function Message({
           <summary className="fw-chat-steps__summary">
             <Icon name="ChevronRight" size="sm" className="fw-chat-steps__chevron" />
             <Machine className="fw-chat-steps__count">
-              {shellCommands.length} {shellCommands.length === 1 ? 'command' : 'commands'} run
+              {t(shellCommands.length === 1 ? 'chat.message.commandsOne' : 'chat.message.commandsMany', { count: shellCommands.length })}
             </Machine>
             <Spacer />
-            <span className="fw-chat-steps__hint">shell</span>
+            <span className="fw-chat-steps__hint">{t('chat.message.shell')}</span>
           </summary>
           <ul className="fw-chat-steps__list">
             {shellCommands.map((cmd: ChatShellCommand, index) => (
@@ -415,8 +426,8 @@ export function Message({
                     <Machine className="fw-chat-shell__description">{cmd.description}</Machine>
                   ) : null}
                   {cmd.isError === null ? null : (
-                    <Machine muted className="fw-chat-shell__status" title={cmd.isError ? 'This command reported an error.' : 'This command completed without error.'}>
-                      {cmd.isError ? 'error' : 'ok'}
+                    <Machine muted className="fw-chat-shell__status" title={cmd.isError ? t('chat.message.commandErrorTitle') : t('chat.message.commandOkTitle')}>
+                      {cmd.isError ? t('chat.message.commandError') : t('chat.message.commandOk')}
                     </Machine>
                   )}
                 </div>
@@ -435,7 +446,7 @@ export function Message({
       ) : null}
 
       {attachments.length > 0 ? (
-        <ul className="fw-chat-atts" aria-label="Attachments">
+        <ul className="fw-chat-atts" aria-label={t('chat.message.attachments')}>
           {attachments.map((attachment) => (
             <li key={attachment.id}>
               <button

@@ -1,6 +1,7 @@
 ---
 name: forge-mindmap
-description: Generates a mind map (nodes+edges) to visualize a plan or architecture. Use when a plan has enough branching that a graph reads clearer than prose — mind map, visualize the plan.
+description: "Use when a plan reads better as a mind map (nodes and edges)."
+# W2-BUDGET original description (listing budget): "Generates a mind map (nodes and edges) of a plan or architecture. Use when a branching plan reads clearer as a graph than as prose."
 ---
 
 # Forge Mind Map (WP4)

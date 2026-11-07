@@ -32,6 +32,9 @@
  *   - tests_run must be a string or an array — "none" is an honest, valid answer.
  *   - next_action must be a non-empty string.
  *   - result_caveat (OPTIONAL) must be a non-empty string WHEN PRESENT. See below.
+ *   - verdict (OPTIONAL) must be one of VERDICT_GRADES WHEN PRESENT: the graded verdict a
+ *     verifier (Verify Boss / forge-verify.cjs --claim) gives. Only PROVEN maps to PASS; NOT-PROVEN maps to
+ *     FAIL; PARTLY-PROVEN and NO-CONFIDENT-RESULT never count as a pass. A builder report simply omits it.
  *   - Only the LAST ```forge-report fenced block in the text is used (an agent may think out loud with
  *     earlier examples/drafts; the final block is the real contract).
  *
@@ -72,15 +75,22 @@
  *     failure: exit 2, print the errors, log NOTHING (the Lead must send the report back to the agent).
  *
  * Module API: { parseReport, validateReport, buildIngestEvents, findLastForgeReportBlock,
- *   summarizeReport, REQUIRED_STATUSES }
+ *   summarizeReport, REQUIRED_STATUSES, VERDICT_GRADES, ... }
  */
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const store = require('./forge-store.cjs');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1: this copy's project via forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers it from the cwd, null when there is none -> ingest needs --root).
+// Guarded: a missing or older forge-paths.cjs keeps the old two-folders-up answer.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 const REQUIRED_STATUSES = ['completed', 'partial', 'blocked', 'failed'];
+// the graded verifier verdict. The contract owns the word list; forge-verify.cjs imports it
+// (and owns the mapping onto the PASS/FAIL gate) so the two can never disagree about which words exist.
+const VERDICT_GRADES = ['PROVEN', 'PARTLY-PROVEN', 'NOT-PROVEN', 'NO-CONFIDENT-RESULT'];
 
 // ---- 1) find + parse the fenced block ----------------------------------------------------------
 // Only the LAST occurrence wins — an agent may show an earlier example/draft block while reasoning.
@@ -134,6 +144,9 @@ function validateReport(report) {
   // a checkbox, and a checkbox is exactly what this field exists to not be.
   if (report.result_caveat !== undefined && !nonEmptyString(report.result_caveat)) {
     errors.push('result_caveat must be a non-empty string when present — it answers "under what circumstances does this result NOT hold"; omit the field entirely rather than filling it with whitespace');
+  }
+  if (report.verdict !== undefined && !VERDICT_GRADES.includes(report.verdict)) {
+    errors.push('verdict must be one of: ' + VERDICT_GRADES.join(', ') + ' when present (got ' + JSON.stringify(report.verdict) + ') — omit it in a builder report');
   }
   return errors;
 }
@@ -242,6 +255,8 @@ module.exports = {
   // the failure side of the same contract (see the file header): the report's validity
   // conditions, and the dispatch brief's stuck-behaviour + required inputs.
   reportNotes, validateBrief, briefNotes, BRIEF_ON_STUCK,
+  // the graded verifier verdict word list (validated when a report carries `verdict`).
+  VERDICT_GRADES,
 };
 
 // ---- CLI -----------------------------------------------------------------------------------------
@@ -287,6 +302,11 @@ if (require.main === module) {
       const [runId, fileArg] = pos;
       if (!runId || !fileArg || !agent) {
         console.error('Usage: forge-report.cjs ingest <run_id> <file|-> --agent "<Boss name>" [--root <projectRoot>]');
+        process.exitCode = 1;
+        return;
+      }
+      if (!root) {
+        console.error('forge-report: no project root found (no .claude, .forge or .git above the current folder; pass --root)');
         process.exitCode = 1;
         return;
       }

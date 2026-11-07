@@ -89,8 +89,10 @@
  * not named by this split and stay exactly where they were.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, KeyboardEvent } from 'react';
+import './chat.css';
+
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, DragEvent, KeyboardEvent } from 'react';
 import {
   nextToastId,
   selectActiveProject,
@@ -100,12 +102,17 @@ import {
   usePrototype,
 } from '@/prototype/state/prototype-store';
 import type { PrototypeState } from '@/prototype/state/prototype-store';
-import { Button, ExampleTag, Icon, IconButton, KeyHint, Machine } from '@/components/primitives';
+// `tNow` (the store's own `t`) is for strings built inside event callbacks: it reads the locale at
+// call time, so those callbacks need no locale dependency. Render-time text uses `useLocale()`.
+import { t as tNow } from '@/i18n';
+import type { MessageKey } from '@/i18n';
+import { useLocale } from '@/i18n/use-locale';
+import { Button, ExampleTag, Icon, IconButton, Machine } from '@/components/primitives';
 import type { ChatSendEffort, ChatSendMode, ChatSendModel, ChatSendOutcome } from '@/prototype/state/chat-send';
 import type { ChatMessage } from '@/prototype/types/prototype-types';
 import {
   EXEC_TOKEN_HEADER,
-  GATEWAY_ORIGIN,
+  gatewayUrl,
   gwGet,
   pickArray,
   pickBool,
@@ -113,6 +120,7 @@ import {
   pickRecord,
   pickString,
   readExecToken,
+  writeCredentials,
 } from '@/prototype/state/gateway-client';
 import { RUN_PLAN_MESSAGE, sendArgsFor } from './compose-args';
 import {
@@ -133,9 +141,13 @@ import { ALL_SLASH_COMMANDS, activeSlashQuery, filterSlashCommands } from './sla
 import type { SlashCommand, SlashCommandContext } from './slash-commands';
 import { MenuButton } from './menu-button';
 import type { MenuOption } from './menu-button';
+import { useUiMode } from '@/state/ui-mode';
 import {
   AUTO_PLAN_STORAGE_KEY,
+  DEFAULT_SEND_MODE,
   EFFORT_STORAGE_KEY,
+  confirmBypass,
+  isBypassConfirmed,
   modelStorageKey,
   modeStorageKey,
   persist,
@@ -148,6 +160,7 @@ import type { EffortChoice, ModelChoice } from './mode-storage';
 import { ComposerModeControls } from './mode-controls';
 import { MentionSuggestions, SlashCommandSuggestions } from './suggestion-panels';
 import { ComposerQueuePanel } from './queue-panel';
+import { ComposerProjectChip } from './ComposerProjectChip';
 
 /**
  * feat-forge-preamble: Auto-plan's own real stage-2 message — sent automatically (no button click)
@@ -182,6 +195,17 @@ const EMPTY_MESSAGES: readonly ChatMessage[] = [];
  *  inactive popover never recomputes a new empty array identity on every render. */
 const EMPTY_MENTION_RESULTS: readonly MentionFileEntry[] = [];
 const EMPTY_SLASH_RESULTS: readonly SlashCommand[] = [];
+
+/** Slash commands for Uitgebreid-only controls (plan §4.2): bypass, effort and auto-plan. */
+/** The last folder of a Windows or POSIX path ("C:\\a\\b\\Bakkerij" -> "Bakkerij"); the path itself when it has none. */
+function folderName(path: string): string {
+  const parts = path.split(/[\\/]+/).filter((part) => part !== '');
+  return parts.length > 0 ? parts[parts.length - 1] : path;
+}
+
+function isAdvancedOnlyCommand(id: string): boolean {
+  return id === 'mode-bypass' || id === 'auto-plan-toggle' || id.startsWith('effort-');
+}
 
 /**
  * feat-composer-power: `onSend`'s async verdict widens from a bare `boolean` to (optionally) the
@@ -235,13 +259,48 @@ export interface ComposerProps {
    * `/delete` slash command, opening the SAME confirm dialog the toolbar's Delete button opens.
    */
   readonly onRequestDelete?: () => void;
+  /** Redesign (DESIGN.md §2): `start` is the big composer on Start; `chat` (default) sits under a thread. */
+  readonly variant?: 'chat' | 'start';
+  /** The field's placeholder. Defaults to the chat one ("Vraag iets of geef een aanpassing"). */
+  readonly placeholder?: string;
+  /** The field's accessible name. Defaults to "Bericht aan Forge in <conversation>". */
+  readonly fieldLabel?: string;
+  /**
+   * Fills the draft from outside (Start's suggestions). The counter makes picking the same text twice
+   * refill it; a seed never sends.
+   */
+  readonly seed?: { readonly text: string; readonly n: number } | null;
 }
 
-const CONTEXT_OPTIONS: readonly MenuOption[] = [
-  { id: 'project', icon: 'FolderGit2', label: 'This project', detail: 'Name, type and health score' },
-  { id: 'run', icon: 'Activity', label: 'Latest run', detail: 'Work packages and their status' },
-  { id: 'files', icon: 'Files', label: 'Changed files', detail: 'The current changed-file list' },
-  { id: 'tests', icon: 'FlaskConical', label: 'Quality gates', detail: 'The current gate results' },
+/** The Enter / Shift+Enter hint shows once, the first time a draft has two lines (DESIGN.md §2). */
+const MULTILINE_HINT_KEY = 'forge.composer.multilineHintSeen';
+
+function multilineHintSeen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(MULTILINE_HINT_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+function markMultilineHintSeen(): void {
+  try {
+    globalThis.localStorage?.setItem(MULTILINE_HINT_KEY, '1');
+  } catch {
+    // Storage blocked: the hint may show again next time, nothing else depends on it.
+  }
+}
+
+const CONTEXT_OPTION_KEYS: readonly {
+  readonly id: string;
+  readonly icon: string;
+  readonly labelKey: MessageKey;
+  readonly detailKey: MessageKey;
+}[] = [
+  { id: 'project', icon: 'FolderGit2', labelKey: 'chat.composer.contextProject', detailKey: 'chat.composer.contextProjectDetail' },
+  { id: 'run', icon: 'Activity', labelKey: 'chat.composer.contextRun', detailKey: 'chat.composer.contextRunDetail' },
+  { id: 'files', icon: 'Files', labelKey: 'chat.composer.contextFiles', detailKey: 'chat.composer.contextFilesDetail' },
+  { id: 'tests', icon: 'FlaskConical', labelKey: 'chat.composer.contextTests', detailKey: 'chat.composer.contextTestsDetail' },
 ];
 
 /* --------------------------------------------------------- context builders */
@@ -354,8 +413,13 @@ export function Composer({
   production = false,
   onNewChat,
   onRequestDelete,
+  variant = 'chat',
+  placeholder,
+  fieldLabel,
+  seed = null,
 }: ComposerProps) {
   const { state, dispatch } = usePrototype();
+  const { t } = useLocale();
   // Same project a real send actually targets (`chat-send.ts`'s `resolveProjectId`
   // reads this same `state.activeProjectId`) — used only to name the real write
   // scope in the hint below, never fetched or guessed separately.
@@ -368,6 +432,19 @@ export function Composer({
     stateRef.current = state;
   });
   const [value, setValue] = useState('');
+  // Start's suggestions fill the draft (never send). Adjusted during render, like the project re-seed below.
+  const [seedN, setSeedN] = useState(0);
+  if (seed !== null && seed.n !== seedN) {
+    setSeedN(seed.n);
+    setValue(seed.text);
+  }
+  // The "+" tray (DESIGN.md §2): attach, and in Uitgebreid context, skills, mode, model and effort.
+  const [trayOpen, setTrayOpen] = useState(false);
+  const trayId = useId();
+  const scopeId = useId();
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  // The one-time multi-line hint: shown while the first two-line draft is open, then never again.
+  const [multilineHint, setMultilineHint] = useState(false);
   // The project id `skillOptions` was fetched for, or null before the first
   // fetch. A project switch invalidates the cache — adjusted during render
   // (React's documented pattern for "reset state when a prop changes") rather
@@ -427,19 +504,46 @@ export function Composer({
   }
   const [effortChoice, setEffortChoiceState] = useState<EffortChoice>(() => readStoredEffort());
   const [autoPlan, setAutoPlanState] = useState<boolean>(() => readStoredAutoPlan());
-  const effort = effortChoice === 'default' ? undefined : effortChoice;
+  // Lead decision 2026-11-02 (plan §4.2): Denkkracht (effort) and Automatisch plannen are Uitgebreid
+  // controls only. In Eenvoudig they are hidden AND not applied: a choice stored earlier in Uitgebreid
+  // never changes a send the user cannot see a control for (it comes back when Uitgebreid returns).
+  const { isAdvanced } = useUiMode();
+  const effort = isAdvanced && effortChoice !== 'default' ? effortChoice : undefined;
+  const autoPlanActive = isAdvanced && autoPlan;
   const model = modelChoice === 'default' ? undefined : modelChoice;
 
+  // WP B3 (plan §4.2/§4.4): "Volledige toegang" (bypass) does not exist in Eenvoudig, and in
+  // Uitgebreid it needs a one-time confirmation per project. Until confirmed, the pick opens the
+  // confirmation instead of changing the mode.
+  const [bypassConfirmTick, setBypassConfirmTick] = useState(0);
+  const [bypassPending, setBypassPending] = useState(false);
+  const bypassAllowed = isAdvanced && bypassConfirmTick >= 0 && isBypassConfirmed(state.activeProjectId);
+
+  // `setBypassPending` is listed in both callbacks below: React Compiler infers it as a dependency
+  // (preserve-manual-memoization). A useState setter is stable, so this changes nothing at runtime.
   const setSendMode = useCallback(
     (next: ChatSendMode) => {
+      if (next === 'bypass' && !isAdvanced) return;
+      if (next === 'bypass' && !isBypassConfirmed(state.activeProjectId)) {
+        setBypassPending(true);
+        return;
+      }
+      setBypassPending(false);
       setSendModeState(next);
       // An unknown/empty project has nowhere honest to persist a per-project choice — the picker
       // still responds for this render, it just does not survive a remount until a real project
       // is active (see `readStoredMode`'s own empty-id short-circuit).
       if (state.activeProjectId !== '') persist(modeStorageKey(state.activeProjectId), next);
     },
-    [state.activeProjectId],
+    [state.activeProjectId, isAdvanced, setBypassPending],
   );
+  const acceptBypass = useCallback(() => {
+    confirmBypass(state.activeProjectId);
+    setBypassConfirmTick((tick) => tick + 1);
+    setBypassPending(false);
+    setSendModeState('bypass');
+    if (state.activeProjectId !== '') persist(modeStorageKey(state.activeProjectId), 'bypass');
+  }, [state.activeProjectId, setBypassPending]);
   const setEffortChoice = useCallback((next: EffortChoice) => {
     setEffortChoiceState(next);
     persist(EFFORT_STORAGE_KEY, next);
@@ -492,7 +596,9 @@ export function Composer({
   // simply whatever the mode picker currently has selected. Kept as its own named variable since
   // the write-scope hint below (and the queue-enqueue call) already reference `effectiveMode`
   // rather than `sendMode` directly.
-  const effectiveMode: ChatSendMode = sendMode;
+  // WP B3: a stored bypass only counts in Uitgebreid with this project's confirmation; otherwise the
+  // next send runs in the default "Mag aanpassen", never silently in bypass.
+  const effectiveMode: ChatSendMode = sendMode === 'bypass' && !bypassAllowed ? DEFAULT_SEND_MODE : sendMode;
 
   const toast = useCallback(
     (title: string, detail?: string, icon?: string) => {
@@ -543,11 +649,9 @@ export function Composer({
    * throws — a network failure or a gateway-reported error surfaces as a toast, exactly like every
    * other real gateway call in this component.
    */
-  const handleFileSelected = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-      const file = event.target.files?.[0] ?? null;
-      event.target.value = ''; // allow re-selecting the same file again later
-      if (!file || state.activeConversationId === '') return;
+  const uploadFile = useCallback(
+    async (file: File): Promise<void> => {
+      if (state.activeConversationId === '') return;
       setUploading(true);
       try {
         const formData = new FormData();
@@ -560,29 +664,71 @@ export function Composer({
         const token = readExecToken();
         const execHeaders: HeadersInit = token !== null ? { [EXEC_TOKEN_HEADER]: token } : {};
         const res = await globalThis.fetch(
-          `${GATEWAY_ORIGIN}/api/conversations/${encodeURIComponent(state.activeConversationId)}/attachments`,
-          { method: 'POST', body: formData, headers: execHeaders },
+          gatewayUrl(`/api/conversations/${encodeURIComponent(state.activeConversationId)}/attachments`),
+          // FU-STEP2: the session cookie travels with the upload like with every other write
+          // (`include` only on the Vite dev page, `same-origin` everywhere else).
+          { method: 'POST', body: formData, headers: execHeaders, credentials: writeCredentials() },
         );
         const body: unknown = await res.json().catch(() => null);
         if (!res.ok) {
           const message = pickString(body, ['error']) ?? `HTTP ${res.status}`;
-          toast('Attachment failed', message, 'TriangleAlert');
+          toast(tNow('chat.composer.attachFailed'), message, 'TriangleAlert');
           return;
         }
         const record = pickRecord(body, ['attachment']);
         const attachment = record ? parseAttachment(record) : null;
         if (!attachment) {
-          toast('Attachment failed', 'The gateway did not return a usable attachment record.', 'TriangleAlert');
+          toast(tNow('chat.composer.attachFailed'), tNow('chat.composer.attachFailedDetail'), 'TriangleAlert');
           return;
         }
         setAttachments((current) => [...current, attachment]);
       } catch (err) {
-        toast('Attachment failed', err instanceof Error ? err.message : String(err), 'TriangleAlert');
+        toast(tNow('chat.composer.attachFailed'), err instanceof Error ? err.message : String(err), 'TriangleAlert');
       } finally {
         setUploading(false);
       }
     },
     [state.activeConversationId, toast],
+  );
+
+  const handleFileSelected = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+      const file = event.target.files?.[0] ?? null;
+      event.target.value = ''; // allow re-selecting the same file again later
+      if (!file) return;
+      await uploadFile(file);
+    },
+    [uploadFile],
+  );
+
+  // WP B3: drag-and-drop files onto the composer — the same real upload route as the Attach button
+  // (gateway `attachments.mjs`), one file at a time in drop order. Before a conversation exists
+  // there is nowhere to upload to, so a drop then explains that instead of dropping the files.
+  const [dragActive, setDragActive] = useState(false);
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setDragActive(true);
+  }, []);
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragActive(false);
+  }, []);
+  const handleDrop = useCallback(
+    async (event: DragEvent<HTMLDivElement>): Promise<void> => {
+      if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+      event.preventDefault();
+      setDragActive(false);
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length === 0) return;
+      if (state.activeConversationId === '') {
+        toast(tNow('chat.composer.dropNeedsConversation'), tNow('chat.composer.attachDisabledHint'), 'Paperclip');
+        return;
+      }
+      for (const file of files) await uploadFile(file);
+    },
+    [state.activeConversationId, toast, uploadFile],
   );
 
   const removeAttachment = useCallback((id: string) => {
@@ -629,7 +775,7 @@ export function Composer({
       if (accepted) {
         setQueue((current) => removeQueuedMessage(current, item.id));
       } else {
-        setQueue((current) => markQueuedMessageFailed(current, item.id, error ?? 'The message was not accepted.'));
+        setQueue((current) => markQueuedMessageFailed(current, item.id, error ?? tNow('chat.composer.messageRejected')));
       }
     }
     void attemptFlush(next);
@@ -658,7 +804,7 @@ export function Composer({
       if (accepted) {
         setPendingAutoPlan({ conversationId: intake.conversationId, countAtSend: messages.length });
       } else {
-        toast('Plan not started', 'The automatic follow-up plan turn was not accepted.', 'TriangleAlert');
+        toast(tNow('chat.composer.planNotStarted'), tNow('chat.composer.planFollowUpRejected'), 'TriangleAlert');
       }
     }
     void fireAutoPlanFollowUp(pendingAutoPlanIntake);
@@ -676,7 +822,7 @@ export function Composer({
     const body = [
       ...attachments.map(attachmentBlock),
       trimmed,
-      ...(autoPlan ? [AUTO_PLAN_INTAKE_SUFFIX] : []),
+      ...(autoPlanActive ? [AUTO_PLAN_INTAKE_SUFFIX] : []),
     ]
       .filter((part) => part.length > 0)
       .join('\n\n');
@@ -719,7 +865,7 @@ export function Composer({
       // synchronous before this promise settles) — `stateRef` avoids the stale-closure trap of
       // reading `state` as it was when `submit` was created.
       const conversationId = stateRef.current.activeConversationId || conversationIdAtSend;
-      if (autoPlan) {
+      if (autoPlanActive) {
         // 3-stage auto-plan flow (feat-forge-preamble correction): this turn was stage 1, INTAKE —
         // it deliberately ran in whatever tool-capable mode was actually selected (never forced to
         // 'plan'), because plan mode in this environment can never call ask_owner at all. The
@@ -755,7 +901,7 @@ export function Composer({
       setAttachments([]);
       onAccepted();
     });
-  }, [onSend, value, attachments, effectiveMode, effort, model, autoPlan, state.activeConversationId, messages.length, streaming]);
+  }, [onSend, value, attachments, effectiveMode, effort, model, autoPlanActive, state.activeConversationId, messages.length, streaming]);
 
   /**
    * composer-modes-ui: the real, second turn of the auto-plan flow. Sends `RUN_PLAN_MESSAGE` in
@@ -766,18 +912,18 @@ export function Composer({
   const runProposedPlan = useCallback(() => {
     setPendingAutoPlan(null);
     const result = onSend(
-      ...(sendArgsFor(RUN_PLAN_MESSAGE, sendMode, effort, model) as readonly [string, ChatSendMode?, ChatSendEffort?, ChatSendModel?]),
+      ...(sendArgsFor(RUN_PLAN_MESSAGE, effectiveMode, effort, model) as readonly [string, ChatSendMode?, ChatSendEffort?, ChatSendModel?]),
     );
     const reportIfRefused = (outcome: ComposerSendResult) => {
       const accepted = typeof outcome === 'boolean' ? outcome : outcome.ok;
-      if (!accepted) toast('Plan not started', 'The follow-up turn was not accepted.', 'TriangleAlert');
+      if (!accepted) toast(tNow('chat.composer.planNotStarted'), tNow('chat.composer.followUpRejected'), 'TriangleAlert');
     };
     if (typeof result === 'boolean') {
       reportIfRefused(result);
       return;
     }
     void result.then(reportIfRefused);
-  }, [onSend, sendMode, effort, model, toast]);
+  }, [onSend, effectiveMode, effort, model, toast]);
 
   // feat-composer-power: the real, bounded suggestion list for the CURRENT `@`-token, or the
   // stable empty reference when no mention is active.
@@ -791,7 +937,10 @@ export function Composer({
     () => ({ autoPlan, setSendMode, setEffortChoice, setAutoPlan, onNewChat, onRequestDelete }),
     [autoPlan, setSendMode, setEffortChoice, setAutoPlan, onNewChat, onRequestDelete],
   );
-  const slashResults = slashQuery !== null ? filterSlashCommands(ALL_SLASH_COMMANDS, slashQuery, slashContext) : EMPTY_SLASH_RESULTS;
+  const slashResults =
+    slashQuery !== null
+      ? filterSlashCommands(ALL_SLASH_COMMANDS, slashQuery, slashContext).filter((command) => isAdvanced || !isAdvancedOnlyCommand(command.id))
+      : EMPTY_SLASH_RESULTS;
 
   /** Re-derives the active `@mention`/`/command` token from the field's own live value + caret on
    *  every keystroke — self-closing: once the token that opened a popover no longer matches (a
@@ -800,6 +949,10 @@ export function Composer({
   const handleFieldChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     const nextValue = event.target.value;
     setValue(nextValue);
+    if (nextValue.includes('\n') && !multilineHintSeen()) {
+      markMultilineHintSeen();
+      setMultilineHint(true);
+    }
     const caret = event.target.selectionStart ?? nextValue.length;
     const mention = activeMentionToken(nextValue, caret);
     setMentionToken(mention);
@@ -870,16 +1023,39 @@ export function Composer({
   );
 
   const empty = value.trim() === '' && attachments.length === 0;
+  if (multilineHint && value === '') setMultilineHint(false);
+  const bypassActive = effectiveMode === 'bypass';
+  const scopeSentence = `${t('chat.composer.liveBefore')} ${activeProject ? activeProject.path : t('chat.composer.liveFolderFallback')}${t('chat.composer.liveAfter')}${bypassActive ? t('chat.composer.liveFullAccess') : t('chat.composer.liveEnd')}`;
+  const contextOptions: readonly MenuOption[] = CONTEXT_OPTION_KEYS.map((option) => ({
+    id: option.id,
+    icon: option.icon,
+    label: t(option.labelKey),
+    detail: t(option.detailKey),
+  }));
 
   return (
-    <div className="fw-chat-composer">
+    <div
+      className="fw-chat-composer"
+      data-variant={variant}
+      data-tour="composer"
+      data-drag={dragActive ? 'true' : undefined}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={(event) => void handleDrop(event)}
+    >
+      {dragActive ? (
+        <div className="fw-chat-composer__drop" aria-hidden="true">
+          <Icon name="Paperclip" size="sm" />
+          <span>{t('chat.composer.dropHere')}</span>
+        </div>
+      ) : null}
       {planReady ? (
         <div className="fw-chat-composer__plan-banner" role="status">
           <Icon name="Workflow" size="sm" />
-          <span>A plan was proposed above.</span>
+          <span>{t('chat.composer.planProposed')}</span>
           <span className="fw-spacer" aria-hidden="true" />
           <Button variant="primary" size="sm" icon="Play" onClick={runProposedPlan}>
-            Voer dit plan uit
+            {t('chat.composer.runPlan')}
           </Button>
         </div>
       ) : null}
@@ -891,7 +1067,7 @@ export function Composer({
 
       <div className="fw-chat-composer__shell">
         {attachments.length > 0 ? (
-          <ul className="fw-chat-composer__attachments" aria-label="Attached files">
+          <ul className="fw-chat-composer__attachments" aria-label={t('chat.composer.attachedFiles')}>
             {attachments.map((attachment) => (
               <li key={attachment.id} className="fw-chat-composer__attachment">
                 <Icon name={attachment.isText ? 'FileText' : 'Paperclip'} size="xs" />
@@ -900,7 +1076,7 @@ export function Composer({
                 </Machine>
                 <IconButton
                   icon="X"
-                  label={`Remove ${attachment.fileName}`}
+                  label={t('chat.composer.removeAttachment', { name: attachment.fileName })}
                   size="sm"
                   onClick={() => removeAttachment(attachment.id)}
                 />
@@ -914,9 +1090,10 @@ export function Composer({
             ref={fieldRef}
             className="fw-chat-composer__field"
             value={value}
-            rows={1}
-            placeholder="Describe what you want built. Enter sends, Shift+Enter starts a new line. Type @ to mention a file, / for commands."
-            aria-label={`Message Forge in ${conversationTitle}`}
+            rows={variant === 'start' ? 3 : 1}
+            placeholder={placeholder ?? t('rd.start.chatPlaceholder')}
+            aria-label={fieldLabel ?? t('chat.composer.fieldLabel', { title: conversationTitle })}
+            aria-describedby={production ? scopeId : undefined}
             onChange={handleFieldChange}
             onKeyDown={handleKeyDown}
           />
@@ -932,19 +1109,93 @@ export function Composer({
           <SlashCommandSuggestions query={slashQuery} results={slashResults} onChoose={chooseSlashCommand} />
         </div>
 
+        {trayOpen ? (
+          <div
+            id={trayId}
+            className="fw-chat-composer__tray"
+            role="group"
+            aria-label={t('rd.chat.composer.add')}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || event.defaultPrevented) return;
+              event.preventDefault();
+              setTrayOpen(false);
+              addButtonRef.current?.focus();
+            }}
+          >
+            <Button
+              variant="quiet"
+              size="sm"
+              icon="Paperclip"
+              title={canAttach ? t('chat.composer.attachHint') : t('chat.composer.attachDisabledHint')}
+              disabled={!canAttach || uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {t('chat.composer.attach')}
+            </Button>
+            {isAdvanced ? (
+              <>
+                <MenuButton
+                  icon="AtSign"
+                  label={t('chat.composer.addContext')}
+                  title={t('chat.composer.contextTitle')}
+                  options={contextOptions}
+                  footer={t('chat.composer.contextFooter')}
+                  onPick={(option) => {
+                    const block = CONTEXT_BUILDERS[option.id]?.(state) ?? null;
+                    if (block === null) {
+                      toast(t('chat.composer.nothingToAdd'), t('chat.composer.nothingToAddDetail', { label: option.label }), 'AtSign');
+                      return;
+                    }
+                    insertBlock(block);
+                  }}
+                />
+                <MenuButton
+                  icon="Sparkles"
+                  label={t('chat.composer.chooseSkill')}
+                  title={t('chat.composer.skillsTitle')}
+                  options={skillOptions}
+                  footer={
+                    skillsLoaded && skillOptions.length === 0
+                      ? t('chat.composer.skillsNone')
+                      : t('chat.composer.skillsFooter')
+                  }
+                  onOpen={loadSkills}
+                  onPick={(option) => insertBlock(`Apply the "${option.label}" skill (${option.id}) to this request.`)}
+                />
+              </>
+            ) : null}
+            <span className="fw-chat-composer__tray-sep" aria-hidden="true" />
+            {/* The send mode and model stay reachable in Eenvoudig too (inside "+", never on the row): a
+                mode stored earlier still applies to the next send, so the control that shows it must
+                exist. Effort, Auto-plan and Bypass stay Uitgebreid only (plan §4.2). */}
+            <ComposerModeControls
+              autoPlan={autoPlan}
+              onAutoPlanChange={setAutoPlan}
+              effortChoice={effortChoice}
+              onEffortChoiceChange={setEffortChoice}
+              modelChoice={modelChoice}
+              onModelChoiceChange={setModelChoice}
+              sendMode={effectiveMode}
+              onSendModeChange={setSendMode}
+              showBypass={isAdvanced}
+              showEffortAndAutoPlan={isAdvanced}
+            />
+          </div>
+        ) : null}
+
         <div className="fw-chat-composer__row">
-          <IconButton
-            icon="Paperclip"
-            label="Attach a file"
-            title={
-              canAttach
-                ? 'Attach a file to this message'
-                : 'Start the conversation with a first message before attaching a file'
-            }
-            size="sm"
-            disabled={!canAttach || uploading}
-            onClick={() => fileInputRef.current?.click()}
-          />
+          <button
+            ref={addButtonRef}
+            type="button"
+            className="fw-control fw-icon-button fw-icon-button--md fw-chat-composer__add"
+            aria-label={t('rd.chat.composer.add')}
+            title={t('rd.chat.composer.add')}
+            aria-expanded={trayOpen}
+            aria-controls={trayOpen ? trayId : undefined}
+            onClick={() => setTrayOpen((open) => !open)}
+          >
+            <Icon name={trayOpen ? 'X' : 'Plus'} size="md" />
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -953,109 +1204,132 @@ export function Composer({
             tabIndex={-1}
             onChange={(event) => void handleFileSelected(event)}
           />
-          <MenuButton
-            icon="AtSign"
-            label="Add context"
-            title="Context"
-            options={CONTEXT_OPTIONS}
-            footer="Adds a real block from this project's current data to your draft."
-            onPick={(option) => {
-              const block = CONTEXT_BUILDERS[option.id]?.(state) ?? null;
-              if (block === null) {
-                toast('Nothing to add', `${option.label} has no data recorded yet in this project.`, 'AtSign');
-                return;
-              }
-              insertBlock(block);
-            }}
-          />
-          <MenuButton
-            icon="Sparkles"
-            label="Choose a skill"
-            title="Skills"
-            options={skillOptions}
-            footer={
-              skillsLoaded && skillOptions.length === 0
-                ? 'No skills are registered for this project yet.'
-                : 'Adds a real skill directive to your draft.'
-            }
-            onOpen={loadSkills}
-            onPick={(option) => insertBlock(`Apply the "${option.label}" skill (${option.id}) to this request.`)}
+          <ComposerProjectChip
+            scopeTitle={production ? scopeSentence : (activeProject?.name ?? t('chat.view.activeProject'))}
+            live={production}
           />
 
           <span className="fw-spacer" aria-hidden="true" />
 
-          <ComposerModeControls
-            autoPlan={autoPlan}
-            onAutoPlanChange={setAutoPlan}
-            effortChoice={effortChoice}
-            onEffortChoiceChange={setEffortChoice}
-            modelChoice={modelChoice}
-            onModelChoiceChange={setModelChoice}
-            sendMode={sendMode}
-            onSendModeChange={setSendMode}
-          />
-
           {streaming ? (
             <>
-              {/* feat-composer-power: while a run is active, Send itself is replaced by Stop
-                  (below, unchanged) — this is the real way to still submit a message: it queues
-                  rather than attempts an immediate send the gateway would 409. Enter does the
-                  same thing (see `submit`'s own streaming branch). */}
+              {/* feat-composer-power: while a run is active, Send itself is replaced by Stop — this is
+                  the real way to still submit a message: it queues rather than attempts an immediate
+                  send the gateway would 409. Enter does the same thing (see `submit`). */}
               <IconButton
                 icon="Clock"
-                label="Queue message"
-                title="Queue this message — it sends for real once the current run finishes"
+                label={t('chat.composer.queue')}
+                title={t('chat.composer.queueHint')}
                 size="sm"
                 disabled={empty}
                 onClick={submit}
               />
-              <Button variant="danger" size="sm" icon="Square" onClick={onStop}>
-                Stop
-              </Button>
+              <button
+                type="button"
+                className="fw-chat-composer__send fw-chat-composer__send--stop"
+                aria-label={t('chat.composer.stop')}
+                title={t('chat.composer.stop')}
+                onClick={onStop}
+              >
+                <Icon name="Square" size="sm" />
+              </button>
             </>
           ) : (
-            <Button variant="primary" size="sm" icon="ArrowUp" disabled={empty} onClick={submit}>
-              Send
-            </Button>
+            <button
+              type="button"
+              className="fw-chat-composer__send"
+              aria-label={t('chat.composer.send')}
+              title={t('chat.composer.send')}
+              disabled={empty}
+              onClick={submit}
+            >
+              <Icon name="ArrowUp" size="md" strokeWidth={2.25} />
+            </button>
           )}
         </div>
       </div>
 
-      <p className="fw-chat-composer__hint">
-        <KeyHint keys={['Enter']} /> <span>send</span>
-        <span className="fw-chat-composer__hint-sep" aria-hidden="true">
-          ·
-        </span>
-        <KeyHint keys={['Shift', 'Enter']} /> <span>new line</span>
-        <span className="fw-spacer" aria-hidden="true" />
-        {production ? (
-          <span className="fw-chat-composer__live">
-            Enter starts a real Claude Code session that can create or edit files only inside{' '}
-            {activeProject ? <Machine muted>{activeProject.path}</Machine> : "this project's folder"} —
-            a request for any other path is refused, not attempted
-            {effectiveMode === 'bypass'
-              ? '. Bypass mode is currently selected: it skips the approval prompts that would otherwise have refused a path outside this folder, so treat this run as having full write access on this machine.'
-              : '.'}
-          </span>
-        ) : (
-          <ExampleTag detail="Replies are local example text, revealed by a timer in this tab. Nothing is generated and nothing is sent." />
-        )}
-      </p>
-      {production && effectiveMode === 'bypass' ? (
-        <p className="fw-chat-composer__hint">
-          <span>
-            Bypass: voert uit zonder goedkeuringsvragen — nodig voor niet-interactieve dashboard-sessies.
-          </span>
+      {multilineHint ? (
+        <p className="fw-chat-composer__hint fw-chat-composer__hint--once" role="status">
+          {t('rd.start.multilineHint')}
         </p>
       ) : null}
-      {production && sendMode === 'plan' ? (
+
+      {/* Redesign: Eenvoudig shows no hint line under the composer (DESIGN.md §5 text budget). The
+          write-scope rule stays: screen readers hear it with the field (aria-describedby) and it is the
+          project chip's tooltip. Uitgebreid (review F4, forge-2026-11-04-ui-polish) shows the same short
+          scope line visibly; the full path stays in the chip's tooltip and in the screen-reader text. The
+          Enter/Shift+Enter hint is the once-only `multilineHint` above, in both modes (DESIGN.md §2). In
+          bypass the "refused" rule is not true, so the line is screen-reader only and the full-access
+          note below says what applies. */}
+      {!isAdvanced && production ? (
+        <p id={scopeId} className="fw-visually-hidden">
+          <ScopeLine path={activeProject?.path ?? null} withPath />
+        </p>
+      ) : isAdvanced && production ? (
+        <p id={scopeId} className={bypassActive ? 'fw-visually-hidden' : 'fw-chat-composer__hint'}>
+          {bypassActive ? (
+            scopeSentence
+          ) : (
+            <>
+              <ScopeLine path={activeProject?.path ?? null} visible />
+            </>
+          )}
+        </p>
+      ) : isAdvanced ? (
+        <p className="fw-chat-composer__hint fw-chat-composer__hint--example">
+          <ExampleTag detail={t('chat.composer.exampleDetail')} />
+        </p>
+      ) : (
+        <p className="fw-chat-composer__hint fw-chat-composer__hint--example">
+          <ExampleTag detail={t('chat.composer.exampleDetail')} />
+        </p>
+      )}
+      {production && effectiveMode === 'bypass' ? (
         <p className="fw-chat-composer__hint">
-          <span>
-            Plan-modus: alleen lezen en plannen — er is in plan-modus geen enkele tool beschikbaar
-            (ook ask_owner niet), dus er kunnen dan geen vragen gesteld worden.
-          </span>
+          <span>{t('chat.composer.fullAccessNote')}</span>
+        </p>
+      ) : null}
+      {bypassPending ? (
+        <div className="fw-chat-composer__confirm" role="alertdialog" aria-labelledby="fw-bypass-confirm-title">
+          <p id="fw-bypass-confirm-title" className="fw-chat-composer__confirm-title">
+            {t('chat.composer.bypassConfirmTitle')}
+          </p>
+          <p className="fw-chat-composer__confirm-detail">{t('chat.composer.bypassConfirmDetail')}</p>
+          <div className="fw-chat-composer__confirm-actions">
+            <Button variant="danger" size="sm" onClick={acceptBypass}>
+              {t('chat.composer.bypassConfirmYes')}
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => setBypassPending(false)}>
+              {t('chat.composer.bypassConfirmNo')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {production && effectiveMode === 'plan' ? (
+        <p className="fw-chat-composer__hint">
+          <span>{t('chat.composer.planOnlyNote')}</span>
         </p>
       ) : null}
     </div>
   );
+}
+
+/**
+ * The short write-scope line under the composer. A separate
+ * component so the large Composer keeps no extra derived values (React Compiler memoization of submit).
+ * `visible`: the short line shows, the full path is screen-reader only; `withPath`: plain text with the path.
+ */
+function ScopeLine({ path, visible = false, withPath = false }: { readonly path: string | null; readonly visible?: boolean; readonly withPath?: boolean }) {
+  const { t } = useLocale();
+  const short = path ? t('chat.composer.scopeShort', { folder: folderName(path) }) : t('chat.composer.scopeShortNoProject');
+  if (visible) {
+    return (
+      <>
+        <span>{short}</span>
+        {path ? <span className="fw-visually-hidden"> {path}</span> : null}
+      </>
+    );
+  }
+  return <>{withPath && path ? `${short} ${path}` : short}</>;
 }

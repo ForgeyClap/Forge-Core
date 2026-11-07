@@ -1,35 +1,43 @@
 /**
- * Projects — the browser over the workspace's project registry.
+ * Mijn projecten (DESIGN.md §3.3) — the project list.
  *
- * Filtering is bound to the store (`projectQuery`) so the same query is visible
- * on Home; sort order and list/grid layout are local view preferences, because
- * the prototype store deliberately does not model them.
+ * One title and one primary action ("Nieuw project"), then two quiet lists:
+ * - "Wacht op jou", only while a conversation really waits on the owner. The signal is the gateway's
+ *   own pending-ask list, which covers the ACTIVE project only (gateway-pending-asks.ts), so that is the
+ *   only project this group can ever show. It never guesses a wait for another project.
+ * - "Alle projecten": letter tile, name, a status word, a relative time and a chevron. Pinned projects
+ *   come first; pinning and opening live in each row's `...` menu (the sidebar no longer has them).
  *
- * `state.data.projects` is real in production (read from this project's own
- * gateway) and fixture-labelled example data otherwise — the view itself cannot
- * tell which, and reads neither a registry nor a path on disk directly.
+ * Search appears only above 8 projects (or while a query from elsewhere is still active, so it can be
+ * cleared). Uitgebreid adds the measured counts per row and the app/Forge versions under the list.
+ *
+ * `state.data.projects` is real in production (read from this project's own gateway) and
+ * fixture-labelled example data otherwise; the view itself cannot tell which.
  */
 
+import '../jobs/xpage.css';
 import './projects.css';
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Button,
-  EmptyState,
-  Icon,
-  IconButton,
-  Machine,
-  Meter,
-  SegmentedControl,
-  Spacer,
-  StatusBadge,
-  Toolbar,
-  ToolbarGroup,
-} from '@/components/primitives';
+
+import { Button, Icon, IconButton, Machine, Meter } from '@/components/primitives';
+import { ShellMenu } from '@/components/shell/ShellMenu';
+import type { Locale } from '@/i18n';
+import { useLocale } from '@/i18n/use-locale';
 import { hasMeasuredProjectDetail } from '@/prototype/state/gateway-adapter';
+import { useGatewayPendingAsks } from '@/prototype/state/gateway-pending-asks';
 import { selectFilteredProjects, selectIsPinned, usePrototype } from '@/prototype/state/prototype-store';
-import type { Project, ProjectType } from '@/prototype/types/prototype-types';
+import type { Project } from '@/prototype/types/prototype-types';
+import { useUiMode } from '@/state/ui-mode';
+import { relativeWhen } from '@/views/jobs/when';
+
+import { AddProjectPanel } from './AddProjectPanel';
+import { appVersion, useProjectForgeVersion } from './project-extras';
+import { ProjectStatusWord } from './project-status';
+
+/** DESIGN.md §3.3: search shows only with more than this many projects. */
+const SEARCH_THRESHOLD = 8;
 
 /* ------------------------------------------------------------ local helpers */
 
@@ -50,19 +58,17 @@ const AGO_UNITS: Readonly<Record<string, number>> = {
   days: 1440,
   week: 10080,
   weeks: 10080,
+  // B8-3: the adapter's relative label is localised; Dutch unit words sort like their twins.
+  uur: 60,
+  dag: 1440,
+  dagen: 1440,
+  weken: 10080,
 };
 
 /**
- * Minutes since `label`, for ordering only.
- *
- * `Project.lastActivity` USED to arrive here as a raw ISO timestamp, which this comment described.
- * It no longer does: the adapter now formats it to a relative label at the source, because a
- * 24-character ISO string was being truncated to `2026-07-29T0…` inside a meta slot sized for
- * "4 min ago" — less information than the value it replaced. Both branches below therefore still
- * matter, and the relative branch is now the PRODUCTION path rather than a fixture-only fallback.
- * The adapter deliberately emits the exact "<number> <unit word>" shape this parser accepts, so
- * this sort keeps working untouched — but that is a contract between two files, so do not change
- * either format without checking the other.
+ * Minutes since `label`, for ordering only. The adapter emits a relative "<number> <unit word>" label
+ * (gateway-events-honesty.test.ts pins that contract); a raw ISO timestamp still parses too.
+ * An empty or unknown label sorts as "now" (0), never as the oldest possible time.
  */
 function agoMinutes(label: string): number {
   const parsed = Date.parse(label);
@@ -72,53 +78,160 @@ function agoMinutes(label: string): number {
   return Number(match[1]) * (AGO_UNITS[match[2]] ?? 1);
 }
 
-const TYPE_ICON: Readonly<Record<ProjectType, string>> = {
-  website: 'Globe',
-  'full-stack': 'Layers',
-  automation: 'Workflow',
-  chatbot: 'MessagesSquare',
-  scraping: 'Radar',
-  prediction: 'TrendingUp',
-  integration: 'Cable',
-  research: 'FlaskConical',
-  // Unclassified project — the dashed circle is this app's existing "not determined" mark, never
-  // one of the eight real type icons (see Sidebar.tsx for the full reasoning).
-  unknown: 'CircleDashed',
-};
-
-const TYPE_LABEL: Readonly<Record<ProjectType, string>> = {
-  website: 'Website',
-  'full-stack': 'Full-stack',
-  automation: 'Automation',
-  chatbot: 'Chatbot',
-  scraping: 'Scraping',
-  prediction: 'Prediction',
-  integration: 'Integration',
-  research: 'Research',
-  // Reads as an honest absence, not as a category (see ProjectOverviewView.tsx).
-  unknown: 'Unclassified',
-};
-
-const SORTS = [
-  { value: 'recent', label: 'Recent' },
-  { value: 'name', label: 'Name' },
-  { value: 'health', label: 'Health' },
-] as const;
-
-const LAYOUTS = [
-  { value: 'list', label: 'List view', icon: 'Rows3' },
-  { value: 'grid', label: 'Grid view', icon: 'LayoutGrid' },
-] as const;
-
-type SortKey = (typeof SORTS)[number]['value'];
-type LayoutKey = (typeof LAYOUTS)[number]['value'];
-
-function isSortKey(value: string): value is SortKey {
-  return SORTS.some((option) => option.value === value);
+/**
+ * Minutes since the project last saw activity, for ordering. The adapter's own label wins; a project
+ * with no label falls back to its folder's real modification time (`dirMtimeMs`, read by the gateway);
+ * with neither it sorts last, never as "just now".
+ */
+function recencyMinutes(project: Project, now: number = Date.now()): number {
+  if (project.lastActivity.trim() !== '') return agoMinutes(project.lastActivity);
+  if (typeof project.dirMtimeMs === 'number') return Math.max(0, (now - project.dirMtimeMs) / 60000);
+  return Number.POSITIVE_INFINITY;
 }
 
-function isLayoutKey(value: string): value is LayoutKey {
-  return LAYOUTS.some((option) => option.value === value);
+/** The time shown in a row: the adapter's label, else the folder's last change, else nothing. */
+function whenLabel(project: Project, locale: Locale): { readonly text: string; readonly fromFolder: boolean } {
+  if (project.lastActivity.trim() !== '') return { text: project.lastActivity, fromFolder: false };
+  if (typeof project.dirMtimeMs === 'number') {
+    return { text: relativeWhen(new Date(project.dirMtimeMs).toISOString(), locale), fromFolder: true };
+  }
+  return { text: '', fromFolder: false };
+}
+
+/** The first letter of a project name for its tile; '#' when the name has no letter or digit. */
+function tileLetter(name: string): string {
+  const match = /[\p{L}\p{N}]/u.exec(name);
+  return match ? match[0].toLocaleUpperCase() : '#';
+}
+
+/* -------------------------------------------------------------------- rows */
+
+interface ProjectRowProps {
+  readonly project: Project;
+  readonly pinned: boolean;
+  readonly active: boolean;
+  readonly advanced: boolean;
+  readonly detailKnown: boolean;
+  /** Replaces the status word, e.g. "1 vraag voor jou" in the "Wacht op jou" group. */
+  readonly waitLabel?: string;
+  readonly onOpen: () => void;
+  readonly onPinToggle: () => void;
+}
+
+function ProjectRow({ project, pinned, active, advanced, detailKnown, waitLabel, onOpen, onPinToggle }: ProjectRowProps) {
+  const { t, locale } = useLocale();
+  const description = project.description.trim();
+  const when = whenLabel(project, locale);
+
+  return (
+    <li className="fw-projects__item" data-active={active ? 'true' : undefined} data-pinned={pinned ? 'true' : undefined}>
+      <div className="fw-xrow fw-projects__row">
+        {/* Named by what it shows (axe label-content-name-mismatch, wave 4 part 4D-1): no aria-label replacing the
+            visible name and goal, and the letter tile is drawn by CSS (data-letter) so it adds no word to the visible
+            text. The pinned word is read after the goal so the visible words stay one run inside the name. */}
+        <button
+          type="button"
+          className="fw-xrow__main fw-projects__open"
+          aria-current={active ? 'true' : undefined}
+          onClick={onOpen}
+        >
+          <span className="fw-xtile fw-projects__tile" aria-hidden="true" data-letter={tileLetter(project.name)} />
+          <span className="fw-xrow__text">
+            <span className="fw-xrow__name">
+              <span className="fw-xrow__name-text fw-projects__name">{project.name}</span>
+              {pinned ? (
+                <span className="fw-projects__pin" title={t('rd.projects.pinned')} aria-hidden="true">
+                  <Icon name="Pin" size="xs" />
+                </span>
+              ) : null}
+            </span>
+            {/* Only a real goal gets a line. An absent goal leaves no blank line, no "—" row of
+                dashes and never leaked scaffold text (project-profile-placeholder.test.tsx). */}
+            {/* The space keeps name and goal two words in the accessible name; a flex column never renders it. */}
+            {description !== '' ? ' ' : null}
+            {description !== '' ? <span className="fw-xrow__sub fw-projects__description">{description}</span> : null}
+          </span>
+          {pinned ? <span className="fw-visually-hidden">{t('rd.projects.pinned')}</span> : null}
+        </button>
+
+        {advanced ? <ProjectCounts project={project} detailKnown={detailKnown} /> : null}
+
+        {waitLabel !== undefined ? (
+          <span className="fw-xstatus" data-status="waiting">
+            {waitLabel}
+          </span>
+        ) : (
+          <ProjectStatusWord status={project.status} />
+        )}
+        <span className="fw-xrow__when" title={when.fromFolder ? t('rd.projects.folderChanged') : undefined}>
+          {when.text}
+        </span>
+
+        <span className="fw-xrow__aside">
+          <ShellMenu
+            label={t('rd.projects.rowMenu', { name: project.name })}
+            icon="Ellipsis"
+            items={[
+              { id: 'open', label: t('rd.projects.openItem'), icon: 'ArrowRight', onSelect: onOpen },
+              {
+                id: 'pin',
+                label: pinned ? t('rd.projects.unpin') : t('rd.projects.pin'),
+                icon: pinned ? 'PinOff' : 'Pin',
+                onSelect: onPinToggle,
+              },
+            ]}
+          />
+        </span>
+        <Icon name="ChevronRight" size="sm" className="fw-xrow__chev" />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Uitgebreid only: the measured numbers per project. Every unmeasured value reads "—", never a
+ * fabricated 0 (fix-cert-fabrication F3, fix-cert-rest items 1 and 3; asserted by no-prototype-copy).
+ */
+function ProjectCounts({ project, detailKnown }: { readonly project: Project; readonly detailKnown: boolean }) {
+  const { t } = useLocale();
+  return (
+    <span className="fw-projects__meta">
+      <span className="fw-projects__counts">
+        <span className="fw-projects__count" title={t('projectsPage.counts.conversations')}>
+          <Icon name="MessageSquare" size="xs" />
+          <span className="fw-visually-hidden">{t('projectsPage.counts.conversations')}: </span>
+          <Machine muted>{project.conversationCount}</Machine>
+        </span>
+        <span className="fw-projects__count" title={t('projectsPage.counts.missions')}>
+          <Icon name="Flag" size="xs" />
+          <span className="fw-visually-hidden">{t('projectsPage.counts.missions')}: </span>
+          <Machine muted>{detailKnown ? project.missionCount : '—'}</Machine>
+        </span>
+        <span className="fw-projects__count" title={t('projectsPage.counts.tasks')}>
+          <Icon name="ListChecks" size="xs" />
+          <span className="fw-visually-hidden">{t('projectsPage.counts.tasks')}: </span>
+          <Machine muted>{project.taskCount ?? '—'}</Machine>
+        </span>
+        <span className="fw-projects__count" title={t('projectsPage.counts.helpers')}>
+          <Icon name="Users" size="xs" />
+          <span className="fw-visually-hidden">{t('projectsPage.counts.helpers')}: </span>
+          <Machine muted>{detailKnown ? project.agentCount : '—'}</Machine>
+        </span>
+      </span>
+      <span className="fw-projects__health" title={t('projectsPage.health')}>
+        {project.health.score !== null ? (
+          <Meter value={project.health.score} label={t('projectsPage.health')} showValue />
+        ) : (
+          <>
+            <span className="fw-visually-hidden">{t('projectsPage.healthUnknown')}</span>
+            <Machine muted aria-hidden="true">
+              —
+            </Machine>
+          </>
+        )}
+      </span>
+    </span>
+  );
 }
 
 /* --------------------------------------------------------------------- view */
@@ -126,274 +239,160 @@ function isLayoutKey(value: string): value is LayoutKey {
 export default function ProjectsView() {
   const { state, dispatch } = usePrototype();
   const navigate = useNavigate();
-  const [sort, setSort] = useState<SortKey>('recent');
-  const [layout, setLayout] = useState<LayoutKey>('list');
+  const { t } = useLocale();
+  const { isAdvanced } = useUiMode();
+  const [adding, setAdding] = useState(false);
+
+  const total = state.data.projects.length;
+  const activeName = state.activeProjectId;
+  // The versions line is Uitgebreid only, so Eenvoudig never asks the gateway for it.
+  const forgeVersion = useProjectForgeVersion(isAdvanced ? activeName : '');
+  const app = appVersion();
+  const pendingAsks = useGatewayPendingAsks(activeName);
 
   const query = state.projectQuery.trim();
-  const filtered = selectFilteredProjects(state);
+  const showSearch = total > SEARCH_THRESHOLD || query !== '';
+  const filtered = showSearch ? selectFilteredProjects(state) : state.data.projects;
 
   const ordered = [...filtered].sort((a, b) => {
     const pinned = Number(selectIsPinned(state, b.id)) - Number(selectIsPinned(state, a.id));
     if (pinned !== 0) return pinned;
-    if (sort === 'name') return a.name.localeCompare(b.name);
-    if (sort === 'health') {
-      // fix-cert-fabrication — UPDATED by fix-cert-rest (item 3): `health.score` is now
-      // `number | null` (prototype-types.ts), so a project whose health was never measured carries
-      // its own real `null` — checked directly here instead of the `hasMeasuredProjectDetail`
-      // proxy this comparator used before the type could express it. `null` is UNKNOWN, not "the
-      // worst score in the list": known-health projects sort by score as before, unknown ones are
-      // grouped after them, never ranked against each other (stable: comparator returns 0).
-      const aScore = a.health.score;
-      const bScore = b.health.score;
-      if ((aScore === null) !== (bScore === null)) return aScore !== null ? -1 : 1;
-      if (aScore === null || bScore === null) return 0;
-      return bScore - aScore;
-    }
-    return agoMinutes(a.lastActivity) - agoMinutes(b.lastActivity);
+    const byRecency = recencyMinutes(a) - recencyMinutes(b);
+    if (Number.isNaN(byRecency)) return a.name.localeCompare(b.name);
+    return byRecency !== 0 ? byRecency : a.name.localeCompare(b.name);
   });
 
-  function selectProject(project: Project): void {
-    dispatch({ type: 'project/activate', id: project.id });
-    dispatch({ type: 'select', selection: { kind: 'project', id: project.id } });
-  }
+  const activeProject = state.data.projects.find((project) => project.id === activeName) ?? null;
+  const waiting = activeProject !== null && pendingAsks.length > 0 ? activeProject : null;
+  const waitingAsks = pendingAsks.reduce((sum, ask) => sum + Math.max(1, ask.questionCount), 0);
+  const rest = waiting !== null ? ordered.filter((project) => project.id !== waiting.id) : ordered;
 
   function openProject(project: Project): void {
-    selectProject(project);
+    dispatch({ type: 'project/activate', id: project.id });
+    dispatch({ type: 'select', selection: { kind: 'project', id: project.id } });
     navigate('/project');
   }
 
+  function openWaiting(): void {
+    const first = pendingAsks[0];
+    if (first === undefined) return;
+    dispatch({ type: 'conversation/activate', id: first.conversationId });
+    navigate('/chat');
+  }
+
+  function row(project: Project, waitLabel?: string, onOpen?: () => void) {
+    return (
+      <ProjectRow
+        key={project.id}
+        project={project}
+        pinned={selectIsPinned(state, project.id)}
+        active={project.id === activeName}
+        advanced={isAdvanced}
+        detailKnown={hasMeasuredProjectDetail(project, activeName)}
+        waitLabel={waitLabel}
+        onOpen={onOpen ?? (() => openProject(project))}
+        onPinToggle={() => dispatch({ type: 'project/pin-toggle', id: project.id })}
+      />
+    );
+  }
+
   return (
-    <div className="fw-projects">
-      <header className="fw-projects__header">
-        <div className="fw-projects__heading">
-          <h1 className="fw-projects__title">Projects</h1>
-          <p className="fw-projects__subtitle">
-            {state.data.projects.length} project{state.data.projects.length === 1 ? '' : 's'}. Pinned ones
-            stay on top, whatever the sort.
-          </p>
+    <div className="fw-xpage fw-projects">
+      <header className="fw-xpage__header">
+        <div className="fw-xpage__title">
+          <h1>{t('rd.projects.title')}</h1>
         </div>
-
-        <Toolbar label="Project filters" className="fw-projects__toolbar">
-          <div className="fw-projects__search">
-            <Icon name="Search" size="sm" className="fw-projects__search-icon" />
-            <input
-              id="fw-projects-search"
-              className="fw-projects__search-input"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              aria-label="Filter projects by name, description or type"
-              placeholder="Filter projects…"
-              value={state.projectQuery}
-              onChange={(event) => dispatch({ type: 'project/query', query: event.target.value })}
-            />
-            {query ? (
-              <IconButton
-                icon="X"
-                label="Clear the filter"
-                size="sm"
-                onClick={() => dispatch({ type: 'project/query', query: '' })}
-              />
-            ) : null}
-          </div>
-
-          <ToolbarGroup divided>
-            <SegmentedControl
-              label="Sort projects"
-              size="sm"
-              options={SORTS}
-              value={sort}
-              onChange={(value) => {
-                if (isSortKey(value)) setSort(value);
-              }}
-            />
-          </ToolbarGroup>
-
-          <ToolbarGroup divided>
-            <SegmentedControl
-              label="Project layout"
-              size="sm"
-              iconOnly
-              options={LAYOUTS}
-              value={layout}
-              onChange={(value) => {
-                if (isLayoutKey(value)) setLayout(value);
-              }}
-            />
-          </ToolbarGroup>
-
-          <Spacer />
-
-          <Machine muted>
-            {ordered.length} of {state.data.projects.length}
-          </Machine>
-        </Toolbar>
+        <Button variant="primary" icon="Plus" aria-expanded={adding} onClick={() => setAdding((open) => !open)}>
+          {t('rd.projects.new')}
+        </Button>
       </header>
 
-      <div className="fw-projects__scroll fw-scroll">
-        {ordered.length === 0 ? (
-          <div className="fw-projects__empty">
-            <EmptyState
-              icon="SearchX"
-              title="No project matches that filter."
-              detail={`No project answers to “${query}”. Try a different name, description or type.`}
-              action={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon="RotateCcw"
-                  onClick={() => dispatch({ type: 'project/query', query: '' })}
-                >
-                  Clear the filter
-                </Button>
-              }
-            />
+      <div className="fw-xpage__body">
+        {adding ? (
+          <AddProjectPanel projectPaths={state.data.projects.map((project) => project.path)} onClose={() => setAdding(false)} />
+        ) : null}
+
+        {total === 0 ? (
+          <div className="fw-xpage__empty">
+            <p>{t('rd.projects.empty')}</p>
+            <Button variant="secondary" icon="MessageSquarePlus" onClick={() => navigate('/')}>
+              {t('rd.projects.emptyAction')}
+            </Button>
           </div>
         ) : (
-          <ul className={`fw-projects__list fw-projects__list--${layout}`}>
-            {ordered.map((project) => {
-              const pinned = selectIsPinned(state, project.id);
-              const active = project.id === state.activeProjectId;
-              // fix-cert-rest (item 1): agentCount/missionCount stay a shared, non-nullable
-              // `number` (see prototype-types.ts's own handoff note), so hasMeasuredProjectDetail
-              // is still the only signal for whether THEY are a real measurement or the
-              // EMPTY_ACTIVE_PROJECT_DETAIL placeholder for a non-active, non-fixture project.
-              // taskCount/health.score carry their own real `null` now (fix-cert-rest, item 3) and
-              // are checked directly below instead.
-              const detailKnown = hasMeasuredProjectDetail(project, state.activeProjectId);
-              return (
-                <li
-                  key={project.id}
-                  className="fw-projects__item"
-                  data-active={active ? 'true' : undefined}
-                >
-                  <button
-                    type="button"
-                    className="fw-projects__body"
-                    aria-current={active ? 'true' : undefined}
-                    onClick={() => selectProject(project)}
-                    onDoubleClick={() => openProject(project)}
-                  >
-                    <span className="fw-projects__glyph">
-                      <Icon name={TYPE_ICON[project.type]} size="sm" />
-                    </span>
+          <>
+            {showSearch ? (
+              <div className="fw-projects__search">
+                <Icon name="Search" size="sm" className="fw-projects__search-icon" />
+                <input
+                  className="fw-projects__search-input"
+                  type="search"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label={t('rd.projects.search')}
+                  placeholder={t('rd.projects.search')}
+                  value={state.projectQuery}
+                  onChange={(event) => dispatch({ type: 'project/query', query: event.target.value })}
+                />
+                {query ? (
+                  <IconButton
+                    icon="X"
+                    label={t('projectsPage.clearFilter')}
+                    size="sm"
+                    onClick={() => dispatch({ type: 'project/query', query: '' })}
+                  />
+                ) : null}
+              </div>
+            ) : null}
 
-                    <span className="fw-projects__main">
-                      {/* REVIEW FIX (found via real screenshot verification, WP-CCD item 8): the
-                          kind-tag used to sit INSIDE the truncating `.fw-truncate` name span — for
-                          any project name long enough to fill that span (measured live: real
-                          project names like "Forge-e2e-2026-07-29T03-53-47-830Z" routinely are),
-                          the tag was laid out past the clipped edge and was never actually visible,
-                          silently defeating item 8's own "mark backup and test copies" requirement
-                          for exactly the auto-generated, long-named test/backup folders this is
-                          most needed for. The name now truncates alone, inside its own flex slot;
-                          the tag is a `flex:none` sibling that is never clipped. */}
-                      <span className="fw-projects__name-row">
-                        <span className="fw-projects__name fw-truncate">{project.name}</span>
-                        {/* WP-CCD (item 8): a real backup/test copy, straight from the gateway's
-                            own `kind` field — reuses the existing `fg-machine` text treatment
-                            (no new colour/token), same visual language as `fw-projects__type`
-                            below. Absent for the overwhelming majority (an ordinary project). */}
-                        {project.kind ? (
-                          <span className="fw-projects__kind-tag fg-machine" title={`This project is a real ${project.kind} copy of another project.`}>
-                            {project.kind.toUpperCase()}
-                          </span>
-                        ) : null}
-                      </span>
-                      {/* fix-placeholder: honest "—" fallback (this app's existing missing-value
-                          convention) instead of blank space or leaked template syntax. */}
-                      <span className="fw-projects__description">
-                        {project.description.trim() !== '' ? project.description : '—'}
-                      </span>
-                    </span>
+            {waiting !== null ? (
+              <section className="fw-xgroup" aria-labelledby="fw-projects-waiting">
+                <h2 id="fw-projects-waiting" className="fw-xpage__section-title">
+                  {t('rd.projects.waiting')}
+                </h2>
+                <ul className="fw-xlist">
+                  {row(
+                    waiting,
+                    waitingAsks === 1 ? t('rd.projects.askOne') : t('rd.projects.askMany', { count: waitingAsks }),
+                    openWaiting,
+                  )}
+                </ul>
+              </section>
+            ) : null}
 
-                    {/*
-                      a11y-new: each count carried its meaning ONLY in `title`, which is a
-                      mouse-hover affordance. Sighted users read the icon; a screen reader got a
-                      bare number. That was tolerable while every number was a number — but several
-                      of these now render `—` by design, so the reading became a row of unexplained
-                      dashes. The labels below are visually hidden, so the frozen layout is
-                      untouched and the icons stay the visual language.
-                    */}
-                    <span className="fw-projects__counts">
-                      <span className="fw-projects__count" title="Conversations">
-                        <Icon name="MessageSquare" size="xs" />
-                        <span className="fw-visually-hidden">Conversations: </span>
-                        <Machine muted>{project.conversationCount}</Machine>
-                      </span>
-                      <span className="fw-projects__count" title="Missions">
-                        <Icon name="Flag" size="xs" />
-                        <span className="fw-visually-hidden">Missions: </span>
-                        {/* fix-cert-rest (item 1): same F3-class fabrication as taskCount/health
-                            below — missionCount is the EMPTY_ACTIVE_PROJECT_DETAIL-adjacent `0`
-                            placeholder for every non-active, non-fixture project. */}
-                        <Machine muted>{detailKnown ? project.missionCount : '—'}</Machine>
-                      </span>
-                      <span className="fw-projects__count" title="Tasks">
-                        <Icon name="ListChecks" size="xs" />
-                        <span className="fw-visually-hidden">Tasks: </span>
-                        {/* fix-cert-fabrication (F3) — UPDATED by fix-cert-rest (item 3): taskCount
-                            is now `number | null` and carries its own honest signal directly. */}
-                        <Machine muted>{project.taskCount ?? '—'}</Machine>
-                      </span>
-                      <span className="fw-projects__count" title="Agents">
-                        <Icon name="Users" size="xs" />
-                        <span className="fw-visually-hidden">Agents: </span>
-                        {/* fix-cert-rest (item 1): same F3-class fabrication as missionCount above. */}
-                        <Machine muted>{detailKnown ? project.agentCount : '—'}</Machine>
-                      </span>
-                    </span>
-
-                    <span className="fw-projects__health">
-                      {/* Neutral: the ember belongs to running progress, and a
-                          health score is a standing figure, not progress. fix-cert-fabrication (F3)
-                          — UPDATED by fix-cert-rest (item 3): health.score is now `number | null` and
-                          carries its own honest signal directly, never a fabricated "Health 0%" meter. */}
-                      {project.health.score !== null ? (
-                        <Meter value={project.health.score} label="Health" showValue />
-                      ) : (
-                        <>
-                          {/* a11y-new: the Meter branch carries its own "Health" label; this branch
-                              was a bare dash with nothing naming it. */}
-                          <span className="fw-visually-hidden">Health: not measured</span>
-                          <Machine muted aria-hidden="true">
-                            —
-                          </Machine>
-                        </>
-                      )}
-                    </span>
-
-                    <span className="fw-projects__state">
-                      <StatusBadge status={project.status} size="sm" />
-                      <Machine muted>{project.lastActivity}</Machine>
-                    </span>
-
-                    <span className="fw-projects__type fg-machine">{TYPE_LABEL[project.type]}</span>
-                  </button>
-
-                  <div className="fw-projects__aside">
-                    {/* One glyph, two states: a crossed-out pin would read as
-                        "not pinned" at a glance, which is the opposite of true. */}
-                    <IconButton
-                      icon="Pin"
-                      label={pinned ? `Unpin ${project.name}` : `Pin ${project.name}`}
-                      size="sm"
-                      active={pinned}
-                      aria-pressed={pinned}
-                      onClick={() => dispatch({ type: 'project/pin-toggle', id: project.id })}
-                    />
-                    <IconButton
-                      icon="ArrowRight"
-                      label={`Open ${project.name}`}
-                      size="sm"
-                      onClick={() => openProject(project)}
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+            {ordered.length === 0 ? (
+              <div className="fw-xpage__empty">
+                <p>{t('projectsPage.noMatch.detail', { query })}</p>
+                <Button variant="quiet" icon="RotateCcw" onClick={() => dispatch({ type: 'project/query', query: '' })}>
+                  {t('projectsPage.clearFilter')}
+                </Button>
+              </div>
+            ) : rest.length > 0 ? (
+              <section className="fw-xgroup" aria-labelledby="fw-projects-all">
+                <h2 id="fw-projects-all" className="fw-xpage__section-title">
+                  {t('rd.projects.all')}
+                </h2>
+                <ul className="fw-xlist fw-projects__list">{rest.map((project) => row(project))}</ul>
+              </section>
+            ) : null}
+          </>
         )}
+
+        {isAdvanced ? (
+          <p className="fw-xpage__note fw-projects__versions" aria-label={t('projectsPage.versions.label')}>
+            <span>{app !== null ? t('projectsPage.versions.app', { version: app }) : t('projectsPage.versions.appDev')}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {activeName === ''
+                ? t('projectsPage.versions.noProject')
+                : forgeVersion === null
+                  ? '—'
+                  : forgeVersion.version !== null
+                    ? t('projectsPage.versions.project', { version: forgeVersion.version, name: activeName })
+                    : t('projectsPage.versions.projectNone', { name: activeName })}
+            </span>
+          </p>
+        ) : null}
       </div>
     </div>
   );

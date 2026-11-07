@@ -28,7 +28,20 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const DEFAULT_CHILD_SCRIPT = path.join(__dirname, 'bin.mjs');
-export const DEFAULT_LOG_FILE = path.join(__dirname, 'gateway-runtime.log');
+// WP B1a rework: with FORGE_DATA_DIR set (the installed app) the log goes to
+// <data dir>/logs/ so nothing is written inside the install folder; unset, it stays next to this
+// file as before. An invalid FORGE_DATA_DIR keeps the old default here: the gateway child itself
+// refuses to start on it (paths.mjs) and that error lands in this log.
+export function resolveDefaultLogFile(env = process.env) {
+  const raw = typeof env.FORGE_DATA_DIR === 'string' ? env.FORGE_DATA_DIR.trim() : '';
+  const usable = raw !== '' && path.isAbsolute(raw) && !/^[\\/]{2}/.test(raw) && !/[\u0000-\u001f\u007f]/.test(raw);
+  return usable ? path.join(path.resolve(raw), 'logs', 'gateway-runtime.log') : path.join(__dirname, 'gateway-runtime.log');
+}
+export const DEFAULT_LOG_FILE = resolveDefaultLogFile();
+// bin.mjs exits with this code (and prints this text) when another live gateway holds the data-dir
+// lock. Kept literal here so the supervisor stays free of gateway module imports.
+const LOCK_REFUSED_EXIT_CODE = 3;
+const LOCK_REFUSED_MARKER = 'another gateway owns this data dir';
 
 // Backoff: 1s -> 2s -> 4s -> 8s -> 16s -> 30s (capped there). Fast recovery for a transient blip,
 // without hammering the machine/log more than roughly twice a minute once it plateaus.
@@ -55,7 +68,7 @@ export function nextBackoffMs(currentMs, { maxBackoffMs = DEFAULT_MAX_BACKOFF_MS
  * Supervises a single child process, restarting it after an unexpected exit.
  *
  * Emits: 'log' (line), 'child-started' ({pid, attempt}), 'child-exit' ({code, signal}),
- * 'restart-scheduled' ({delayMs, attempt}), 'fatal' ({reason: 'EADDRINUSE'|'crash-loop'}),
+ * 'restart-scheduled' ({delayMs, attempt}), 'fatal' ({reason: 'EADDRINUSE'|'DATA_DIR_LOCKED'|'crash-loop'}),
  * 'stopped' () — clean shutdown via stop() has fully finished.
  */
 export class GatewaySupervisor extends EventEmitter {
@@ -106,6 +119,7 @@ export class GatewaySupervisor extends EventEmitter {
       // open, or any later write error, degrades to console-only logging (the child's own stdio is
       // still piped through the 'child-stdout'/'child-stderr' events) and supervision continues.
       try {
+        fs.mkdirSync(path.dirname(this.logFilePath), { recursive: true }); // <data dir>/logs may not exist yet
         const stream = fs.createWriteStream(this.logFilePath, { flags: 'a' });
         stream.on('error', (err) => {
           // Drop the file sink, keep supervising, and say so once on the console.
@@ -171,6 +185,15 @@ export class GatewaySupervisor extends EventEmitter {
           'Restarting would not help, so the supervisor is stopping instead of looping.',
       );
       this._fail('EADDRINUSE');
+      return;
+    }
+
+    if (code === LOCK_REFUSED_EXIT_CODE && stderrTail.includes(LOCK_REFUSED_MARKER)) {
+      this._log(
+        'FATAL: ' + LOCK_REFUSED_MARKER + ' (data-dir lock held by a live gateway). ' +
+          'Restarting would not help, so the supervisor is stopping instead of looping.',
+      );
+      this._fail('DATA_DIR_LOCKED');
       return;
     }
 

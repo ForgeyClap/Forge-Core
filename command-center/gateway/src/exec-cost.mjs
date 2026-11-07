@@ -53,9 +53,13 @@
 //     results, 3 turns).
 // A repeat of a line already seen (same `uuid`) is refused outright as a third layer of defense.
 //
-// Sessions are never shared between executions (`exec-argv.mjs` builds no `--resume`/`--continue`
-// flag — every spawn is a fresh session), so a cumulative session snapshot is scoped to exactly one
-// execution and cannot leak usage from an earlier turn into this one.
+// WP A4 UPDATE: sessions ARE now shared between executions of one conversation —
+// `exec-argv.mjs` appends `--resume <id>` when the conversation has a stored Claude session (see
+// sessions/argv-session.mjs). Whether the CLI's cumulative `modelUsage` snapshot on a resumed
+// `claude -p` run covers only this process or also the earlier turns of the resumed session is NOT
+// measured yet (only mock streams ran in A4). Until a real two-turn capture settles it, a resumed
+// turn's `modelUsage`-derived numbers may include earlier turns; the per-segment `usage` sums are
+// unaffected. Before A4 every spawn was a fresh session, so the snapshot was scoped to one execution.
 
 // Bound, mirroring this gateway's own "never unbounded growth" convention (STDERR_CAP_BYTES,
 // MAX_FILE_EDITS_PER_TURN, MAX_SUBAGENT_ENTRIES_PER_LINE, ...). Real streams carry 2 result lines;

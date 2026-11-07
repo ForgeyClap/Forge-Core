@@ -75,16 +75,25 @@ const ID_RE = /^[A-Za-z0-9_-]+$/; // same shape as forge-store.cjs::isValidId �
 function isValidId(id) { return typeof id === 'string' && ID_RE.test(id); }
 function nowIso() { return new Date().toISOString(); }
 
+// WP 2.1: the fallback root comes from forge-paths.cjs scriptRoot — an installed copy acts on its own project exactly as
+// before; a plugin copy discovers the project from CLAUDE_PROJECT_DIR / the cwd and answers null outside one. Guarded:
+// an older or missing forge-paths.cjs keeps the literal. The store (.claude/forge-beads) has no canon key and stays.
+function scriptRootOf() {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRoot === 'function') return P.scriptRoot(__dirname); } catch { /* the legacy literal */ }
+  return path.resolve(__dirname, '..', '..');
+}
 function resolveRoot(explicit) {
   if (explicit) return path.resolve(explicit);
   if (process.env.FORGE_PROJECT_ROOT) return path.resolve(process.env.FORGE_PROJECT_ROOT);
-  return path.resolve(__dirname, '..', '..');
+  return scriptRootOf();
 }
 function defaultStorePath(root) { return path.join(root, '.claude', 'forge-beads', 'beads.jsonl'); }
 function resolveStorePath(opts) {
   opts = opts || {};
   if (opts.storePath) return path.resolve(opts.storePath);
-  return defaultStorePath(resolveRoot(opts.root));
+  const root = resolveRoot(opts.root);
+  if (!root) throw new Error('forge-beads: no project root found (this copy is not inside a project) — pass --root, --store or set FORGE_PROJECT_ROOT');
+  return defaultStorePath(root);
 }
 
 // ---- store IO: snapshot semantics — a malformed line means the STORE is corrupt, so this fails closed

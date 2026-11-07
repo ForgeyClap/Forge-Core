@@ -55,8 +55,18 @@
  *   bilingual `assumptions`. Exit: 0 CLEAR/OK · 3 VAGUE · 2 usage. `ask` as the FIRST argument selects this mode;
  *   to lint a dispatch-prompt file that is literally named "ask", pass it as ./ask.
  *
+ * `plan-input` SUBCOMMAND (modernization WP 3.2) — the same `ask` scoring, re-shaped for the plan card:
+ *   node forge-promptcheck.cjs plan-input "<raw request text>" [--file <path|->] [--midrun]
+ *   prints { assumptions:[{id, nl, en, source}], question:{id, text:{nl,en}, choices:[{nl,en}], recommended,
+ *   default:{nl,en}, source}|null, free_question:{nl,en}|null } — the input forge-plan-card.cjs reads (`--request`
+ *   does the same in-process). Nothing is added or invented: every text is scoreAsk()'s own. `question` is the ONE
+ *   vetted gap question (nextQuestion); `free_question` is the VAGUE dimension fallback, which has no choices and no
+ *   default, so it can never be the plan card's question. Exit: 0 printed · 2 usage (empty text, text AND --file).
+ *   Like `ask`, `plan-input` as the FIRST argument selects this mode (a prompt file literally named so: ./plan-input).
+ *
  * Module API: { DIMENSIONS, checkPrompt, formatReport, hasKeyword, hasPathOrFileToken, countVagueHits,
- *   ASK_DIMENSION_IDS, scoreAsk, formatAskReport, detectAskLang } (the last four re-exported from the ask module)
+ *   ASK_DIMENSION_IDS, scoreAsk, formatAskReport, detectAskLang, planInputFromAsk } (scoreAsk, formatAskReport,
+ *   detectAskLang and ASK_DIMENSION_IDS re-exported from the ask module)
  * FORGE_PROJECT_ROOT overrides the project root used to locate log-event.cjs for --run (same convention
  * as forge-reflect.cjs / forge-memory.cjs). Deterministic; no LLM; no network.
  */
@@ -64,7 +74,11 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1: this copy's project via forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers it from the cwd, null when there is none -> --run only warns).
+// Guarded: a missing or older forge-paths.cjs keeps the old two-folders-up answer.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
 
 // ---- small pure helpers -----------------------------------------------------------------------------
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -158,10 +172,44 @@ function formatReport(result) {
 // ---- `ask` mode: the raw owner request — implemented in ./forge-promptcheck-ask.cjs (wp18 split) ----------
 const ASK = require('./forge-promptcheck-ask.cjs');
 
+// ---- plan-card input (WP 3.2): scoreAsk()'s own fields in the shape forge-plan-card.cjs reads ----------------
+/** planInputFromAsk(result) -> { assumptions, question, free_question } (see the header). Pure re-shaping. */
+function planInputFromAsk(r) {
+  const source = 'promptcheck-ask';
+  const both = (o) => ({ nl: o.nl, en: o.en });
+  const q = r && r.nextQuestion;
+  return {
+    assumptions: (r && Array.isArray(r.assumptions) ? r.assumptions : []).map((a) => ({ id: a.id, nl: a.nl, en: a.en, source })),
+    question: q ? { id: q.id, text: both(q), choices: q.options.map((o) => both(o.label)),
+      recommended: Math.max(0, q.options.findIndex((o) => o.recommended)), default: both(q.assume), source } : null,
+    free_question: !q && r && r.suggested_question ? both(r.suggested_question) : null,
+  };
+}
+
 module.exports = {
   DIMENSIONS, checkPrompt, formatReport, hasKeyword, hasPathOrFileToken, countVagueHits,
   ASK_DIMENSION_IDS: ASK.ASK_DIMENSION_IDS, scoreAsk: ASK.scoreAsk, formatAskReport: ASK.formatAskReport, detectAskLang: ASK.detectAskLang,
+  planInputFromAsk,
 };
+
+/** `plan-input` CLI: exit 0 printed · 2 usage. */
+function runPlanInput(argv) {
+  const o = { text: [], file: null, midrun: false };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--midrun') o.midrun = true;
+    else if (argv[i] === '--file') o.file = argv[++i] == null ? '' : argv[i];
+    else o.text.push(argv[i]);
+  }
+  const usage = (msg) => { console.error('forge-promptcheck plan-input: ' + msg + '\nUsage: node forge-promptcheck.cjs plan-input "<raw request text>" [--file <path|->] [--midrun]'); process.exitCode = 2; };
+  if (o.file !== null && o.text.length) return usage('give the request inline OR via --file, not both');
+  if (o.file === '') return usage('--file needs a path (or - for stdin)');
+  let text = o.text.join(' ');
+  if (o.file !== null) { try { text = readInput(o.file); } catch (e) { return usage('could not read --file (' + o.file + '): ' + e.message); } }
+  let r;
+  try { r = ASK.scoreAsk(text, { midrun: o.midrun }); } catch (e) { return e.code === 'EMPTY_REQUEST' ? usage(e.message) : (console.error('forge-promptcheck plan-input: ' + e.message), (process.exitCode = 1)); }
+  console.log(JSON.stringify(planInputFromAsk(r)));
+  process.exitCode = 0;
+}
 
 // ---- CLI ----
 function readInput(fileArg) {
@@ -203,12 +251,14 @@ if (require.main === module) {
     process.exitCode = (opts.strict && result.passed < 6) ? 1 : 0;
   };
   if (process.argv[2] === 'ask') ASK.runAsk(process.argv.slice(3), { logRunNote });
+  else if (process.argv[2] === 'plan-input') runPlanInput(process.argv.slice(3));
   else { try { main(); } catch (e) { console.error('forge-promptcheck: ' + e.message); process.exitCode = 1; } }
 }
 
 /** ONE `agent_note` for the run's dashboard. A failure to log is a warning, never fatal (both modes). */
 function logRunNote(runId, note, evidence) {
   if (!/^[A-Za-z0-9_-]+$/.test(runId)) { console.error('forge-promptcheck: invalid --run id (allowed: A-Z a-z 0-9 _ -)'); return; }
+  if (!PROJECT_ROOT) { console.error('forge-promptcheck: log-event warning: no project root found (no .claude, .forge or .git above the current folder) — nothing logged'); return; }
   const logEventPath = path.join(PROJECT_ROOT, '.claude', 'forge-dashboard', 'log-event.cjs');
   const payload = { agent: 'orchestrator', role: 'lead', note, evidence };
   const r = spawnSync(process.execPath, [logEventPath, runId, 'agent_note', JSON.stringify(payload)], { encoding: 'utf8' });

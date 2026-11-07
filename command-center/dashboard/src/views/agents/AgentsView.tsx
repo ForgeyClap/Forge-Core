@@ -11,8 +11,8 @@
  * through the gateway) and fixture-labelled example data otherwise — the view
  * itself cannot tell which.
  *
- * Group identity is carried by the --forge-group-* luminance step plus a
- * distinct lucide glyph per group — never by hue, because the palette has none.
+ * Group identity is carried by a distinct lucide glyph and a sentence-case
+ * name per group — never by hue (one accent, of the redesign).
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -20,7 +20,6 @@ import {
   Avatar,
   Button,
   EmptyState,
-  Eyebrow,
   ExampleTag,
   Icon,
   Machine,
@@ -48,6 +47,8 @@ import { AgentsGraph } from './AgentsGraph';
 import { AgentModelPicker } from './agent-model-picker';
 import { LiveAgentsStrip } from './LiveAgentsStrip';
 import './agents.css';
+import { useLocale } from '@/i18n/use-locale';
+import type { MessageKey } from '@/i18n';
 
 /* ------------------------------------------------------------------ tables */
 
@@ -55,7 +56,7 @@ type AgentFilter = StatusKey | 'all';
 
 interface FilterDef {
   readonly value: AgentFilter;
-  readonly label: string;
+  readonly label: MessageKey;
   readonly icon: string;
 }
 
@@ -65,20 +66,20 @@ interface FilterDef {
  * ALL — the example roster has one.
  */
 const FILTERS: readonly FilterDef[] = [
-  { value: 'all', label: 'ALL', icon: 'Users' },
-  { value: 'running', label: 'ACTIVE', icon: statusPresentation('running').icon },
-  { value: 'waiting', label: 'WAITING', icon: statusPresentation('waiting').icon },
-  { value: 'verify', label: 'VERIFY', icon: statusPresentation('verify').icon },
-  { value: 'review', label: 'REVIEW', icon: statusPresentation('review').icon },
-  { value: 'blocked', label: 'BLOCKED', icon: statusPresentation('blocked').icon },
-  { value: 'failed', label: 'FAILED', icon: statusPresentation('failed').icon },
-  { value: 'completed', label: 'COMPLETED', icon: statusPresentation('completed').icon },
+  { value: 'all', label: 'rd.agents.filter.all', icon: 'Users' },
+  { value: 'running', label: 'rd.agents.filter.running', icon: statusPresentation('running').icon },
+  { value: 'waiting', label: 'rd.agents.filter.waiting', icon: statusPresentation('waiting').icon },
+  { value: 'verify', label: 'rd.agents.filter.verify', icon: statusPresentation('verify').icon },
+  { value: 'review', label: 'rd.agents.filter.review', icon: statusPresentation('review').icon },
+  { value: 'blocked', label: 'rd.agents.filter.blocked', icon: statusPresentation('blocked').icon },
+  { value: 'failed', label: 'rd.agents.filter.failed', icon: statusPresentation('failed').icon },
+  { value: 'completed', label: 'rd.agents.filter.completed', icon: statusPresentation('completed').icon },
 ];
 
-const LAYOUTS: readonly { value: AgentLayout; label: string; icon: string }[] = [
-  { value: 'list', label: 'List', icon: 'Rows3' },
-  { value: 'grid', label: 'Grid', icon: 'LayoutGrid' },
-  { value: 'grouped', label: 'Grouped', icon: 'Group' },
+const LAYOUTS: readonly { value: AgentLayout; label: MessageKey; icon: string }[] = [
+  { value: 'list', label: 'rd.agents.layout.list', icon: 'Rows3' },
+  { value: 'grid', label: 'rd.agents.layout.grid', icon: 'LayoutGrid' },
+  { value: 'grouped', label: 'rd.agents.layout.grouped', icon: 'Group' },
 ];
 
 /**
@@ -93,16 +94,16 @@ const LAYOUTS: readonly { value: AgentLayout; label: string; icon: string }[] = 
  */
 type AgentViewMode = AgentLayout | 'nodes';
 
-const VIEW_MODES: readonly { value: AgentViewMode; label: string; icon: string }[] = [
+const VIEW_MODES: readonly { value: AgentViewMode; label: MessageKey; icon: string }[] = [
   ...LAYOUTS,
-  { value: 'nodes', label: 'Nodes', icon: 'Network' },
+  { value: 'nodes', label: 'rd.agents.layout.nodes', icon: 'Network' },
 ];
 
-const PERMISSION: Readonly<Record<PermissionLevel, { label: string; icon: string }>> = {
-  'read-only': { label: 'READ-ONLY', icon: 'Eye' },
-  standard: { label: 'STANDARD', icon: 'Shield' },
-  elevated: { label: 'ELEVATED', icon: 'ShieldPlus' },
-  lead: { label: 'LEAD', icon: 'ShieldCheck' },
+const PERMISSION_ICON: Readonly<Record<PermissionLevel, string>> = {
+  'read-only': 'Eye',
+  standard: 'Shield',
+  elevated: 'ShieldPlus',
+  lead: 'ShieldCheck',
 };
 
 /**
@@ -111,39 +112,13 @@ const PERMISSION: Readonly<Record<PermissionLevel, { label: string; icon: string
  * rendered as absent, never as a claim about the agent's role. `'not-required'` stays a real,
  * renderable state: fixture/example data may still genuinely assert it for a role.
  */
-const VERIFICATION: Readonly<
-  Record<NonNullable<Agent['verification']>, { label: string; icon: string; detail: string }>
-> = {
-  verified: {
-    label: 'VERIFIED',
-    icon: 'BadgeCheck',
-    detail: 'Verification accepted the evidence attached to this agent’s last claim.',
-  },
-  pending: {
-    label: 'PENDING',
-    icon: 'Hourglass',
-    detail: 'A claim is waiting on the verify loop — not yet accepted.',
-  },
-  rejected: {
-    label: 'REJECTED',
-    icon: 'Ban',
-    detail: 'Verification rejected the last claim and reopened the work.',
-  },
-  'not-required': {
-    label: 'NOT REQUIRED',
-    icon: 'Minus',
-    detail: 'This role produces no claim that the verify loop has to check.',
-  },
+const VERIFICATION_ICON: Readonly<Record<NonNullable<Agent['verification']>, string>> = {
+  verified: 'BadgeCheck',
+  pending: 'Hourglass',
+  rejected: 'Ban',
+  'not-required': 'Minus',
 };
 
-/** fix-cert-rest (item 2): the honest state for "no verification evidence exists for this agent in
- *  this run" — never `'not-required'`, which is a claim about the ROLE this app has no live source
- *  for (see `Agent.verification`'s own doc comment in `prototype-types.ts`). */
-const VERIFICATION_UNKNOWN = {
-  label: '—',
-  icon: 'Minus',
-  detail: 'No verification evidence exists yet for this agent in the current run.',
-} as const;
 
 const EFFORT_ORDER: readonly EffortTier[] = ['low', 'medium', 'high', 'max'];
 
@@ -196,32 +171,39 @@ function buildModelState(projectId: string, agentRows: readonly AgentRow[]): Age
 /* --------------------------------------------------------------- fragments */
 
 function PermissionChip({ level }: { level: PermissionLevel }) {
-  const meta = PERMISSION[level];
+  const { t } = useLocale();
+  // "Verhoogd"/"Alle rechten", never the mode word Uitgebreid or the group name Leiding (gate).
+  const label = t(`rd.agents.access.${level}`);
   return (
-    <span className="fw-agents-chip" data-permission={level} title={`Permission level: ${meta.label}`}>
-      <Icon name={meta.icon} size="xs" />
-      <Machine>{meta.label}</Machine>
+    <span className="fw-agents-chip" data-permission={level} title={t('rd.agents.accessTitle', { level: label })}>
+      <Icon name={PERMISSION_ICON[level]} size="xs" />
+      <span className="fw-agents-chip__label">{label}</span>
     </span>
   );
 }
 
 function VerificationChip({ state: verification }: { state: Agent['verification'] }) {
-  // fix-cert-rest (item 2): `null` is a genuine absence of verification evidence, never the
-  // 'not-required' claim — rendered with the same neutral "unknown" chip, never a role claim.
-  const meta = verification === null ? VERIFICATION_UNKNOWN : VERIFICATION[verification];
+  const { t } = useLocale();
+  // fix-cert-rest (item 2): `null` means no verification evidence exists for this agent in this run.
+  // It renders as an absent dash, never as 'not-required', which is a claim about the role.
+  const label = verification === null ? t('rd.agents.verification.unknown') : t(`rd.agents.verification.${verification}`);
+  const detail =
+    verification === null ? t('rd.agents.verification.unknownDetail') : t(`rd.agents.verification.${verification}Detail`);
   return (
-    <span className="fw-agents-chip" data-verification={verification ?? 'unknown'} title={meta.detail}>
-      <Icon name={meta.icon} size="xs" />
-      <Machine>{meta.label}</Machine>
-      <span className="fw-visually-hidden">{meta.detail}</span>
+    <span className="fw-agents-chip" data-verification={verification ?? 'unknown'} title={detail}>
+      <Icon name={verification === null ? 'Minus' : VERIFICATION_ICON[verification]} size="xs" />
+      <span className="fw-agents-chip__label">{label}</span>
+      <span className="fw-visually-hidden">{detail}</span>
     </span>
   );
 }
 
 function EffortMark({ effort }: { effort: EffortTier }) {
+  const { t } = useLocale();
   const level = EFFORT_ORDER.indexOf(effort) + 1;
+  const word = t(`rd.agents.effort.${effort}`);
   return (
-    <span className="fw-agents-effort" title={`Effort tier: ${effort.toUpperCase()}`}>
+    <span className="fw-agents-effort" title={t('rd.agents.effortTitle', { level: word })}>
       <span className="fw-agents-effort__bars" aria-hidden="true">
         {EFFORT_ORDER.map((tier, index) => (
           <span
@@ -230,19 +212,18 @@ function EffortMark({ effort }: { effort: EffortTier }) {
           />
         ))}
       </span>
-      <Machine>{effort.toUpperCase()}</Machine>
+      <span className="fw-agents-effort__word">{word}</span>
     </span>
   );
 }
 
 function SkillChips({ skills }: { skills: readonly string[] }) {
+  const { t } = useLocale();
   if (skills.length === 0) {
-    return (
-      <p className="fw-agents-skills__none">No skills attached to this agent.</p>
-    );
+    return <p className="fw-agents-skills__none">{t('rd.agents.noSkills')}</p>;
   }
   return (
-    <ul className="fw-agents-skills" aria-label="Attached skills">
+    <ul className="fw-agents-skills" aria-label={t('rd.agents.skillsList')}>
       {skills.map((skill) => (
         <li key={skill} className="fw-agents-chip fw-agents-chip--skill">
           <Machine>{skill}</Machine>
@@ -252,18 +233,27 @@ function SkillChips({ skills }: { skills: readonly string[] }) {
   );
 }
 
-function ModelLine({ icon, label, value }: { icon: string; label: string; value: string }) {
+function ModelLine({ icon, label, value, plain = false }: { icon: string; label: string; value: string; plain?: boolean }) {
   return (
     <div className="fw-agents-model">
       <dt className="fw-agents-model__key">
         <Icon name={icon} size="xs" />
-        <Eyebrow>{label}</Eyebrow>
+        <span className="fw-agents-model__label">{label}</span>
       </dt>
       <dd className="fw-agents-model__val">
-        <Machine muted>{value}</Machine>
+        {plain ? <span className="fw-agents-model__plain">{value}</span> : <Machine muted>{value}</Machine>}
       </dd>
     </div>
   );
+}
+
+/**
+ * The mapped `Agent.effort` is lossy (`toEffortTier` turns `xhigh` and a missing value into
+ * `medium`), so it is only shown for example data, whose tier is its own. A real agent shows the raw
+ * `claudeEffort` from disk once it is read, and nothing while it is not.
+ */
+function showsMappedEffort(agent: Agent, modelRow: AgentRow | undefined): boolean {
+  return modelRow === undefined && (agent as { prototype?: unknown }).prototype === true;
 }
 
 /**
@@ -296,7 +286,7 @@ function ModelEditLine({
     <div className="fw-agents-model">
       <dt className="fw-agents-model__key">
         <Icon name={icon} size="xs" />
-        <Eyebrow>{label}</Eyebrow>
+        <span className="fw-agents-model__label">{label}</span>
       </dt>
       {/* fix-modelpick-clip (2026-07-30, owner: "als ik op agents de model wil veranderen dan zie
           ik niks!"): the base __val cell truncates its text with overflow:hidden — but this editable
@@ -320,6 +310,8 @@ function ModelEditLine({
 
 interface EntryProps {
   agent: Agent;
+  /** Drawn inside a Per groep band: the band already names the group. */
+  inBand?: boolean;
   selected: boolean;
   onSelect: (id: string) => void;
   /** feat-agent-model-edit: `undefined` when the raw roster fetch has not resolved yet (or failed) —
@@ -334,7 +326,8 @@ interface EntryProps {
 
 /* ------------------------------------------------------------------- card */
 
-function AgentCard({ agent, selected, onSelect, modelRow, allowedTiers, allowedEfforts, pendingModelKey, onModelPick }: EntryProps) {
+function AgentCard({ agent, inBand = false, selected, onSelect, modelRow, allowedTiers, allowedEfforts, pendingModelKey, onModelPick }: EntryProps) {
+  const { t } = useLocale();
   const group = GROUP_BY_KEY[agent.group];
 
   return (
@@ -367,22 +360,27 @@ function AgentCard({ agent, selected, onSelect, modelRow, allowedTiers, allowedE
       </div>
 
       <div className="fw-agents-card__group">
-        <span className="fw-agents-card__glyph">
-          <Icon name={group.glyph} size="xs" />
-        </span>
-        <Machine muted>{group.label}</Machine>
-        <span className="fw-agents-card__divider" aria-hidden="true" />
+        {inBand ? null : (
+          <>
+            <span className="fw-agents-card__glyph">
+              <Icon name={group.glyph} size="xs" />
+            </span>
+            <span className="fw-agents-card__group-name">{t(`rd.agents.group.${group.key}`)}</span>
+            <span className="fw-agents-card__divider" aria-hidden="true" />
+          </>
+        )}
         <PermissionChip level={agent.permission} />
       </div>
 
       <p className="fw-agents-card__role">{agent.role}</p>
 
-      <div className="fw-agents-card__task">
-        <Eyebrow>Current task</Eyebrow>
-        <p className={agent.currentTask ? 'fw-agents-card__task-text' : 'fw-agents-card__task-text is-none'}>
-          {agent.currentTask ?? 'No task assigned right now.'}
-        </p>
-      </div>
+      {/* Calm card: a "nothing" line (no task, no skills) is left out instead of drawn (wave-3 gate). */}
+      {agent.currentTask ? (
+        <div className="fw-agents-card__task">
+          <span className="fw-agents-card__label">{t('rd.agents.currentTask')}</span>
+          <p className="fw-agents-card__task-text">{agent.currentTask}</p>
+        </div>
+      ) : null}
 
       {agent.status === 'running' ? (
         <Meter value={agent.progress} tone="accent" showValue />
@@ -392,7 +390,7 @@ function AgentCard({ agent, selected, onSelect, modelRow, allowedTiers, allowedE
         {modelRow !== undefined ? (
           <ModelEditLine
             icon="Cpu"
-            label="Runtime"
+            label={t('rd.agents.model.runtime')}
             field="claudeTier"
             slug={modelRow.slug}
             value={modelRow.modelTier ?? agent.runtimeModel}
@@ -401,13 +399,13 @@ function AgentCard({ agent, selected, onSelect, modelRow, allowedTiers, allowedE
             onModelPick={onModelPick}
           />
         ) : (
-          <ModelLine icon="Cpu" label="Runtime" value={agent.runtimeModel} />
+          <ModelLine icon="Cpu" label={t('rd.agents.model.runtime')} value={agent.runtimeModel} />
         )}
-        <ModelLine icon="Boxes" label="Tool model" value={agent.toolModel} />
+        {agent.toolModel ? <ModelLine icon="Boxes" label={t('rd.agents.model.tool')} value={agent.toolModel} /> : null}
         {modelRow !== undefined && modelRow.claudeEffort !== null ? (
           <ModelEditLine
             icon="Gauge"
-            label="Effort"
+            label={t('rd.agents.model.effort')}
             field="claudeEffort"
             slug={modelRow.slug}
             value={modelRow.claudeEffort}
@@ -415,21 +413,27 @@ function AgentCard({ agent, selected, onSelect, modelRow, allowedTiers, allowedE
             pendingModelKey={pendingModelKey}
             onModelPick={onModelPick}
           />
+        ) : modelRow !== undefined ? (
+          <ModelLine icon="Gauge" label={t('rd.agents.model.effort')} value={t('rd.agents.model.unset')} plain />
         ) : null}
       </dl>
 
-      <div className="fw-agents-card__skills">
-        <Eyebrow>Skills</Eyebrow>
-        <SkillChips skills={agent.skills} />
-      </div>
+      {agent.skills.length > 0 ? (
+        <div className="fw-agents-card__skills">
+          <span className="fw-agents-card__label">{t('rd.agents.skills')}</span>
+          <SkillChips skills={agent.skills} />
+        </div>
+      ) : null}
 
       <div className="fw-agents-card__foot">
-        <EffortMark effort={agent.effort} />
+        {showsMappedEffort(agent, modelRow) ? <EffortMark effort={agent.effort} /> : null}
         <VerificationChip state={agent.verification} />
-        <span className="fw-agents-card__activity">
-          <Icon name="Clock" size="xs" />
-          <Machine muted>{agent.lastActivity}</Machine>
-        </span>
+        {agent.lastActivity ? (
+          <span className="fw-agents-card__activity">
+            <Icon name="Clock" size="xs" />
+            <span className="fw-agents-card__when">{agent.lastActivity}</span>
+          </span>
+        ) : null}
       </div>
     </li>
   );
@@ -438,7 +442,9 @@ function AgentCard({ agent, selected, onSelect, modelRow, allowedTiers, allowedE
 /* -------------------------------------------------------------------- row */
 
 function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEfforts, pendingModelKey, onModelPick }: EntryProps) {
+  const { t } = useLocale();
   const group = GROUP_BY_KEY[agent.group];
+  const groupTitle = t('rd.agents.groupTitle', { group: t(`rd.agents.group.${group.key}`) });
 
   return (
     <li
@@ -451,9 +457,9 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
       data-group={agent.group}
       data-agent-id={agent.id}
     >
-      <span className="fw-agents-row__glyph" title={`${group.label} group`}>
+      <span className="fw-agents-row__glyph" title={groupTitle}>
         <Icon name={group.glyph} size="sm" />
-        <span className="fw-visually-hidden">{group.label} group</span>
+        <span className="fw-visually-hidden">{groupTitle}</span>
       </span>
 
       <div className="fw-agents-row__body">
@@ -471,7 +477,7 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
           </Machine>
           <StatusBadge status={agent.status} size="sm" />
           <PermissionChip level={agent.permission} />
-          <EffortMark effort={agent.effort} />
+          {showsMappedEffort(agent, modelRow) ? <EffortMark effort={agent.effort} /> : null}
           <VerificationChip state={agent.verification} />
         </div>
 
@@ -479,14 +485,14 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
 
         <p className={agent.currentTask ? 'fw-agents-row__task' : 'fw-agents-row__task is-none'}>
           <Icon name="CornerDownRight" size="xs" />
-          {agent.currentTask ?? 'No task assigned right now.'}
+          {agent.currentTask ?? t('rd.agents.noTask')}
         </p>
 
         <div className="fw-agents-row__meta">
           <span className="fw-agents-row__meta-item">
             {modelRow !== undefined ? (
               <AgentModelPicker
-                label="Runtime"
+                label={t('rd.agents.model.runtime')}
                 icon="Cpu"
                 value={modelRow.modelTier ?? agent.runtimeModel}
                 options={allowedTiers}
@@ -500,14 +506,16 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
               </>
             )}
           </span>
-          <span className="fw-agents-row__meta-item">
-            <Icon name="Boxes" size="xs" />
-            <Machine muted>{agent.toolModel}</Machine>
-          </span>
+          {agent.toolModel ? (
+            <span className="fw-agents-row__meta-item">
+              <Icon name="Boxes" size="xs" />
+              <Machine muted>{agent.toolModel}</Machine>
+            </span>
+          ) : null}
           {modelRow !== undefined && modelRow.claudeEffort !== null ? (
             <span className="fw-agents-row__meta-item">
               <AgentModelPicker
-                label="Effort"
+                label={t('rd.agents.model.effort')}
                 icon="Gauge"
                 value={modelRow.claudeEffort}
                 options={allowedEfforts}
@@ -515,11 +523,20 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
                 onPick={(value) => onModelPick(modelRow.slug, 'claudeEffort', value)}
               />
             </span>
+          ) : modelRow !== undefined ? (
+            <span className="fw-agents-row__meta-item">
+              <Icon name="Gauge" size="xs" />
+              <span className="fw-agents-row__unset">
+                {t('rd.agents.model.effort')}: {t('rd.agents.model.unset')}
+              </span>
+            </span>
           ) : null}
-          <span className="fw-agents-row__meta-item">
-            <Icon name="Clock" size="xs" />
-            <Machine muted>{agent.lastActivity}</Machine>
-          </span>
+          {agent.lastActivity ? (
+            <span className="fw-agents-row__meta-item">
+              <Icon name="Clock" size="xs" />
+              <span className="fw-agents-row__when">{agent.lastActivity}</span>
+            </span>
+          ) : null}
           <SkillChips skills={agent.skills} />
         </div>
       </div>
@@ -528,9 +545,7 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
         {agent.status === 'running' ? (
           <Meter value={agent.progress} tone="accent" showValue />
         ) : (
-          <span className="fw-agents-row__progress-idle">
-            <Machine muted>—</Machine>
-          </span>
+          <span className="fw-agents-row__progress-idle" aria-hidden="true" />
         )}
       </div>
     </li>
@@ -540,6 +555,7 @@ function AgentRow({ agent, selected, onSelect, modelRow, allowedTiers, allowedEf
 /* ------------------------------------------------------------------- view */
 
 export default function AgentsView() {
+  const { t } = useLocale();
   const { state, dispatch } = usePrototype();
   const agents = state.data.agents;
   const visible = selectFilteredAgents(state);
@@ -595,8 +611,8 @@ export default function AgentsView() {
         type: 'toast/push',
         toast: {
           id: nextToastId(),
-          title: 'Model change failed',
-          detail: result.error ?? 'The gateway rejected this change.',
+          title: t('rd.agents.model.failed'),
+          detail: result.error ?? t('rd.agents.model.failedDetail'),
           icon: 'TriangleAlert',
         },
       });
@@ -627,12 +643,13 @@ export default function AgentsView() {
     dispatch({ type: 'select', selection: { kind: 'agent', id } });
   }
 
-  const cards = (list: readonly Agent[]) => (
+  const cards = (list: readonly Agent[], inBand = false) => (
     <ul className="fw-agents-grid">
       {list.map((agent) => (
         <AgentCard
           key={agent.id}
           agent={agent}
+          inBand={inBand}
           selected={agent.id === selectedId}
           onSelect={select}
           modelRow={modelRowsForProject.get(agent.id)}
@@ -645,14 +662,19 @@ export default function AgentsView() {
     </ul>
   );
 
-  const empty = (
+  // A roster with nobody in it at all: one honest line. The filter reset would do nothing here.
+  const noRoster = agents.length === 0;
+
+  const empty = noRoster ? (
+    <EmptyState icon="Users" title={t('rd.agents.live.noRegistry')} />
+  ) : (
     <EmptyState
       icon="UserRoundSearch"
-      title="No agents in this state"
-      detail="No agent in this roster has that status right now. Clear the filter to see the full team."
+      title={t('rd.agents.empty.title')}
+      detail={t('rd.agents.empty.detail')}
       action={
         <Button size="sm" icon="RotateCcw" onClick={() => dispatch({ type: 'agents/filter', filter: 'all' })}>
-          Show all agents
+          {t('rd.agents.empty.action')}
         </Button>
       }
     />
@@ -662,23 +684,22 @@ export default function AgentsView() {
     <div className="fw-agents">
       <header className="fw-agents__head">
         <div className="fw-agents__heading">
-          <Eyebrow>Roster</Eyebrow>
-          <h1 className="fw-agents__title">Agents</h1>
+          <h1 className="fw-agents__title">{t('rd.agents.title')}</h1>
           <p className="fw-agents__subtitle">
-            The team assigned to this project — who owns what, what they are holding, and whether
-            verification has agreed with them yet. <ExampleTag />
+            {t('rd.agents.subtitle')} <ExampleTag />
           </p>
         </div>
 
-        <Toolbar label="Agent view controls" className="fw-agents__toolbar">
+        {noRoster ? null : (
+          <Toolbar label={t('rd.agents.toolbar')} className="fw-agents__toolbar">
           <SegmentedControl
             className="fw-agents__layout"
-            label="Agent layout"
+            label={t('rd.agents.layoutLabel')}
             size="sm"
             value={viewMode}
             options={VIEW_MODES.map((option) => ({
               value: option.value,
-              label: option.label,
+              label: t(option.label),
               icon: option.icon,
             }))}
             onChange={(value) => {
@@ -692,14 +713,19 @@ export default function AgentsView() {
               }
             }}
           />
-        </Toolbar>
+          </Toolbar>
+        )}
       </header>
 
       <LiveAgentsStrip agentCount={agents.length} projectId={state.activeProjectId} />
 
-      <div className="fw-agents__filters" role="group" aria-label="Filter agents by state">
+      {noRoster ? null : (
+      <div className="fw-agents__filters" role="group" aria-label={t('rd.agents.filters')}>
         {FILTERS.map((filter) => {
           const active = state.agentFilter === filter.value;
+          const count = counts[filter.value] ?? 0;
+          // Calm row: a status nobody is in right now is left out. "All" and the chosen one always show.
+          if (!active && filter.value !== 'all' && count === 0) return null;
           return (
             <Button
               key={filter.value}
@@ -710,12 +736,13 @@ export default function AgentsView() {
               className={active ? 'fw-agents__filter is-active' : 'fw-agents__filter'}
               onClick={() => dispatch({ type: 'agents/filter', filter: filter.value })}
             >
-              <span className="fw-agents__filter-label fg-machine">{filter.label}</span>
-              <span className="fw-agents__filter-count fg-machine">{counts[filter.value] ?? 0}</span>
+              <span className="fw-agents__filter-label">{t(filter.label)}</span>
+              <span className="fw-agents__filter-count">{count}</span>
             </Button>
           );
         })}
       </div>
+      )}
 
       <div className="fw-agents__body fw-scroll">
         {visible.length === 0 ? (
@@ -744,6 +771,8 @@ export default function AgentsView() {
           <div className="fw-agents__bands">
             {GROUPS.map((group) => {
               const list = banded.get(group.key) ?? [];
+              // Calm page: a group with no helper in this roster at all is not drawn.
+              if (!agents.some((agent) => agent.group === group.key)) return null;
               return (
                 <section
                   key={group.key}
@@ -755,18 +784,16 @@ export default function AgentsView() {
                     <span className="fw-agents__band-glyph">
                       <Icon name={group.glyph} size="sm" />
                     </span>
-                    <h2 id={`agents-band-${group.key}`} className="fw-agents__band-title fg-machine">
-                      {group.label}
+                    <h2 id={`agents-band-${group.key}`} className="fw-agents__band-title">
+                      {t(`rd.agents.group.${group.key}`)}
                     </h2>
-                    <span className="fw-agents__band-count fg-machine">{list.length}</span>
-                    <p className="fw-agents__band-note">{group.note}</p>
+                    <span className="fw-agents__band-count">{list.length}</span>
+                    <p className="fw-agents__band-note">{t(`rd.agents.groupNote.${group.key}`)}</p>
                   </header>
                   {list.length === 0 ? (
-                    <p className="fw-agents__band-empty">
-                      No agent in this group matches the current filter.
-                    </p>
+                    <p className="fw-agents__band-empty">{t('rd.agents.bandEmpty')}</p>
                   ) : (
-                    cards(list)
+                    cards(list, true)
                   )}
                 </section>
               );

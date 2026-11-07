@@ -1,0 +1,31 @@
+{
+  "_doc": "Frontmatter mapping for forge-export (ANY-MODEL-PLAN L2). Source of truth stays .claude/agents and .claude/skills. Keys never live here.",
+  "model": {
+    "opus": { "opencode": null, "codex": "strongest configured", "gemini": "strongest configured" },
+    "sonnet": { "opencode": null, "codex": "strongest configured", "gemini": "strongest configured" },
+    "haiku": { "opencode": null, "codex": "strongest configured", "gemini": "strongest configured" },
+    "fable": { "opencode": null, "codex": "strongest configured", "gemini": "strongest configured" },
+    "inherit": { "opencode": null, "codex": "strongest configured", "gemini": "strongest configured" },
+    "_note": "null = key omitted, OpenCode then uses the user's configured default model."
+  },
+  "dropped": ["effort", "memory", "maxTurns", "color"],
+  "tools": {
+    "edit": ["Write", "Edit", "NotebookEdit"],
+    "bash": ["Bash", "PowerShell"],
+    "webfetch": ["WebFetch", "WebSearch"],
+    "_note": "A tool group present in the agent's tools list -> allow, absent -> deny (OpenCode permission block). Codex gets a sandbox hint: any edit/bash -> workspace-write, else read-only."
+  },
+  "limits": [
+    "no hooks (hard gates, scribe, stop obligations, resume brief)",
+    "no Workflow tool",
+    "no Agent-tool subagent semantics",
+    "no GOAT routing",
+    "no usage guard",
+    "no run contract or ledger"
+  ],
+  "provider": {
+    "keyEnv": "FORGE_EIGEN_API_KEY",
+    "baseUrlEnv": "FORGE_EIGEN_API_BASE",
+    "ollamaBase": "http://127.0.0.1:11434/v1"
+  }
+}

@@ -143,5 +143,62 @@ t('NO live .mcp.json exists at the project root (this wave must stay dormant)', 
   assert.ok(!fs.existsSync(LIVE_MCP_PATH), 'a LIVE .mcp.json exists at project root — this wave must not activate anything');
 });
 
+// --- supply-chain pin-check doctrine + the server picker, kept in step with the registry ---
+const PICKER_REL = 'references/server-picker.md';
+const PICKER_PATH = path.join(path.dirname(SKILL_PATH), 'references', 'server-picker.md');
+const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude', 'config', 'orchestration', 'mcp-registry.json'), 'utf8'));
+const GRANTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.claude', 'config', 'orchestration', 'mcp-grants.json'), 'utf8'));
+
+t('SKILL.md has the supply-chain pin-check section and names forge-mcp-pin.cjs', () => {
+  assert.ok(skillText.includes('## Supply-chain pin-check'), 'missing "## Supply-chain pin-check" section');
+  assert.ok(/forge-mcp-pin\.cjs/.test(skillText), 'does not name forge-mcp-pin.cjs');
+});
+
+t('SKILL.md states that HIGH and UNVERIFIED refuse a grant, before the tier-3 branch', () => {
+  assert.ok(/\*\*HIGH\*\* or \*\*UNVERIFIED\*\*/.test(skillText), 'does not state that HIGH or UNVERIFIED refuse a grant');
+  assert.ok(/before the tier-3 branch/i.test(skillText), 'does not state the pin gate runs before the tier-3 branch');
+});
+
+t('SKILL.md says naming a server is not enabling it, and links the picker one level deep with forward slashes', () => {
+  assert.ok(/Naming is\s+not enabling/i.test(skillText), 'does not say naming is not enabling');
+  assert.ok(skillText.includes(PICKER_REL), 'SKILL.md does not link ' + PICKER_REL);
+  assert.ok(fs.existsSync(PICKER_PATH), 'missing ' + PICKER_PATH);
+});
+
+const pickerText = fs.existsSync(PICKER_PATH) ? fs.readFileSync(PICKER_PATH, 'utf8') : '';
+/** pickerRows() -> [{id, tier, pin, askers}] from every "| `id` | tier | pin | use when | who may ask |" row. */
+function pickerRows() {
+  const rows = [];
+  for (const line of pickerText.split(/\r?\n/)) {
+    const m = /^\|\s*`([a-z0-9-]+)`\s*\|\s*(\d)\s*\|\s*([^|]+?)\s*\|[^|]*\|\s*([^|]+?)\s*\|\s*$/.exec(line);
+    if (m) rows.push({ id: m[1], tier: Number(m[2]), pin: m[3], askers: m[4] });
+  }
+  return rows;
+}
+
+t('picker: every registry server appears exactly once, with the registry tier and pin', () => {
+  const rows = pickerRows();
+  for (const s of REGISTRY.servers) {
+    const hits = rows.filter((r) => r.id === s.id);
+    assert.strictEqual(hits.length, 1, 'server "' + s.id + '" appears ' + hits.length + ' time(s) in the picker');
+    assert.strictEqual(hits[0].tier, s.tier, s.id + ': picker tier ' + hits[0].tier + ' != registry tier ' + s.tier);
+    assert.strictEqual(hits[0].pin, s.pin, s.id + ': picker pin ' + hits[0].pin + ' != registry pin ' + s.pin);
+  }
+  assert.strictEqual(rows.length, REGISTRY.servers.length, 'picker lists a server the registry does not have');
+});
+
+t('picker: "who may ask" matches the mcp-grants.json allow-lists exactly', () => {
+  for (const r of pickerRows()) {
+    const want = Object.entries(GRANTS.bosses).filter(([, g]) => g.allow_servers.includes(r.id)).map(([b]) => b).sort();
+    const got = r.askers === 'nobody by default' ? [] : r.askers.split(',').map((x) => x.trim()).sort();
+    assert.deepStrictEqual(got, want, r.id + ': picker says ' + JSON.stringify(got) + ', grants say ' + JSON.stringify(want));
+  }
+});
+
+t('picker: states that naming never enables and that every result is untrusted', () => {
+  assert.ok(/Naming a server never enables it/.test(pickerText), 'picker does not say naming never enables');
+  assert.ok(/untrusted/i.test(pickerText), 'picker does not mark results untrusted');
+});
+
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exitCode = failed ? 1 : 0;

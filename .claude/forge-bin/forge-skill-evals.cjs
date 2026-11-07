@@ -34,8 +34,8 @@
  *   file_absent      {path}                    — project-relative path does NOT exist.
  *   json_valid       {path}                    — file exists, is readable, and JSON.parse()s cleanly.
  *   max_lines        {path, n}                 — file's line count is <= n.
- *   contains         {path, needle}            — file's raw text includes the exact literal `needle`.
- *   not_contains     {path, needle}             — file's raw text does NOT include `needle`.
+ *   contains         {path, needle}            — file's text includes the exact literal `needle` (CRLF and LF count as the same line break).
+ *   not_contains     {path, needle}             — file's text does NOT include `needle`, neither raw nor with CRLF read as LF.
  *   frontmatter_field {field, max_length?, skill?} — the `field` key (e.g. "description") is present and
  *     non-empty in the CURRENT skill's own SKILL.md frontmatter (or the `skill` dir's SKILL.md when that
  *     optional override is given); when `max_length` is set, the field's string length must not exceed
@@ -77,7 +77,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1: the default project root comes from forge-paths scriptRoot when it is there (optional require): an installed
+// copy keeps exactly the old own-folder answer; a plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd and
+// never the plugin's parent folder (null = no project found, the CLI then asks for --root).
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+const PROJECT_ROOT_DEFAULT = defaultRoot();
 const ASSERTION_TYPES = new Set([
   'file_exists', 'file_absent', 'json_valid', 'max_lines', 'contains', 'not_contains', 'frontmatter_field',
 ]);
@@ -213,7 +222,11 @@ function runAssertion(root, currentSkillName, a) {
         const p = path.resolve(root, a.path);
         const r = readFileHonest(p);
         if (!r.ok) return { ok: false, detail: 'cannot read ' + a.path + ': ' + r.error };
-        const found = r.text.includes(a.needle);
+        // Line endings do not count: a Windows checkout (core.autocrlf) turns LF into CRLF, and a needle that
+        // spans a line break must still match (2026-11-05: a clean worktree failed 13 skills on this alone).
+        const lf = (s) => s.replace(/\r\n/g, '\n');
+        // Raw OR normalised: a needle with a lone CR still matches raw text, so not_contains never passes wrongly.
+        const found = r.text.includes(a.needle) || lf(r.text).includes(lf(a.needle));
         const ok = a.type === 'contains' ? found : !found;
         return { ok, detail: (found ? 'needle FOUND in ' : 'needle NOT found in ') + a.path };
       }
@@ -256,6 +269,7 @@ function runSkill(root, skillDirName) {
 /** runAll(opts) -> {checked_at, root, skills, summary, ok}. See file header MODULE API. */
 function runAll(opts) {
   opts = opts || {};
+  if (!opts.root && !PROJECT_ROOT_DEFAULT) { const e = new Error('no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); e.code = 'ECONFIG'; throw e; }
   const root = path.resolve(opts.root || PROJECT_ROOT_DEFAULT);
   let dirs = listSkillDirs(root);
   if (opts.skill) {

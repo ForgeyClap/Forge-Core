@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "revision": 3,
+  "providers": [
+    {
+      "id": "custom-mijn-vllm",
+      "label": "Mijn vLLM-server",
+      "format": "openai-chat",
+      "baseURL": "http://192.168.1.20:8000/v1",
+      "auth": { "type": "bearer" },
+      "models": { "mode": "endpoint" },
+      "extraHeaders": {},
+      "contextLength": 32768,
+      "enabled": true,
+      "created_at": "2026-11-01T10:00:00.000Z",
+      "updated_at": "2026-11-01T10:00:00.000Z"
+    },
+    {
+      "id": "custom-team-gateway",
+      "label": "Team gateway",
+      "format": "openai-responses",
+      "baseURL": "https://llm.example.com/v1",
+      "auth": { "type": "custom", "header": "X-Auth-Token", "prefix": "Token " },
+      "models": { "mode": "manual", "ids": ["team-large", "team-small"] },
+      "extraHeaders": { "X-Team": "blauw" },
+      "contextLength": null,
+      "enabled": true,
+      "created_at": "2026-11-01T10:00:00.000Z",
+      "updated_at": "2026-11-01T10:00:00.000Z"
+    },
+    {
+      "id": "custom-claude-proxy",
+      "label": "Anthropic-proxy",
+      "format": "anthropic",
+      "baseURL": "https://proxy.example.com/anthropic",
+      "auth": { "type": "x-api-key" },
+      "models": { "mode": "manual", "ids": ["proxy-model-1"] },
+      "extraHeaders": {},
+      "contextLength": null,
+      "enabled": false,
+      "created_at": "2026-11-01T10:00:00.000Z",
+      "updated_at": "2026-11-01T10:00:00.000Z"
+    }
+  ],
+  "updated_at": "2026-11-01T10:00:00.000Z"
+}

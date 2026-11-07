@@ -1,0 +1,33 @@
+{
+  "skill": "claude-md-improver",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/claude-md-improver/SKILL.md",
+      "why": "the vendored skill file must exist" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
+      "why": "every description must stay <=200 chars or the skill picker truncates it" },
+    { "id": "vendor-pin-kept", "type": "contains", "path": ".claude/skills/claude-md-improver/SKILL.md", "needle": "Pinned commit: 6bfd4e0c6d3da6050984fa5ed8281d915fa7ed69",
+      "why": "doctor detectVendorPin recognises vendoring by the Source and Pinned commit lines; the graft must not remove them" },
+    { "id": "apache-license-file", "type": "file_exists", "path": ".claude/skills/claude-md-improver/LICENSE.txt",
+      "why": "Apache-2.0 terms must stay next to the vendored skill" },
+    { "id": "change-notice", "type": "contains", "path": ".claude/skills/claude-md-improver/SKILL.md", "needle": "EXCEPT the Forge-added parts marked \"Forge addendum\"",
+      "why": "Apache-2.0 section 4(b): modified files carry a notice of the change" },
+    { "id": "phase4-pointer", "type": "contains", "path": ".claude/skills/claude-md-improver/SKILL.md", "needle": "read `references/forge-disclosure-doctrine.md`\n> first",
+      "why": "the doctrine must be reached before Phase 4 updates, through a pointer with a trigger" },
+    { "id": "addendum-section", "type": "contains", "path": ".claude/skills/claude-md-improver/SKILL.md", "needle": "## Forge addendum (not upstream)",
+      "why": "Forge additions stay marked so the upstream body remains identifiable" },
+    { "id": "upstream-phase5-kept", "type": "contains", "path": ".claude/skills/claude-md-improver/SKILL.md", "needle": "After user approval, apply changes using the Edit tool. Preserve existing content structure.",
+      "why": "the vendored body stays verbatim; a sample upstream sentence must still be there" },
+    { "id": "doctrine-exists", "type": "file_exists", "path": ".claude/skills/claude-md-improver/references/forge-disclosure-doctrine.md",
+      "why": "the pointer target must exist (no false pointer)" },
+    { "id": "doctrine-import-rule", "type": "contains", "path": ".claude/skills/claude-md-improver/references/forge-disclosure-doctrine.md", "needle": "saves no context",
+      "why": "daymade graft: an @import loads in full at start and saves no context" },
+    { "id": "doctrine-no-kpi", "type": "contains", "path": ".claude/skills/claude-md-improver/references/forge-disclosure-doctrine.md", "needle": "never the goal of a change and never a result in the report",
+      "why": "daymade graft: line count is a symptom, never a KPI" },
+    { "id": "no-python-taken", "type": "not_contains", "path": ".claude/skills/claude-md-improver/references/forge-disclosure-doctrine.md", "needle": "python3",
+      "why": "daymade Python scripts and python recipes are excluded; Forge checks run in Node" },
+    { "id": "provenance-daymade", "type": "contains", "path": ".claude/skills/claude-md-improver/SKILL.md", "needle": "| daymade/claude-code-skills |",
+      "why": "provenance table for the graft (repo, path, SHA, licence, taken, excluded)" },
+    { "id": "body-under-budget", "type": "max_lines", "path": ".claude/skills/claude-md-improver/SKILL.md", "n": 500,
+      "why": "doctor skill_hygiene body budget" }
+  ]
+}

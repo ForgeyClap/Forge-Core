@@ -1,9 +1,9 @@
 /**
  * Switch — a real role="switch" button, not a styled checkbox.
  *
- * State is carried by three things at once: aria-checked, the thumb position,
- * and a hard value inversion of the track (text value on, surface off). No hue
- * involved, so it reads the same in greyscale.
+ * State is carried by three things at once: aria-checked, the thumb position
+ * (it slides with transform), and the track fill (Pauw on, Inleg off). The
+ * position alone already reads in greyscale.
  */
 
 import type { ReactNode } from 'react';

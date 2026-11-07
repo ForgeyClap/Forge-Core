@@ -1,0 +1,99 @@
+{
+  "domain": "figma",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-figma/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-figma/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "fig-visual-match",
+      "claim": "The rendered output matches the source frame at the design breakpoints.",
+      "evidence_required": "Side-by-side screenshots of design and build at each breakpoint.",
+      "how_to_run": "Screenshot the build at each design breakpoint and place it beside the frame export.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-figma/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Rendered output matches the source frame at the design's breakpoints — side-by-side screenshot evidence."
+      }
+    },
+    {
+      "id": "fig-tokens",
+      "claim": "Design tokens are extracted to variables/theme and reused, with no per-component hardcoded palette or spacing drift.",
+      "evidence_required": "The tokens file and a search for hardcoded colors/spacing in components.",
+      "how_to_run": "Read the tokens file; search components for hex colors and raw px values.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-figma/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Design tokens extracted to variables/theme and reused"
+      }
+    },
+    {
+      "id": "fig-responsive",
+      "claim": "The layout is responsive at the declared breakpoints with no fixed-pixel-only layout.",
+      "evidence_required": "Screenshots at each declared breakpoint.",
+      "how_to_run": "Screenshot the build at each breakpoint.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-figma/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Responsive at the design's declared breakpoints; no fixed-pixel-only layout."
+      }
+    },
+    {
+      "id": "fig-a11y",
+      "claim": "Contrast meets AA, HTML is semantic, focus is visible and the page is keyboard-navigable; contrast failures in the source are flagged.",
+      "evidence_required": "An accessibility check result and a keyboard walk-through.",
+      "how_to_run": "Run an a11y checker (axe or Lighthouse) and tab through the page.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-figma/SKILL.md",
+        "section": "Domain gates",
+        "quote": "contrast meets AA, semantic HTML, visible focus, keyboard-navigable"
+      }
+    },
+    {
+      "id": "fig-components",
+      "claim": "Components mirror the design variant/component system and are reusable and prop-driven.",
+      "evidence_required": "The component list mapped to the Figma variant sets.",
+      "how_to_run": "Read the component files against the design system.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-figma/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Components mirror the design's variant/component system"
+      }
+    },
+    {
+      "id": "fig-source-stated",
+      "claim": "The translation source (Figma MCP read or provided exports) is stated and no measurements are invented.",
+      "evidence_required": "The handoff note naming the source.",
+      "how_to_run": "Read the report or handoff note.",
+      "severity": "block",
+      "honesty_note": "Without the MCP or exports the output is approximate; say so instead of passing this check.",
+      "source": {
+        "path": ".claude/skills/forge-figma/SKILL.md",
+        "section": "Domain gates",
+        "quote": "The translation source is stated"
+      }
+    }
+  ],
+  "hard_gates": [],
+  "not_applicable_when": [
+    "The built page itself also runs under the website card (forge-figma is not for generic page building on its own)."
+  ],
+  "gaps": []
+}

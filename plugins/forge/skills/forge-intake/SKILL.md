@@ -1,6 +1,8 @@
 ---
 name: forge-intake
-description: "Prompt Master intake: capture the real goal before building. Silent by default (Lead answers, max one owner question); full list on /forge interview. Use at the START of any /forge build task."
+description: "Use at the start of a /forge build (nieuwe opdracht, nieuw project)."
+# A10 original description (listing budget): "Use at the start of a /forge build (nieuwe opdracht, nieuw project, new build, requirements): capture the real goal."
+# W2-BUDGET original description (listing budget): "Use at the start of a /forge build (nieuwe opdracht, nieuw project, new build, requirements): capture the real goal."
 ---
 
 # forge-intake — Prompt Master intake + dispatch shaping
@@ -42,12 +44,18 @@ At the START of any `/forge` task that BUILDS/creates/automates a real deliverab
 
 HONESTY: never build on assumed answers — if the owner skips a *required* question, state the assumption you're proceeding with. The intake sharpens the goal; it does not replace owner approval gates.
 
-**How to ask the one question** (evidence: dev-tree research `forge-research/prompt-coaching-2026-09-24.md` §C asking protocol):
-- **When:** only (a) two readings → materially different builds, or (b) an outward/irreversible action. Otherwise continue and record the assumption. The tool: `node .claude/forge-bin/forge-promptcheck.cjs ask "<raw request>" [--lang nl|en] [--midrun] [--json]` returns `gaps` (F-id strings, ranked), `gapDetails` (`[{id, midrun}]` — `midrun: true` marks F12, the goal changing halfway), `nextQuestion` (`{id, nl, en, options:[{key, label:{nl,en}, recommended}], recommended, assume}` or null) and `assumptions` (`[{id, nl, en}]`). `nextQuestion` only ever comes from the askable set F13 > F9 > F8 > F5 > F7 > F3 > F4 > F1 (plus F12 when `--midrun` is passed); F11 / F10 / F6 / F2 have safe defaults and are always recorded as assumptions, never asked. Exit 3 → ask exactly its `nextQuestion`; exit 0 → no question, record its `assumptions`.
-- **Format:** 2–3 options worded as what the owner GETS (outcomes, not techniques) + "iets anders"; A is the recommended option with a one-line reason ("A (aanbevolen) — omdat …"). Plain Dutch first (English when the owner writes English). Never ask a question whose every answer you cannot handle.
-- **Confirm in one sentence:** "Ik bouw dus: {herschreven opdracht}. Klopt dat?" — then keep going unless the owner corrects it; an explicit yes/no only for an outward/irreversible action (which also hits a hard gate).
-- **Teach in one line, after the answer** — only when config `explain-mode` is on, at most once per failure type (F-id) per session, never blaming: "Tip: zeg de volgende keer '{zin uit hun eigen herschreven opdracht}', dan kan ik meteen beginnen."
-- **Where the rules live:** the 9-ingredient checklist and failure modes F1–F13 are in the `forge-prompt-coach` skill (`.claude/skills/forge-prompt-coach/SKILL.md`, `.claude/skills/forge-prompt-coach/references/failure-modes.md`). The bank (`.claude/config/intake/question-bank.json`) carries `question_nl` / `options_nl` / `why_nl` / `beginner` (≤3 outcome options, `recommended`, `assume`) / `triggers` (F-ids) on every question, plus 6 new universal dimensions (`must-not-break` and `outward-action` required; `why`, `success-measure`, `budget`, `language` recommended); the `bugfix` and `bots` sets are live under `byType`. `forge-intake.cjs … --json` carries all of those fields; `--lang nl` prints the Dutch beginner options, `--beginner` forces the beginner block in English too, and `--trigger F<id>` returns only the bank questions for that gap — that is how the Lead picks the ONE question.
+**How to ask the one question:** only when two readings lead to materially different builds or the action is outward/irreversible; 2–3 outcome options + "iets anders", A recommended with a one-line reason; confirm in one sentence ("Ik bouw dus: … Klopt dat?"); at most one teaching tip per F-id per session when `explain-mode` is on. The 9 ingredients and F1–F13 live in `forge-prompt-coach`. Full wording (the `promptcheck ask` JSON fields, exit codes, the bank fields): `references/asking-the-one-question.md`.
+
+## 1b. PLAN CARD — think with the user, then show ONE card (WP 3.2)
+
+The intake ends in one plan card, never in a list of questions: **goal → real intent → assumptions → at most ONE question → plan card → proceed.**
+1. **Render it, always.** Write the mission JSON (goal, intent, assumptions, the one question or null, packages with owns/route/deps/owner, risks, wont_do, gates, proof) and run `node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --request "<raw owner request>" --run <run_id>` (add `--lang nl` for a Dutch owner). Every run renders and logs it: `plan-card.md` + `plan-card.json` in the run folder and one `agent_note`. The card shows scope, work packages with owners and routes, expected lanes, risks, what Forge will NOT do, the hard gates that need the owner and how done is proven.
+2. **Assumptions** go on the card under *Assumptions (auto-filled)* with their F-id: `--request` merges `forge-promptcheck.cjs plan-input`, a gap answered from the bank uses its `beginner.assume`. The PRD `assumptions` section repeats them.
+3. **The one question** comes from the vetted bank: `node .claude/forge-bin/forge-plan-card.cjs question --domain <slug> [--trigger F<id>]` returns exactly one question with its choices and the default used when unanswered. A mission with more than one owner question is refused (exit 2). Ask it in the same message as the card; unanswered means the default, recorded as an assumption and never asked again.
+4. **plan-approval** (config, default `gated`; exit 3 = the card needs the owner). `gated`: only the packages in `blocked` wait (they hold a hard-gate item such as push, deploy, spend, DNS, production, credentials, outbound, outside-root or a destructive delete, or depend on one); start every package in `ready` at once. `always`: the whole card waits. `auto`: never waits. Approving the card never unlocks a gate: each gate action still uses its own yes-path, batched at the end of the mission.
+5. **Approved scope is never re-asked.** "Approval given once for a scope stays valid for that whole scope" (owner), and Forge "does not ask 'shall I continue?' between phases — only a hard gate or a real usage-limit pause interrupts" (standing rule `does-it-for-you`). Store the card's `approvalRecord` as `approval` in the mission; a re-render then needs no new OK unless a gate item changed.
+
+Full contract, verdict table and examples: `references/plan-card.md`.
 
 ## 2. DISPATCH SHAPING — every Boss dispatch is Prompt Master-shaped
 
@@ -69,24 +77,4 @@ This sharpens what a Boss receives; it never waits on the owner. A canonical For
 - Intake fires for BUILD tasks; it is not a gate on Q&A/status turns. Dispatch shaping applies to every real Boss dispatch.
 
 ## Iteratieve intake — OPT-IN via `/forge interview` of config `intake: interview` (sweep-verbetering 2026-07-31; opt-in sinds 2026-09-23)
-
-**Standaard vult de Lead de intake zélf in** (config `intake: silent`; forge-router Stap 0a: antwoorden uit de
-missietekst, de projectscan, `.claude/.forge-setup.json` en het projectprofiel, vastgelegd als *Assumptions
-(auto-filled)* in de PRD). Hooguit één vraag aan de owner, en alleen als (a) twee lezingen tot wezenlijk
-verschillende bouwsels leiden, of (b) de actie naar buiten gaat of onomkeerbaar is (versturen, publiceren,
-betalen, deployen) — gekozen door `forge-prompt-coach`, als 2–3 uitkomst-opties + "iets anders" (A aanbevolen
-met één regel reden), gevolgd door één bevestigingszin: "Ik bouw dus: {herschreven opdracht}. Klopt dat?".
-Een externe audit mat dat de verplichte vragenlijst een beginner 21–24 vragen voorlegde vóór er
-iets gebouwd werd. De interviewmodus hieronder is waardevol, maar alleen wanneer de owner er expliciet om
-vraagt (`/forge interview`, config `intake: interview`) of zelf "vraag het me eerst" zegt; de skills
-`grill-me` / `grilling` zijn dan de interviewmotor. De laddering-methode (herhaald "waarom?") hoort hier,
-niet in de standaardflow.
-
-Waar het kanaal het toelaat (dashboard-wizard, interactieve chat): stel vragen **één per keer** in
-plaats van één batchlijst — elk antwoord stuurt de vólgende vraag, tot er gedeeld begrip is. Sluit
-ALTIJD af met de meta-vraag: **"Wat moet ik zelf nog verhelderen dat ik niet gevraagd heb?"** — die
-vangt de gaten die de vragensteller zelf mist. Leg de scope-uitkomst vast in vier lagen:
-**core** (moet nu) · **nice-to-have** (mag nu) · **maybe-later** (mét concrete trigger wanneer wel) ·
-**expliciet-uit-scope** (opgeschreven zodat niemand het stilzwijgend alsnog bouwt). Batch-vragen
-blijven het terugvalpad voor niet-interactieve runs; de recommended-markering per vraag blijft
-gelden (verdiend advies, nooit random).
+Opt-in only: the Lead fills the intake itself by default. In interview mode ask **one question per turn**, close with the meta-question **"Wat moet ik zelf nog verhelderen dat ik niet gevraagd heb?"**, and record scope in four layers (core · nice-to-have · maybe-later with a trigger · explicitly out of scope); the recommended tag per question stays verdiend advies (evidence-earned, never random). Full Dutch text: `references/iterative-intake.md`.

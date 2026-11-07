@@ -2,7 +2,7 @@
  * The `legacy-bridge*` suite labels must keep telling the truth.
  *
  * Why this file exists: a system-checkup found that five test
- * directories exercise only `src/bridge/**` — the 39-op WebSocket bridge the
+ * directories exercise only `archive/bridge/**` — the 39-op WebSocket bridge the
  * shipped product never runs — while carrying names (`bridge`, `security`) that
  * made their green result read as evidence about the LIVE gateway path. The fix
  * was to rename the vitest projects to `legacy-bridge` / `legacy-bridge-paths`,
@@ -18,7 +18,7 @@
  *      deliberately labelled `shared` because it tests `@/shared/**` — code the
  *      live path really does import.
  *
- * So: every file in a legacy directory must import `@/bridge`, and no file in
+ * So: every file in a legacy directory must import `@archive/bridge`, and no file in
  * `tests/property` may. This reads the real files off disk — it cannot pass by
  * agreeing with a fixture.
  */
@@ -50,12 +50,12 @@ function testFilesIn(dirName: string): string[] {
  * Does this test target the dead bridge — directly, or through a sibling helper?
  *
  * `tests/integration` deliberately imports NO bridge module: it spawns the real
- * `node src/bridge/main.ts` as a child process from its own `helpers.ts`, which
+ * `node archive/bridge/main.ts` as a child process from its own `helpers.ts`, which
  * is exactly as much "a bridge test" as a direct import is. So the check reads
  * the file plus any helper it imports from its own directory, and looks for a
  * bridge module path in either.
  */
-const BRIDGE_PATH_RE = /(@\/bridge\/|src\/bridge\/)/;
+const BRIDGE_PATH_RE = /(@archive\/bridge\/|archive\/bridge\/)/;
 
 function targetsBridge(file: string): boolean {
   const source = readFileSync(file, 'utf8');
@@ -74,7 +74,7 @@ function targetsBridge(file: string): boolean {
   return false;
 }
 
-const LEGACY_DIRS = ['chaos', 'idempotency', 'negative', 'security', 'integration'];
+const LEGACY_DIRS = ['chaos', 'idempotency', 'negative', 'security', 'integration', 'legacy-bridge-unit'];
 
 describe('legacy-bridge suite labels stay accurate', () => {
   for (const dirName of LEGACY_DIRS) {
@@ -89,7 +89,7 @@ describe('legacy-bridge suite labels stay accurate', () => {
       const live = files.filter((f) => !targetsBridge(f)).map((f) => path.basename(f));
       expect(
         live,
-        `these files sit in the legacy-bridge-labelled tests/${dirName} but do not import @/bridge — ` +
+        `these files sit in the legacy-bridge-labelled tests/${dirName} but do not import @archive/bridge — ` +
           'if they test live code, move them to tests/unit (jsdom) or tests/property (node) so their ' +
           'coverage is not filed under a label that says "dead code"',
       ).toEqual([]);
@@ -105,5 +105,41 @@ describe('legacy-bridge suite labels stay accurate', () => {
       'tests/property runs under the `shared` project label because it targets @/shared/** — ' +
         'a bridge test here would be mislabelled as live coverage',
     ).toEqual([]);
+  });
+});
+
+/**
+ * WP A9: the bridge was archived from `src/bridge` to
+ * `archive/bridge`. Live code may still name archive types (they are erased at
+ * build time), but a runtime VALUE import from the archive would pull dead code
+ * back into the shipped bundle — exactly what archiving was meant to stop.
+ */
+const dashboardDir = path.resolve(testsDir, '..');
+
+function sourceFilesIn(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const abs = path.join(dir, entry);
+    if (statSync(abs).isDirectory()) out.push(...sourceFilesIn(abs));
+    else if (/\.tsx?$/.test(entry)) out.push(abs);
+  }
+  return out;
+}
+
+describe('the archived bridge stays out of the shipped source', () => {
+  it('src/bridge no longer exists and archive/bridge does', () => {
+    expect(() => statSync(path.join(dashboardDir, 'src', 'bridge'))).toThrow();
+    expect(statSync(path.join(dashboardDir, 'archive', 'bridge')).isDirectory()).toBe(true);
+  });
+
+  it('src/** imports the archive with `import type` only', () => {
+    const offenders: string[] = [];
+    for (const file of sourceFilesIn(path.join(dashboardDir, 'src'))) {
+      const source = readFileSync(file, 'utf8');
+      for (const match of source.matchAll(/^\s*import\s+(type\s+)?[^;]*?from\s+['"]([^'"]*archive\/bridge[^'"]*)['"]/gm)) {
+        if (match[1] === undefined) offenders.push(`${path.relative(dashboardDir, file)} -> ${match[2]}`);
+      }
+    }
+    expect(offenders, 'a runtime import from archive/bridge puts dead code back in the bundle').toEqual([]);
   });
 });

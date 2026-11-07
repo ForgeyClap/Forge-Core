@@ -88,6 +88,31 @@ const { spawnSync } = require('child_process');
 const { redactValue, redactText, resolveStoreDir, putEntity, isValidId, CLAUDE_DIR } = require('./forge-store.cjs');
 const lockGuard = require('./forge-lock-guard.cjs');
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+/** storeProject() -> the project root behind forge-store's CLAUDE_DIR when that is a real .claude folder, else null
+ *  (a bare FORGE_STORE_ROOT test folder: every path below keeps its legacy literal under CLAUDE_DIR). */
+function storeProject() {
+  return CLAUDE_DIR && path.basename(CLAUDE_DIR).toLowerCase() === '.claude' ? path.dirname(CLAUDE_DIR) : null;
+}
+function inForgeLayout(root) {
+  if (!forgePaths || !root) return false;
+  try { return forgePaths.layout(root) === 'forge'; }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return false; }
+}
+/** storeRunsDir() -> the runs folder (forge layout: forge-paths stateDir; else <CLAUDE_DIR>/forge-runs as before). */
+function storeRunsDir() {
+  const root = storeProject();
+  return inForgeLayout(root) ? forgePaths.stateDir(root, 'runs') : path.join(CLAUDE_DIR, 'forge-runs');
+}
+/** storeMemoryFile(name) -> the FORGE_* memory file IN USE: legacy <CLAUDE_DIR>/<name> as before; in the forge layout
+ *  .forge/memory/<name>, or the legacy file while only that one exists (an append-only file never splits in two). */
+function storeMemoryFile(name) {
+  const root = storeProject();
+  return inForgeLayout(root) && typeof forgePaths.memoryFile === 'function' ? forgePaths.memoryFile(root, name, { read: true }) : path.join(CLAUDE_DIR, name);
+}
+
 // ---- markdown rendering ----
 const SECTION_ORDER = [
   ['Goal', 'goal'], ['Users', 'users'], ['Problem', 'problem'], ['Solution', 'solution'],
@@ -618,13 +643,16 @@ function amendTicket(opts) {
   const log = typeof opts.log === 'function' ? opts.log : logEvent;
   const ticketsDir = opts.ticketsDir || resolveStoreDir('tickets');
   const prdDir = opts.prdDir || resolveStoreDir('prd');
+  if (!CLAUDE_DIR) throw new Error('forge-prd amend: no project root found (no .claude, .forge or .git above the current folder)');
   const root = opts.root ? path.resolve(opts.root) : path.resolve(CLAUDE_DIR, '..');
-  const historyPath = opts.historyPath || path.join(CLAUDE_DIR, 'FORGE_TASK_HISTORY.md');
+  const historyPath = opts.historyPath || storeMemoryFile('FORGE_TASK_HISTORY.md');
   const noHistory = !!opts.noHistory;
   const writeFile = typeof opts.writeFile === 'function' ? opts.writeFile : writeFileAtomic;
   // Lock storage rides on CLAUDE_DIR (not forge-lock-guard's own FORGE_PROJECT_ROOT default) so it
   // automatically inherits FORGE_STORE_ROOT's hermetic-test redirection like every other path in this file.
-  const lockDir = path.join(CLAUDE_DIR, 'forge-runs', '.hotspot-locks');
+  // WP 2.1: for a real project's .claude it is the runs folder of that project's layout - the same folder
+  // forge-lock-guard.cjs uses - and a bare FORGE_STORE_ROOT test folder keeps <dir>/forge-runs as before.
+  const lockDir = path.join(storeRunsDir(), '.hotspot-locks');
 
   // ---- validation that needs no PRD state (ac-4: write nothing on failure) ----
   const ticketId = opts.ticketId;

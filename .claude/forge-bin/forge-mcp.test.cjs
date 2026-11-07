@@ -127,5 +127,41 @@ t('WP-9b: memory archives are listed and readable read-only (redacted); look-ali
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+// WP 1.9: forge-memory-consolidate.cjs (WP 1.4) archives the history, ledger and decisions files as
+// FORGE_<NAME>_ARCHIVE_<YYYY-MM>[-b].md. An archive of a file that is already shared is shared in the same tier; an
+// archive-shaped name of a file that is NOT shared (owner profile, an invented name) stays forbidden, and so do
+// LESSONS.md and agent-memory (never part of the MCP surface).
+t('WP 1.9: archives of the shared history/ledger/decisions files are listed and readable; non-shared look-alikes stay forbidden', () => {
+  for (const ok of ['FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'FORGE_TASK_HISTORY_ARCHIVE_2026-10.md', 'FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md', 'FORGE_PROJECT_PROFILE_ARCHIVE_2026-10.md']) assert.ok(mcp.MEMORY_ARCHIVE_RE.test(ok), ok);
+  for (const bad of ['FORGE_OWNER_PROFILE_ARCHIVE_2026-10.md', 'FORGE_SECRET_ARCHIVE_2026-10.md', 'FORGE_ARCHIVE_2026-10.md', 'LESSONS.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.txt']) assert.ok(!mcp.MEMORY_ARCHIVE_RE.test(bad), bad);
+  const fs = require('fs');
+  const os = require('os');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-mcp-archive19-'));
+  try {
+    const cd = path.join(root, '.claude');
+    fs.mkdirSync(path.join(cd, 'agent-memory', 'build-boss'), { recursive: true });
+    const FAKE_SK = 'sk-' + 'z'.repeat(24);
+    fs.writeFileSync(path.join(cd, 'FORGE_TASK_HISTORY.md'), '# history\n');
+    fs.writeFileSync(path.join(cd, 'FORGE_TASK_HISTORY_ARCHIVE_2026-10.md'), '# history archive\nkey ' + FAKE_SK + '\n');
+    fs.writeFileSync(path.join(cd, 'FORGE_DECISIONS_ARCHIVE_2026-10.md'), '# decisions archive\n');
+    fs.writeFileSync(path.join(cd, 'FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md'), '# ledger archive\n');
+    fs.writeFileSync(path.join(cd, 'FORGE_OWNER_PROFILE_ARCHIVE_2026-10.md'), 'not shared\n');
+    fs.writeFileSync(path.join(cd, 'LESSONS.md'), 'not shared\n');
+    fs.writeFileSync(path.join(cd, 'agent-memory', 'build-boss', 'lessons-archive-2026-10-23.md'), 'not shared\n');
+    const script = [
+      "const m = require(" + JSON.stringify(path.join(__dirname, 'forge-mcp.cjs')) + ");",
+      "const uris = m.listResources().map((r) => r.uri);",
+      "const read = (u) => { try { return { ok: true, text: m.readResource(u).text }; } catch (e) { return { ok: false, err: e.message }; } };",
+      "console.log(JSON.stringify({ uris, hist: read('forge://memory/FORGE_TASK_HISTORY_ARCHIVE_2026-10.md'), owner: read('forge://memory/FORGE_OWNER_PROFILE_ARCHIVE_2026-10.md'), lessons: read('forge://memory/LESSONS.md'), boss: read('forge://memory/agent-memory/build-boss/lessons-archive-2026-10-23.md') }));",
+    ].join('\n');
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10000, env: Object.assign({}, process.env, { FORGE_PROJECT_ROOT: root }) });
+    assert.strictEqual(r.status, 0, 'child exit ' + r.status + ' ' + r.stderr);
+    const o = JSON.parse(r.stdout.trim().split('\n').pop());
+    assert.deepStrictEqual(o.uris, ['forge://memory/FORGE_TASK_HISTORY.md', 'forge://memory/FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', 'forge://memory/FORGE_DECISIONS_ARCHIVE_2026-10.md', 'forge://memory/FORGE_TASK_HISTORY_ARCHIVE_2026-10.md']);
+    assert.ok(o.hist.ok === true && o.hist.text.includes('# history archive') && !o.hist.text.includes(FAKE_SK), JSON.stringify(o.hist).slice(0, 200));
+    for (const k of ['owner', 'lessons', 'boss']) assert.strictEqual(o[k].ok, false, k + ' must stay forbidden');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

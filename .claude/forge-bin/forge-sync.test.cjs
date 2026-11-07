@@ -1077,6 +1077,7 @@ console.log('\n33) H4 / finding#6: the REAL forge-doctor.cjs is actually invoked
     const p = makeProject(freshDir('t33-realdoctor-root'), 'proj', null); // no fake stub
     fs.mkdirSync(path.join(p, '.claude', 'forge-bin'), { recursive: true });
     fs.copyFileSync(realDoctorSrc, path.join(p, '.claude', 'forge-bin', 'forge-doctor.cjs'));
+    fs.cpSync(path.join(__dirname, 'doctor'), path.join(p, '.claude', 'forge-bin', 'doctor'), { recursive: true }); // WP A11-2: the doctor's check modules
     fs.copyFileSync(realStoreSrc, path.join(p, '.claude', 'forge-bin', 'forge-store.cjs'));
     const result = sync.runValidation(p, { toChange: [] });
     t('the REAL forge-doctor.cjs is actually invoked (tool:"forge-doctor", not the node-check-fallback)', result.tool === 'forge-doctor');
@@ -6382,6 +6383,8 @@ else r4Section('131', () => {
 console.log('\n132) R4 F09: the quiesce check runs UNDER this run\'s own lock; an interpreter whose command line cannot be read is unknown; a working directory inside the project counts');
 r4Section('132', () => {
   const p = makeProject(freshDir('t132-root'), 'proj', null);
+  // an app file: this is an existing project, not a bare first-install scaffold (that case: forge-sync-fresh-quiesce.test.cjs)
+  fs.writeFileSync(path.join(p, 'app.js'), '// app');
   const fakeRoot = freshDir('t132-claude-projects');
   const qo = (extra) => Object.assign({ nowMs: Date.now(), projectsRoot: fakeRoot, listProcesses: () => [], selfPid: 424242, parentPid: 424241 }, extra || {});
   // (a) unreadable command line: an interpreter/tool image -> unknown; a service image -> counted, not inspected

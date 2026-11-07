@@ -1,15 +1,14 @@
 /*
  * Mission Control — view stylesheet.
  *
- * Every value comes from a --forge-* token. There is not a single hex, rgb()
- * or hsl() below. The only hue in the file is the rationed ember accent, used
- * in exactly two places: the focus ring on the canvas, and the two-pixel
- * progress hairline under a node whose agent is actually running.
+ * Forge Systeem v1.0 (redesign): every value is a --fs-* token or a plain
+ * number. No hex, no ALL CAPS, mono only for machine text (the run id and the
+ * recorded timestamps). The one accent (Pauw) marks the focus ring and the
+ * two-pixel progress hairline under a node whose helper is really working.
  *
- * Status never speaks through colour alone here either: a node carries the
- * status border treatment (--forge-status-<key> / -style / -width, resolved by
- * the shared .fw-status carrier) *and* a StatusBadge with an icon and an
- * uppercase label.
+ * Status never speaks through colour alone: a node carries the status border
+ * treatment (resolved by the shared .fw-status carrier) and a StatusBadge with
+ * a dot and a word.
  */
 
 /* =========================================================================
@@ -25,7 +24,7 @@
   max-inline-size: 100%;
   /* The graph pans inside its own region. The page itself never scrolls. */
   overflow: hidden;
-  background: var(--forge-color-bg);
+  background: var(--fs-bg);
 }
 
 /* =========================================================================
@@ -38,25 +37,29 @@
   align-items: flex-end;
   gap: var(--fw-gap);
   padding: var(--fw-gutter) var(--fw-gutter) var(--fw-gutter-tight);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-bg);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-bg);
 }
 
 .fw-mission__ident {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
   flex: 1 1 22rem;
 }
 
 .fw-mission__title {
-  font-size: var(--forge-text-lg);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text);
+  margin: 0;
+  font-family: var(--fs-font-display);
+  /* Same size as every other Uitgebreid page title (agents.css .fw-agents__title). */
+  font-size: calc(var(--fs-text-13) * 2);
+  font-weight: 400;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  color: var(--fs-ink);
   /* Human-written mission goal: sans, deliberately not the machine face. */
-  max-inline-size: var(--forge-layout-reading);
+  max-inline-size: 46rem;
 }
 
 /* A run title is often the owner's whole /goal text; three lines keep Mission Control visible on
@@ -64,39 +67,62 @@
    home.css's .fw-home__resume-body. */
 .fw-mission__title--clamped {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.fw-mission__subtitle {
+  margin: 0;
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-body);
+  color: var(--fs-ink-3);
+}
+
+/* A page with no graph under it: the header is a plain page header, like the other Uitgebreid
+   routes, not a bar. */
+.fw-mission__header--page {
+  border-block-end: 0;
 }
 
 .fw-mission__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--forge-space-2) var(--forge-space-4);
-  margin-block-start: var(--forge-space-1);
+  gap: var(--fs-space-2) var(--fs-space-4);
+  margin-block-start: var(--fs-space-1);
 }
 
 .fw-mission__meta-item {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
+/* Sentence-case key, then its value: "Klus forge-…", "Duur 12 min". */
 .fw-mission__meta-key {
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink-3);
 }
 
 .fw-mission__meta .fw-machine {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
+}
+
+.fw-mission__value {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.fw-mission__note {
+  font-size: var(--fs-text-13);
+  color: var(--fs-warn);
 }
 
 /* =========================================================================
@@ -110,25 +136,22 @@
 
 .fw-mission__zoom {
   min-inline-size: 4ch;
-  padding-inline: var(--forge-space-1);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  padding-inline: var(--fs-space-1);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
 .fw-mission__controls-hint {
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
 }
 
 .fw-mission__hint-text {
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--forge-color-text-faint);
-  margin-inline-end: var(--forge-space-2);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+  margin-inline-end: var(--fs-space-2);
 }
 
 /* =========================================================================
@@ -146,7 +169,7 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: var(--forge-color-canvas);
+  background: var(--fs-bg-side);
   cursor: grab;
   /* Pointer drags belong to the graph, not to the page. */
   touch-action: none;
@@ -159,7 +182,7 @@
 
 .fw-graph__canvas:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 var(--forge-border-thick) var(--forge-color-focus);
+  box-shadow: inset 0 0 0 2px var(--fs-accent);
 }
 
 .fw-graph__world {
@@ -170,7 +193,7 @@
 }
 
 .fw-graph__world.is-smooth {
-  transition: transform var(--forge-motion-base) var(--forge-motion-ease-standard);
+  transition: transform var(--fs-dur-2) var(--fs-ease);
 }
 
 .fw-graph__svg {
@@ -198,21 +221,21 @@
    ========================================================================= */
 
 .fw-graph__band {
-  --fw-lane-tone: var(--forge-color-line-strong);
+  --fw-lane-tone: var(--fs-line-strong);
 }
 
-.fw-graph__band[data-group='control'] { --fw-lane-tone: var(--forge-group-control); }
-.fw-graph__band[data-group='context'] { --fw-lane-tone: var(--forge-group-context); }
-.fw-graph__band[data-group='planning'] { --fw-lane-tone: var(--forge-group-planning); }
-.fw-graph__band[data-group='domain'] { --fw-lane-tone: var(--forge-group-domain); }
-.fw-graph__band[data-group='execution'] { --fw-lane-tone: var(--forge-group-execution); }
-.fw-graph__band[data-group='review'] { --fw-lane-tone: var(--forge-group-review); }
-.fw-graph__band[data-group='memory'] { --fw-lane-tone: var(--forge-group-memory); }
+.fw-graph__band[data-group='control'] { --fw-lane-tone: var(--fs-ink-2); }
+.fw-graph__band[data-group='context'] { --fw-lane-tone: var(--fs-ink-2); }
+.fw-graph__band[data-group='planning'] { --fw-lane-tone: var(--fs-ink-2); }
+.fw-graph__band[data-group='domain'] { --fw-lane-tone: var(--fs-ink-2); }
+.fw-graph__band[data-group='execution'] { --fw-lane-tone: var(--fs-ink-2); }
+.fw-graph__band[data-group='review'] { --fw-lane-tone: var(--fs-ink-2); }
+.fw-graph__band[data-group='memory'] { --fw-lane-tone: var(--fs-ink-2); }
 
 .fw-graph__band-fill {
-  fill: var(--forge-color-surface-1);
+  fill: var(--fs-surface);
   fill-opacity: 0.66;
-  stroke: var(--forge-color-line-subtle);
+  stroke: var(--fs-line);
   stroke-width: 1;
 }
 
@@ -222,12 +245,10 @@
 }
 
 .fw-graph__band-label {
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
-  fill: var(--forge-color-text-muted);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  fill: var(--fs-ink-3);
 }
 
 .fw-graph__band-group {
@@ -246,29 +267,29 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
-  transition: opacity var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  transition: opacity var(--fs-dur-1) var(--fs-ease);
 }
 
 .fw-graph__edge--flow {
-  stroke: var(--forge-color-line-loud);
+  stroke: var(--fs-ink-3);
   stroke-width: 1.5;
 }
 
 .fw-graph__edge--dependency {
-  stroke: var(--forge-color-line-strong);
+  stroke: var(--fs-line-strong);
   stroke-width: 1;
   stroke-dasharray: 1 4;
   opacity: 0.85;
 }
 
 .fw-graph__edge--feedback {
-  stroke: var(--forge-color-line-loud);
+  stroke: var(--fs-ink-3);
   stroke-width: 1.25;
   stroke-dasharray: 7 5;
 }
 
 .fw-graph__edge.is-emphasised {
-  stroke: var(--forge-color-text);
+  stroke: var(--fs-ink);
   stroke-width: 2;
   opacity: 1;
 }
@@ -288,30 +309,29 @@
   }
 }
 
-.fw-graph__arrow--flow { fill: var(--forge-color-line-loud); }
-.fw-graph__arrow--dependency { fill: var(--forge-color-line-strong); }
-.fw-graph__arrow--feedback { fill: var(--forge-color-line-loud); }
-.fw-graph__arrow--emphasis { fill: var(--forge-color-text); }
+.fw-graph__arrow--flow { fill: var(--fs-ink-3); }
+.fw-graph__arrow--dependency { fill: var(--fs-line-strong); }
+.fw-graph__arrow--feedback { fill: var(--fs-ink-3); }
+.fw-graph__arrow--emphasis { fill: var(--fs-ink); }
 
 /* ------------------------------------------------------------ edge labels */
 
 .fw-graph__edge-label-plate {
-  fill: var(--forge-color-bg);
-  stroke: var(--forge-color-line-subtle);
+  fill: var(--fs-bg);
+  stroke: var(--fs-line);
   stroke-width: 1;
 }
 
 .fw-graph__edge-label-text {
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-normal);
-  fill: var(--forge-color-text-muted);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-12);
+  fill: var(--fs-ink-3);
   text-anchor: middle;
   dominant-baseline: middle;
 }
 
 .fw-graph__edge-label--feedback .fw-graph__edge-label-text {
-  fill: var(--forge-color-text-secondary);
+  fill: var(--fs-ink-2);
 }
 
 .fw-graph__edge-label.is-dimmed {
@@ -319,11 +339,11 @@
 }
 
 .fw-graph__edge-label.is-emphasised .fw-graph__edge-label-plate {
-  stroke: var(--forge-color-line-strong);
+  stroke: var(--fs-line-strong);
 }
 
 .fw-graph__edge-label.is-emphasised .fw-graph__edge-label-text {
-  fill: var(--forge-color-text);
+  fill: var(--fs-ink);
 }
 
 /* =========================================================================
@@ -337,42 +357,39 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: var(--forge-space-1);
-  padding: var(--forge-space-2);
+  gap: var(--fs-space-1);
+  padding: var(--fs-space-2);
   overflow: hidden;
   text-align: start;
   cursor: pointer;
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
   /* The status border treatment, straight off the tokens. */
   border-inline-start: var(--fw-status-width) var(--fw-status-style) var(--fw-status-color);
-  border-radius: var(--forge-radius-md);
-  color: var(--forge-color-text);
-  box-shadow: var(--forge-shadow-sm);
-  transition:
-    background-color var(--forge-motion-fast) var(--forge-motion-ease-standard),
-    border-color var(--forge-motion-fast) var(--forge-motion-ease-standard),
-    opacity var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  border-radius: var(--fs-radius-sm);
+  color: var(--fs-ink);
+  box-shadow: var(--fs-shadow-1);
+  transition: opacity var(--fs-dur-1) var(--fs-ease);
 }
 
 /* The spine sits one surface step above the lanes it commands. */
 .fw-graph-node--spine {
-  background: var(--forge-color-surface-2);
+  background: var(--fs-surface-2);
 }
 
 .fw-graph-node:hover {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-line-strong);
+  background: var(--fs-sunken);
+  border-color: var(--fs-line-strong);
   border-inline-start-color: var(--fw-status-color);
 }
 
 .fw-graph-node.is-selected {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-text);
-  border-width: var(--forge-border-thick);
+  background: var(--fs-sunken);
+  border-color: var(--fs-ink);
+  border-width: 2px;
   border-inline-start-color: var(--fw-status-color);
   border-inline-start-width: var(--fw-status-width);
-  box-shadow: var(--forge-shadow-md);
+  box-shadow: var(--fs-shadow-2);
 }
 
 /* (D1, WCAG 2.4.7): the node's own box-shadow above ties with — and, loading later, beat —
@@ -380,11 +397,12 @@
    all. Compose the SAME ring token with the node's existing elevation instead of replacing it. */
 .fw-graph-node:focus-visible {
   outline: none;
-  box-shadow: var(--forge-shadow-focus-ring), var(--forge-shadow-sm);
+  /* Kept on the alias names: tests/unit/wp8e-a11y-focus.test.tsx pins this exact value (moves it). */
+  box-shadow: var(--fs-focus), var(--fs-shadow-1);
 }
 
 .fw-graph-node.is-selected:focus-visible {
-  box-shadow: var(--forge-shadow-focus-ring), var(--forge-shadow-md);
+  box-shadow: var(--fs-focus), var(--fs-shadow-2);
 }
 
 .fw-graph-node.is-dimmed {
@@ -398,34 +416,35 @@
 .fw-graph-node__head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-graph-node__glyph {
   flex: none;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 .fw-graph-node__label {
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-tight);
-  letter-spacing: var(--forge-tracking-tight);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  line-height: var(--fs-leading-tight);
+  letter-spacing: 0;
 }
 
 .fw-graph-node__foot {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-graph-node__meta {
   min-inline-size: 0;
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-none);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: 1;
+  color: var(--fs-ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The single rationed use of the accent inside the graph: real progress. */
@@ -433,9 +452,9 @@
   position: absolute;
   inset-block-end: 0;
   inset-inline-start: 0;
-  block-size: var(--forge-border-thick);
+  block-size: 2px;
   inline-size: var(--fw-progress, 0%);
-  background: var(--forge-color-accent);
+  background: var(--fs-accent);
 }
 
 /* =========================================================================
@@ -444,16 +463,16 @@
 
 .fw-graph__minimap {
   position: absolute;
-  inset-block-end: var(--forge-space-3);
-  inset-inline-end: var(--forge-space-3);
-  inline-size: var(--forge-layout-minimap-w);
-  block-size: var(--forge-layout-minimap-h);
+  inset-block-end: var(--fs-space-3);
+  inset-inline-end: var(--fs-space-3);
+  inline-size: 168px;
+  block-size: 112px;
   padding: 0;
   overflow: hidden;
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  box-shadow: var(--forge-shadow-md);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  box-shadow: var(--fs-shadow-2);
 }
 
 .fw-graph__minimap-svg {
@@ -465,7 +484,7 @@
 }
 
 .fw-graph__minimap-band {
-  fill: var(--forge-color-surface-3);
+  fill: var(--fs-sunken);
   fill-opacity: 0.6;
 }
 
@@ -475,13 +494,15 @@
 }
 
 .fw-graph__minimap-node.is-selected {
-  fill: var(--forge-color-text);
+  fill: var(--fs-ink);
   fill-opacity: 1;
 }
 
+/* Drawn under the nodes (Minimap.tsx) and see-through, so it can never hide the graph. */
 .fw-graph__minimap-view {
-  fill: var(--forge-color-selected);
-  stroke: var(--forge-color-line-loud);
+  fill: var(--fs-accent);
+  fill-opacity: 0.12;
+  stroke: var(--fs-accent);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
@@ -492,24 +513,24 @@
 
 .fw-graph__legend {
   position: absolute;
-  inset-block-end: var(--forge-space-3);
-  inset-inline-start: var(--forge-space-3);
+  inset-block-end: var(--fs-space-3);
+  inset-inline-start: var(--fs-space-3);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--forge-space-2) var(--forge-space-4);
-  max-inline-size: min(34rem, calc(100% - var(--forge-layout-minimap-w) - var(--forge-space-10)));
-  padding: var(--forge-space-2) var(--forge-space-3);
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  box-shadow: var(--forge-shadow-sm);
+  gap: var(--fs-space-2) var(--fs-space-4);
+  max-inline-size: min(34rem, calc(100% - 168px - var(--fs-space-8)));
+  padding: var(--fs-space-2) var(--fs-space-3);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  box-shadow: var(--fs-shadow-1);
 }
 
 .fw-graph__legend-item {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
 }
 
 .fw-graph__legend-mark {
@@ -525,30 +546,30 @@
 }
 
 .fw-graph__legend-line--flow {
-  stroke: var(--forge-color-line-loud);
+  stroke: var(--fs-ink-3);
   stroke-width: 1.5;
 }
 
 .fw-graph__legend-line--dependency {
-  stroke: var(--forge-color-line-strong);
+  stroke: var(--fs-line-strong);
   stroke-width: 1;
   stroke-dasharray: 1 4;
 }
 
 .fw-graph__legend-line--feedback {
-  stroke: var(--forge-color-line-loud);
+  stroke: var(--fs-ink-3);
   stroke-width: 1.25;
   stroke-dasharray: 4 3;
 }
 
 .fw-graph__legend-head {
-  fill: var(--forge-color-line-loud);
+  fill: var(--fs-ink-3);
 }
 
 .fw-graph__legend-text {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0;
+  color: var(--fs-ink-3);
 }
 
 .fw-graph__legend-note {
@@ -561,21 +582,21 @@
    ========================================================================= */
 
 :root[data-density='compact'] .fw-graph-node {
-  padding: var(--forge-space-1) var(--forge-space-2);
+  padding: var(--fs-space-1) var(--fs-space-2);
   gap: 0;
 }
 
 :root[data-density='compact'] .fw-graph-node__label {
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
 }
 
 :root[data-density='compact'] .fw-mission__meta {
-  gap: var(--forge-space-1) var(--forge-space-3);
+  gap: var(--fs-space-1) var(--fs-space-3);
   margin-block-start: 0;
 }
 
 :root[data-density='compact'] .fw-graph__legend {
-  padding: var(--forge-space-1) var(--forge-space-2);
+  padding: var(--fs-space-1) var(--fs-space-2);
 }
 
 /* =========================================================================
@@ -594,7 +615,7 @@
 @media (max-width: 860px) {
   .fw-mission__header {
     align-items: flex-start;
-    gap: var(--forge-space-2);
+    gap: var(--fs-space-2);
   }
 
   .fw-mission__controls {
@@ -614,7 +635,7 @@
   }
 
   .fw-graph__legend {
-    max-inline-size: calc(100% - var(--forge-space-6));
+    max-inline-size: calc(100% - var(--fs-space-6));
   }
 }
 

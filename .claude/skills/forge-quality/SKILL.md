@@ -1,6 +1,7 @@
 ---
 name: forge-quality
-description: Quality Intelligence Layer — mission → MissionProfile, 10 lenses, omission mining, requirement cards, drift detection, context compiler and selective council-trigger. Router Step 1 for every build.
+description: "Use at router Step 1 of a build (wat vergeten we): quality lenses."
+# W2-BUDGET original description (listing budget): "Use at router Step 1 of every build (wat vergeten we, quality check): mission profile + lenses."
 ---
 
 # forge-quality — Quality Intelligence Layer
@@ -19,6 +20,8 @@ node .claude/forge-bin/forge-quality.cjs profile "<the mission>"  # the MissionP
 node .claude/forge-bin/forge-quality.cjs card <slug>              # one knowledge card (layer 3, on-demand)
 node .claude/forge-bin/forge-quality.cjs drift                    # catalog vs 4 seams — every difference is a finding (exit 3 on drift)
 node .claude/forge-bin/forge-quality.cjs kernel                   # the fixed Quality Kernel (~600-800 tokens)
+node .claude/forge-bin/forge-quality.cjs gate --domain <domain>    # the domain's quality gate card as a PASS/FAIL/NOT_RUN checklist (--json; unknown domain -> GENERIC or PROVISIONAL card, exit 0; exit 2 invalid name, 3 invalid card)
+node .claude/forge-bin/forge-quality.cjs gate --list               # every gate card with its check counts (--schema prints the card schema)
 ```
 
 ## Workflow (router Step 1 — required for BUILD tasks)
@@ -41,3 +44,14 @@ high uncertainty. Real dispatch runs through the Agent tool; the CouncilDecision
 with `validateCouncilRecord` — that validation is shape_only (labels don't prove a principal; real
 provenance is owner-gated, see OWNER-GATED.md). Council consensus is NEVER proof — only
 tests/measurements are.
+
+## Quality gate cards (Verify Boss)
+
+One card per catalog domain in `.claude/config/quality/cards/` as `<domain>.json` (the `.md` files there
+are the knowledge cards above). A card holds at most 12 checks, each with `claim`, `evidence_required`,
+`how_to_run`, `severity` (block|warn) and `honesty_note`, plus `hard_gates`, `not_applicable_when` and
+`gaps`. Every check cites a section of the domain playbook (or a `FORGE_HARD_RULES.json` rule) and a
+fragment that must still be found there: `gate` re-checks the citations and prints STALE CARD when the
+playbook changed. Where a playbook has no verifiable gate, the card says so in `gaps` instead of inventing
+one. `gate` only lists: Verify Boss marks each check PASS / FAIL / NOT_RUN with evidence, and a block check
+that is FAIL or NOT_RUN fails the gate.

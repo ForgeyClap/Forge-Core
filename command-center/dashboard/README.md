@@ -1,80 +1,86 @@
-# Forge Workspace — visual prototype
+# Forge Command Center — dashboard
 
-A frontend prototype of the Forge Workspace: how the product looks, feels and behaves,
-built before anything real is connected to it.
+The browser front end of the Forge Command Center. It started as a visual prototype on
+local example data; it is now the real dashboard and reads live Forge data (projects,
+conversations, runs, events, missions, agents, skills, tools, models, proof, usage,
+files) from the local gateway in `../gateway/` on `http://127.0.0.1:4100`.
 
-Everything on screen comes from local example data. There is no backend, no API, no
-Claude Code session and no Forge runtime behind it — and there are tests that fail the
-build if that ever stops being true.
-
-```
-CONNECTED_TO_FORGE=false          USES_REAL_PROJECTS=false
-CONNECTED_TO_CLAUDE_CODE=false    USES_REAL_AGENTS=false
-USES_ANTHROPIC_API=false          USES_REAL_COMMANDS=false
-REQUIRES_ANTHROPIC_API_KEY=false  USES_MOCK_DATA=true
-```
+The gateway is the only layer that touches the file system or starts the real `claude`
+CLI. The dashboard talks to it over REST and Server-Sent Events, always on loopback.
+There is no Anthropic API call and no API-key path anywhere in this code.
 
 ## Run it
 
 ```bash
 npm install
-npm run dev            # http://127.0.0.1:5173
+npm run dev            # http://127.0.0.1:5173 (needs the gateway on :4100 for live data)
 ```
+
+The gateway is started from `../gateway/` (`node bin.mjs`). In a Forge project the
+command `/forge dashboard` launches the Command Center on `127.0.0.1:4100`.
+
+## Data modes
+
+Production is the default. Example (fixture) data needs two explicit switches, both
+in `src/config/mode.ts`: the build-time env var `VITE_FORGE_FIXTURES=true` **and** a
+run-time `allowFixtureData()` call. Without both, no example record can load
+(`PRODUCTION_MOCK_DATA_ALLOWED = false`), and an empty or unreachable gateway shows an
+honest empty or error state instead of example content.
 
 ## Test it
 
 ```bash
-npm run verify         # theme check → typecheck → lint → unit tests → build
-
-npx playwright install chromium   # once
-npm run test:e2e                  # 40 browser tests
-npm run shots                     # 20 screenshots into artifacts/screenshots/
-node scripts/build-gallery.cjs    # artifacts/visual-review.html
+npm run verify         # theme check, typecheck, lint, unit tests, legacy path guard, build
+npm run test:e2e       # Playwright (builds first)
 ```
-
-Individual gates:
 
 | Command | What it proves |
 | --- | --- |
 | `npm run theme:check` | the generated CSS has not drifted from `brand/tokens.json` |
-| `npm run typecheck` | strict TypeScript, no unused locals or parameters |
-| `npm run lint` | no `fetch` / `WebSocket` / `EventSource` / `XMLHttpRequest` anywhere in `src/` |
-| `npm run test` | 78 unit tests: dataset integrity, store behaviour, and a static scan for every forbidden transport, endpoint and API-key identifier |
-| `npm run build` | production build |
-| `npm run test:e2e` | no request leaves the preview origin on any route; no horizontal page overflow at seven viewport sizes |
+| `npm run typecheck` | strict TypeScript over `src/`, `archive/` and `tests/` |
+| `npm run lint` | ESLint; bare `fetch` / `WebSocket` / `EventSource` / `XMLHttpRequest` are banned in `src/` (live calls go through `globalThis` with a loopback target, which a unit test checks) |
+| `npm test` | the default vitest run: `unit` (jsdom), `shared` (property tests of `src/shared`) and `fuzz` |
+| `npm run build` | production build (`tsc --noEmit && vite build`) into `dist/` |
+| `npm run test:e2e` | browser tests against the built app |
+| `npm run test:legacy-bridge` | tests of the archived bridge only (see below); not part of `npm test` |
+| `npm run test:security` | the archived bridge's path guard (`legacy-bridge-paths`) |
+| `npm run test:integration` | spawns the archived bridge as a child process |
 
 ## Layout
 
 ```
-brand/                     the design system — tokens.json is the single source of truth
-  tokens.json              edit this
-  build-theme.cjs          then run: node brand/build-theme.cjs
-  forge-tokens.css         GENERATED — never edit by hand
-  forge-base.css           shared primitives
-
+brand/                     design system; tokens.json is the single source of truth
 src/
+  App.tsx, main.tsx        app shell and router
+  config/                  run mode (production vs fixtures)
   prototype/
-    types/                 the data contract; every record carries prototype: true
-    state/                 reducer, selectors, the local chat simulation
-    data/                  the example dataset (projects, agents, tasks, graph, proof…)
-  components/
-    primitives/            StatusBadge, Panel, Button, Modal, Tabs, Meter, Machine…
-    shell/                 sidebar, topbar, inspector, dock, command palette, toasts
+    state/                 gateway client, adapters and stores (the live data path)
+    types/, data/, fixtures/   view contracts and the fixture-only example data
+  shared/                  protocol, state machines, declarations, latency tracker
+  components/              primitives and shell (sidebar, dock, inspector, palette)
   views/                   one folder per screen
-  styles/app.css           global stylesheet; imports the brand CSS first
-
+  styles/                  global stylesheet
+archive/
+  bridge/                  the legacy WebSocket bridge, archived and not mounted
 tests/
-  unit/                    vitest
-  e2e/                     playwright
-artifacts/screenshots/     the captures
-artifacts/visual-review.html   all captures on one page
+  unit/, property/, fuzz/  the default run
+  e2e/, e2e-real/          Playwright
+  chaos/, idempotency/, negative/, legacy-bridge-unit/   archived-bridge suites
+  security/, integration/, load/                         archived-bridge suites with their own configs
 ```
 
-## The rules this prototype is built on
+## The archived bridge
+
+`archive/bridge/**` is a 39-operation WebSocket bridge from an earlier design. The
+product does not run it. It was moved out of `src/` on 2026-11-01 (never deleted, per
+the owner's rule "niks verwijderen"); live code may only import its **types**, which a
+unit test enforces. Details, and how to revive it: `docs/LEGACY_BRIDGE.md`.
+
+## The design rules
 
 **Tokens carry every value.** No raw hex in component CSS. If a semantic value is
-missing, add a named token to `tokens.json` and rebuild — do not reach past the
-semantic layer.
+missing, add a named token to `tokens.json` and rebuild (`npm run theme`); do not reach
+past the semantic layer.
 
 **The accent is rationed.** The palette is monochrome. Ember appears only on focus
 rings, the active-control indicator and running progress. The primary button is an
@@ -84,30 +90,5 @@ inverted surface, not an accent fill.
 a border treatment (`--forge-status-<key>-style` / `-width`). Read the interface in
 greyscale and nothing is lost.
 
-**Type marks provenance.** Monospace (`.fg-machine`) is what the system recorded — ids,
+**Type marks provenance.** Monospace (`.fg-machine`) is what the system recorded: ids,
 paths, model labels, timestamps, commands, test output. Sans is what a person wrote.
-
-## Known limitations
-
-- **The JS bundle is 1.23 MB (343 KB gzipped).** The `Icon` primitive resolves lucide
-  icons by name, which defeats tree-shaking and pulls in the whole set. Harmless for a
-  local prototype; worth a static icon map before this ships anywhere real.
-- **Downloads and most settings are inert by design.** They fire a toast explaining so.
-  The controls that genuinely work are appearance, density, sidebar, inspector and dock.
-- **The Claude Code panel is a fixture browser, not detection.** It pages through six
-  designed states so the future connection can be reviewed. Nothing is probed.
-- **Screenshot artifacts have no image behind them.** The record carries a written
-  caption instead of a fabricated screenshot.
-- **`scraping` is the one unused project type.** None of the seven example projects
-  genuinely fit it and inventing one would have read as filler.
-- **`final-report.md` in the artifact list is a held draft** — the example mission still
-  has an open mobile defect. That is deliberate, not an unfinished fixture.
-- **Three `react-refresh` lint warnings** in `Sidebar.tsx` (constants exported beside
-  components). They affect dev hot-reload granularity only.
-
-## What is deliberately not here
-
-The local Claude Code bridge. This phase is the visual layer only. The UI is shaped so
-that connection can be added later — a status surface, a session chip, a settings
-section — but nothing behind it has been built, and no API-key path exists anywhere in
-the design.

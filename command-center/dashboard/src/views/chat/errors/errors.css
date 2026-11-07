@@ -1,0 +1,267 @@
+/*
+ * Chat error card (WP B3). Tokens only. A card that stops the work has a solid hairline and a
+ * heavier start edge; a card for something that is still going (a retry) is quieter: dashed, no
+ * edge. Words carry the meaning; the edge only repeats it.
+ */
+
+.fw-chat-error {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--fs-space-3);
+  inline-size: 100%;
+  max-inline-size: 46rem;
+  margin-inline: auto;
+  padding: var(--fs-space-4);
+  border: 1px solid var(--fs-line-strong);
+  border-inline-start: 3px solid var(--fs-ink-2);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-1);
+}
+
+.fw-chat-error[data-tone='info'] {
+  border-style: dashed;
+  border-inline-start: 1px dashed var(--fs-line-strong);
+  /* Keep the text column aligned with the cards that have the 3px edge. */
+  padding-inline-start: calc(var(--fs-space-4) + 2px);
+  box-shadow: none;
+}
+
+.fw-chat-error__icon {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border-radius: var(--fs-radius-xs);
+  color: var(--fs-ink);
+  background: var(--fs-sunken);
+}
+
+.fw-chat-error__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  min-inline-size: 0;
+}
+
+.fw-chat-error__title {
+  margin: 0;
+  font: 600 var(--fs-text-15) / var(--fs-leading-snug) var(--fs-font-body);
+  letter-spacing: 0;
+  color: var(--fs-ink);
+}
+
+.fw-chat-error__text {
+  margin: 0;
+  font-size: var(--fs-text-14);
+  line-height: 1.7;
+  color: var(--fs-ink-2);
+  max-inline-size: 60ch;
+}
+
+.fw-chat-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+  margin-block-start: var(--fs-space-1);
+}
+
+.fw-chat-error__tech,
+.fw-cards-tech {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fw-chat-error__tech > summary,
+.fw-cards-tech > summary {
+  inline-size: fit-content;
+  padding-block: var(--fs-space-1);
+  cursor: pointer;
+  border-radius: var(--fs-radius-xs);
+  color: var(--fs-ink-3);
+}
+
+.fw-chat-error__tech > summary:hover,
+.fw-cards-tech > summary:hover {
+  color: var(--fs-ink);
+}
+
+.fw-chat-error__tech > summary:focus-visible,
+.fw-cards-tech > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fw-chat-error__pre,
+.fw-cards-pre {
+  margin: var(--fs-space-2) 0 0;
+  padding: var(--fs-space-3);
+  max-block-size: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--fs-text-12) / var(--fs-leading-body) var(--fs-font-mono);
+  color: var(--fs-ink-2);
+  background: var(--fs-sunken);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+}
+
+.fw-chat-error__note {
+  margin: var(--fs-space-2) 0 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+/* The button label is line-height 1 with overflow hidden in the primitive; on these cards a
+   label with g/j/p lost its descenders (seen in round 1 screenshots). */
+.fw-chat-error .fw-button__label,
+.fw-perm .fw-button__label,
+.fw-plan .fw-button__label {
+  line-height: var(--fs-leading-snug);
+}
+
+/*
+ * Pairing card (FU-STEP2): the window has no valid session cookie. Same card shape as a chat error
+ * that stops the work; the launcher command sits in a sunken machine-text row so it reads as
+ * something to type, not as prose.
+ */
+/* FU fix round (review medium): the notice used to float over the page and covered the user's first
+   message at 1264x801 and most of the screen at 390x844, with no way to close it. It is now a slim
+   banner in the shell's own `notice` grid row, between the top bar and the page (app-shell.css): it
+   pushes the page down, covers nothing, and closes with its X button. The auto row is 0 px when the
+   notice is not rendered, so a paired window keeps its full height. */
+.fw-pairing-notice {
+  grid-area: notice;
+  min-inline-size: 0;
+  padding-block: var(--fs-space-2);
+  padding-inline: var(--fs-space-4);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-bg);
+}
+
+.fw-pairing-notice .fw-chat-error {
+  max-inline-size: none;
+  padding-block: var(--fs-space-3);
+  box-shadow: none;
+}
+
+.fw-pairing[data-dismissable='true'] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.fw-pairing-notice .fw-chat-error__text {
+  max-inline-size: 90ch;
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-body);
+}
+
+.fw-pairing__more {
+  display: none;
+}
+
+.fw-pairing__close {
+  align-self: start;
+  margin-block-start: calc(var(--fs-space-1) * -1);
+  margin-inline-end: calc(var(--fs-space-1) * -1);
+}
+
+@media (max-width: 640px) {
+  .fw-pairing-notice {
+    padding-inline: var(--fs-space-3);
+  }
+
+  .fw-pairing-notice .fw-chat-error {
+    gap: var(--fs-space-2);
+    padding: var(--fs-space-3);
+  }
+
+  /* The large icon tile costs a whole column on a phone; the title already says what this is. */
+  .fw-pairing-notice .fw-chat-error__icon {
+    display: none;
+  }
+
+  /* The close button sits in the corner, so the body (and both buttons on one row) gets the full width. */
+  .fw-pairing[data-dismissable='true'] {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fw-pairing[data-dismissable='true'] .fw-chat-error__title {
+    padding-inline-end: var(--fs-space-7);
+  }
+
+  .fw-pairing__close {
+    position: absolute;
+    inset-block-start: var(--fs-space-2);
+    inset-inline-end: var(--fs-space-2);
+    margin: 0;
+  }
+
+  /* Two lines first; "Lees verder" shows the rest. Keeps the banner short on a phone. */
+  .fw-pairing[data-text='short'] .fw-chat-error__text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .fw-pairing__more {
+    display: inline-flex;
+    align-self: start;
+    min-block-size: 30px;
+    align-items: center;
+    padding: 0 var(--fs-space-1);
+    margin-block-start: calc(var(--fs-space-2) * -1);
+    margin-inline-start: calc(var(--fs-space-1) * -1);
+    border: 0;
+    border-radius: var(--fs-radius-xs);
+    background: transparent;
+    font: 500 var(--fs-text-13) / var(--fs-leading-snug) var(--fs-font-body);
+    color: var(--fs-ink);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+
+  .fw-pairing__more:hover {
+    color: var(--fs-ink-2);
+  }
+
+  .fw-pairing__more:active {
+    transform: translateY(1px);
+  }
+
+  .fw-pairing__more:focus-visible {
+    outline: none;
+    box-shadow: var(--fs-focus);
+  }
+
+  .fw-pairing-notice .fw-chat-error__actions {
+    flex-wrap: nowrap;
+  }
+}
+
+.fw-pairing__command {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fs-space-2);
+}
+
+.fw-pairing__command-label {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fw-pairing__command-text {
+  padding-block: var(--fs-space-1);
+  padding-inline: var(--fs-space-2);
+  font: var(--fs-text-13) / var(--fs-leading-body) var(--fs-font-mono);
+  color: var(--fs-ink);
+  background: var(--fs-sunken);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  user-select: all;
+}

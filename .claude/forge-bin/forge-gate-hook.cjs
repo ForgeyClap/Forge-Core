@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * forge-gate-hook.cjs — PreToolUse hook (matcher `Bash|PowerShell`): the FIVE command hard gates become a real
+ * forge-gate-hook.cjs — PreToolUse hook (matcher `Bash|PowerShell`): the SEVEN command hard gates become a real
  * stop (WP16,; opaque-exec added in the codex-recheck-2026-09-24
- * remediation, wp-f1; secret-print added, 2026-09-27). Written rules are advice; a hook runs BEFORE the
+ * remediation, wp-f1; secret-print added, 2026-09-27; plugin-install-command and settings-edit-command added
+ * WP 3.3b, 2026-10-24 — this header said FIVE until then). Written rules are advice; a hook runs BEFORE the
  * tool call and exit 2 blocks it and feeds stderr back to Claude. ON by default for beginners (config key
  * `gate-hook`, FORGE_CONFIG_SCHEMA.json) after the beginner sweep (rows A4/B10). Doctrine + honest limits:
  * config/orchestration/HOOKS_OPT_IN.md §6.
  *
  * BLOCKS the match.kind "command" gates of hard-gates.json via the single classifier forge-actiongate.cjs:
- * destructive-delete, kill-by-name, git-destructive, opaque-exec, secret-print — plus the hook's own
+ * destructive-delete, kill-by-name, git-destructive, opaque-exec, secret-print, plugin-install-command (`claude plugin
+ * install|enable|update`, `claude plugin marketplace add`) and settings-edit-command (a shell write/replace/move/delete
+ * of .claude/settings(.local).json or ~/.claude/settings.json, `claude config set`) and, since W1 (an EIGHTH),
+ * global-input-command (a command whose own code sends global keyboard/mouse input: SendKeys, SendInput, keybd_event,
+ * mouse_event, WScript.Shell SendKeys/AppActivate) — plus the hook's own
  * `gate-hook-self-disable`
  * (security wp9b M3): a Bash/PowerShell forge-config call that sets gate-hook off, unsets it, with a mutating
  * verb, read from a PARSED argv rather than a spelling match (codex-recheck S05). The ONE allowed off-switch is
@@ -40,6 +45,14 @@
  * PENDING (codex-recheck V03 — the plain off/unset form must never upgrade a one-off approval into a
  * persistent OFF); it is visible-but-allowed only under a PERSISTENT off with no once-window open. When
  * hard-gates.json / the classifier cannot load, FALLBACK_RE blocks the obviously destructive verbs (fail-CLOSED).
+ * FU-A7: a call it cannot judge (unparseable or oversized stdin, a stdin that
+ * breaks off, an internal error, a classifier that cannot run) whose command text still shows a hard-gate KEYWORD
+ * exits 2 (gate id cannot-judge-risky; the classifier-unavailable branch keeps its own id) with the plain NL/EN reason
+ * "Forge kan dit commando niet beoordelen en het lijkt riskant"; without a keyword it stays the visible exit 1, so
+ * exit 1 keeps meaning "visible and non-blocking" and the settings carry no onFailure (see "CANNOT JUDGE" below; the
+ * keyword scan itself lives in forge-gate-cannot-judge.cjs since FU-A7).
+ * The structural envelope cases (a non-object payload, an unknown hook event, a missing tool name or command) keep
+ * their plain exit 1: there is no shell command there to read.
  * Never writes stdout; zero dependencies beyond Node core (fs/os/path/crypto). PowerShell is matched
  * because the tool ledger shows real PowerShell tool calls (same `command` field) and kill-by-name's forbidden
  * forms are PowerShell-native.
@@ -52,9 +65,18 @@
  * holds a fresh `.claude/.forge-sync.lock` (< 6 h) the record is skipped as well — nothing is written into a project
  * forge-sync is replacing files in; the block/allow verdict is unchanged. An older lock is ignored (fail-open).
  *
+ * (package 3.3c) — WARN CHECKS. (ii) An optional per-task WRITE-SCOPE freeze, OFF by default:
+ * with FORGE_WRITE_SCOPE (env only: the config schema has no string/path type, so `write-scope` is not a key) set to a directory, every
+ * shell write this file can read (redirects, tee, sed -i, Set-Content/Add-Content/Out-File/Tee-Object) is judged by
+ * forge-gate-writescope.cjs: outside -> a visible warning (exit 1), or a block (gate id `write-scope`) only when the
+ * owner set FORGE_WRITE_SCOPE_MODE / `write-scope-mode` to `deny`; a target it cannot check -> a visible notice, never
+ * a block (applyWriteScope below). (i) "Inspect before edit" is NOT built: this matcher sees only Bash/PowerShell,
+ * and no hook records a Read, so there is no turn memory to compare with (it would need a Read matcher and a
+ * per-session read-set file: an owner-gated settings change).
+ *
  * MODEL: gateHookEnabled · selfDisable · scratchPassThrough · decide(payload, opts) -> {block, warn, gates, reason,
- * notice, why} · run(rawStdin, opts) -> {exitCode, stderr, why, gates?} · recordGateBlocked. CLI: stdin -> run()
- * -> stderr -> (exit 2 only) recordGateBlocked() -> exit with run()'s code.
+ * notice, why} · run(rawStdin, opts) -> {exitCode, stderr, why, gates?} · recordGateBlocked · writeScopeSetting ·
+ * applyWriteScope. CLI: stdin -> run() -> stderr -> (exit 2 only) recordGateBlocked() -> exit with run()'s code.
  */
 const fs = require('fs');
 const os = require('os');
@@ -88,6 +110,13 @@ let INSPECT = null;
 try { INSPECT = require('./forge-gate-inspect.cjs'); } catch { INSPECT = null; }
 let OBLIGATIONS = null; // gate_blocked run record helper; guarded (absent/broken -> no record, same verdict)
 try { OBLIGATIONS = require('./forge-stop-obligations.cjs'); } catch { OBLIGATIONS = null; }
+// (3.3c): the optional per-task write-scope freeze (see applyWriteScope below). Absent -> a configured
+// scope gets a visible "NOT checked" notice, never a silent pass.
+let WRITESCOPE = null;
+try { WRITESCOPE = require('./forge-gate-writescope.cjs'); } catch { WRITESCOPE = null; }
+// FU-A7: the cannot-judge keyword scan. Absent/broken -> every call this hook cannot judge is refused (see below).
+let CANNOT_JUDGE = null;
+try { CANNOT_JUDGE = require('./forge-gate-cannot-judge.cjs'); } catch { CANNOT_JUDGE = null; }
 
 // Fallback self-disable (mirrors forge-gate-inspect.cjs's own copy — see that file's header for why a small
 // duplication is deliberate here): a crude, over-inclusive check that still catches the obvious "forge-config
@@ -137,7 +166,20 @@ const KNOWN_HOOK_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'Stop', 'Session
   'UserPromptSubmit', 'Notification', 'SubagentStop', 'SubagentStart', 'PermissionRequest']);
 const FAILSAFE_MS = 3000;
 const MAX_STDIN_BYTES = 8 * 1024 * 1024;
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1 (2.1.C): the project this hook guards (the scratch-area root and the run-record root). An installed copy
+// (<project>/.claude/forge-bin/) keeps its own project exactly as before: synced projects, the central template and
+// every test fixture copy. A plugin copy (<plugin>/scripts/) has no project of its own: forge-paths scriptRoot then
+// takes CLAUDE_PROJECT_DIR, else the first folder holding .claude/.forge/.git above the cwd, and never a folder inside
+// the plugin, so `rm -rf node_modules` in the project passes there exactly as in a synced install. Nothing found ->
+// null: no scratch pass-through (fail closed) and no run record. forge-paths.cjs is optional (guarded require): a copy
+// without it, or an older resolver without scriptRoot, keeps the old own-folder answer.
+let FORGE_PATHS = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') FORGE_PATHS = fp; } catch { FORGE_PATHS = null; }
+function hookProjectRoot() {
+  if (!FORGE_PATHS) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return FORGE_PATHS.scriptRoot(__dirname); } catch { return null; }
+}
+const PROJECT_ROOT = hookProjectRoot();
 // SB-M5 (codex-recheck twelfth pass / wp-t1). MAX_STDIN_BYTES above bounds the whole JSON payload
 // (8 MiB); it says nothing about how expensive the inspection pipeline is on whatever command text sits inside
 // that payload. MAX_COMMAND_CHARS is a much smaller, cheap-to-check ceiling on the COMMAND TEXT ALONE
@@ -186,7 +228,17 @@ const WATCHDOG_UNAVAILABLE_FALLBACK_CHARS = 10000;
 // invocation naming `gate-hook` in either order. Bounded `{0,200}` (same rule as the kill/pipe alternatives,
 // never an unbounded `[^\n]*`); over-blocking is the safe direction in a corrupt-classifier state, so even the
 // legitimate once-shape is refused here (visible, retriable when the classifier is healthy) rather than allowed.
-const FALLBACK_RE = /\b(rm|Remove-Item|rd|rmdir|del|taskkill|Stop-Process|pkill|killall)\b|\bgit\b[^\n]*\b(reset|clean|checkout|restore|switch|stash)\b|\biex\b|\bInvoke-Expression\b|\beval\b(?!-)|\|\s*(?:sudo\s+|env\s+)?(?:sh|bash|zsh|powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?)\b|-en(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?\b|\bkill\b[^\n]{0,200}(?:\$\(|`)\s*(?:pgrep|pidof)\b|\bforge-config(?:-cli)?\b[^\n]{0,200}\bgate-hook\b|\bgate-hook\b[^\n]{0,200}\bforge-config(?:-cli)?\b/i;
+// WP 3.3b: the plugin-install-command / settings-edit-command shapes join, under the same bounded rule
+// (`\s+` between fixed words, `{0,200}` before the settings path, never an unbounded `[^\n]*`): `claude plugin
+// install|i|enable|update`, `claude plugin marketplace add`, `claude config set|add|remove`, and a redirect, tee,
+// Set-Content/Add-Content/Out-File, cp/mv/Copy-Item/Move-Item or sed/perl naming `.claude/settings`. Over-blocking a
+// backup copy here is the accepted price of a broken classifier.
+// WP 3.3c: the git alternative starts with the exact first-anchor guard `(?=\bgit\b)(?<!\bgit\b[^\n]*?)`
+// (only the first `git` of a line scans the rest; the verdict is unchanged), so 200k chars of `git ` cost ~ms instead of
+// 2.8 s on this unprotected main-thread path — the same guard hard-gates.json's rest-of-line arms carry.
+// the global-input-command words (SendKeys, SendWait, SendInput, keybd_event, mouse_event, AppActivate)
+// join as one fixed-word alternative (linear, no class before a literal).
+const FALLBACK_RE = /\b(rm|Remove-Item|rd|rmdir|del|taskkill|Stop-Process|pkill|killall)\b|\b(?:SendKeys|SendWait|SendInput|keybd_event|mouse_event|AppActivate)\b|(?=\bgit\b)(?<!\bgit\b[^\n]*?)\bgit\b[^\n]*\b(reset|clean|checkout|restore|switch|stash)\b|\biex\b|\bInvoke-Expression\b|\beval\b(?!-)|\|\s*(?:sudo\s+|env\s+)?(?:sh|bash|zsh|powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?)\b|-en(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?\b|\bkill\b[^\n]{0,200}(?:\$\(|`)\s*(?:pgrep|pidof)\b|\bforge-config(?:-cli)?\b[^\n]{0,200}\bgate-hook\b|\bgate-hook\b[^\n]{0,200}\bforge-config(?:-cli)?\b|(?<![.\w-])claude(?:-code)?(?:\.exe|\.cmd|\.ps1)?\s+(?:plugins?\s+(?:install|i|enable|update|marketplace\s+add)|config\s+(?:set|add|remove))\b|(?:>{1,2}\s*["']?[^\s"'<>|;&()]{0,200}|\b(?:tee|Set-Content|Add-Content|Out-File|cp|mv|Copy-Item|Move-Item|sed|perl)\b[^\n]{0,200})\.claude[\\/]settings/i;
 
 /** sha256(s) -> hex digest, used only to bind a once-consumption call to the exact command being evaluated
  *  (codex-recheck S06); never logged, never echoed back to the user. */
@@ -299,7 +351,7 @@ function inspectOnce(command, ctx, opts, useWatchdog, watchdogModule) {
   // failure (timeout, crash, payload corruption) — only the former is "the classifier could not run at
   // all", which restores the EXACT pre-wave-13 classifier-unavailable branch (FALLBACK_RE + honest
   // wording) instead of blanket-blocking it as "too large to inspect", a claim that would be false here.
-  if (w.classifierUnavailable) return { final: classifierUnavailableVerdict(command, w.error || w.why) };
+  if (w.classifierUnavailable) return { final: classifierUnavailableVerdict(command, w.error || w.why, ctx.shell) };
   const ids = ['command-too-large'];
   return { final: { block: true, gates: ids, reason: blockReason(ids), why: w.why + (w.error ? ' (' + String(w.error).split('\n')[0] + ')' : '') } };
 }
@@ -532,7 +584,7 @@ function evaluate(payload, command, opts) {
     // classifyWithWatchdog() and inspect() are both designed to never throw/always resolve safely, but a throw
     // here (from either, or INSPECT being unavailable on the inline path) still fails toward the SAME
     // classifier-unavailable handling every prior version used.
-    return classifierUnavailableVerdict(command, String(e && e.message || e).split('\n')[0]);
+    return classifierUnavailableVerdict(command, String(e && e.message || e).split('\n')[0], payload.tool_name);
   }
 }
 
@@ -541,18 +593,140 @@ function evaluate(payload, command, opts) {
  *  classifier unreachable; anything else is a VISIBLE, non-blocking "this call was NOT checked" notice (exit 1)
  *  — never a silent allow, and never the (inaccurate) "too large to inspect" wording for a command that was
  *  never actually too large or too slow, just unclassifiable.
- *  ACCEPTED (WP-GATEFP3, info): when the classifier itself cannot load (e.g. a missing or broken
- *  hard-gates.json) a non-destructive-shaped call takes this visible exit-1 "NOT checked" path — secret-print
- *  included, since FALLBACK_RE has no secret list. That needs a broken install, not a command shape (the doctor's
- *  advisory gate-watchdog-health canary then reports classifier-unavailable); it is kept on purpose (fail visible,
- *  never silent) and is unchanged by the redirect relaxation, whose own second-pass failures always keep the first
- *  block (relaxSecretPrint). */
-function classifierUnavailableVerdict(command, msg) {
+ *  FU-A7 closed Codex r10 G6 (it was ACCEPTED as info): FALLBACK_RE has no secret list, so with the classifier
+ *  unable to load a secret-file print took the visible exit-1 path. A call FALLBACK_RE misses is now also read by the
+ *  cannot-judge keyword scan (riskySignals over cannotJudgeView: AFTER the inert-data rule, so data that only mentions
+ *  a keyword is not one) and a hit blocks with the same classifier-unavailable id. FALLBACK_RE itself still reads the
+ *  raw text, unchanged. Only a call with no keyword at all keeps the visible exit-1 "NOT checked" notice. The
+ *  redirect relaxation's own second-pass failures always keep the first block (relaxSecretPrint). */
+function classifierUnavailableVerdict(command, msg, shell) {
   if (FALLBACK_RE.test(command)) {
     const ids = ['classifier-unavailable'];
     return { block: true, gates: ids, reason: blockReason(ids), why: 'classifier-unavailable, fail-closed fallback (' + msg + ')' };
   }
+  const risky = riskySignals(cannotJudgeView(command, shell));
+  if (risky.length) {
+    const ids = ['classifier-unavailable'];
+    return { block: true, gates: ids, reason: blockReason(ids), why: 'classifier-unavailable, risky signal (' + risky.join(', ') + ') (' + msg + ')' };
+  }
   return { block: false, warn: true, gates: [], notice: cap('forge-gate-hook: classifier unavailable (' + msg + ') — this call was NOT checked'), why: 'classifier-unavailable' };
+}
+
+// ---- CANNOT JUDGE + A RISKY KEYWORD -> exit 2 (FU-A7) ----------
+// A call this hook cannot judge used to exit 1 in every case: visible, but under Claude Code's hook contract a
+// non-blocking pass. The owner's choice (keep "exit 1 = visible and non-blocking", no onFailure in the settings) keeps
+// that answer for a call whose command text shows no hard-gate keyword. When it does show one, the call is refused.
+// WHICH keywords a text shows is read by forge-gate-cannot-judge.cjs (split out in FU-A7; its header holds the
+// keyword rules). The wrappers below keep this file's exports unchanged and fail CLOSED when that module cannot load:
+// no keyword can be read then, so every call this hook cannot judge reports `risk-scan-failed` and is refused.
+const CANNOT_JUDGE_GATE = 'cannot-judge-risky';
+const scanFailed = () => ['risk-scan-failed'];
+const riskySignals = CANNOT_JUDGE ? CANNOT_JUDGE.riskySignals : scanFailed;
+const createRiskScanner = CANNOT_JUDGE ? CANNOT_JUDGE.createRiskScanner : () => ({ push() {}, signals: scanFailed });
+const rawCommandText = CANNOT_JUDGE ? CANNOT_JUDGE.rawCommandText : (raw) => (raw === undefined || raw === null ? '' : String(raw));
+const cannotJudgeView = (command, shell) => (CANNOT_JUDGE ? CANNOT_JUDGE.cannotJudgeView(command, shell, WATCHDOG_UNAVAILABLE_FALLBACK_CHARS) : String(command));
+const RISKY_SIGNALS = CANNOT_JUDGE ? CANNOT_JUDGE.RISKY_SIGNALS : [];
+
+/** payloadCommandSignals(payload) -> the keyword ids of a parsed PreToolUse shell call's command; [] for every call
+ *  decide() would never inspect (another event, another tool, no command). Used when decide() itself failed. */
+function payloadCommandSignals(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
+  const ev = payload.hook_event_name;
+  if (ev !== undefined && ev !== null && ev !== 'PreToolUse') return [];
+  if (!SHELL_TOOLS.has(payload.tool_name)) return [];
+  const input = payload.tool_input;
+  const command = input && typeof input === 'object' && !Array.isArray(input) ? input.command : null;
+  if (typeof command !== 'string' || !command.trim()) return [];
+  return riskySignals(cannotJudgeView(command, payload.tool_name));
+}
+
+/** cannotJudgeReason(cause, ids) -> the one-line NL/EN block reason. Built here, never from forge-gate-messages.cjs:
+ *  a broken wording module is one of the ways this path is reached. */
+function cannotJudgeReason(cause, ids) {
+  const what = ' (' + ids.join(', ') + '; ' + cause + ')';
+  return 'FORGE GATE (' + CANNOT_JUDGE_GATE + '): Forge kan dit commando niet beoordelen en het lijkt riskant' + what
+    + ', dus is het voor de zekerheid geweigerd; draai de doctor en probeer het daarna opnieuw. / Forge cannot judge'
+    + ' this command and it looks risky' + what + ', so it was refused to be safe; run the doctor and try again.';
+}
+
+/** cannotJudgeResult({why, cause, notice}, ids, opts) -> the run()-shaped { exitCode, stderr, why, gates? } for a call
+ *  this hook could not judge. No keyword: the old visible exit 1 with `notice` and `why`, unchanged. A keyword: exit 2
+ *  with the NL/EN reason, except under a PERSISTENT gate-hook OFF (the owner's own switch; decide() treats every other
+ *  block the same way): then the old notice plus the off-notice, exit 1. A pending ONE-OFF approval is never spent
+ *  here: there is no command the hook could read to bind it to, so the call is refused. A config that cannot be read
+ *  counts as ON, gateHookEnabled's own default. */
+function cannotJudgeResult(kind, ids, opts) {
+  if (!Array.isArray(ids) || !ids.length) return { exitCode: 1, stderr: kind.notice, why: kind.why };
+  let en;
+  try { en = gateHookEnabled(opts || {}); } catch { en = { on: true }; } // a config seam that throws reads as ON
+  const why = CANNOT_JUDGE_GATE + ' (' + kind.why + ': ' + ids.join(', ') + ')';
+  if (en && en.on === false && !en.expires_at) {
+    return { exitCode: 1, stderr: kind.notice + '\n' + offNotice(en, [CANNOT_JUDGE_GATE + ': ' + ids.join('+')]), why: why + ', gate-hook-off' };
+  }
+  return { exitCode: 2, stderr: cannotJudgeReason(kind.cause, ids), why, gates: [CANNOT_JUDGE_GATE] };
+}
+const firstLine = (e) => String((e && e.message) || e).split('\n')[0];
+const shortCause = (e) => 'internal error (' + firstLine(e).slice(0, 160) + ')'; // the block reason stays one short line
+
+/** writeScopeSetting(opts) -> null (the freeze is off: the default) | { raw, mode }. (3.3c). The environment first
+ *  (FORGE_WRITE_SCOPE / FORGE_WRITE_SCOPE_MODE: set when Claude Code starts, so an agent cannot change them for this
+ *  hook), then forge-config: `write-scope-mode` is a schema key since package 2.9e (enum warn|deny, default warn);
+ *  `write-scope` is NOT (the schema has no string/path type), so get() throws unknown_key for it and the config side
+ *  simply reads as unset: the scope is env-only. The mode is read only when a scope is set. Test seam:
+ *  opts.writeScope = {raw, mode} | null. Never throws. */
+function writeScopeSetting(opts) {
+  if (opts.writeScope !== undefined) return opts.writeScope;
+  const env = opts.env || process.env;
+  const cfg = () => resolveConfigModule(opts);
+  const read = (key) => {
+    try { const m = cfg(); const e = m && typeof m.get === 'function' ? m.get(key) : null; return e && typeof e.value === 'string' && e.value.trim() ? e.value.trim() : null; } catch { return null; }
+  };
+  const raw = (typeof env.FORGE_WRITE_SCOPE === 'string' && env.FORGE_WRITE_SCOPE.trim()) || read('write-scope');
+  if (!raw) return null;
+  const mode = (typeof env.FORGE_WRITE_SCOPE_MODE === 'string' && env.FORGE_WRITE_SCOPE_MODE.trim()) || read('write-scope-mode') || 'warn';
+  return { raw, mode };
+}
+
+/** applyWriteScope(verdict, payload, command, opts) -> the verdict, plus the write-scope result. A call a gate
+ *  already blocks is returned as is. Otherwise, with a scope configured: a target PROVABLY outside it blocks only in
+ *  mode `deny` (gate id `write-scope`, so the gate-hook off / one-off approval rules below apply to it unchanged);
+ *  in mode `warn`, and for every target that cannot be checked, the call stays allowed with a VISIBLE notice (exit 1).
+ *  No scope -> nothing changes and nothing is printed. A missing checker or an unknown mode is said out loud. */
+function applyWriteScope(verdict, payload, command, opts) {
+  if (!verdict || verdict.block) return verdict;
+  const set = writeScopeSetting(opts);
+  if (!set) return verdict;
+  const withNotice = (text) => Object.assign({}, verdict, {
+    warn: true, notice: verdict.notice ? verdict.notice + '\n' + cap(text) : cap(text), why: (verdict.why || 'no-gate') + ' + write-scope-notice',
+  });
+  if (!WRITESCOPE) return withNotice('FORGE WRITE SCOPE: de controlemodule ontbreekt (forge-gate-writescope.cjs), dit commando is NIET gecontroleerd tegen ' + set.raw + ' / the checker module is missing, this call was NOT checked against ' + set.raw);
+  const modeOk = WRITESCOPE.MODES.has(set.mode);
+  const cwd = typeof payload.cwd === 'string' && path.isAbsolute(payload.cwd) ? payload.cwd : process.cwd();
+  const res = WRITESCOPE.checkWriteScope(command, {
+    scopeRaw: set.raw, mode: modeOk ? set.mode : 'warn', shell: payload.tool_name, cwd,
+    platform: opts.platform, homedir: opts.homedir, fsImpl: opts.fsImpl,
+  });
+  const d = WRITESCOPE.describe(res, cap);
+  if (d.block) return { block: true, gates: ['write-scope'], reason: d.reason, why: 'write-scope-deny' };
+  const notes = [];
+  if (!modeOk) notes.push('FORGE WRITE SCOPE: onbekende modus "' + set.mode + '", warn gebruikt / unknown mode "' + set.mode + '", using warn');
+  if (d.notice) notes.push(d.notice);
+  return notes.length ? withNotice(notes.join('\n')) : verdict;
+}
+
+/** applyInlineScriptHint(verdict, payload, command) -> the verdict, plus a VISIBLE notice (exit 1, never a block) when a
+ *  Bash call runs `node -e "..."` whose double-quoted script holds a double backslash. Bash turns `\\` into `\` inside
+ *  double quotes, so Windows paths and regex escapes reach Node changed (2026-11-05, three times in one session: a
+ *  broken regex in checks-hygiene.cjs, a lost path in a settings edit, a regex that matched the start of a file).
+ *  The fix is to write the script with a file tool and run the file. A call a gate blocks is returned as is. */
+const INLINE_NODE_DQ_RE = /\bnode(?:\.exe)?\s+-e\s+"((?:[^"\\]|\\.)*)"/;
+function applyInlineScriptHint(verdict, payload, command) {
+  if (!verdict || verdict.block || !payload || payload.tool_name !== 'Bash' || typeof command !== 'string') return verdict;
+  const m = INLINE_NODE_DQ_RE.exec(command);
+  if (!m || !m[1].includes('\\\\')) return verdict;
+  const text = 'FORGE HINT: node -e "..." met \\\\ binnen dubbele aanhalingstekens: bash maakt van \\\\ een enkele \\, dus paden en regex-escapes komen veranderd aan. Schrijf het script naar een bestand en draai dat. / '
+    + 'node -e "..." with \\\\ inside double quotes: bash turns \\\\ into a single \\, so paths and regex escapes arrive changed. Write the script to a file and run the file.';
+  return Object.assign({}, verdict, { warn: true, notice: verdict.notice ? verdict.notice + '\n' + cap(text) : cap(text), why: (verdict.why || 'no-gate') + ' + inline-script-hint' });
 }
 
 /** decide(payload, opts) -> { block, warn, gates, reason, notice, why }. Seams: opts.gate (classifier), opts.config,
@@ -581,7 +755,7 @@ function decide(payload, opts) {
   if (typeof command !== 'string') return unchecked('missing-or-non-string-command');
   if (!command.trim()) return none('no-command'); // an empty command runs nothing; nothing to classify
   const en = gateHookEnabled(opts);
-  const verdict = evaluate(payload, command, opts);
+  const verdict = applyInlineScriptHint(applyWriteScope(evaluate(payload, command, opts), payload, command, opts), payload, command); // no scope -> unchanged; inline-script hint is a notice only
   if (verdict.warn && !verdict.block) return verdict; // S07: an inspection failure is always visible, on or off
   if (en.on) return verdict;
   if (!verdict.block) return none('gate-hook-off (' + en.source + ')');
@@ -614,17 +788,24 @@ function decide(payload, opts) {
   return { block: false, warn: true, gates: verdict.gates, notice: offNotice(en, verdict.gates), why: 'gate-hook-off, would have blocked' };
 }
 
-/** run(rawStdin, opts) -> { exitCode, stderr, why }. Never throws. */
+/** run(rawStdin, opts) -> { exitCode, stderr, why, gates? }. Never throws. FU-A7: unparseable stdin and an internal
+ *  error go through cannotJudgeResult (exit 2 only when the command text shows a hard-gate keyword). */
 function run(rawStdin, opts) {
+  const raw = String(rawStdin || '');
   let payload;
-  try { payload = JSON.parse(String(rawStdin || '')); }
-  catch { return { exitCode: 1, stderr: 'forge-gate-hook: unparseable stdin, this call was NOT checked', why: 'unparseable-stdin' }; }
+  try { payload = JSON.parse(raw); } catch {
+    return cannotJudgeResult({ why: 'unparseable-stdin', cause: 'unparseable stdin', notice: 'forge-gate-hook: unparseable stdin, this call was NOT checked' },
+      riskySignals(rawCommandText(raw)), opts);
+  }
   try {
     const d = decide(payload, opts);
     if (d.block) return { exitCode: 2, stderr: d.reason, why: d.why, gates: Array.isArray(d.gates) ? d.gates.slice() : [] };
     return { exitCode: d.warn ? 1 : 0, stderr: d.notice || '', why: d.why };
   } catch (e) {
-    return { exitCode: 1, stderr: 'forge-gate-hook: internal error, this call was NOT checked: ' + String(e && e.message || e).split('\n')[0], why: 'internal-error' };
+    const msg = firstLine(e);
+    let ids;
+    try { ids = payloadCommandSignals(payload); } catch { ids = ['risk-scan-failed']; } // cannot even scan: refuse
+    return cannotJudgeResult({ why: 'internal-error', cause: shortCause(e), notice: 'forge-gate-hook: internal error, this call was NOT checked: ' + msg }, ids, opts);
   }
 }
 
@@ -651,6 +832,8 @@ function recordGateBlocked(rawOrPayload, runResult, opts) {
   opts = opts || {};
   const OBL = opts.obligationsModule !== undefined ? opts.obligationsModule : OBLIGATIONS;
   if (!OBL || typeof OBL.recordGateBlock !== 'function') return { recorded: false, reason: 'forge-stop-obligations.cjs unavailable' };
+  // WP 2.1: a plugin copy that found no project has nowhere to record into (and never records into the plugin).
+  if (!opts.projectRoot && !PROJECT_ROOT) return { recorded: false, reason: 'no project root (a plugin copy outside any project): nothing is recorded' };
   // while forge-sync replaces files in this project, write nothing into it. The verdict itself is
   // unchanged — this only skips the run record.
   if (syncMaintenance(opts.projectRoot || PROJECT_ROOT)) return { recorded: false, reason: 'maintenance mode: a fresh .forge-sync.lock (a sync is running), so nothing is written into the project' };
@@ -665,10 +848,15 @@ module.exports = {
   fallbackSelfDisableTest, fallbackSelfDisableNormalize, recordGateBlocked, syncMaintenance, SYNC_LOCK_STALE_MS,
   neutralizeSafeRedirects, // WP-GATEFP
   glueRedirectAmpersands, relaxRefused, relaxSecretPrint, SAFE_REDIRECT_RES, // WP-GATEFP2
+  writeScopeSetting, applyWriteScope, // (3.3c)
+  applyInlineScriptHint, INLINE_NODE_DQ_RE, // notice for node -e "...\\..." in Bash
+  riskySignals, createRiskScanner, rawCommandText, cannotJudgeView, cannotJudgeResult, RISKY_SIGNALS, // FU-A7
 };
 
 // ---- CLI (PreToolUse hook target). Async stdin collection (proven safe on Windows by forge-toolhook.cjs); every
-// path that cannot inspect the call exits 1 — non-blocking but visible to the user (security wp9b M2). ----
+// path that cannot inspect the call exits 1 — non-blocking but visible to the user (security wp9b M2) — unless the
+// bytes it did receive show a hard-gate keyword: then it exits 2 (FU-A7, cannotJudgeResult). Past MAX_STDIN_BYTES
+// nothing more is KEPT, but every byte is still SCANNED (createRiskScanner), so a keyword hidden past the limit counts.
 if (require.main === module) {
   let finished = false;
   // `after` runs after the verdict text is written; whatever it does or throws, the exit code stays `code`.
@@ -680,23 +868,39 @@ if (require.main === module) {
     if (typeof after === 'function') { try { after(); } catch { /* best effort — never changes the verdict */ } }
     process.exit(code);
   };
-  const failsafe = setTimeout(() => finish(1, 'forge-gate-hook: stdin did not end in time, this call was NOT checked'), FAILSAFE_MS);
-  if (failsafe.unref) failsafe.unref();
   const chunks = [];
   let size = 0;
   let oversize = false;
+  let overScan = null; // FU-A7: created once the payload is too large to keep; then reads every byte
+  const receivedSignals = () => (oversize ? overScan.signals() : riskySignals(rawCommandText(Buffer.concat(chunks).toString('utf8'))));
+  // FU-A7: a stdin this hook could not read in full. No keyword in what arrived -> the old visible exit 1.
+  const cannotJudgeExit = (why, cause) => {
+    const notice = 'forge-gate-hook: ' + cause + ', this call was NOT checked';
+    let r;
+    try { r = cannotJudgeResult({ why, cause, notice }, receivedSignals(), {}); } catch (e) { r = { exitCode: 1, stderr: notice + ' (keyword scan failed: ' + firstLine(e) + ')' }; }
+    finish(r.exitCode, r.stderr);
+  };
+  const failsafe = setTimeout(() => cannotJudgeExit('stdin-timeout', 'stdin did not end in time'), FAILSAFE_MS);
+  if (failsafe.unref) failsafe.unref();
   process.stdin.on('data', (c) => {
     size += c.length;
-    if (size > MAX_STDIN_BYTES) oversize = true;
-    else chunks.push(c);
+    if (!oversize && size > MAX_STDIN_BYTES) {
+      oversize = true;
+      overScan = createRiskScanner();
+      for (const k of chunks) overScan.push(k);
+      chunks.length = 0; // never parsed now: free the memory
+    }
+    if (oversize) overScan.push(c); else chunks.push(c);
   });
-  process.stdin.on('error', () => finish(1, 'forge-gate-hook: stdin error, this call was NOT checked'));
+  process.stdin.on('error', () => cannotJudgeExit('stdin-error', 'stdin error'));
   process.stdin.on('end', () => {
     clearTimeout(failsafe);
-    if (oversize) { finish(1, 'forge-gate-hook: payload larger than ' + MAX_STDIN_BYTES + ' bytes, this call was NOT checked'); return; }
+    if (oversize) { cannotJudgeExit('oversized-stdin', 'payload larger than ' + MAX_STDIN_BYTES + ' bytes'); return; }
     let r, raw = '';
-    try { raw = Buffer.concat(chunks).toString('utf8'); r = run(raw); }
-    catch (e) { r = { exitCode: 1, stderr: 'forge-gate-hook: internal error, this call was NOT checked: ' + (e && e.message) }; }
+    try { raw = Buffer.concat(chunks).toString('utf8'); r = run(raw); } catch (e) {
+      const notice = 'forge-gate-hook: internal error, this call was NOT checked: ' + firstLine(e);
+      r = cannotJudgeResult({ why: 'internal-error', cause: shortCause(e), notice }, riskySignals(rawCommandText(raw)), {});
+    }
     finish(r.exitCode, r.stderr, r.exitCode === 2 ? () => { recordGateBlocked(raw, r, { elapsedMs: process.uptime() * 1000 }); } : null);
   });
   process.stdin.resume();

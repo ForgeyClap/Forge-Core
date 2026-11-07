@@ -1,0 +1,136 @@
+{
+  "domain": "game",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-game/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-game/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "game-loop",
+      "claim": "The core loop runs and completes: start, play, win and lose, restart, all reachable.",
+      "evidence_required": "Screenshots or a recording of win, lose and restart actually reached.",
+      "how_to_run": "Play the game (or drive it with browser automation) to a win, a loss and a restart.",
+      "severity": "block",
+      "honesty_note": "Never call a game playable without real evidence of win + lose + restart reached.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Core loop runs and completes: start → play → win AND lose → restart, all reachable"
+      }
+    },
+    {
+      "id": "game-no-softlock",
+      "claim": "No soft-lock, and pause/resume works.",
+      "evidence_required": "A playtest note or automated run showing pause/resume and no dead end.",
+      "how_to_run": "Pause and resume during play; try the known edge states.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no soft-lock; pause/resume works."
+      }
+    },
+    {
+      "id": "game-viewport-input",
+      "claim": "The canvas scales or letterboxes correctly at mobile and desktop sizes, and every declared input works.",
+      "evidence_required": "Screenshots at a mobile and a desktop viewport, and a check per declared input method.",
+      "how_to_run": "Screenshot at mobile and desktop sizes; exercise each input method.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Canvas scales/letterboxes correctly at mobile + desktop sizes"
+      }
+    },
+    {
+      "id": "game-console-errors",
+      "claim": "Zero console errors across a full session, and a stable delta-time loop.",
+      "evidence_required": "The console log of a full session with no errors.",
+      "how_to_run": "Capture the browser console during a full playtest.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Zero console errors across a full session"
+      }
+    },
+    {
+      "id": "game-cleanup",
+      "claim": "Listeners, timers and audio are cleaned up on restart, with no leak or double-fire.",
+      "evidence_required": "A restart repeated several times with no doubled events or rising listener count.",
+      "how_to_run": "Restart several times and watch for double-fire; read the teardown code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "listeners/timers/audio cleaned up on restart"
+      }
+    },
+    {
+      "id": "game-zero-dep",
+      "claim": "When a zero-dependency constraint was set, there are no external or CDN deps.",
+      "evidence_required": "A search of the build for external URLs and imports with no hits.",
+      "how_to_run": "Search the shipped files for http(s) script/style sources and package imports.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "If a zero-dependency constraint was set, no external/CDN deps"
+      }
+    },
+    {
+      "id": "game-persistence",
+      "claim": "Save/load or high-scores, when promised, persist and restore across reloads.",
+      "evidence_required": "A save, a reload, and the restored state.",
+      "how_to_run": "Save, reload the page, and compare.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Save/load / high-scores (if promised) persist and restore across reloads."
+      }
+    },
+    {
+      "id": "game-playtest",
+      "claim": "Real playtest evidence is attached.",
+      "evidence_required": "The screenshots or recording themselves, referenced by path.",
+      "how_to_run": "List the attached evidence files.",
+      "severity": "block",
+      "honesty_note": "No Godot toolchain: mark export and clean-run NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Real playtest evidence attached (screenshots/recording of win + lose + restart)"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Honour a zero-dependency constraint when set (no CDN pulls; CSP-safe as an artifact).",
+      "source": {
+        "path": ".claude/skills/forge-game/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "honour a zero-dependency constraint when set (no CDN pulls; CSP-safe as an artifact)."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "game-zero-dep does not apply when no zero-dependency constraint was set.",
+    "game-persistence does not apply when save/load or high-scores are not promised.",
+    "game-viewport-input mobile sizes do not apply when the game explicitly declares desktop-only (forge-game Domain gates)."
+  ],
+  "gaps": []
+}

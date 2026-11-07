@@ -1,17 +1,22 @@
 /**
- * Button — four variants, two heights, both taken from the control tokens.
+ * Button — Forge Systeem v1.0 (BRAND.md > Buttons and states).
  *
- *   primary  the one accented control on a screen (accent fill)
- *   ghost    the neutral default: surface + hairline border
- *   quiet    transparent until hovered
- *   danger   heavier border treatment, still monochrome — danger is never red
- *            in this system, it is weight (--forge-status-failed tokens)
+ *   primary    the one Pauw action on a screen
+ *   secondary  surface with the field-edge border (`ghost` is the same look, kept for old callers)
+ *   quiet      text only, an Inleg wash on hover
+ *   danger     Gloei text on a surface; the border turns Gloei on hover
+ *
+ * 40 px by default, 32 px for `sm` (compact density in Uitgebreid uses its own values).
+ * Labels are verbs that say what happens; no arrow is appended to the text.
+ *
+ * `loading` keeps the label and the width, puts a 16 px spinner where the icon was and
+ * marks the button aria-busy. It does not disable the button by itself.
  */
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Icon } from './Icon';
 
-export type ButtonVariant = 'primary' | 'ghost' | 'quiet' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'quiet' | 'danger';
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   variant?: ButtonVariant;
@@ -22,6 +27,8 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   iconRight?: string;
   /** Stretch to the width of the container. */
   block?: boolean;
+  /** Working inside this action: spinner in place of the icon, same label, same width. */
+  loading?: boolean;
   children?: ReactNode;
 }
 
@@ -31,6 +38,7 @@ export function Button({
   icon,
   iconRight,
   block = false,
+  loading = false,
   className,
   type = 'button',
   children,
@@ -41,12 +49,13 @@ export function Button({
   if (className) classes.push(className);
 
   const iconSize = size === 'sm' ? 'xs' : 'sm';
+  const leading = loading ? 'Loader' : icon;
 
   return (
-    <button {...rest} type={type} className={classes.join(' ')}>
-      {icon ? <Icon name={icon} size={iconSize} className="fw-button__icon" /> : null}
+    <button {...rest} type={type} className={classes.join(' ')} aria-busy={loading ? true : rest['aria-busy']}>
+      {leading ? <Icon name={leading} size={iconSize} spin={loading} className="fw-button__icon" /> : null}
       {children != null ? <span className="fw-button__label">{children}</span> : null}
-      {iconRight ? <Icon name={iconRight} size={iconSize} className="fw-button__icon" /> : null}
+      {iconRight && !loading ? <Icon name={iconRight} size={iconSize} className="fw-button__icon" /> : null}
     </button>
   );
 }

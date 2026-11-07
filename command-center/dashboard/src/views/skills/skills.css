@@ -1,0 +1,243 @@
+/* Vaardigheden & koppelingen (WP B5). Tokens only. Page frame: ../jobs/xpage.css. */
+
+.fw-skills {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: var(--fs-space-7);
+  align-items: start;
+}
+
+.fw-skills__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  min-inline-size: 0;
+}
+
+.fw-skills__col .fw-xpage__section-title {
+  margin: 0;
+  justify-content: space-between;
+}
+
+.fw-skills__count {
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__lead,
+.fw-skills__empty {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__search {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  padding: 0 var(--fs-space-3);
+  block-size: 2.25rem;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__search:focus-within {
+  border-color: var(--fs-line-strong);
+  box-shadow: var(--fs-focus);
+}
+
+.fw-skills__search input {
+  flex: 1;
+  min-inline-size: 0;
+  border: none;
+  background: transparent;
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+  outline: none;
+}
+
+.fw-skills__list,
+.fw-skills__conns {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fw-skills__list {
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+}
+
+.fw-skills__skill {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-skills__skill:first-child {
+  border-block-start: none;
+}
+
+.fw-skills__skill-name {
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+  overflow-wrap: anywhere;
+}
+
+.fw-skills__skill-desc {
+  font-size: var(--fs-text-12);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fw-skills__tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-4);
+}
+
+.fw-skills__tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+}
+
+.fw-skills__tier[data-tier='writeGated'] {
+  border-color: var(--fs-line);
+  border-inline-start: 2px solid var(--fs-accent);
+}
+
+.fw-skills__tier[data-tier='dormant'] {
+  background: var(--fs-sunken);
+}
+
+.fw-skills__tier-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  color: var(--fs-ink-2);
+}
+
+.fw-skills__tier-head h3 {
+  margin: 0;
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fw-skills__tier-count {
+  margin-inline-start: auto;
+  min-inline-size: 1.5rem;
+  padding: 0 var(--fs-space-2);
+  border-radius: var(--fs-radius-pill);
+  text-align: center;
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+}
+
+.fw-skills__tier-feel {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__conn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--fs-space-2) 0;
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fw-skills__conn:first-child {
+  border-block-start: none;
+}
+
+.fw-skills__conn-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--fs-space-2);
+}
+
+.fw-skills__conn-id {
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+}
+
+.fw-skills__level {
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__level[data-level='l3'] {
+  color: var(--fs-ink);
+}
+
+.fw-skills__conn-purpose {
+  font-size: var(--fs-text-12);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__conn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-3);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fw-skills__conn-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 1000px) {
+  .fw-skills {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* W3FX-BC: an Uitgebreid route page, not a centred list page. Same left-aligned header as Taken, Controles,
+   Discord and the other Uitgebreid routes: the title starts at the content gutter, so it does not jump when
+   switching tabs. */
+.fw-xpage--route .fw-xpage__header,
+.fw-xpage--route .fw-xpage__body {
+  inline-size: auto;
+  margin-inline: 0;
+  padding-inline: var(--fw-gutter);
+}
+
+.fw-xpage--route .fw-xpage__header {
+  padding-block: var(--fw-gutter) var(--fw-gap);
+}

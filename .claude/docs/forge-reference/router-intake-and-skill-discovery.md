@@ -49,3 +49,7 @@ node .claude/forge-bin/forge-mindmap.cjs from-outline '<outline>' <prd_id> --wri
 - **Map id = the PRD id**, so the map and its PRD belong together; `--run` logs `mindmap_generated`, and only after the map was really written.
 - **L1/L2 builds skip it:** a flat plan reads better as prose. Secrets are redacted by the tool before anything is stored.
 - Before 2026-10-10 nothing called `forge-mindmap.cjs` (audit S3/F4): the generator existed, but no step ran it. The feature registry (`.claude/config/orchestration/FORGE_FEATURE_REGISTRY.json`, doctor check `feature_registry`) now records it as `wired` through this step; if the step disappears from the router docs while the registry still says `wired`, the doctor turns red.
+
+## Step 0b addendum — the skill map Forge delivers (category tests, 2026-11-07)
+
+Log `skill_map_created` as `{"map":{"<agent-type>":["<skill-folder-name>", ...]}}`, with real folder names from `.claude/skills/`, for example `{"map":{"build-boss":["forge-debug","forge-code-review"],"test-boss":["forge-testing"]}}`. Forge injects each agent's mapped skills when that agent starts, and the run contract checks they were opened (rule `skill-delivered`). Full wording: `forge-cmd-steps-0-3.md` → "3a addendum".

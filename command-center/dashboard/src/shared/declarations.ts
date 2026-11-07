@@ -23,7 +23,7 @@
  *   2. The "false without evidence" property is testable exhaustively, by
  *      constructing the empty state — see `tests/unit/runtime-declarations.test.ts`.
  *
- * The bridge's side of the split lives in `src/bridge/health.ts`: it does the
+ * The bridge's side of the split lives in `archive/bridge/health.ts`: it does the
  * looking (probe, registry, filesystem, event log, telemetry) and hands the
  * results here. Nothing in this file knows how an observation was made.
  *

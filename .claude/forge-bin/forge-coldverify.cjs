@@ -97,6 +97,28 @@ const { spawnSync } = require('child_process');
 const store = require('./forge-store.cjs');
 const verify = require('./forge-verify.cjs');
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+/** storeRunDir(runId) -> the run folder next to forge-store's CLAUDE_DIR: a real project's .claude follows that
+ *  project's layout (runDirOf); a bare FORGE_STORE_ROOT test folder keeps <dir>/forge-runs/<id> exactly as before. */
+function storeRunDir(runId) {
+  const cd = store.CLAUDE_DIR;
+  if (!cd) return null;
+  return path.basename(cd).toLowerCase() === '.claude' ? runDirOf(path.dirname(cd), runId) : path.join(cd, 'forge-runs', runId);
+}
+
 // ---- the narrative firewall ---------------------------------------------------------------------------
 // Every event type whose payload is (or routinely carries) the builder's own account of its work. Dropped
 // wholesale before judging. Note that this deliberately includes the COMPLETION CLAIMS themselves
@@ -105,7 +127,7 @@ const verify = require('./forge-verify.cjs');
 const COLD_EXCLUDED_EVENT_TYPES = new Set([
   'agent_note', 'agent_progress', 'agent_output', 'agent_decision_summary', 'agent_next_action',
   'agent_evidence_added', 'subagent_output_created', 'subagent_started', 'subagent_completed',
-  'subagent_failed', 'agent_started', 'agent_completed', 'agent_failed', 'agent_handoff',
+  'subagent_failed', 'agent_started', 'agent_completed', 'agent_failed', 'agent_handoff', 'agent_message',
   'lead_review_started', 'lead_review_completed', 'report_generated', 'final_output_created',
   'decision_logged', 'mission_blueprint_created', 'mission_packet_created', 'agent_work_package_created',
   'custom_subagent_created', 'skill_discovery', 'skill_map_created', 'skill_assigned', 'role_map_created',
@@ -195,8 +217,15 @@ function extractReferents(text) {
  *  guessed at. */
 function candidateRoots(projectRoot, runDir) {
   const claude = store.CLAUDE_DIR;
-  const roots = [projectRoot, claude, path.join(claude, 'forge-bin'), path.join(claude, 'forge-dashboard'),
-    path.join(claude, 'forge-prd'), path.join(claude, 'forge-tickets')];
+  const roots = claude ? [projectRoot, claude, path.join(claude, 'forge-bin'), path.join(claude, 'forge-dashboard'),
+    path.join(claude, 'forge-prd'), path.join(claude, 'forge-tickets')] : [projectRoot];
+  // WP 2.1: in the forge layout the prd/ticket stores live in .forge/<store> (forge-store resolveStoreDir); they are
+  // added AFTER the legacy folders, so the legacy layout's order and answers are exactly as before
+  for (const s of ['prd', 'tickets']) {
+    let d = null;
+    try { d = typeof store.resolveStoreDir === 'function' ? store.resolveStoreDir(s) : null; } catch { d = null; }
+    if (d && !roots.some((r) => r && path.resolve(r) === path.resolve(d))) roots.push(d);
+  }
   if (runDir) { roots.push(runDir); roots.push(path.join(runDir, 'artifacts')); }
   return roots.filter((r) => typeof r === 'string' && r);
 }
@@ -306,11 +335,12 @@ function criterionFor(ticket) {
  */
 function coldVerifyTicket(ticket, opts) {
   opts = opts || {};
+  if (!opts.projectRoot && !store.CLAUDE_DIR) throw new Error('forge-coldverify: no project root found (no .claude, .forge or .git above the current folder; pass opts.projectRoot)');
   const projectRoot = opts.projectRoot || path.dirname(store.CLAUDE_DIR);
   const cold = coldTicket(ticket);
   const ticketId = String(cold.ticket_id || cold.id || '');
   const runId = typeof cold.run_id === 'string' && cold.run_id.trim() ? cold.run_id.trim() : null;
-  const runDir = opts.runDir || (runId ? path.join(store.CLAUDE_DIR, 'forge-runs', runId) : null);
+  const runDir = opts.runDir || (runId ? storeRunDir(runId) : null);
 
   const criterion = criterionFor(cold);
   const item = {

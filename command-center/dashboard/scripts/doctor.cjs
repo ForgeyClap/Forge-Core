@@ -203,7 +203,7 @@ function resolveBridgePort() {
     const value = Number(raw.trim());
     if (value >= 1024 && value <= 65535) return value;
   }
-  return 4517; // DEFAULT_PORT in src/bridge/config.ts
+  return 4517; // DEFAULT_PORT in archive/bridge/config.ts
 }
 
 function checkBridgePort() {

@@ -50,5 +50,6 @@
     "FORGE_NATIVE_REIMPLEMENTATION", "REJECTED_UNSAFE", "BLOCKED_ACCESS",
     "BLOCKED_EXTERNAL_LIMIT", "BLOCKED_PERMISSION", "BLOCKED_AFTER_EXHAUSTIVE_RECOVERY"
   ],
-  "ledger": ".claude/forge-research/recovery-attempts.jsonl"
+  "ledger": ".claude/forge-research/recovery-attempts.jsonl",
+  "ledger_layout_note": "WP 2.1: the path above is the legacy layout (no .forge/ folder). In a project that opted into the .forge/ state root the ledger is .forge/research/recovery-attempts.jsonl; forge-recovery.cjs resolves the active research folder through forge-paths.cjs and never writes into a plugin folder."
 }

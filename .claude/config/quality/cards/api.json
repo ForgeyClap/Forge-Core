@@ -1,0 +1,135 @@
+{
+  "domain": "api",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-api/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-api/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "api-contract",
+      "claim": "A committed contract file is the source of truth and the implementation is validated against it.",
+      "evidence_required": "The contract file path in git plus a conformance or generated-type check that would catch drift.",
+      "how_to_run": "git ls-files for the contract; run the contract/conformance test and quote the exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "A committed contract file exists and is the source of truth"
+      }
+    },
+    {
+      "id": "api-validation",
+      "claim": "Every request is validated against the schema at the boundary; invalid input gets a clear 4xx with a consistent error envelope.",
+      "evidence_required": "Test output for an invalid body, param and query returning 4xx with the shared envelope.",
+      "how_to_run": "Run the validation-failure tests and quote them.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Every request is validated against the schema at the boundary"
+      }
+    },
+    {
+      "id": "api-auth-negative",
+      "claim": "Auth is enforced server-side on every protected route, deny-by-default, proven by a negative test.",
+      "evidence_required": "A test where an unauthenticated and a wrong-scope request get 401/403.",
+      "how_to_run": "Run the auth negative tests and quote the 401/403 assertions.",
+      "severity": "block",
+      "honesty_note": "Never record \"auth enforced\" without the negative test output.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "a negative (unauthenticated / wrong-scope) test proves rejection"
+      }
+    },
+    {
+      "id": "api-versioning",
+      "claim": "Explicit versioning is present and no breaking change ships inside a published version.",
+      "evidence_required": "The version marker (path, header or media type) and a diff review showing no breaking change in a shipped version.",
+      "how_to_run": "Read the routes and the contract diff against the last published version.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Explicit versioning present; no breaking change inside a shipped version."
+      }
+    },
+    {
+      "id": "api-idempotency",
+      "claim": "Unsafe retryable writes are idempotent; safe methods are genuinely idempotent.",
+      "evidence_required": "A test where a replayed create with the same Idempotency-Key does not double-write.",
+      "how_to_run": "Run the replay test and quote the single resulting record.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Idempotency on unsafe retryable writes; safe methods are genuinely idempotent."
+      }
+    },
+    {
+      "id": "api-rate-limit-pagination",
+      "claim": "Rate limiting returns 429 + Retry-After and list endpoints paginate.",
+      "evidence_required": "A test where an over-limit client gets 429 with Retry-After, and a list endpoint response with pagination.",
+      "how_to_run": "Run the rate-limit and pagination tests and quote them.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Rate limiting returns 429 + Retry-After; list endpoints paginate"
+      }
+    },
+    {
+      "id": "api-no-secrets",
+      "claim": "No secrets in responses, error bodies or logs.",
+      "evidence_required": "A search of the diff, error handlers and log calls for secrets, with no hits.",
+      "how_to_run": "git diff plus a search for secret patterns; read the error envelope code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "no secrets in responses or logs"
+      }
+    },
+    {
+      "id": "api-contract-tests",
+      "claim": "Contract tests cover the happy path, auth failure and validation failure, not just 200.",
+      "evidence_required": "Test output listing all three kinds of case.",
+      "how_to_run": "Run the contract test suite and quote the case names and the exit code.",
+      "severity": "block",
+      "honesty_note": "Contract tooling is opt-in: when the contract tests did not run, mark NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Contract tests cover the happy path AND auth-failure AND validation-failure"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Anything with auth gets a security-boss / security-reviewer review.",
+      "source": {
+        "path": ".claude/skills/forge-api/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "anything with auth gets a security-boss / security-reviewer review"
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "The API mainly wires external services or webhooks: use the integration card.",
+    "The endpoint moves money or handles a gateway webhook: use the payments card."
+  ],
+  "gaps": []
+}

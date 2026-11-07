@@ -1,0 +1,37 @@
+{
+  "skill": "forge-database",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-database/SKILL.md",
+      "why": "the skill file itself must exist for forge-database to be usable at all" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 140,
+      "why": "the project skill listing budget is nearly full; the description stays <= 140 chars" },
+    { "id": "when-to-use-section", "type": "contains", "path": ".claude/skills/forge-database/SKILL.md", "needle": "## When to use",
+      "why": "trigger conditions (database, migration, RLS) must stay documented" },
+    { "id": "hard-rules-section", "type": "contains", "path": ".claude/skills/forge-database/SKILL.md", "needle": "## Hard rules",
+      "why": "the safe-migration hard rules are the core of this playbook" },
+    { "id": "stack-reference-section", "type": "contains", "path": ".claude/skills/forge-database/SKILL.md", "needle": "## Pick the stack reference",
+      "why": "the pointer to the per-stack references (Postgres, Supabase, Prisma, Drizzle, SQLite) must stay" },
+    { "id": "ship-readiness-section", "type": "contains", "path": ".claude/skills/forge-database/SKILL.md", "needle": "## Ship-readiness",
+      "why": "every forge playbook ends with its unique ship-readiness checklist" },
+    { "id": "operations-reference", "type": "contains", "path": ".claude/skills/forge-database/references/postgres-operations.md", "needle": "Untrusted SQL runs only after an explicit user action",
+      "why": "the isolation/PITR/upgrade gaps and the untrusted-SQL rule live in postgres-operations.md and must not be dropped" },
+    { "id": "license-file", "type": "file_exists", "path": ".claude/skills/forge-database/LICENSE",
+      "why": "adapted MIT text requires the upstream notices to ship with the skill" }
+  ],
+  "activation": {
+    "should_trigger": [
+      "voeg een database migratie toe voor de orders tabel",
+      "add a safe migration that creates an index without locking the table",
+      "write RLS policies for my Supabase profiles table",
+      "my Prisma migrate dev wants to reset the database, what now",
+      "choose between Postgres and SQLite for this desktop app",
+      "ontwerp een schema voor klanten en facturen in Postgres"
+    ],
+    "near_miss": [
+      "add a login page with Google OAuth",
+      "set up a Stripe checkout for subscriptions",
+      "write a Dockerfile for the API",
+      "scrape product prices from a public website"
+    ]
+  }
+}

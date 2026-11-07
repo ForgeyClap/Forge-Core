@@ -61,11 +61,26 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+// this copy's project (forge-paths scriptRoot); null for a plugin copy outside any project -> the CLI needs --root
+const PROJECT_ROOT_DEFAULT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 
-function runsDirOf(root) { return path.join(root, '.claude', 'forge-runs'); }
-function eventsFileOf(root, runId) { return path.join(runsDirOf(root), runId, 'events.jsonl'); }
-function receiptFileOf(root, runId) { return path.join(runsDirOf(root), runId, 'run-finalized.json'); }
+/** runsBaseOf(root, runId) -> the runs folder that holds this run: the active one, or the legacy one when the run
+ *  only exists there (one run - its events, receipt and lock - never spans two folders). Legacy: .claude/forge-runs. */
+function runsBaseOf(root, runId) {
+  const active = statePath(root, 'runs'), legacy = path.join(root, '.claude', 'forge-runs');
+  return active !== legacy && !fs.existsSync(path.join(active, runId)) && fs.existsSync(path.join(legacy, runId)) ? legacy : active;
+}
+function eventsFileOf(root, runId) { return path.join(runsBaseOf(root, runId), runId, 'events.jsonl'); }
+function receiptFileOf(root, runId) { return path.join(runsBaseOf(root, runId), runId, 'run-finalized.json'); }
 function logEventCli(root) { return path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs'); }
 
 /** loadClassifier(root) — the central JSONL semantics live in log-event.cjs; a consumer never
@@ -87,14 +102,17 @@ function digestOf(file) {
 // ---- SCRIBE BINDING (part ii) — see the file header ------------------------------------------
 const SCRIBE_LEDGER_REL = path.join('.claude', 'forge-scribe', 'ledger.jsonl');
 const SCRIBE_PIN_FIELDS = ['scribe_ledger_sha256', 'scribe_ledger_bytes', 'scribe_ledger_lines', 'scribe_chain_ok'];
-function scribeLedgerFileOf(root) { return path.join(root, SCRIBE_LEDGER_REL); }
+// SCRIBE_LEDGER_REL stays the legacy relative path (exported); the file itself is read in the project's layout
+// (WP 2.1: the .forge/scribe store when it exists in an opted-in project, else .claude/forge-scribe exactly as before)
+function scribeDirOf(root) { return statePath(root, 'scribe', true); }
+function scribeLedgerFileOf(root) { return path.join(scribeDirOf(root), 'ledger.jsonl'); }
 /** This installation's own store module (never the judged root's copy — same reasoning as loadClassifier). */
 function loadScribeStore() { try { return require(path.join(__dirname, 'forge-scribe-store.cjs')); } catch { return null; } }
 function loadScribeCore() { try { return require(path.join(__dirname, 'forge-scribe.cjs')); } catch { return null; } }
 /** inboxPromptCount(root) — owner prompts in .claude/forge-scribe/inbox.jsonl (0 when absent/unreadable). */
 function inboxPromptCount(root) {
   try {
-    return fs.readFileSync(path.join(root, '.claude', 'forge-scribe', 'inbox.jsonl'), 'utf8').split('\n')
+    return fs.readFileSync(path.join(scribeDirOf(root), 'inbox.jsonl'), 'utf8').split('\n')
       .filter((l) => { if (!l.trim()) return false; try { const r = JSON.parse(l); return !!r && typeof r.pid === 'string' && !r.duplicate_of; } catch { return false; } }).length;
   } catch { return 0; }
 }
@@ -176,7 +194,7 @@ function scribeActiveReason(root, runId, events) {
     if (r && r.op === 'open' && Date.parse(r.ts) >= start) return 'item ' + r.rid + ' was opened during the run';
   }
   try {
-    for (const l of fs.readFileSync(path.join(root, '.claude', 'forge-scribe', 'inbox.jsonl'), 'utf8').split('\n')) {
+    for (const l of fs.readFileSync(path.join(scribeDirOf(root), 'inbox.jsonl'), 'utf8').split('\n')) {
       if (!l.trim()) continue;
       let r; try { r = JSON.parse(l); } catch { continue; }
       if (r && typeof r.pid === 'string' && Date.parse(r.ts) >= start) return 'owner prompt ' + r.pid + ' was captured during the run';
@@ -345,7 +363,7 @@ function independentVerificationStatus(root, runId) {
 }
 
 function markRunFinalized(root, runId, receipt) {
-  const p = path.join(runsDirOf(root), runId, 'run.json');
+  const p = path.join(runsBaseOf(root, runId), runId, 'run.json');
   let raw;
   try { raw = fs.readFileSync(p, 'utf8'); } catch { return { updated: false, reason: 'geen run.json aanwezig' }; }
   let j;
@@ -381,7 +399,7 @@ const LIFECYCLE_EVENTS = new Set(['run_started', 'run_completed', 'rework_starte
 function runDomainOf(root, runId) {
   // gezaghebbende runmetadata (r4 #8-rest): run.json > declared domain in events > null (runcontract deriveert dan zelf)
   try {
-    const meta = JSON.parse(fs.readFileSync(path.join(runsDirOf(root), runId, 'run.json'), 'utf8'));
+    const meta = JSON.parse(fs.readFileSync(path.join(runsBaseOf(root, runId), runId, 'run.json'), 'utf8'));
     if (meta && typeof meta.domain === 'string' && meta.domain.trim()) return meta.domain.trim();
   } catch { }
   return null;
@@ -451,7 +469,7 @@ function allowlistedReceipt(root, runId, receiptBytes) {
   const { entries } = loadLegacyReceipts(root);
   return entries.find((e) => e.run_id === runId && e.sha256 === sha) || null;
 }
-function rulesetPinnedFileOf(root, runId) { return path.join(runsDirOf(root), runId, RULESET_PINNED_FILE); }
+function rulesetPinnedFileOf(root, runId) { return path.join(runsBaseOf(root, runId), runId, RULESET_PINNED_FILE); }
 /** pinnedRulesetOf(root, runId, expectedSha) -> {state:'present'|'absent'|'mismatch', path, sha256?} — the
  *  content-addressed copy of the rules a receipt was judged under. */
 function pinnedRulesetOf(root, runId, expectedSha) {
@@ -732,7 +750,7 @@ function legacyAcceptance(root, runId, receipt) {
  *  elkaars receipt overschrijven (gevonden door de 2-finalizers-racetest). wx-create; een
  *  achterblijver ouder dan 60s is een crash-artefact en wordt gereapt. */
 function acquireFinalizeLock(root, runId) {
-  const lockPath = path.join(runsDirOf(root), runId, 'run-finalized.lock');
+  const lockPath = path.join(runsBaseOf(root, runId), runId, 'run-finalized.lock');
   const t0 = process.hrtime.bigint();
   const elapsed = () => Number((process.hrtime.bigint() - t0) / 1000000n);
   for (;;) {
@@ -787,6 +805,27 @@ function finalize(root, runId, opts) {
   finally { releaseFinalizeLock(flock); }
   if (result && result.ok === true) maybeUpdateVault(root, runId, opts);
   return result;
+}
+/** claimCheckRefusal(runDir, events, root?) -> null | {reason, findings} — forge-claim-check.cjs checkReports over EVERY
+ *  owner-facing report of the run (the one set reportsForRun selects: <run>/final-report.md, reports named by the
+ *  run's report/prd events, docs/**\/EINDRAPPORT*.md + docs/**\/*final*report*.md changed during the run). root is
+ *  inferred from a legacy run folder when not passed. No report = nothing to judge; a report that cannot be judged =
+ *  refused; the checker missing next to this file while the run report exists = refused (fail-closed). */
+function claimCheckRefusal(runDir, events, root) {
+  let C = null;
+  try { C = require(path.join(__dirname, 'forge-claim-check.cjs')); } catch { C = null; }
+  if (!C || typeof C.checkReports !== 'function') {
+    if (!fs.existsSync(path.join(runDir, 'final-report.md'))) return null;
+    return { findings: [], reason: 'forge-claim-check.cjs ontbreekt naast forge-finalize.cjs — de claims in de rapporten van deze run kunnen niet tegen de ledger worden gecontroleerd (fail-closed)' };
+  }
+  let r;
+  try { r = C.checkReports({ root: root || undefined, runDir, events }); }
+  catch (e) { return { findings: [], reason: 'de claims in de rapporten van deze run konden niet worden gecontroleerd (' + String((e && e.message) || e).slice(0, 160) + ') — fail-closed' }; }
+  if (r.code === 0) return null;
+  if (!r.findings.length) return { findings: [], reason: 'de rapporten van deze run konden niet tegen de ledger worden gecontroleerd (' + r.problems.join('; ').slice(0, 240) + ') — fail-closed' };
+  const ids = [...new Set(r.exceptions.map((x) => x.wp_id))];
+  const where = r.findings.map((f) => f.file + ' regel ' + f.line);
+  return { findings: r.findings, reason: 'een rapport van deze run claimt dat ELK pakket geverifieerd/gereviewd is (' + where.slice(0, 6).join(', ') + (where.length > 6 ? ' …' : '') + ': "' + r.findings[0].text.slice(0, 120) + '"), maar de ledger heeft ' + r.exceptions.length + ' uitzondering(en): ' + ids.slice(0, 12).join(', ') + (ids.length > 12 ? ' …' : '') + ' — noem de uitzonderingen in die zin of alinea of schrap de absolute claim (node .claude/forge-bin/forge-claim-check.cjs --run <id> --all-reports)' };
 }
 function finalizeLocked(root, runId) {
   const file = eventsFileOf(root, runId);
@@ -860,6 +899,13 @@ function finalizeLocked(root, runId) {
     }
     return { ok: false, verdict: 'refused', reason: 'run is al gefinaliseerd op digest ' + String(existing.digest).slice(0, 12) + '… maar de log is daarna veranderd (nu ' + d0.digest.slice(0, 12) + '…) en matcht de receipt niet meer — onderzoek de aangroei; een afgeronde run verandert niet', stale: true };
   }
+
+  /** queue-3 (owner rule P-000094): a report of this run (final-report.md, an event-named report or a docs
+   *  EINDRAPPORT / final report changed during the run) that claims EVERY package was verified/reviewed while this
+   *  ledger holds exceptions (wp_failed, work over a FAIL, completed without a wp_verified PASS) is never sealed.
+   *  Only the NEW-finalization path: an existing receipt keeps the judgment of its own time. */
+  const claimRefusal = claimCheckRefusal(path.dirname(file), events, root);
+  if (claimRefusal) return { ok: false, verdict: 'refused', claim_check: claimRefusal.findings, reason: claimRefusal.reason };
 
   // digest VOOR de contractcheck — en HERLEZEN erna: het contract mag de bewijslog niet onder ons vandaan
   // zien veranderen (r4 #9). runcontract wordt hier bewust ZONDER --log-event gedraaid (leest alleen).
@@ -1369,7 +1415,7 @@ function verdictForAcceptance(acceptance, receipt) {
 // evaluateAcceptance/receiptState/rulesetPinOf exported (additive) — the audit's S5 proposal has
 // consumers read the acceptance status (current/historical/fail) instead of re-running check() themselves.
 module.exports = {
-  finalize, check, readReceipt, receiptFileOf, classify, verdictForAcceptance, evaluateAcceptance, receiptState, rulesetPinOf,
+  finalize, check, claimCheckRefusal, readReceipt, receiptFileOf, classify, verdictForAcceptance, evaluateAcceptance, receiptState, rulesetPinOf,
   // the legacy-receipt allowlist and the pinned-ruleset copy
   loadLegacyReceipts, allowlistedReceipt, legacyReceiptsFileOf, pinnedRulesetOf, rulesetPinnedFileOf,
   LEGACY_RECEIPTS_REL, LEGACY_RECEIPTS_SCHEMA, LEGACY_GENERATIONS, RULESET_PINNED_FILE, isFailureCloseEvent,
@@ -1393,6 +1439,10 @@ if (require.main === module) {
   const asJson = args.includes('--json');
   if (!cmd || !runId || !/^[A-Za-z0-9_-]+$/.test(runId)) {
     console.error('usage: node forge-finalize.cjs finalize|check --run <id> [--root <projectRoot>] [--json]');
+    process.exit(2);
+  }
+  if (!root) {
+    console.error('forge-finalize: no project root found (no .claude, .forge or .git above the current folder; pass --root)');
     process.exit(2);
   }
   if (cmd === 'finalize') {

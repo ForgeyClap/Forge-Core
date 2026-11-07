@@ -71,9 +71,10 @@ describe('DiscordView — installed and running', () => {
     const toggle = await screen.findByRole('switch');
     await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'));
 
-    expect(screen.getByText('RUNNING')).toBeInTheDocument();
+    expect(screen.getByText('Running')).toBeInTheDocument();
     expect(screen.getByText('4242')).toBeInTheDocument();
-    expect(screen.getByText('2026-07-30T09:00:00.000Z')).toBeInTheDocument();
+    // XR-COPY1: the start time is a real <time> in the app locale; the exact ISO value stays in dateTime.
+    expect(document.querySelector('time[datetime="2026-07-30T09:00:00.000Z"]')).not.toBeNull();
     expect(screen.getByText('discord')).toBeInTheDocument();
     expect(screen.getByText('.claude/forge-discord/state')).toBeInTheDocument();
   });
@@ -109,7 +110,7 @@ describe('DiscordView — installed and stopped', () => {
 
     const toggle = await screen.findByRole('switch');
     await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
-    expect(screen.getByText('STOPPED')).toBeInTheDocument();
+    expect(screen.getByText('Stopped')).toBeInTheDocument();
     expect(
       screen.getByText('Bot not reachable — it may be stopped or still starting.'),
     ).toBeInTheDocument();
@@ -168,7 +169,7 @@ describe('DiscordView — WP-P1 automatic Discord-dependency install status (sho
     );
     render(createElement(DiscordView));
 
-    await screen.findByText('STOPPED'); // wait for the real status to have rendered at all
+    await screen.findByText('Stopped'); // wait for the real status to have rendered at all
     expect(screen.queryByText(/Installing the Discord bot.s software/)).toBeNull();
     expect(screen.queryByText(/could not be installed automatically/)).toBeNull();
   });

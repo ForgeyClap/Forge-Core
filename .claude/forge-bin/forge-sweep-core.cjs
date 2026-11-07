@@ -15,14 +15,38 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PROJECT_DIR = path.resolve(__dirname, '..', '..');
+// WP 2.1: the project and its research folder come from forge-paths when it is there (optional require: a copied
+// tool or an older install keeps the legacy own-folder root and .claude/forge-research). A plugin copy finds the
+// project from CLAUDE_PROJECT_DIR / the cwd (scriptRoot), never its own folder; none found -> PROJECT_DIR null.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function' && typeof fp.existingStateDirs === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultProjectDir() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+const PROJECT_DIR = defaultProjectDir();
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 class UsageError extends Error { constructor(m) { super(m); this.exitCode = 2; } }
 class HardError extends Error { constructor(m) { super(m); this.exitCode = 1; } }
 
 // Containment root: the project, or FORGE_SWEEP_ROOT (hermetic tests point it at a temp dir).
-function containmentRoot() { return path.resolve(process.env.FORGE_SWEEP_ROOT || PROJECT_DIR); }
+function containmentRoot() {
+  const r = process.env.FORGE_SWEEP_ROOT || PROJECT_DIR;
+  if (!r) throw new UsageError('no project root found (no .claude, .forge or .git above the current folder) — run inside a project or set FORGE_SWEEP_ROOT');
+  return path.resolve(r);
+}
+/** researchDir(root) -> the ACTIVE research folder (writes): .claude/forge-research, or .forge/research once the
+ *  project has .forge/. researchDirs(root) -> every research folder that exists, active first (reads). */
+function researchDir(root) {
+  const legacy = path.join(root, '.claude', 'forge-research');
+  if (!forgePaths) return legacy;
+  try { return forgePaths.stateDir(root, 'research'); } catch { return legacy; }
+}
+function researchDirs(root) {
+  if (!forgePaths) return [path.join(root, '.claude', 'forge-research')];
+  try { const d = forgePaths.existingStateDirs(root, 'research'); return d.length ? d : [researchDir(root)]; } catch { return [path.join(root, '.claude', 'forge-research')]; }
+}
 function isInside(root, p) {
   const rel = path.relative(root, p);
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
@@ -34,7 +58,7 @@ function localDate(d) {
 function resolveSweepDir(dirArg) {
   const root = containmentRoot();
   const d = dirArg ? path.resolve(dirArg)
-    : path.join(root, '.claude', 'forge-research', 'beginner-sweep-' + localDate());
+    : path.join(researchDir(root), 'beginner-sweep-' + localDate());
   if (!isInside(root, d)) throw new UsageError('--dir must stay under ' + root + ' (got ' + d + ')');
   fs.mkdirSync(d, { recursive: true });
   if (!isInside(fs.realpathSync(root), fs.realpathSync(d))) throw new UsageError('--dir resolves outside ' + root + ' (symlink?)');
@@ -201,33 +225,36 @@ function computeStatus(dir) {
 
 // ---- known ids (dedupe base): earlier sweeps + the July YouTube batches + monthly-sweep id lists ----
 function loadKnownIds() {
-  const research = path.join(containmentRoot(), '.claude', 'forge-research');
   const ids = new Set(); const sources = [];
   const addText = (file) => {
     let n = 0;
     try { for (const l of fs.readFileSync(file, 'utf8').split(/\r?\n/)) { const id = l.trim(); if (isVideoId(id)) { ids.add(id); n++; } } } catch { return; }
     sources.push({ file: path.relative(containmentRoot(), file), ids: n });
   };
-  addText(path.join(research, '_known_video_ids.txt'));
-  const batches = path.join(research, 'youtube-batches');
-  let rowsN = 0; const batchIds = new Set();
-  try {
-    for (const f of fs.readdirSync(batches).filter((x) => x.endsWith('.jsonl'))) {
-      for (const r of readJsonl(path.join(batches, f)).rows) { rowsN++; if (isVideoId(r.id)) { ids.add(r.id); batchIds.add(r.id); } }
-    }
-    sources.push({ file: path.relative(containmentRoot(), batches) + '/*.jsonl', rows: rowsN, unique_ids: batchIds.size });
-  } catch {}
-  try {
-    for (const d of fs.readdirSync(research).filter((x) => /^maand-sweep-/.test(x))) {
-      for (const f of fs.readdirSync(path.join(research, d)).filter((x) => /^_all_known_ids.*\.txt$/.test(x))) addText(path.join(research, d, f));
-    }
-  } catch {}
+  // WP 2.1: every research folder that exists is read (.forge/research first, then the legacy one) so a partial
+  // migration never forgets an earlier sweep; in a legacy project this is exactly the one .claude/forge-research.
+  for (const research of researchDirs(containmentRoot())) {
+    addText(path.join(research, '_known_video_ids.txt'));
+    const batches = path.join(research, 'youtube-batches');
+    let rowsN = 0; const batchIds = new Set();
+    try {
+      for (const f of fs.readdirSync(batches).filter((x) => x.endsWith('.jsonl'))) {
+        for (const r of readJsonl(path.join(batches, f)).rows) { rowsN++; if (isVideoId(r.id)) { ids.add(r.id); batchIds.add(r.id); } }
+      }
+      sources.push({ file: path.relative(containmentRoot(), batches) + '/*.jsonl', rows: rowsN, unique_ids: batchIds.size });
+    } catch {}
+    try {
+      for (const d of fs.readdirSync(research).filter((x) => /^maand-sweep-/.test(x))) {
+        for (const f of fs.readdirSync(path.join(research, d)).filter((x) => /^_all_known_ids.*\.txt$/.test(x))) addText(path.join(research, d, f));
+      }
+    } catch {}
+  }
   return { ids, sources };
 }
 
 
 module.exports = {
-  PROJECT_DIR, VIDEO_ID_RE, UsageError, HardError, containmentRoot, isInside, localDate, resolveSweepDir, safeJoin,
+  PROJECT_DIR, VIDEO_ID_RE, UsageError, HardError, containmentRoot, researchDir, researchDirs, isInside, localDate, resolveSweepDir, safeJoin,
   isVideoId, sweepDate, redact, sleepSync, sleepAsync, sleepScale, jitter, writeFileAtomic, readJsonl, writeJsonl, sha256,
   appendLedger, readLedger, latestBy, writeCheckpoint, acquireLock, pidAlive, computeStatus, loadKnownIds,
 };

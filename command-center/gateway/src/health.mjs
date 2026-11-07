@@ -8,7 +8,7 @@
 // live probe result.
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECT_ROOT, FORGE_RUNS_DIR } from './paths.mjs';
+import { PROJECT_ROOT, FORGE_RUNS_DIR, COMMAND_CENTER_DATA_DIR } from './paths.mjs';
 // P2-12 fix, part (a) (cc-fix-gateway-perf): the dashboard's health-poll
 // (every 5s) was calling the full GET /api/conversations endpoint a SECOND time purely to read the
 // `execution` field (server.mjs already returns it on /api/conversations — see that route) —
@@ -17,7 +17,7 @@ import { PROJECT_ROOT, FORGE_RUNS_DIR } from './paths.mjs';
 // resolved once and cached for the process lifetime, see exec-bridge.mjs) so exposing it here too is
 // free. Handoff: removing the dashboard's now-redundant second /api/conversations call is
 // dashboard/-scoped and out of this WP's write scope — flagged in the forge-report.
-import { executionAvailability } from './exec-bridge.mjs';
+import { executionAvailability, runningExecutionCount } from './exec-bridge.mjs';
 
 // the per-project Control Center (`.claude/forge-dashboard/server.cjs` and
 // its UI, ports 3737-3999) was removed from Forge — this Command Center is now the one dashboard
@@ -135,7 +135,7 @@ function findNewestDoctorReceipt() {
   };
 }
 
-import { getRuntimeState } from './runtime-state.mjs';
+import { getRuntimeState, INSTANCE_ID, getGatewayPort } from './runtime-state.mjs';
 
 export async function buildHealth(startedAtMs) {
   const doctorLast = findNewestDoctorReceipt();
@@ -145,11 +145,18 @@ export async function buildHealth(startedAtMs) {
   const runtime = getRuntimeState();
   return {
     ok: runtime.state === 'OK',
+    // WP B1a: random per boot, stable for this process, so a caller (the Electron shell, bin.mjs's
+    // duplicate-gateway probe) can tell WHICH gateway answered on a port.
+    instance_id: INSTANCE_ID,
+    // WP B2 part 2: the Electron shell restarts the gateway for a key change or an update only when this is 0 (null would mean: cannot tell).
+    turns_running: runningExecutionCount(),
     runtime,
     gateway: {
       version: '0.1.0',
       uptime_s: Math.round((Date.now() - startedAtMs) / 1000),
       project_root: PROJECT_ROOT,
+      data_dir: COMMAND_CENTER_DATA_DIR,
+      port: getGatewayPort(),
     },
     forge: {
       control_center: CONTROL_CENTER_RETIRED,

@@ -4,11 +4,27 @@
 // forge-bin tool table. Never overwrites FORGE_SKILL_REGISTRY.md or README.md (a human/Lead applies a proposal).
 //   node forge-registry-gen.cjs report [--json] [--root <dir>]
 //   node forge-registry-gen.cjs generate --target skill-registry|tool-table [--out <file>] [--root <dir>]
+//   node forge-registry-gen.cjs agents [--check] [--write] [--json] [--root <dir>]   (WP 1.5: agents.generated.json
+//        from the agent frontmatter; --check fails on drift; logic in forge-policy.cjs)
 const fs = require('fs');
 const path = require('path');
 
 const LINE_LIMIT = 800;
 const DEFAULT_OUT_REL = '.claude/forge-research/overhaul-2026-10-09/generated';
+// WP 2.1: forge-paths.cjs is optional (a copied tool or an older install keeps the legacy behaviour). With it the
+// default --out goes into the project's ACTIVE research folder (.forge/research once <root>/.forge/ exists) and a
+// plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd, never the plugin's parent folder.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+function defaultOutDir(root) {
+  const legacy = path.join(root, DEFAULT_OUT_REL);
+  if (!forgePaths) return legacy;
+  try { return path.join(forgePaths.stateDir(root, 'research'), ...DEFAULT_OUT_REL.split('/').slice(2)); } catch { return legacy; }
+}
 const SIZE_DIRS = ['.claude/forge-bin', '.claude/skills', '.claude/agents', '.claude/commands', '.claude/config'];
 
 function read(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
@@ -53,6 +69,7 @@ function registryEntries(root) {
   if (text === null) return { present: false, header: [], rows: [] };
   let header = null; const rows = [];
   for (const line of text.split(/\r?\n/)) {
+    if (header && /^##\s/.test(line)) break; // the skill table ends at the next section (e.g. the hand-kept global plugins table)
     if (!/^\s*\|/.test(line)) continue;
     const cells = splitRow(line);
     if (!header) { if (/^skill$/i.test(cells[0])) header = cells; continue; }
@@ -256,6 +273,18 @@ const INVOKED_BY_CAP = 10;
 const CALL_RE = /\b(?:require|spawn|spawnSync|execFile|execFileSync|execSync|fork)\s*\(|\bnew\s+Worker\s*\(|\bpath\.(?:join|resolve)\s*\(|\brequire\.resolve\s*\(/;
 const TOOL_TOKEN_RE = /([A-Za-z0-9_][A-Za-z0-9_.-]*)\.cjs\b/g;
 const REQUIRE_REL_RE = /require\(\s*['"`]\.{1,2}\/(?:[A-Za-z0-9_.-]+\/)*([A-Za-z0-9_.-]+?)(?:\.cjs)?['"`]\s*\)/g;
+// A local loader that wraps require on its own line (`const tryRequire = (n) => { ... require(...) ... }` or
+// `function load(n) { ... require(...) ... }`). A call of that loader with a tool name is a require too (A6 F1:
+// forge-routing-stats.cjs loads forge-stats.cjs through tryRequire('forge-stats.cjs')).
+const WRAPPER_DEF_RES = [
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>.*\brequire\s*\(/,
+  /\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{.*\brequire\s*\(/,
+];
+function requireWrappers(lines) {
+  const names = new Set();
+  for (const L of lines) for (const re of WRAPPER_DEF_RES) { const w = re.exec(L); if (w && w[1] !== 'require') names.add(w[1]); }
+  return names.size ? new RegExp('\\b(?:' + [...names].map(escRe).join('|') + ')\\s*\\(') : null;
+}
 const GATEWAY_DIRS = ['command-center/gateway/src', 'command-center/discord/src'];
 const GATEWAY_FILES = ['command-center/gateway/bin.mjs', 'command-center/gateway/supervisor.mjs'];
 
@@ -294,10 +323,12 @@ function stripJsComments(src) {
 }
 /** codeCalls(src, tools) -> Map<tool, 'require'|'spawn'>. A require of './x' or a tool file name on a line that
  *  calls require/spawn/exec/fork/new Worker/path.join/path.resolve (or right after such a line). A name that
- *  only appears in a message or a plain list is NOT a call. */
+ *  only appears in a message or a plain list is NOT a call. A call of a local require wrapper (requireWrappers)
+ *  with a tool name is a require. */
 function codeCalls(src, tools) {
   const lines = stripJsComments(src).split('\n');
   const found = new Map();
+  const wrapCallRe = requireWrappers(lines);
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i];
     let m;
@@ -305,10 +336,11 @@ function codeCalls(src, tools) {
     while ((m = REQUIRE_REL_RE.exec(L))) { const t = m[1] + '.cjs'; if (tools.has(t)) found.set(t, 'require'); }
     if (!L.includes('.cjs')) continue;
     const prev = lines[i - 1] || '';
-    const callish = CALL_RE.test(L) || (CALL_RE.test(prev) && /[([,]\s*$/.test(prev)); // a wrapped, still-open call only
+    const viaWrapper = !!(wrapCallRe && wrapCallRe.test(L));
+    const callish = viaWrapper || CALL_RE.test(L) || (CALL_RE.test(prev) && /[([,]\s*$/.test(prev)); // a wrapped, still-open call only
     if (!callish) continue;
     TOOL_TOKEN_RE.lastIndex = 0;
-    while ((m = TOOL_TOKEN_RE.exec(L))) { const t = m[1] + '.cjs'; if (tools.has(t) && !found.has(t)) found.set(t, /require/.test(L) ? 'require' : 'spawn'); }
+    while ((m = TOOL_TOKEN_RE.exec(L))) { const t = m[1] + '.cjs'; if (tools.has(t) && !found.has(t)) found.set(t, viaWrapper || /require/.test(L) ? 'require' : 'spawn'); }
   }
   return found;
 }
@@ -469,7 +501,11 @@ function autoDormantNote(root, n) {
   const base = n.id.replace(/\.cjs$/, '');
   const bin = path.join(root, '.claude', 'forge-bin');
   const why = [];
-  const doctor = read(path.join(bin, 'forge-doctor.cjs')) || '';
+  // WP A11 part 2: the checks live in forge-bin/doctor/*.cjs too, so "the doctor reads it" scans root + modules.
+  const doctorDir = path.join(bin, 'doctor');
+  const doctor = [read(path.join(bin, 'forge-doctor.cjs')) || '']
+    .concat(listDir(doctorDir).filter((e) => e.isFile() && /\.cjs$/.test(e.name)).map((e) => read(path.join(doctorDir, e.name)) || ''))
+    .join(' ');
   if (new RegExp('[\'"`/]' + escRe(n.id) + '[\'"`]|\\./' + escRe(base) + '[\'"`]').test(doctor)) why.push('the doctor reads it');
   const tests = listDir(bin).filter((e) => /\.test\.cjs$/.test(e.name) && (e.name === base + '.test.cjs' || (read(path.join(bin, e.name)) || '').includes(n.id)));
   if (tests.length) why.push('exercised by ' + tests.length + ' test file(s)');
@@ -578,7 +614,9 @@ function printReport(r) {
 function main(argv) {
   const a = parseArgs(argv);
   const cmd = a._[0];
-  const root = path.resolve(typeof a.flags.root === 'string' ? a.flags.root : path.resolve(__dirname, '..', '..'));
+  const rootArg = typeof a.flags.root === 'string' ? a.flags.root : defaultRoot();
+  if (!rootArg) { process.stderr.write('forge-registry-gen: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>\n'); return 2; }
+  const root = path.resolve(rootArg);
   if (cmd === 'report') {
     const r = buildReport(root);
     process.stdout.write((a.flags.json ? JSON.stringify(r, null, 2) : printReport(r)) + '\n');
@@ -589,7 +627,7 @@ function main(argv) {
     if (target !== 'skill-registry' && target !== 'tool-table') { process.stderr.write('usage: generate --target skill-registry|tool-table [--out <file>]\n'); return 2; }
     const g = target === 'skill-registry' ? genSkillRegistry(root) : genToolTable(root);
     const out = path.resolve(typeof a.flags.out === 'string' ? a.flags.out
-      : path.join(root, DEFAULT_OUT_REL, target === 'skill-registry' ? 'FORGE_SKILL_REGISTRY.generated.md' : 'forge-bin-tool-table.generated.md'));
+      : path.join(defaultOutDir(root), target === 'skill-registry' ? 'FORGE_SKILL_REGISTRY.generated.md' : 'forge-bin-tool-table.generated.md'));
     if (protectedTarget(root, out)) { process.stderr.write('refused: would overwrite a hand-kept file; choose another --out\n'); return 2; }
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, g.text);
@@ -611,11 +649,46 @@ function main(argv) {
     else if (!a.flags.json) process.stdout.write('(dry run — add --write to update ' + FEATURE_REGISTRY_REL + ')\n');
     return 0;
   }
-  process.stderr.write('usage: report [--json] | generate --target skill-registry|tool-table [--out <file>] | feature-registry [--write] [--json] [--root <dir>]\n');
+  if (cmd === 'agents') return agentsCommand(root, a.flags);
+  process.stderr.write('usage: report [--json] | generate --target skill-registry|tool-table [--out <file>] | feature-registry [--write] [--json] | agents [--check] [--write] [--json]   (all take [--root <dir>])\n');
   return 2;
 }
+
+/** `agents` (WP 1.5): the agent .md frontmatter is the single source of truth; this writes or checks
+ *  .claude/config/agents/agents.generated.json. The logic lives in forge-policy.cjs (shared with forge-doctor).
+ *  --check: exit 0 in sync (or n/a), 1 on drift/violations. --write: only in the development tree, never from
+ *  unreadable frontmatter. No flag: dry run (summary, or the JSON with --json). Exit 2 = refused. */
+function agentsCommand(root, flags) {
+  const P = require('./forge-policy.cjs');
+  const rel = P.AGENTS_GENERATED_REL.join('/');
+  if (flags.check) {
+    const r = P.agentsGeneratedCheck(root);
+    if (flags.json) process.stdout.write(JSON.stringify(r, null, 2) + '\n');
+    else {
+      process.stdout.write('agents generated config — ' + (r.applicable === false ? 'n/a (' + r.reason + ')' : (r.ok ? 'IN SYNC' : 'DRIFT') + ' · ' + r.checked + ' agent(s) checked') + '\n');
+      for (const x of r.violations) process.stdout.write('  ✗ ' + x.kind + ': ' + x.detail + '\n');
+      for (const n of r.notes) process.stdout.write('  ℹ ' + n + '\n');
+      if (!r.ok) process.stdout.write('fix: change the agent frontmatter (the source), then `node .claude/forge-bin/forge-registry-gen.cjs agents --write`\n');
+    }
+    return r.ok ? 0 : 1;
+  }
+  const g = P.buildAgentsGenerated(root);
+  if (g.problems.length) { process.stderr.write('refused: ' + g.problems.map((p) => p.detail).join('; ') + '\n'); return 2; }
+  const text = JSON.stringify(g.data, null, 2) + '\n';
+  if (flags.write) {
+    if (!P.isDevTree(root)) { process.stderr.write('refused: ' + rel + ' is a shipped template file; regenerate it in the development tree (.claude/config/forge-dev-tree.json), not in an installed project\n'); return 2; }
+    const out = path.join(root, ...P.AGENTS_GENERATED_REL);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, text);
+    process.stderr.write('wrote ' + out + ' (' + g.data.counts.agents + ' agents: ' + g.data.counts.bosses + ' bosses, ' + g.data.counts.specialists + ' specialists)\n');
+    return 0;
+  }
+  if (flags.json) process.stdout.write(text);
+  else process.stdout.write(g.data.counts.agents + ' agents from frontmatter (' + g.data.counts.bosses + ' bosses, ' + g.data.counts.specialists + ' specialists) — dry run, add --write to update ' + rel + '\n');
+  return 0;
+}
 if (require.main === module) process.exit(main(process.argv.slice(2)));
-module.exports = { buildReport, genSkillRegistry, genToolTable, skillsOnDisk, registryEntries, versionContradictions, main,
+module.exports = { buildReport, genSkillRegistry, genToolTable, skillsOnDisk, registryEntries, versionContradictions, main, agentsCommand,
   // feature registry
   FEATURE_REGISTRY_REL, FEATURE_SCHEMA, FEATURE_STATUSES, FEATURE_KINDS, NOT_A_CALLER, featureInventory, classifyFeatures,
   genFeatureRegistry, loadFeatureRegistry, validateFeatureRegistry, codeCalls, skillMentions, stripJsComments, bigFiles, LINE_LIMIT };

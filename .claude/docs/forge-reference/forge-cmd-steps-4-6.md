@@ -24,3 +24,30 @@ For **each** selected/custom subagent log `agent_work_package_created` (custom r
 after **each meaningful step** (read inputs · analysis milestone · section written · file created/edited via `file_changed` with real paths · check run), plus ≥1 `agent_note` with visible reasoning and a `subagent_output_created` summary before finishing. `read-only-audit`/`write-no-exec` subagents (Review/Security/SEO/Search Boss, Boss, Head Chef, Docs Boss, Skill Boss — 8 of the 12 permanent Bosses) CANNOT run Bash by design (least-privilege), so for THESE the **Lead backfills their events from the subagent's returned result immediately after it completes, tagged with that subagent's `dispatch_id`** — this backfill is the **DEFAULT path for these classes, not a fallback exception**, and applies only to a subagent that actually ran, never a way to invent one that didn't. Target: **≥3 real activity events per subagent** (self-logged or Lead-backfilled), so the FLOW node shows a live "⚡ doing…" line + progress bar instead of only the artifact. Planned work stays TODO, never faked as done. A running subagent with zero logged activity renders as "⚠ running — no activity logged yet" on the dashboard — treat that as a logging bug and fix it during the run, not after.
 
 <!-- wp11-verbatim-end -->
+
+## Amendment A2 (2026-11-01): harness proof first, backfill is the labelled exception
+
+This section CHANGES the verbatim text above (which is kept unedited for the coverage proof). Where they differ, this
+section wins.
+
+- **The proof of a dispatch is a record the harness wrote, not the Lead's event.** With the hooks of
+  the settings-diff proposal of 2026-11-01 (dev tree, folder `forge-systeem` under docs; section 1) installed, Claude Code itself records every Agent-tool call
+  (`forge-agent-tool-hook.cjs`: PreToolUse/PostToolUse on the Agent tool, `tool_use_id` + `subagent_type`) and every
+  subagent start and stop (`forge-subagent-start.cjs`, `forge-subagent-stop.cjs`: `agent_id` + `agent_type`). Workflow lanes
+  are recorded in the Workflow journal. `node .claude/forge-bin/forge-harness-match.cjs --run <run_id>` joins the run's
+  `subagent_started` / `agent_started` events to those records: matched, unmatched or unverifiable (with the kind).
+- **Run pointer.** Right after `run_started` the Lead runs `node .claude/forge-bin/forge-active-run.cjs set <run_id> --session
+  <session id>`; the hooks read only that pointer to stamp the run on their lines, and after finalize the Lead runs
+  `node .claude/forge-bin/forge-active-run.cjs clear --session <session id> --run <run_id>`.
+- **`dispatch_id` must be correlatable:** the Agent `tool_use_id` (`toolu_…`), the agent id the Agent tool returned
+  (`a…`), or `<wf run id>:<lane>` for a Workflow lane. A free-text id (`pending`, `demo-preview`) can never be matched.
+- **Backfill is the exception, not the default.** The Lead still logs `subagent_started` for Bosses that cannot run Bash
+  (that event is the claim; the harness record is the proof). When the harness recorded the run but no harness record
+  backs a dispatch event, `log-event.cjs` still writes the event (strict mode too) but stamps
+  `_forge_verify.dispatch_unverified: true`, `dispatch_unverified_reason: "no-harness-proof: …"` and
+  `dispatch_unverified_accepted: true`, prints a warning, and tags it `NO-HARNESS-PROOF`. An event with no `dispatch_id` at
+  all keeps its old treatment (`dispatch_unverified_reason: "no-dispatch-id"`, refused in strict mode).
+- **Contract rule `dispatch-harness-match`** (from L2, severity warn): at least 95 % of the run's dispatches
+  must be matched. Dispatches no Claude Code hook can see (runtime `codex`, `cli`, `gateway` and the like) are reported as
+  unverifiable and left out of the percentage. It becomes blocking only by owner decision once
+  `forge-rule-promotion` shows the last 3 applicable real runs each met it.

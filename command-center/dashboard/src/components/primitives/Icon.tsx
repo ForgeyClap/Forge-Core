@@ -1,9 +1,9 @@
 /**
  * Icon — the one place lucide is touched.
  *
- * Sizing comes from the --forge-icon-* tokens via CSS, not from lucide's
+ * Sizing comes from the .fw-icon--* classes in primitives.css, not from lucide's
  * numeric `size` prop, so an icon can never drift off the scale. Stroke width
- * defaults to 1.5 (2 for emphasis, passed explicitly).
+ * defaults to 1.75 (2.25 for emphasis, passed explicitly).
  *
  * Icons are decorative by default: aria-hidden, focusable=false. Pass `label`
  * only when the icon is the sole carrier of meaning — and prefer not to, since
@@ -27,7 +27,7 @@ export interface IconProps {
   /** Any icon name registered in icon-map.ts, e.g. "Play", "TriangleAlert". */
   name: string;
   size?: IconSize;
-  /** 1.5 for most UI, 2 for emphasis. */
+  /** 1.75 for most UI (BRAND.md > Iconography), 2.25 for the send arrow and ticks. */
   strokeWidth?: number;
   /** Spins the icon. Suppressed under prefers-reduced-motion. */
   spin?: boolean;
@@ -64,7 +64,7 @@ function resolveIcon(name: string) {
 export function Icon({
   name,
   size = 'md',
-  strokeWidth = 1.5,
+  strokeWidth = 1.75,
   spin = false,
   label,
   className,

@@ -14,6 +14,18 @@
     { "id": "intake-cjs-exists", "type": "file_exists", "path": ".claude/forge-bin/forge-intake.cjs",
       "why": "the actual CLI this skill instructs the Lead to invoke" },
     { "id": "learnings-wiring", "type": "contains", "path": ".claude/skills/forge-intake/SKILL.md", "needle": "learnings.md",
-      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use and appending corrections after" }
+      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use and appending corrections after" },
+    { "id": "question-policy-anchor", "type": "contains", "path": ".claude/skills/forge-intake/SKILL.md", "needle": "THE QUESTION POLICY",
+      "why": "head-chef.md, forge-router and forge-prompt-coach point to this exact heading as the single source of the one-question rule" },
+    { "id": "plan-card-section", "type": "contains", "path": ".claude/skills/forge-intake/SKILL.md", "needle": "## 1b. PLAN CARD",
+      "why": "modernization WP 3.2: the intake ends in ONE plan card (goal, intent, assumptions, at most one question, scope, packages, lanes, risks, will NOT do, gates, proof)" },
+    { "id": "plan-card-reference", "type": "file_exists", "path": ".claude/skills/forge-intake/references/plan-card.md",
+      "why": "WP 3.2: SKILL.md section 1b points to the full plan-card contract kept on demand" },
+    { "id": "plan-card-tool-exists", "type": "file_exists", "path": ".claude/forge-bin/forge-plan-card.cjs",
+      "why": "WP 3.2: the CLI this skill tells the Lead to run for the card, the one question and the bank check" },
+    { "id": "bank-one-question-cap", "type": "contains", "path": ".claude/config/intake/question-bank.json", "needle": "\"max_owner_questions_per_mission\": 1",
+      "why": "WP 3.2: the bank pins the owner-question cap at exactly one per mission (forge-plan-card.cjs validate-bank refuses any other value)" },
+    { "id": "skillmd-max-lines", "type": "max_lines", "path": ".claude/skills/forge-intake/SKILL.md", "n": 120,
+      "why": "WP 2.4a skill diet: SKILL.md stays short; detail moves verbatim to references/ (owner rule 2026-09-26: move, never delete)" }
   ]
 }

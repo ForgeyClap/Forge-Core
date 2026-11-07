@@ -17,7 +17,27 @@
         "leadgeneratie",
         "lead generation",
         "webshop-site",
-        "portfolio-site"
+        "portfolio-site",
+        "landing page",
+        "webpage",
+        "page",
+        "pagina",
+        "rsvp"
+      ],
+      "strong_terms": [
+        "website",
+        "homepage",
+        "landing page",
+        "landingspagina",
+        "webpagina",
+        "webpage",
+        "site"
+      ],
+      "exclude": [
+        "on site",
+        "off site",
+        "site reliability",
+        "construction site"
       ]
     },
     "fullstack": {
@@ -34,7 +54,25 @@
         "dashboardapp",
         "auth",
         "login",
-        "database-app"
+        "database-app",
+        "admin dashboard",
+        "admin panel",
+        "adminpaneel",
+        "beheerpaneel",
+        "role-based access",
+        "rbac",
+        "user management",
+        "gebruikersbeheer",
+        "inloggen",
+        "portal",
+        "portaal"
+      ],
+      "strong_terms": [
+        "fullstack",
+        "full-stack",
+        "saas",
+        "webapp",
+        "web-app"
       ]
     },
     "n8n": {
@@ -48,6 +86,9 @@
         "webhook-flow",
         "zapier",
         "make.com"
+      ],
+      "deliverable_terms": [
+        "n8n"
       ]
     },
     "scraping": {
@@ -62,6 +103,9 @@
         "harvest",
         "data-extractie",
         "leadlijst"
+      ],
+      "no_compound": [
+        "spider"
       ]
     },
     "rag": {
@@ -77,8 +121,22 @@
         "kennisbank",
         "knowledge base",
         "docs doorzoek*",
-        "assistent"
-      ]
+        "assistent",
+        "assistant"
+      ],
+      "strong_terms": [
+        "chatbot",
+        "kennisbank",
+        "knowledge base"
+      ],
+      "no_compound": [
+        "vector",
+        "assistent",
+        "assistant"
+      ],
+      "weights": {
+        "assistent": 3
+      }
     },
     "prediction": {
       "playbook": "forge-prediction",
@@ -92,6 +150,15 @@
         "backtest",
         "sports-data",
         "wedden",
+        "tips"
+      ],
+      "strong_terms": [
+        "voorspel*"
+      ],
+      "exclude": [
+        "voorspelba*"
+      ],
+      "needs_support": [
         "tips"
       ]
     },
@@ -125,6 +192,9 @@
         "eval",
         "guardrail",
         "multi-agent"
+      ],
+      "deliverable_terms": [
+        "mcp"
       ]
     },
     "api": {
@@ -141,6 +211,9 @@
         "backend-api",
         "koers-api",
         "portfolio-api"
+      ],
+      "deliverable_terms": [
+        "api"
       ]
     },
     "bots": {
@@ -155,6 +228,9 @@
         "slash command",
         "chat-bot-platform",
         "bots"
+      ],
+      "deliverable_terms": [
+        "bot"
       ]
     },
     "cli": {
@@ -169,6 +245,10 @@
         "exitcode",
         "dry-run",
         "commandline"
+      ],
+      "deliverable_terms": [
+        "cli",
+        "command line"
       ]
     },
     "cms": {
@@ -220,7 +300,36 @@
         "etsy",
         "bestelling",
         "e-commerce",
-        "ecommerce"
+        "ecommerce",
+        "webwinkel",
+        "online shop",
+        "online store",
+        "winkelwagen",
+        "winkelmand",
+        "afrekenen"
+      ],
+      "strong_terms": [
+        "webshop",
+        "webwinkel",
+        "e-commerce",
+        "ecommerce",
+        "online shop",
+        "shopify",
+        "woocommerce"
+      ],
+      "needs_support": [
+        "shop",
+        "winkel",
+        "producten"
+      ],
+      "no_compound": [
+        "producten"
+      ],
+      "exclude": [
+        "git checkout",
+        "checkout branch",
+        "checkout the branch",
+        "checkout de branch"
       ]
     },
     "electron": {
@@ -246,6 +355,14 @@
         "browserextensie",
         "manifest v3",
         "content script"
+      ],
+      "strong_terms": [
+        "chrome-extensie",
+        "browserextensie",
+        "manifest v3"
+      ],
+      "deliverable_terms": [
+        "extension"
       ]
     },
     "figma": {
@@ -274,7 +391,23 @@
         "godot",
         "gameplay",
         "playable",
-        "game*"
+        "game*",
+        "spelletje",
+        "bordspel",
+        "kaartspel",
+        "computerspel"
+      ],
+      "exclude": [
+        "game server",
+        "gameserver*",
+        "op het spel"
+      ],
+      "strong_terms": [
+        "spel",
+        "spelletje",
+        "bordspel",
+        "kaartspel",
+        "computerspel"
       ]
     },
     "migration": {
@@ -288,7 +421,18 @@
         "port",
         "upgrade",
         "strangler",
-        "cutover"
+        "cutover",
+        "migrate",
+        "migreren",
+        "migreer"
+      ],
+      "needs_support": [
+        "port"
+      ],
+      "strong_terms": [
+        "migrate",
+        "migreren",
+        "migreer"
       ]
     },
     "mlops": {
@@ -303,6 +447,48 @@
         "training",
         "serving",
         "ml-pipeline"
+      ],
+      "needs_support": [
+        "serving",
+        "training",
+        "train"
+      ],
+      "no_compound": [
+        "serving",
+        "training"
+      ],
+      "sequences": [
+        {
+          "label": "train a model",
+          "first": [
+            "train",
+            "trains",
+            "training",
+            "trained",
+            "trainen",
+            "traint"
+          ],
+          "then": [
+            "model",
+            "modellen",
+            "classifier",
+            "classifiers"
+          ],
+          "max_gap": 3
+        },
+        {
+          "label": "a model trained on",
+          "first": [
+            "model",
+            "modellen",
+            "classifier"
+          ],
+          "then": [
+            "trained",
+            "getraind"
+          ],
+          "max_gap": 2
+        }
       ]
     },
     "mobile": {
@@ -320,6 +506,18 @@
         "apk",
         "app store",
         "mobiele app"
+      ],
+      "strong_terms": [
+        "mobiel*"
+      ],
+      "exclude": [
+        "mobile-friendly",
+        "mobile first",
+        "on mobile",
+        "op mobiel",
+        "mobielvriendelijk*",
+        "mobiele weergave",
+        "mobile view"
       ]
     },
     "payments": {
@@ -339,6 +537,12 @@
         "facturatie",
         "betalingen",
         "betaal*"
+      ],
+      "exclude": [
+        "git checkout",
+        "checkout branch",
+        "checkout the branch",
+        "checkout de branch"
       ]
     },
     "voice": {
@@ -355,9 +559,85 @@
         "elevenlabs",
         "tts",
         "stt",
-        "belagent"
+        "belagent",
+        "spraakassistent",
+        "voice assistant",
+        "telefoon",
+        "doorverbind*"
+      ],
+      "no_compound": [
+        "telefoon"
       ]
     }
+  },
+  "deliverable_rule": {
+    "_doc": "WP I.10: what does the request BUILD? forge-domain-discovery.cjs reads the deliverable phrase: the words after a build verb (verbs) up to a boundary word or punctuation, at most max_words (\"Build an MCP server that ...\" -> \"an mcp server\"), or in Dutch the words between an article and a final build verb (\"een MCP-server bouwen\"). When that phrase holds a deliverable_terms keyword of domain D (a technical artifact: mcp, api, bot, cli, n8n, extension) and another domain scores at least as high as D, the WEAK words of the other domains (router- or description-only, never a reviewed catalog keyword) that lie outside the phrase are reported as context_terms, not counted: they name the data the artifact touches (\"orders in our shop\"), not the deliverable. D is then lifted like a strong term. Without a conflict nothing changes (an n8n workflow that also mentions an API stays mixed).",
+    "verbs": [
+      "build",
+      "builds",
+      "building",
+      "make",
+      "making",
+      "write",
+      "writing",
+      "create",
+      "creating",
+      "develop",
+      "developing",
+      "implement",
+      "implementing",
+      "bouw",
+      "maak",
+      "schrijf",
+      "ontwikkel"
+    ],
+    "final_verbs": [
+      "bouwen",
+      "maken",
+      "schrijven",
+      "ontwikkelen"
+    ],
+    "articles": [
+      "a",
+      "an",
+      "the",
+      "our",
+      "my",
+      "een",
+      "de",
+      "het",
+      "onze",
+      "ons",
+      "mijn"
+    ],
+    "boundaries": [
+      "that",
+      "which",
+      "who",
+      "where",
+      "for",
+      "to",
+      "with",
+      "from",
+      "in",
+      "on",
+      "so",
+      "and",
+      "or",
+      "by",
+      "die",
+      "dat",
+      "waarmee",
+      "waar",
+      "voor",
+      "met",
+      "om",
+      "van",
+      "en",
+      "zodat",
+      "of"
+    ],
+    "max_words": 6
   },
   "cross_labels": {
     "_doc": "Cross-cutting labels die GEEN routerdomein zijn maar wel de kwaliteitsdiscovery sturen (masterprompt: 'mobiele trading-app: mobile + api + finance + data'). Ze kiezen kwaliteitslenzen en knowledge cards mee, nooit een playbook.",
@@ -422,35 +702,59 @@
     }
   },
   "non_domain_skills": [
+    "forge-a11y",
     "forge-agent-report",
+    "forge-auth",
+    "forge-autoresearch",
     "forge-brainstorm",
     "forge-code-review",
+    "forge-context",
     "forge-council",
+    "forge-craft",
+    "forge-database",
     "forge-debug",
     "forge-deeplearn",
+    "forge-devops",
     "forge-docdrift",
     "forge-doctor",
+    "forge-ecc-adapter",
     "forge-graded-verify",
     "forge-guardian",
     "forge-heartbeat",
+    "forge-i18n-docs",
     "forge-intake",
+    "forge-long-form-writing",
     "forge-mcp-clients",
+    "forge-memory",
     "forge-mindmap",
     "forge-nightshift",
+    "forge-observability",
+    "forge-plan-large",
     "forge-prd",
     "forge-projectbrain",
     "forge-prompt-coach",
     "forge-quality",
     "forge-registry",
+    "forge-release",
     "forge-report",
+    "forge-research-evidence",
     "forge-router",
     "forge-scout",
     "forge-scribe",
+    "forge-security-review",
+    "forge-skill-authoring",
     "forge-skill-testing",
     "forge-snapshot",
+    "forge-team-orchestration",
+    "forge-testing",
+    "forge-token-economy",
+    "forge-ui-polish",
     "forge-verify",
+    "forge-web-quality",
+    "forge-windows-shell",
     "forge-worktrees"
   ],
-  "_doc_non_domain": "forge-*-skills die BEWUST geen domein-playbook zijn (proces/tooling/meta). Elke NIEUWE forge-*-skill die hier noch in domains staat, is drift — dat dwingt bij elke toevoeging een expliciete catalogusbeslissing af (F-05).",
-  "_doc_keywords": "F-15 (Codex herreview): trefwoorden zijn EXPLICIET word/phrase (hele-woordgrens aan beide alfanumerieke uiteinden) of stam (suffix *, linkergrens + open rechts: beveilig* vangt beveiliging). Substringmatching bestaat niet — producten vangt softwareproducten dus niet meer. De matcher is forge-quality.cjs::raakt()."
+  "_doc_non_domain": "forge-*-skills die BEWUST geen domein-playbook zijn (proces/tooling/meta). Elke NIEUWE forge-*-skill die hier noch in domains staat, is drift — dat dwingt bij elke toevoeging een expliciete catalogusbeslissing af (F-05). Q3 (2026-11-02, run forge-2026-11-02-owner-queue-3): de dwarsdoorsnijdende vakplaybooks forge-a11y, forge-auth, forge-database, forge-devops, forge-i18n-docs, forge-observability, forge-security-review, forge-testing en forge-web-quality staan hier bewust: ze ondersteunen elk domein (een webshop heeft auth, tests en een database) en zijn geen eigen projectdomein; de router/Bosses roepen ze per werkpakket aan. Een eigen domein-entry (keywords, strong_terms) is een latere catalogusbeslissing.",
+  "_doc_keywords": "F-15 (Codex herreview) + WP I.8a (2026-10-24): matching gaat via forge-domain-discovery.cjs (scoreText) en forge-text-normalize.cjs; forge-quality.cjs::compileMissionProfile gebruikt dezelfde scorer (EEN bron voor het projectdomein). Een gewone sleutel matcht als heel woord/frase OF als meervoudsvorm (NL -en/-s/-'s/-eren, EN -s/-es/-ies: wachtwoorden -> wachtwoord, pagina's -> pagina); een sleutel met '*'-suffix is een STAM (linkergrens, rechts open: beveilig* vangt beveiliging). Willekeurige substrings bestaan niet: alleen een catalogussleutel van 5+ letters (of 'site') mag als KOP of BEPALEND deel van een samenstelling matchen (webwinkel, e-learningsite, inlogflow), nooit in het midden (port in support/transport), nooit bij een woord op de stoplijst van forge-text-normalize.cjs (toespraak, opposite) en nooit voor een sleutel onder no_compound (producten vangt softwareproducten dus niet).",
+  "_doc_classifier": "WP I.8a (2026-10-24) — optionele velden per domein, gelezen door forge-domain-discovery.cjs buildLexicon (een fout verschijnt als lexicon_problems en laat de discovery-test falen). strong_terms = catalogussleutels die ALLEEN al genoeg bewijs zijn: ze tillen het topdomein naar minstens medium (als geen ander domein gelijk scoort) en laten een tweede domein als label toe; een korte, beoordeelde lijst. 'spreadsheet' staat er bewust NIET in: geen playbook bezit spreadsheets, en hem aan data koppelen zou de facturen-spreadsheet van een an accounting desktop app in een sjabloon persen (intelligence bar regel 3). exclude = frasen die voor DIT domein worden weggestreept voor het scoren (een 'game server' is geen game, 'op mobiel' is responsive web, 'voorspelbaar' is geen voorspelling; 2.9c: 'git checkout' / 'checkout branch' is een git-commando, geen webshop-checkout, bij ecommerce EN payments). needs_support = termen die alleen tellen naast een andere term van hetzelfde domein ('shop' in 'our bike repair shop', 'servings' in een receptenapp, 'port 4100', 'a quick tip'). no_compound = catalogussleutels die heel woord blijven (vector: vectorlogo; assistent: tandartsassistent; telefoon: telefoonnummer; producten: softwareproducten; training: krachttraining). weights = catalogusgewicht per sleutel (standaard 2, 1..3); assistent=3 zodat het Nederlands even zwaar weegt als 'assistant' (catalogus 2 + router 1). WP I.10 (2026-10-24): deliverable_terms = catalogussleutels die een technisch artefact noemen (mcp, api, bot, cli, n8n, extension); staat er een in de zin die zegt wat er GEBOUWD wordt (deliverable_rule), dan winnen ze een conflict met onderwerpwoorden van een ander domein (\"een MCP-server die bestellingen in onze shop opzoekt\" is agent, geen webshop). sequences = werkwoord-dan-object binnen max_gap woorden, nooit omgekeerd (\"train a model\" telt voor mlops, \"a model train club\" niet); elke sequence is sterk bewijs. migrate/migreren/migreer zijn sterke migratietermen."
 }

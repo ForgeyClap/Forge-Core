@@ -1,0 +1,3453 @@
+{
+  "jobs": {
+    "title": "Jobs & proof",
+    "subtitle": "Every job in {project}: what was done and the proof that it is finished.",
+    "noProject": {
+      "title": "No project chosen yet",
+      "body": "Choose a project under My projects. Its jobs then show up here."
+    },
+    "loading": "Loading jobs…",
+    "error": {
+      "title": "Forge cannot be reached right now",
+      "body": "The jobs could not be loaded. Your work is not lost; try again in a moment.",
+      "retry": "Try again",
+      "details": "Technical details"
+    },
+    "empty": {
+      "title": "No jobs in this project yet",
+      "action": "Go to Conversations"
+    },
+    "listLabel": "Jobs in this project",
+    "truncated": "Not every job is in this list; Forge shows the newest.",
+    "untitled": "Untitled job",
+    "started": "Started {when}",
+    "lastWork": "Last active {when}",
+    "pendingAsksOne": "1 question is waiting for you in Conversations.",
+    "pendingAsksMany": "{count} questions are waiting for you in Conversations.",
+    "openAsks": "Go to Conversations",
+    "back": "Back to the list",
+    "idLabel": "Id",
+    "status": {
+      "busy": "Busy",
+      "waiting": "Waiting for you",
+      "done": "Done",
+      "paused": "Paused"
+    },
+    "detail": {
+      "live": "Working now",
+      "waiting": "Waiting for your answer",
+      "stalled": "Quiet for a while: no new step in the last ten minutes",
+      "endedUnknown": "Never closed properly",
+      "failed": "Stopped by an error",
+      "finalized": "Finished and signed off",
+      "completed": "Finished",
+      "reportOnly": "Only a final report, not signed off",
+      "unknown": "State unknown"
+    },
+    "sections": {
+      "tasks": "Tasks",
+      "proof": "Proof of delivery",
+      "checks": "Checks",
+      "reviews": "Reviews",
+      "receipt": "Sign-off"
+    },
+    "detailLoading": "Loading this job…",
+    "detailError": "The details of this job could not be loaded.",
+    "tasksEmpty": "No tasks were recorded for this job.",
+    "taskUntitled": "Task without a description",
+    "taskBy": "by",
+    "someone": "a helper",
+    "taskState": {
+      "busy": "Busy",
+      "done": "Done",
+      "failed": "Did not work",
+      "open": "Not started"
+    },
+    "checksEmpty": "No checks recorded for this job yet.",
+    "checkPassed": "Passed",
+    "checkFailed": "Failed",
+    "checkUnnamed": "Unnamed check",
+    "forgeCheck": "Forge self-check: {passed} passed, {failed} failed",
+    "pointer": "Proof: {pointer}",
+    "reviewsEmpty": "No review recorded yet.",
+    "reviewPending": "Result not known yet",
+    "receipt": {
+      "none": "Not signed off yet. A job is only really done once it is signed off.",
+      "invalid": "There is a sign-off, but it no longer counts:",
+      "verified": "Signed off and re-checked",
+      "archival": "Signed off as an old record, not re-checked",
+      "unverifiedArchival": "Signed off, but it can no longer be checked",
+      "stale": "Expired: something changed after the sign-off",
+      "unconfirmed": "Sign-off not confirmed yet",
+      "checking": "Checking the sign-off",
+      "at": "Signed off {when}"
+    }
+  },
+  "automations": {
+    "title": "Automations",
+    "subtitle": "What Forge may do by itself. You see the real state here; what the app cannot do yet says so.",
+    "notWired": "not connected yet",
+    "notWiredWhy": "You cannot switch this on from the app yet.",
+    "loading": "Loading the state…",
+    "error": "Forge cannot be reached right now, so the state is unknown.",
+    "retry": "Try again",
+    "schedules": {
+      "title": "Scheduled jobs",
+      "feel": "A job that starts by itself at a set time, for example every morning.",
+      "empty": "There are no scheduled jobs. Forge never schedules anything by itself.",
+      "switch": "Scheduled jobs on"
+    },
+    "discord": {
+      "title": "Discord",
+      "feel": "Use Forge remotely through your own Discord bot. Off until you switch it on yourself.",
+      "state": {
+        "running": "On and connected",
+        "installed": "Set up, but off",
+        "notInstalled": "Off, not set up yet"
+      },
+      "autostartOn": "Starts together with Forge",
+      "autostartOff": "Does not start by itself",
+      "open": "Open the Discord screen"
+    },
+    "nightshift": {
+      "title": "Night shift",
+      "feel": "May resume an interrupted job by itself and write a short report in the morning. Never schedules itself.",
+      "on": "On in {project}",
+      "off": "Off in {project}",
+      "unknown": "State unknown in {project}",
+      "noProject": "Choose a project first to see the state.",
+      "switch": "Night shift on"
+    }
+  },
+  "skillsPage": {
+    "title": "Skills & connections",
+    "subtitle": "What the team in {project} can do, and which programs it may work with. View only; changes happen in the project folder.",
+    "noProject": {
+      "title": "No project chosen yet",
+      "body": "Choose a project under My projects. What the team can do there then shows up here."
+    },
+    "loading": "Loading…",
+    "error": "Forge cannot be reached right now. Try again in a moment.",
+    "retry": "Try again",
+    "skills": {
+      "title": "Skills",
+      "countOne": "1 skill",
+      "countMany": "{count} skills",
+      "empty": "This project has no skills yet.",
+      "noDescription": "No description",
+      "missingFile": "Folder without a description",
+      "filterLabel": "Search skills",
+      "filterPlaceholder": "Find a skill…",
+      "noMatch": "No skill matches “{query}”."
+    },
+    "connections": {
+      "title": "Connections",
+      "lead": "Forge knows these connections but never switches one on by itself. The higher the level, the more a connection may do.",
+      "countLine": "{total} known · {active} switched on",
+      "registryMissing": "This project has no list of connections.",
+      "empty": "No connections in this group.",
+      "needsKey": "Needs a key",
+      "helpersOne": "1 helper may use this",
+      "helpersMany": "{count} helpers may use this",
+      "helpersNone": "No helper may use this",
+      "tiers": {
+        "dormant": {
+          "title": "Dormant",
+          "feel": "Known, but not switched on. Forge does not use them."
+        },
+        "limited": {
+          "title": "Limited",
+          "feel": "Switched on. May only read, or work in a sandbox."
+        },
+        "writeGated": {
+          "title": "Writes only with permission",
+          "feel": "Switched on and may change or publish things, so Forge always asks first."
+        }
+      },
+      "level": {
+        "l0": "Reads on this PC",
+        "l1": "Reads online",
+        "l2": "Works in a sandbox",
+        "l3": "Writes",
+        "unknown": "Level unknown"
+      }
+    }
+  },
+  "projectsPage": {
+    "clearFilter": "Clear the filter",
+    "noMatch": {
+      "detail": "No project answers to “{query}”. Try a different name, description or type."
+    },
+    "counts": {
+      "conversations": "Conversations",
+      "missions": "Missions",
+      "tasks": "Tasks",
+      "helpers": "Agents"
+    },
+    "health": "Health",
+    "healthUnknown": "Health: not measured",
+    "versions": {
+      "label": "Versions",
+      "app": "App {version}",
+      "appDev": "App: development build",
+      "project": "Forge {version} in {name}",
+      "projectNone": "No Forge version found in {name}",
+      "noProject": "Choose a project to see its Forge version."
+    },
+    "add": {
+      "title": "Add project",
+      "close": "Close",
+      "choiceLabel": "What do you want to add?",
+      "newTab": "New project",
+      "existingTab": "Existing folder",
+      "newLead": "Forge creates a new project folder and installs Forge in it.",
+      "nameLabel": "Project name",
+      "namePlaceholder": "for example bakery-website",
+      "nameRule": "Letters, digits, spaces, - and _. Start with a letter or digit.",
+      "create": "Create",
+      "creating": "Creating…",
+      "createError": "The project could not be created: {reason}",
+      "install": {
+        "installing": "Installing Forge in {name}. This can take a few minutes.",
+        "installed": "Done: Forge is installed in {name}.",
+        "failed": "Installing did not work: {reason}",
+        "unknown": "Forge does not know whether the install worked. Check the list again in a few minutes."
+      },
+      "existingLead": "Choose your project folder. Forge refuses a whole drive, your whole user folder, the Documents folder itself and Windows or program folders.",
+      "alreadyListed": "This folder is already in your list.",
+      "notWired": "Adding an existing folder is not possible from the app yet (not connected yet).",
+      "commandLead": "For now, installing Forge in this folder only works with the command below. If the folder is in Documents or on the Desktop, Forge then finds it by itself.",
+      "details": "Technical details",
+      "copy": "Copy",
+      "copied": "Copied",
+      "commandUnknown": "The command cannot be shown right now because Forge cannot be reached."
+    }
+  },
+  "nav": {
+    "primaryLabel": "Primary",
+    "jobs": {
+      "label": "Jobs & proof",
+      "description": "Every job with its tasks and the proof that it is finished"
+    },
+    "automations": {
+      "label": "Automations",
+      "description": "What Forge does by itself: scheduled jobs, Discord and the night shift"
+    },
+    "skills": {
+      "label": "Skills",
+      "description": "What the team can do and which programs it may work with"
+    },
+    "home": {
+      "label": "Home",
+      "description": "Workspace overview and recent work"
+    },
+    "projects": {
+      "label": "Projects",
+      "description": "Every project in the registry"
+    },
+    "chat": {
+      "label": "Conversations",
+      "description": "Threads with Forge, per project"
+    },
+    "team": {
+      "label": "Team",
+      "description": "Who works on a job and what the team discusses"
+    },
+    "mission": {
+      "label": "Mission Control",
+      "description": "The run graph: lanes, verification and feedback"
+    },
+    "agents": {
+      "label": "Agents",
+      "description": "The agent pool and what it is doing"
+    },
+    "tasks": {
+      "label": "Tasks",
+      "description": "Work packages, phases and the task board"
+    },
+    "artifacts": {
+      "label": "Artifacts",
+      "description": "Reports, screenshots, diagrams and receipts"
+    },
+    "tests": {
+      "label": "Checks",
+      "description": "Every check and its result, per job"
+    },
+    "activity": {
+      "label": "Activity",
+      "description": "The event stream for the current run"
+    },
+    "discord": {
+      "label": "Discord",
+      "description": "The Discord remote-control bot: on/off, status and health"
+    },
+    "settings": {
+      "label": "Settings",
+      "description": "Appearance, density and the Claude Code connection"
+    },
+    "project": {
+      "label": "Project overview",
+      "description": "The active project in detail"
+    },
+    "files": {
+      "label": "Files & diffs",
+      "description": "The project file tree"
+    },
+    "mindmap": {
+      "label": "Mind map",
+      "description": "The active project’s plan as a map (generated for L3/L4 runs)"
+    },
+    "accounts": {
+      "label": "Account rotation",
+      "description": "Which Claude account to use next, and how full each one is"
+    },
+    "theme": {
+      "label": "Design reference (internal)",
+      "description": "Internal reference for this team: every token, status and primitive on one page — not a product feature"
+    },
+    "onboarding": {
+      "label": "First start",
+      "description": "Set up Forge: check, choose a path, sign in and choose a project folder."
+    }
+  },
+  "shell": {
+    "sidebar": {
+      "brandTitle": "Forge Systeem",
+      "expandRail": "Expand from icon rail",
+      "collapseRail": "Collapse to icon rail",
+      "expandRailHint": "Expand from icon rail (Ctrl + B)",
+      "collapseRailHint": "Collapse to icon rail (Ctrl + B)",
+      "closeDrawer": "Close drawer",
+      "newProject": "New project",
+      "searchProjects": "Search projects",
+      "actionsFor": "Actions for {name}",
+      "deleteConversation": "Delete {title}",
+      "newChatFailed": "New chat failed",
+      "newChatFailedDetail": "The gateway could not start a new chat.",
+      "projectCreated": "Project created",
+      "forgeInstalling": "Forge is being installed…",
+      "forgeInstalled": "Forge installed",
+      "forgeInstalledDetail": "Forge installed for {id}.",
+      "forgeInstallFailed": "Forge install failed",
+      "forgeInstallFailedDetail": "The Forge installer did not complete."
+    },
+    "connection": {
+      "connecting": "Connecting to the Forge gateway",
+      "degraded": "Live stream degraded — reconciling",
+      "disconnected": "Disconnected from the Forge gateway",
+      "copy": "Copy",
+      "copied": "Copied",
+      "runFrom": "Run from the project root · Listens on",
+      "retryAuto": "retrying automatically",
+      "reconnecting": "reconnecting…",
+      "nextAttempt": "next attempt in {seconds}s",
+      "working": "Working on the connection…",
+      "replaying": "Replaying {from}–{to} on {stream}{tail}.",
+      "moreOne": " (+{count} more stream)",
+      "moreMany": " (+{count} more streams)",
+      "disconnectedShort": "Forge on this PC is not responding. It keeps retrying on its own.",
+      "disconnectedDesktop": "Forge stopped responding. Close Forge Systeem and open it again.",
+      "retry": "Try again",
+      "technical": "Technical details",
+      "address": "Address on this PC:",
+      "disconnectedSimple": "Forge on this PC is not responding. Start Forge again the way you started it the first time; the workspace then reconnects on its own."
+    },
+    "waiting": {
+      "label": "Waiting on you",
+      "titleWithExcerpt": "Waiting on you: \"{excerpt}\"",
+      "titleNoText": "Waiting on you for a question with no message text yet",
+      "moreOne": " (+{count} more conversation also waiting)",
+      "moreMany": " (+{count} more conversations also waiting)"
+    },
+    "topbar": {
+      "openNav": "Open navigation"
+    },
+    "chip": {
+      "connecting": "Connecting…",
+      "connectingTitle": "Reaching the local Forge gateway on this machine.",
+      "reconnecting": "Reconnecting",
+      "reconnectingTitle": "The gateway is reachable but the live stream is being reconciled.",
+      "disconnected": "Disconnected — start the gateway",
+      "disconnectedTitle": "The local Forge gateway is not reachable. Start it and the workspace reconnects on its own.",
+      "connected": "Connected",
+      "connectedTitle": "Connected to the local Forge gateway.",
+      "notDetected": "Connected · Claude Code not detected",
+      "notDetectedTitle": "The gateway is connected, but Claude Code was not found on this machine.",
+      "notSignedIn": "Connected · not signed in",
+      "notSignedInTitle": "Connected to the gateway, but the local Claude Code session is not signed in.",
+      "readyTitleVersion": "Connected to the local Forge gateway · Claude Code {version}.",
+      "readyTitle": "Connected to the local Forge gateway and the local Claude Code session.",
+      "disconnectedDesktop": "Not connected",
+      "disconnectedDesktopTitle": "Forge stopped responding. Close Forge Systeem and open it again."
+    },
+    "skipToContent": "Skip to content",
+    "closeDrawer": "Close drawer"
+  },
+  "chat": {
+    "composer": {
+      "planProposed": "A plan was proposed above.",
+      "runPlan": "Voer dit plan uit",
+      "attachedFiles": "Attached files",
+      "removeAttachment": "Remove {name}",
+      "fieldLabel": "Message Forge in {title}",
+      "attach": "Attach a file",
+      "attachHint": "Attach a file to this message",
+      "attachDisabledHint": "Start the conversation with a first message before attaching a file",
+      "addContext": "Add context",
+      "contextTitle": "Context",
+      "contextFooter": "Adds a real block from this project's current data to your draft.",
+      "contextProject": "This project",
+      "contextProjectDetail": "Name, type and health score",
+      "contextRun": "Latest run",
+      "contextRunDetail": "Work packages and their status",
+      "contextFiles": "Changed files",
+      "contextFilesDetail": "The current changed-file list",
+      "contextTests": "Quality gates",
+      "contextTestsDetail": "The current gate results",
+      "nothingToAdd": "Nothing to add",
+      "nothingToAddDetail": "{label} has no data recorded yet in this project.",
+      "chooseSkill": "Choose a skill",
+      "skillsTitle": "Skills",
+      "skillsNone": "No skills are registered for this project yet.",
+      "skillsFooter": "Adds a real skill directive to your draft.",
+      "queue": "Queue message",
+      "queueHint": "Queue this message — it sends for real once the current run finishes",
+      "stop": "Stop",
+      "send": "Send",
+      "hintSend": "send",
+      "hintNewLine": "new line",
+      "liveBefore": "Enter starts a real conversation that can create or edit files only inside",
+      "liveFolderFallback": "this project's folder",
+      "liveAfter": " — a request for any other path is refused, not attempted",
+      "liveFullAccess": ". Bypass mode is currently selected: it skips the approval prompts that would otherwise have refused a path outside this folder, so treat this run as having full write access on this machine.",
+      "liveEnd": ".",
+      "scopeShort": "Forge only works inside the folder {folder}; other folders are refused.",
+      "scopeShortNoProject": "Forge only works inside this project's folder; other folders are refused.",
+      "exampleDetail": "Replies are local example text, revealed by a timer in this tab. Nothing is generated and nothing is sent.",
+      "fullAccessNote": "Bypass: voert uit zonder goedkeuringsvragen — nodig voor niet-interactieve dashboard-sessies.",
+      "planOnlyNote": "Plan-modus: alleen lezen en plannen — er is in plan-modus geen enkele tool beschikbaar (ook ask_owner niet), dus er kunnen dan geen vragen gesteld worden.",
+      "attachFailed": "Attachment failed",
+      "attachFailedDetail": "The gateway did not return a usable attachment record.",
+      "planNotStarted": "Plan not started",
+      "planFollowUpRejected": "The automatic follow-up plan turn was not accepted.",
+      "followUpRejected": "The follow-up turn was not accepted.",
+      "messageRejected": "The message was not accepted.",
+      "bypassConfirmTitle": "Turn on full access for this project?",
+      "bypassConfirmDetail": "Forge then asks nothing beforehand and can also write, delete and start programs outside this folder. This applies to this project only; you can turn it off at any time.",
+      "bypassConfirmYes": "Yes, full access",
+      "bypassConfirmNo": "Cancel",
+      "dropHere": "Drop to attach",
+      "dropNeedsConversation": "Send a message first"
+    },
+    "view": {
+      "label": "Chat",
+      "activeProject": "Active project",
+      "unknownProject": "Unknown project",
+      "newConversation": "New conversation",
+      "noProject": "No project selected",
+      "noProjectDetail": "Pick a project on the left or create a new one. Then you can send your first message here.",
+      "noConversation": "No conversation selected",
+      "noConversationDetail": "Pick a thread in the sidebar to read it here. Every conversation in this prototype is local example data.",
+      "actions": "Conversation actions",
+      "details": "Conversation details",
+      "new": "New",
+      "delete": "Delete conversation",
+      "exampleThread": "· example thread, not a live session",
+      "mismatchBefore": "This conversation belongs to",
+      "mismatchMiddle": "— sending here starts a new conversation in",
+      "mismatchAfter": "instead of continuing this one.",
+      "notSent": "Message not sent",
+      "newFailed": "New chat failed",
+      "newFailedDetail": "The gateway could not start a new chat.",
+      "newPlaceholder": "Starting a thread is a placeholder here. The example set is fixed.",
+      "deletePlaceholder": "Deleting is a placeholder here. The example set is fixed.",
+      "stopFailed": "Stop failed",
+      "revealStopped": "Reveal stopped",
+      "revealStoppedDetail": "The local example reply stopped mid-sentence. Nothing was cancelled elsewhere.",
+      "bypassResetTitle": "Full access was turned off.",
+      "bypassResetDetail": "Forge now asks first before it runs commands.",
+      "export": "Save",
+      "exportTitle": "Save conversation as a file",
+      "exportMd": "As text (.md)",
+      "exportMdDetail": "Readable, for notes or sharing",
+      "exportJson": "As data (.json)",
+      "exportJsonDetail": "Everything in one place, to read back later",
+      "exportFooter": "The file stays on this PC; nothing is sent.",
+      "exportYou": "You",
+      "exportedOn": "Saved on",
+      "exported": "Conversation saved",
+      "exportedDetail": "Look in your Downloads folder."
+    },
+    "sessions": {
+      "title": "Conversations",
+      "show": "Show conversations",
+      "hide": "Hide conversations",
+      "searchLabel": "Search conversations",
+      "searchPlaceholder": "Search for words in a conversation",
+      "searching": "Searching the conversations…",
+      "truncated": "Only the {count} newest conversations were searched.",
+      "unreadable": "{count} conversations could not be read; those were searched by name only.",
+      "noProject": "Pick a project first; its conversations appear here.",
+      "empty": "No conversations in this project yet. Your first message starts one.",
+      "noResults": "No conversation found with these words.",
+      "messageOne": "1 message",
+      "messages": "{count} messages",
+      "justNow": "just now",
+      "minutesAgo": "{count} min ago",
+      "hoursAgo": "{count} h ago",
+      "dayAgo": "1 day ago",
+      "daysAgo": "{count} days ago",
+      "unknownTime": "time unknown",
+      "rename": "Rename {title}",
+      "renameField": "New name",
+      "save": "Save",
+      "cancel": "Cancel",
+      "fork": "Branch: new conversation from {title}",
+      "renamed": "Name changed",
+      "renameFailed": "Rename failed",
+      "forked": "New conversation created",
+      "forkedDetail": "The new conversation remembers everything so far; the old one stays as it was.",
+      "forkFailed": "Branching failed",
+      "emptyTitle": "Give the conversation a name.",
+      "missingRoute": "This version of Forge cannot do this yet. Update Forge and try again."
+    },
+    "usage": {
+      "label": "Your limit",
+      "fiveHours": "5 hours",
+      "week": "Week",
+      "resetsAt": "full again at {time}",
+      "unavailable": "Not known yet: Forge has not measured your limit yet.",
+      "stale": "Out of date: this reading is not current.",
+      "weekShort": "week",
+      "staleShort": "out of date",
+      "unknownShort": "not known yet",
+      "showDetails": "show details",
+      "hideDetails": "hide details",
+      "nearLimitShort": "almost used up",
+      "nearLimitAnnounce": "Heads up: your limit is almost used up ({value} used).",
+      "sessionRestarted": "5 hours: just started over, not measured again yet."
+    },
+    "thread": {
+      "label": "Conversation: {title}",
+      "start": "Thread start",
+      "example": "Example conversation. Nothing here was generated and no session was contacted.",
+      "latest": "Latest",
+      "streamStart": "Forge is responding.",
+      "streamEnd": "Forge response complete."
+    },
+    "message": {
+      "you": "You",
+      "label": "Message {position} of {total}, from {author}, {time}",
+      "edited": "edited",
+      "chipPlan": "PLAN",
+      "chipAcceptEdits": "ACCEPT EDITS",
+      "chipBypass": "BYPASS",
+      "chipPlanTitle": "This turn ran in plan mode.",
+      "chipAcceptEditsTitle": "This turn ran with edits accepted automatically.",
+      "chipBypassTitle": "This turn ran with permission prompts bypassed.",
+      "effortLow": "LOW",
+      "effortMedium": "MEDIUM",
+      "effortHigh": "HIGH",
+      "effortXhigh": "EXTRA HIGH",
+      "effortMax": "MAX",
+      "effortTitle": "The effort level this turn ran with.",
+      "copy": "Copy this message",
+      "copyWhat": "Message",
+      "copied": "{what} copied",
+      "copiedDetail": "Copied to this tab’s clipboard. Nothing left the browser.",
+      "regenerate": "Regenerate this response",
+      "nothingToRegenerate": "Nothing to regenerate",
+      "nothingToRegenerateDetail": "This reply has no preceding message to send again.",
+      "regenerating": "Regenerating",
+      "regeneratingDetail": "Re-sent your last message. The new reply streams in below.",
+      "regenerateFailed": "Regenerate failed",
+      "codeBlock": "{lang} block",
+      "modelMismatch": "gevraagd: {requested} · gedraaid: {used}",
+      "modelMismatchTitle": "A different model was requested than the one that actually generated this response.",
+      "modelTitle": "Model that generated this response.",
+      "skillsTitle": "Skills recorded for this response.",
+      "steps": "{count} steps · {completed} completed",
+      "progress": "progress",
+      "filesOne": "{count} file changed",
+      "filesMany": "{count} files changed",
+      "diff": "diff",
+      "commandsOne": "{count} command run",
+      "commandsMany": "{count} commands run",
+      "shell": "shell",
+      "commandErrorTitle": "This command reported an error.",
+      "commandOkTitle": "This command completed without error.",
+      "commandError": "error",
+      "commandOk": "ok",
+      "attachments": "Attachments"
+    },
+    "modes": {
+      "autoPlan": "Auto-plan",
+      "sendModeLabel": "Send mode",
+      "execute": "Execute",
+      "plan": "Plan",
+      "acceptEdits": "Accept edits",
+      "fullAccess": "Bypass",
+      "thinkingLabel": "Effort",
+      "thinkingFooter": "Sets --effort on the next send. Default omits the field entirely — the CLI's own default.",
+      "thinking": {
+        "default": "Default",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Extra high",
+        "max": "Max"
+      },
+      "modelLabel": "Model",
+      "modelTitle": "Select a model",
+      "modelFooter": "Sets --model on the next send. Default omits the field entirely — the CLI's own default.",
+      "model": {
+        "defaultLabel": "Default (recommended)",
+        "defaultDetail": "GOAT router · Sonnet 5.5 with 1M context · Opus or Fable chosen by routing",
+        "opusLabel": "Opus (1M context)",
+        "opusDetail": "Opus 5.5 with 1M context · Best for complex builds and deep work",
+        "fableLabel": "Fable",
+        "fableDetail": "Fable 5.1 · Most capable for your hardest and longest-running tasks",
+        "sonnetLabel": "Sonnet",
+        "sonnetDetail": "Sonnet 5.5 · Efficient for routine tasks",
+        "haikuLabel": "Haiku",
+        "haikuDetail": "Haiku 4.5 · Fastest for quick answers"
+      }
+    },
+    "queue": {
+      "label": "Queued messages",
+      "notSent": "Not sent",
+      "waiting": "Waiting",
+      "remove": "Remove queued message"
+    },
+    "suggest": {
+      "mentionTitle": "Mention a file",
+      "loadingFiles": "Loading this project’s files…",
+      "selectProject": "Select a project to mention its files.",
+      "typeToSearch": "Type to search this project's files.",
+      "noFileMatch": "No files match \"@{query}\".",
+      "commandsLabel": "Slash commands",
+      "commandsTitle": "Commands",
+      "noCommand": "No matching command."
+    },
+    "route": {
+      "badge": "via {label}",
+      "badgeAnswers": "via {label} (answers only)",
+      "badgeRead": "via {label} (read and answer)",
+      "badgeTitle": "Which account or model gave this answer",
+      "noticeLabel": "Notice about switching",
+      "switched": "Switched to {to}",
+      "backTitle": "Back on {to}",
+      "proactive": "{from} was at {pct}% of its {window}.",
+      "proactiveNoPct": "{from} was close to its {window}.",
+      "limitRetried": "{from} hit its limit (free again at {time}). Your message was sent again.",
+      "limitBefore": "{from} hit its limit (free again at {time}).",
+      "toModel": "All Claude accounts are at their limit (first free again at {time}).",
+      "answersOnly": "This model can only answer: it cannot edit files or run commands.",
+      "readAnswer": "Codex can read and answer, but it cannot edit files or run commands.",
+      "back": "Its limit is free again.",
+      "backModel": "That model works again.",
+      "login": "{from} is not signed in (any more).",
+      "down": "{from} did not answer.",
+      "notRetried": "{from} hit its limit midway. Forge did not retry by itself, because files or commands were already touched.",
+      "notRetriedOther": "{from} stopped midway. Forge did not retry by itself.",
+      "continueOn": "Continue on {to}",
+      "continue": "Continue",
+      "continueText": "Continue where you left off.",
+      "continueFailed": "Not sent",
+      "handover": "{to} received the last {n} messages; it does not know earlier details of this conversation.",
+      "firstOnModel": "This conversation runs on {model} — answers only.",
+      "firstOnCodex": "This conversation runs on {model} — read and answer.",
+      "exhausted": "Every account in your router has hit its limit. First free again: {label} at {time}.",
+      "exhaustedUnknown": "Every account in your router has hit its limit. First free again: unknown.",
+      "unknownTime": "unknown",
+      "folded": "Interrupted answer from {from} ({why})",
+      "why": {
+        "rate_limited": "limit",
+        "logged_out": "not signed in",
+        "down": "did not answer",
+        "error": "error",
+        "stopped": "stopped"
+      },
+      "settings": "Router settings",
+      "failoverNothingLeft": "Forge tried to switch over, but nothing else was free.",
+      "foldedEmpty": "This answer had no text yet.",
+      "exhaustedOllama": "Your own model cannot answer right now: Ollama is not running on this computer.",
+      "exhaustedOllamaHint": "Start Ollama, then send your message again. Or choose another model in the router settings.",
+      "exhaustedLogin": "No account in your router is signed in right now, so Forge could not send this message anywhere.",
+      "loginStep1": "1. Open the router settings below.",
+      "loginStep2": "2. For an account that shows ‘Not signed in’: follow the sign-in steps again and click Test.",
+      "loginStep3": "3. Then send your message again.",
+      "exhaustedOther": "Forge could not hand this message to any account or model in your router right now.",
+      "exhaustedOtherHint": "Check what is switched on in the router settings, then try again.",
+      "failed": {
+        "ollamaDown": "Ollama is not running on this computer — start Ollama or choose another model.",
+        "notPulled": "{model} is not on this computer yet — download it in Ollama or choose another model.",
+        "down": "{to} did not answer — try again later or choose another model.",
+        "loggedOut": "{to} is not signed in — sign in again through the router settings.",
+        "limit": "{to} is at its limit (free again at {time}).",
+        "error": "{to} could not finish this because of an error — try again or choose another model."
+      },
+      "notStarted": "Forge could not start this message. Try again or check the router settings.",
+      "retry": "Try again",
+      "skipped": {
+        "line": "Skipped: {items}",
+        "unavailable": "{label} (own API not available: removed, switched off or refused)",
+        "paidAck": "{label} (costs not confirmed yet)",
+        "label": "Skipped steps in your router"
+      }
+    }
+  },
+  "settings": {
+    "eyebrow": "SETTINGS",
+    "title": "Workspace settings",
+    "lede": "Appearance, density, motion, the shell layout and the preferences below are wired to the workspace and take effect as you touch them. Anything without real behaviour behind it has been removed rather than left to pretend.",
+    "actionsLabel": "Settings actions",
+    "exampleDetail": "A visual prototype. Not connected to Forge, Claude Code or any API.",
+    "reset": "Reset stored preferences",
+    "sectionsLabel": "Settings sections",
+    "wiredHidden": "wired to the workspace",
+    "legend": "Marked sections genuinely change the workspace.",
+    "wiredEyebrow": "WIRED",
+    "presentationEyebrow": "PRESENTATION ONLY",
+    "sections": {
+      "appearance": {
+        "label": "Appearance",
+        "summary": "Theme, density and motion. These take effect immediately."
+      },
+      "layout": {
+        "label": "Layout",
+        "summary": "Which regions of the shell are open, and how the busiest views arrange themselves."
+      },
+      "chat": {
+        "label": "Chat preferences",
+        "summary": "How a conversation reads and how the composer behaves. Saved in this browser."
+      },
+      "connection": {
+        "label": "Claude Code connection",
+        "summary": "Live Claude Code and gateway connection status, read from the gateway itself."
+      },
+      "models": {
+        "label": "Models",
+        "summary": "The runtime and tool labels that appear on agent cards, and whether the roster shows them."
+      },
+      "capabilities": {
+        "label": "Capabilities",
+        "summary": "What this gateway can actually route to and call: models, tools, MCP servers and the Forge capability report."
+      },
+      "forge": {
+        "label": "Forge settings",
+        "summary": "Every Forge setting of the active project — value, where it comes from, what it does — read from GET /api/config. Change a setting right in this view; the exact command is also there for the command line or chat."
+      },
+      "agents": {
+        "label": "Agents",
+        "summary": "The current agent roster, grouped and counted."
+      },
+      "skills": {
+        "label": "Skills",
+        "summary": "The skill set the agent roster draws on."
+      },
+      "permissions": {
+        "label": "Permissions",
+        "summary": "What each permission level is allowed to do once there is a runtime to allow it in."
+      },
+      "privacy": {
+        "label": "Data and privacy",
+        "summary": "Exactly what this workspace stores, and what it sends to the gateway."
+      },
+      "shortcuts": {
+        "label": "Keyboard shortcuts",
+        "summary": "The shortcut vocabulary the workspace is designed around."
+      }
+    }
+  },
+  "team": {
+    "roles": {
+      "lead": "Project lead",
+      "head-chef": "Planner",
+      "build-boss": "Builder",
+      "ui-boss": "Designer",
+      "test-boss": "Tester",
+      "verify-boss": "Checker",
+      "review-boss": "Final review",
+      "security-boss": "Security",
+      "integration-boss": "Connections",
+      "search-boss": "Researcher",
+      "seo-boss": "Findability",
+      "docs-boss": "Writer",
+      "skill-boss": "Skills",
+      "scribe": "Note taker"
+    },
+    "roleDoes": {
+      "lead": "Splits the job and keeps the overview",
+      "head-chef": "Makes the estimate and the plan",
+      "build-boss": "Creates and changes the files",
+      "ui-boss": "Makes it look good and pleasant to use",
+      "test-boss": "Tests at phone and computer size",
+      "verify-boss": "Checks the delivery proof again",
+      "review-boss": "Final check before anything is called done",
+      "security-boss": "Watches passwords, permissions and risks",
+      "integration-boss": "Connects to other programs and services",
+      "search-boss": "Looks up information and sources",
+      "seo-boss": "Makes a website easy to find",
+      "docs-boss": "Writes copy and manuals",
+      "skill-boss": "Maintains the team’s ways of working",
+      "scribe": "Writes down your wishes word for word"
+    },
+    "someone": "A helper",
+    "and": "and",
+    "status": {
+      "busy": "Busy",
+      "waiting": "Waiting",
+      "done": "Done",
+      "idle": "Not used"
+    },
+    "statusHint": {
+      "busy": "Working on this right now",
+      "waiting": "Not done yet, but no work is visible right now",
+      "done": "Finished its task in this job",
+      "idle": "Not used in this job"
+    },
+    "kind": {
+      "message": "Message",
+      "handoff": "Handover",
+      "blocker": "Blocker",
+      "question": "Question",
+      "decision": "Decision"
+    },
+    "handoffLine": "{from} hands {wp} over to {to}",
+    "handoffLineNoTask": "{from} hands over to {to}",
+    "viaLead": "via Lead",
+    "viaLeadHint": "The project lead relayed this message; the helper did not write it itself.",
+    "pinned": "Pinned",
+    "strip": {
+      "label": "Team",
+      "busyOne": "{names} is busy.",
+      "busyMany": "{names} are busy.",
+      "waitingOne": "{names} is waiting.",
+      "waitingMany": "{names} are waiting.",
+      "doneOne": "{names} is done.",
+      "doneMany": "{names} are done.",
+      "working": "The team is working on this job.",
+      "expand": "Show the team discussion",
+      "collapse": "Hide the team discussion",
+      "latest": "Latest team messages",
+      "empty": "No team messages in this job yet.",
+      "loadError": "The discussion could not be loaded."
+    },
+    "view": {
+      "title": "Team",
+      "subtitle": "Who works on the job and what the helpers discuss with each other.",
+      "rolesHeading": "Roles",
+      "channelHeading": "Discussion",
+      "runLabel": "Job",
+      "taskLabel": "Task",
+      "allTasks": "All tasks",
+      "noProject": "Choose a project first.",
+      "noRuns": "No jobs in this project yet.",
+      "empty": "No team messages in this job yet.",
+      "emptyDetail": "Only what the team really wrote appears here.",
+      "honesty": "You only see what is really in this job’s log. A message marked “via Lead” was relayed by the project lead, because that helper cannot send messages itself.",
+      "loadError": "The discussion could not be loaded: {error}",
+      "truncated": "Only the newest {n} messages are shown.",
+      "malformed": "{n} lines in the log were unreadable and were skipped.",
+      "manageModels": "Change models per role",
+      "busyCount": "{n} busy"
+    }
+  },
+  "settingsPage": {
+    "feelPrefix": "What you notice: ",
+    "groupsLabel": "Groups",
+    "rows": {
+      "taal": {
+        "title": "Language",
+        "feel": "Buttons, messages and text in Forge use this language.",
+        "nl": "Nederlands",
+        "en": "English"
+      },
+      "thema": {
+        "title": "Theme",
+        "feel": "With Like Windows, Forge follows light and dark on its own.",
+        "light": "Light",
+        "dark": "Dark",
+        "system": "Like Windows"
+      },
+      "weergave": {
+        "title": "View",
+        "feel": "Advanced also shows the team per job, the models and extra settings.",
+        "simple": "Simple",
+        "advanced": "Advanced"
+      },
+      "opstarten": {
+        "title": "Start with Windows",
+        "feel": "Forge is ready as soon as your pc is on, so scheduled jobs start on time."
+      },
+      "systeemvak": {
+        "title": "Stay in the system tray",
+        "feel": "When you close the window, Forge finishes running jobs first."
+      },
+      "dichtheid": {
+        "title": "Density",
+        "feel": "Compact fits more lines on your screen; comfortable reads calmer.",
+        "comfortable": "Comfortable",
+        "compact": "Compact"
+      },
+      "beweging": {
+        "title": "Reduce motion",
+        "feel": "Forge drops its own animations. Your Windows setting always counts too."
+      },
+      "accounts": {
+        "title": "Accounts",
+        "feel": "Forge only uses the accounts listed here. Signing in always happens in the provider's own program."
+      },
+      "sloten": {
+        "title": "Fixed safety locks",
+        "text": "Forge always asks first before it deletes many files at once, puts something online, spends money or reads passwords. This is always on and applies in every folder.",
+        "notTested": "Not tested from the app yet",
+        "testNow": "Test now",
+        "testLater": "The test from the app arrives in a later version. Until then Forge shows no green tick here that it has not checked itself."
+      },
+      "modus": {
+        "title": "What Forge may do",
+        "feel": "With Plan only, Forge makes a plan but changes no files. This applies to the next conversation in this project.",
+        "edit": "May edit",
+        "plan": "Plan only",
+        "project": "Applies to the project {name}.",
+        "noProject": "Pick a project first; this choice is per project.",
+        "current": "Currently chosen in the composer: {mode}.",
+        "execute": "Ask first",
+        "bypass": "Full access"
+      },
+      "map": {
+        "title": "Folder Forge works in",
+        "feel": "Forge only creates and changes files in the folder of the chosen project.",
+        "none": "No project chosen yet.",
+        "choose": "Choose another project"
+      },
+      "waar": {
+        "title": "What is stored where",
+        "feel": "Conversations and jobs stay on this pc. Only the account you choose reads your messages.",
+        "dir": "Folder: {dir}",
+        "copy": "Copy path",
+        "copied": "Copied"
+      },
+      "exporteren": {
+        "title": "Export",
+        "feel": "You get one file with all your conversations and jobs.",
+        "button": "Export everything",
+        "notYet": "Exporting is not possible from the app yet; it arrives in a later version."
+      },
+      "wissen": {
+        "title": "Erase everything",
+        "feel": "For now this erases your settings in this app on this pc. Conversations, jobs and your project folders stay.",
+        "button": "Erase everything",
+        "confirmTitle": "Erase everything?",
+        "confirmText": "Language, theme, view and your composer choices go back to how they were at first start. Conversations, jobs and project folders stay.",
+        "confirm": "Yes, erase everything",
+        "cancel": "Cancel",
+        "done": "Your settings were erased."
+      },
+      "rollen": {
+        "title": "Model per role",
+        "feel": "Decides which Claude model each role uses. A smarter model uses your limit faster.",
+        "colRole": "Role",
+        "colModel": "Model",
+        "colWhy": "Why",
+        "empty": "Forge could not read the models right now.",
+        "loading": "Loading models…",
+        "edit": "Change per helper",
+        "editFeel": "You change the model per helper in the team overview."
+      },
+      "limiet": {
+        "title": "Limit",
+        "feel": "See how much of your limit is used and when it is full again.",
+        "five": "Five hours",
+        "week": "Week",
+        "percent": "{pct}% used",
+        "resets": "Full again: {time}",
+        "unknown": "Not measured yet"
+      },
+      "vaardigheden": {
+        "title": "Skills & connections",
+        "feel": "The ways of working the team knows and the programs it can work with in this project.",
+        "skills": "{count} skills and tools",
+        "koppelingen": "{count} connections, {on} switched on",
+        "noProject": "Pick a project first to see what the team can do there.",
+        "unknown": "Not known yet"
+      },
+      "paden": {
+        "title": "Paths",
+        "feel": "Where Forge itself lives and where it keeps its data.",
+        "project": "Forge folder",
+        "data": "Forge data",
+        "active": "Chosen project",
+        "unknown": "Unknown",
+        "copy": "Copy",
+        "copied": "Copied"
+      },
+      "diagnose": {
+        "title": "Check that everything works",
+        "feel": "Within ten seconds you see what works and what does not, with one button per line to fix it."
+      },
+      "versie": {
+        "title": "Version",
+        "feel": "Mention this version when you ask for help.",
+        "dev": "Development version (not installed as an app)"
+      },
+      "updates": {
+        "title": "Updates",
+        "feel": "Once Forge is installed as an app, it looks for a new version itself and asks before it updates.",
+        "notInstalled": "This version does not run as an installed app, so updating is not possible here yet."
+      },
+      "smartscreen": {
+        "title": "Windows warning when installing",
+        "feel": "Do you see ‘Windows protected your PC’? Click ‘More info’ and ‘Run anyway’. Forge is not digitally signed yet."
+      },
+      "router": {
+        "title": "Forge router",
+        "feel": "Choose what Forge does when your limit runs low: move to another account of yours, or carry on with your own model."
+      }
+    },
+    "accounts": {
+      "claude": {
+        "name": "Claude",
+        "pay": "Who pays: your Claude subscription"
+      },
+      "chatgpt": {
+        "name": "ChatGPT",
+        "pay": "Who pays: your ChatGPT subscription, through Codex"
+      },
+      "ollama": {
+        "name": "Ollama",
+        "pay": "Who pays: nobody, it runs on this pc"
+      },
+      "nvidia": {
+        "name": "NVIDIA",
+        "pay": "Who pays: you, per use, with your own API key"
+      },
+      "status": {
+        "connected": "Connected",
+        "signedOut": "Signed out",
+        "found": "Found",
+        "missing": "Not found",
+        "running": "Running",
+        "stopped": "Off",
+        "unknown": "Unknown",
+        "checking": "Checking…",
+        "notConnected": "Not connected",
+        "keySaved": "Set up",
+        "noKey": "No key",
+        "keyRejected": "Rejected",
+        "unreachable": "Unreachable",
+        "noModel": "No model",
+        "limit": "Limit reached",
+        "unsupported": "Not yet",
+        "error": "Error"
+      },
+      "names": {
+        "geminiCli": "Gemini (own program)",
+        "grokCli": "Grok (own program)"
+      },
+      "payer": {
+        "claudeSub": "Who pays: your Claude subscription",
+        "chatgptSub": "Who pays: your ChatGPT subscription, through Codex",
+        "ownSub": "Who pays: your own subscription",
+        "key": "Who pays: your API key, per use",
+        "free": "Who pays: nobody, free and local"
+      },
+      "signIn": {
+        "explainClaude": "Signing in happens in a black window of Claude Code itself. Open Terminal from the Start menu, type the command below and follow the steps there. Forge never sees or keeps your sign-in.",
+        "explainCodex": "Signing in happens in a black window of Codex itself. Open Terminal from the Start menu, type the command below and sign in with your ChatGPT account. Forge never sees or keeps your sign-in.",
+        "logoutExplain": "You sign out in the program itself too: open Terminal from the Start menu and type the command below.",
+        "after": "Done in the black window? Check it here.",
+        "recheck": "Check again"
+      },
+      "test": "Test",
+      "login": "Sign in",
+      "logout": "Sign out",
+      "notYet": "For now you sign in and test in the program itself.",
+      "tos": "You sign in to Claude Code itself; Forge does not keep your sign-in. Terms last checked on {date}.",
+      "models": "Models on this pc: {count}",
+      "loading": "Fetching accounts…",
+      "loadError": "Forge could not fetch the accounts right now. Below is what the check of this pc found.",
+      "empty": "Forge found no accounts yet. Use Check that everything works to see what is on this pc.",
+      "dropped": "{count} accounts sent unreadable information; they are not listed here.",
+      "more": "More accounts ({count})",
+      "moreHint": "Services you use with your own API key, and other programs. Forge only tests a key when you click Test.",
+      "notLive": "Preview, not really connected",
+      "testNeedsKey": "Add a key first; then you can test.",
+      "testing": "Testing…",
+      "testOk": "Test passed in {ms} ms.",
+      "testOkNoTime": "Test passed.",
+      "testFail": "Test failed: {status}.",
+      "testNotLive": "This was a sample answer, not a real connection.",
+      "technical": "Technical details",
+      "tosCodex": "You sign in to Codex itself; Forge does not keep your sign-in. Terms last checked on {date}.",
+      "tosOther": "You sign in to the program itself; Forge does not keep your sign-in. Terms last checked on {date}."
+    }
+  },
+  "accountKeys": {
+    "label": "API key for {name}",
+    "hint": "Paste your key. Forge keeps it encrypted on this pc and afterwards only shows the last four characters.",
+    "save": "Save",
+    "saving": "Saving…",
+    "replace": "Replace",
+    "remove": "Remove",
+    "confirmRemove": "Yes, remove",
+    "cancel": "Cancel",
+    "saved": "Key saved: •••• {last4}",
+    "savedNoLast4": "Key saved",
+    "savedAt": "updated on {date}",
+    "removed": "Key removed.",
+    "envKey": "Forge uses the key that is already set on this pc.",
+    "ownKey": "Save my own key",
+    "add": "Add a key",
+    "browserOnly": "Keeping a key only works in the Forge Systeem app. There it is stored encrypted; in the browser Forge never keeps a key.",
+    "limit": "Good to know: encrypted means other users of this pc cannot read it. Programs running under your own Windows account could, in principle.",
+    "invalid": "This does not look like a valid key: at least 8 characters, no spaces.",
+    "apply": {
+      "applied": "Active",
+      "waiting": "Becomes active when the running job is done",
+      "restarting": "Reconnecting…",
+      "failed": "The new key could not be activated. Restart Forge.",
+      "unknown": "Status unknown, check again shortly."
+    },
+    "reconnect": {
+      "label": "Reconnect now",
+      "TURN_RUNNING": "A job is running right now. The key becomes active when it is done.",
+      "NOTHING_PENDING": "There is no key change to apply.",
+      "generic": "Reconnecting did not work. Please try again shortly."
+    },
+    "errors": {
+      "VAULT_UNAVAILABLE": "Encrypted storage does not work on this pc, so Forge does not keep the key.",
+      "INVALID_KEY": "This does not look like a valid key: at least 8 characters, no spaces.",
+      "NO_KEY_PROVIDER": "This account works without a key.",
+      "UNKNOWN_PROVIDER": "Forge does not know this account.",
+      "generic": "Saving failed. Please try again."
+    }
+  },
+  "checkup": {
+    "title": "Check that everything works",
+    "intro": "Forge only looks at what is on this pc. Nothing is sent.",
+    "run": "Check again",
+    "start": "Check that everything works",
+    "running": "Checking…",
+    "lastChecked": "Checked at {time}, in {seconds} seconds.",
+    "slow": "Not everything answered in time; what is missing shows as unknown.",
+    "failed": "The check did not work, because Forge is not answering in the background. Close Forge, open it again and retry.",
+    "state": {
+      "ok": "OK",
+      "fail": "Not OK",
+      "optional": "Not needed for every path",
+      "unknown": "Unknown"
+    },
+    "rows": {
+      "claude": {
+        "ok": "Claude Code found (version {version})",
+        "okNoVersion": "Claude Code found",
+        "fail": "Claude Code not found"
+      },
+      "signedIn": {
+        "ok": "Signed in to Claude Code",
+        "fail": "Not signed in to Claude Code",
+        "unknown": "Could not tell whether you are signed in to Claude Code"
+      },
+      "codex": {
+        "ok": "Codex found (version {version})",
+        "okNoVersion": "Codex found",
+        "fail": "Codex not found; only needed if you work with ChatGPT"
+      },
+      "ollama": {
+        "ok": "Ollama is running; models on this pc: {count}",
+        "stopped": "Ollama is on this pc, but it is off",
+        "fail": "Ollama not found; only needed for free and local work"
+      },
+      "node": {
+        "ok": "Node.js {version} works",
+        "unknown": "Could not read the Node.js version"
+      },
+      "git": {
+        "ok": "Git found (version {version})",
+        "okNoVersion": "Git found",
+        "fail": "Git not found; useful to bring back earlier versions of your project"
+      },
+      "disk": {
+        "ok": "{gb} GB free on your disk",
+        "low": "Only {gb} GB free on your disk",
+        "unknown": "Could not tell how much space is free"
+      },
+      "port": {
+        "ok": "Forge uses port {port} on this pc"
+      },
+      "folder": {
+        "ok": "Forge may write in the project folder",
+        "fail": "Forge may not write in the project folder"
+      }
+    },
+    "fix": {
+      "installClaude": "Install Claude Code",
+      "login": "Sign in",
+      "installCodex": "Install Codex",
+      "startOllama": "Start Ollama",
+      "installOllama": "Install Ollama",
+      "installGit": "Install Git",
+      "freeDisk": "Free up space",
+      "chooseFolder": "Choose another folder",
+      "recheck": "Check again"
+    },
+    "help": {
+      "installClaude": "Install Claude Code with the command below. Then click Check again.",
+      "login": "Open Claude Code to sign in. Claude Code works in a black window: open Terminal from the Start menu, type the command below and follow the steps. Then click Check again.",
+      "installCodex": "Install Codex with the command below and then sign in to Codex. Then click Check again.",
+      "startOllama": "Start Ollama from the Start menu, or with the command below. Then click Check again.",
+      "installOllama": "Install Ollama with the command below. Then click Check again.",
+      "installGit": "Install Git with the command below. Then click Check again.",
+      "freeDisk": "Free up space, for example with Storage in the Windows settings. Then click Check again.",
+      "chooseFolder": "Choose a folder you can write in yourself, such as a folder in Documents.",
+      "recheck": "Click Check again."
+    },
+    "details": "Technical details",
+    "command": "Command",
+    "copyCommand": "Copy command",
+    "copied": "Copied",
+    "close": "Close",
+    "diagnose": {
+      "button": "Copy diagnostics",
+      "title": "This is what gets copied",
+      "intro": "Your user name, e-mail addresses and keys were removed. Read it before you share it.",
+      "label": "Diagnostics to share",
+      "copy": "Copy to clipboard",
+      "copied": "Copied to the clipboard.",
+      "copyFailed": "Copying did not work. Select the text and copy it yourself."
+    }
+  },
+  "onboarding": {
+    "stepsLabel": "Steps",
+    "privacyHintConnect": "Test and Use really connect to the service you choose. Your key stays on this pc.",
+    "codexCan": "Codex can read and answer, but it cannot edit files or run commands.",
+    "detectie": {
+      "title": "Welcome to Forge",
+      "lead": "First Forge looks at what is already on this pc. That takes ten seconds at most."
+    },
+    "pad": {
+      "legend": "Choose your path",
+      "options": {
+        "sleutel": {
+          "label": "API key"
+        }
+      }
+    },
+    "table": {
+      "title": "What can each path do?",
+      "colPath": "Path",
+      "colChat": "Chat",
+      "colFiles": "Edit files in your folder",
+      "colTeam": "The team",
+      "colOffline": "Offline",
+      "yes": "yes",
+      "no": "no",
+      "readOnly": "(read and answer only)",
+      "notYet": "(not yet)",
+      "ifOwnServer": "(home server)",
+      "rows": {
+        "claude": "Claude (subscription or key)",
+        "chatgpt": "ChatGPT/Codex",
+        "lokaal": "Free & local (Ollama)",
+        "sleutel": "Other API key",
+        "eigen": "Own API"
+      },
+      "note": "The team consists of helpers that only work together with a Claude account. With the other paths you chat with one assistant.",
+      "chosen": "your choice"
+    },
+    "verbinden": {
+      "titleClaude": "Open Claude Code to sign in",
+      "titleChatgpt": "Sign in to Codex",
+      "titleLokaal": "Get Ollama ready",
+      "titleSleutel": "Your API key",
+      "titleEigen": "Your own API",
+      "claudeReady": "You are already signed in to Claude Code. You can continue.",
+      "claudeMissing": "Claude Code is not on this pc yet. Install it first; then you sign in.",
+      "claudeLogin": "Claude Code works in a black window. Open Terminal from the Start menu, type the command below and follow the steps in that window. Forge does not keep your sign-in: you sign in to Claude Code itself.",
+      "claudeAfter": "Done signing in? Click Check again.",
+      "claudeUnknown": "Forge could not tell whether you are signed in. Sign in to be sure and check again.",
+      "chatgptMissing": "Codex is not on this pc yet. Install it first; then you sign in.",
+      "chatgptLogin": "Codex works in a black window. Open Terminal from the Start menu, type the command below and sign in with your ChatGPT account.",
+      "chatgptUnknown": "Forge cannot yet tell whether you are signed in to Codex. You can continue; if you are not signed in, Forge says so at your first question.",
+      "lokaalReady": "Ollama is running. Models on this pc: {models}.",
+      "lokaalNoModels": "Ollama is running, but there is no model on this pc yet. This downloads about 2.0 GB.",
+      "lokaalStopped": "Ollama is on this pc, but it is off.",
+      "lokaalMissing": "Ollama is not on this pc yet.",
+      "checking": "Checking…",
+      "sleutelLead": "Choose which service your key is from and paste it below.",
+      "sleutelService": "Which service is your key from?",
+      "sleutelNone": "Forge currently knows no service that needs a key.",
+      "sleutelSkip": "You can also skip this and add the key later in Settings › Accounts.",
+      "eigenLead": "Enter the address of your own server or service. Forge then tests the connection, and you can use this model right away.",
+      "claudeAuto": "Forge also checks on its own every 15 seconds whether it worked."
+    },
+    "projectmap": {
+      "suggestion": "Tip: create a folder Forge Projecten in Documents with Explorer and choose it here.",
+      "current": "This folder:",
+      "up": "Up one folder",
+      "use": "Use this folder",
+      "chosen": "Chosen: {path}",
+      "empty": "There are no folders here.",
+      "truncated": "Not every folder is shown.",
+      "loading": "Loading folders…",
+      "error": "Forge could not open this folder.",
+      "refused": {
+        "root": "A whole drive is too big. Choose a folder inside it.",
+        "home": "Your whole user folder is too big. Choose a folder inside it.",
+        "documents": "All of Documents is too big. Choose or create a folder inside it, such as Forge Projecten.",
+        "system": "Forge does not work in folders of Windows or installed programs."
+      },
+      "writable": "Forge may write here.",
+      "notWritable": "Forge may not write here. Choose another folder.",
+      "folderList": "Folders in this folder"
+    },
+    "klaar": {
+      "leadClaude": "You chat with Claude, and the team builds files in your project folder. Every job ends with delivery proof.",
+      "leadChatgpt": "Codex can read and answer, but it cannot edit files or run commands. The team that builds files for you needs a Claude account. Add it now, or later in Settings.",
+      "leadLokaal": "The team that builds files for you needs a Claude account. Add it now, or later in Settings.",
+      "leadSleutel": "With another API key you can chat, but not edit files yet. The team needs a Claude account. Add it now, or later in Settings.",
+      "leadEigen": "With your own API you can chat, but not edit files yet. The team needs a Claude account. Add it now, or later in Settings.",
+      "noFolder": "No project folder chosen yet",
+      "addClaude": "Add a Claude account"
+    },
+    "ownModel": {
+      "heading": "Use your own model right away",
+      "lead": "Forge tests the connection and then turns on Your own model right away. New conversations then run on this model.",
+      "modelLabel": "Model",
+      "manualLabel": "Model name",
+      "manualHint": "The service gave no list (yet). Enter the name as the service calls it.",
+      "use": "Test and use right away",
+      "testing": "Testing…",
+      "saving": "Setting up…",
+      "done": "Set. New conversations now run on {label}.",
+      "testFail": "The test did not work ({status}). Fix this first and try again.",
+      "pickModel": "Choose a model first.",
+      "problems": "Your switching settings contain something this version does not know. Choose your model in Settings › Accounts.",
+      "failed": "Setting up did not work: {reason}",
+      "refused": "This window may not save anything yet. Pair it first with the notice at the top.",
+      "tooMany": "Tried too often. Wait a minute and try again.",
+      "answersOnly": "To be honest: in Forge this model can only answer for now. Jobs where Forge edits files and uses the team come in a later phase.",
+      "localSlow": "Small models on your own pc answer slower and less well than Claude.",
+      "codexNote": "Forge only sees that Codex is on this pc. Whether you are signed in shows at your first question.",
+      "codexLabel": "ChatGPT via Codex",
+      "customOpen": "Another service or your own server?",
+      "customButton": "Enter your own API",
+      "customClose": "A service from the list after all",
+      "saveFirst": "Save your own API first; then you can continue."
+    }
+  },
+  "chatCards": {
+    "permissions": {
+      "eyebrow": "Waiting for you",
+      "askedBy": "{role} asks if this is OK",
+      "askedByAssistant": "Forge asks if this is OK",
+      "since": "since {time}",
+      "summary": {
+        "download": "Download program parts from the internet ({tool})",
+        "runRemote": "Start a program from the internet ({tool})",
+        "fetchWeb": "Fetch something from the internet ({tool})",
+        "publish": "Put changes online ({tool})",
+        "commit": "Save a version ({tool})",
+        "discard": "Throw away unsaved changes ({tool})",
+        "cleanUntracked": "Delete new files that were never saved in a version ({tool})",
+        "deleteOne": "Delete 1 file: {name}",
+        "deleteMany": "Delete {count} files: {names}",
+        "deleteFolder": "Delete a folder and everything in it: {name}",
+        "projectScript": "Run a command from the project: {name}",
+        "command": "Run a command: {short}",
+        "writeFile": "Create or replace 1 file: {name}",
+        "editFile": "Change 1 file: {name}",
+        "readFile": "Read 1 file: {name}",
+        "searchFiles": "Search files: {name}",
+        "webPage": "Fetch a web page: {name}",
+        "webSearch": "Search the internet: {name}",
+        "connection": "Use a connection: {name}",
+        "helper": "Bring in an extra helper: {name}",
+        "other": "Do something with {name}"
+      },
+      "moreOne": "Plus 1 other command",
+      "moreMany": "Plus {count} other commands",
+      "badge": {
+        "internet": "uses the internet",
+        "deletes": "deletes something",
+        "outside": "outside this folder"
+      },
+      "badgesLabel": "Note",
+      "technical": "Technical details",
+      "allow": "Allow",
+      "allowSession": "Always allow in this conversation",
+      "allowSessionShort": "Always in this conversation",
+      "sessionNotRememberable": "Always allow does not apply here: this kind of command is never remembered, Forge asks every time.",
+      "sessionNotForChain": "Always allowing is not possible here: these are several commands at once.",
+      "deny": "Don't",
+      "sending": "Passing on your answer…",
+      "failed": "Your answer did not arrive. Please try again.",
+      "pausedNote": "Work is paused until you choose. Nothing is lost.",
+      "groupTitle": "The team wants to do {count} things",
+      "groupLead": "Choose per line, or allow everything at once.",
+      "allowAll": "Allow all",
+      "listLabel": "Requests from the team",
+      "assistant": "Forge"
+    },
+    "errors": {
+      "technical": "Technical details",
+      "noDetails": "No extra details were kept.",
+      "redactedNote": "Personal data and keys are left out.",
+      "cli_missing": {
+        "title": "Claude Code is not on this PC",
+        "body": "Forge needs Claude Code to work with Claude. Install it once; then this conversation simply continues.",
+        "action": "Install Claude Code"
+      },
+      "logged_out": {
+        "title": "You are signed out of Claude",
+        "body": "Sign in again through Claude Code. Then you can pick up where you were.",
+        "action": "Open Claude Code to sign in"
+      },
+      "rate_limited": {
+        "title": "You reached your limit",
+        "body": "You can continue at {time}. Forge can then carry on with this job by itself.",
+        "bodyNoTime": "You can continue in a while. Forge can then carry on with this job by itself.",
+        "action": "Continue automatically",
+        "actionOn": "Continues by itself at {time}",
+        "actionOnNoTime": "Continues by itself as soon as it can"
+      },
+      "offline": {
+        "title": "No internet",
+        "body": "Forge cannot reach Claude right now. As soon as you are connected again, you can try again.",
+        "action": "Try again"
+      },
+      "api_retry": {
+        "title": "Claude is responding slowly",
+        "body": "Forge retries by itself (attempt {attempt} of {max}). You do not need to do anything.",
+        "bodyNoCount": "Forge retries by itself. You do not need to do anything.",
+        "action": "Stop"
+      },
+      "ollama_down": {
+        "title": "Ollama is not running",
+        "body": "Private chat on this PC only works while Ollama is running.",
+        "action": "Start Ollama"
+      },
+      "model_not_pulled": {
+        "title": "This model is not on this PC yet",
+        "body": "{model} has to be downloaded before you can chat with it.",
+        "bodyNoModel": "The chosen model has to be downloaded before you can chat with it.",
+        "action": "Download model"
+      },
+      "gateway_restarted": {
+        "title": "Forge restarted",
+        "body": "The answer was interrupted. Your conversation is saved; send your question again to continue.",
+        "action": "Send again"
+      },
+      "unknown": {
+        "title": "Something went wrong",
+        "body": "Forge could not finish this. Please try again. If that does not work, choose ‘Check that everything works’ in Settings.",
+        "action": "Try again"
+      }
+    },
+    "status": {
+      "label": "Status of this conversation",
+      "simple": {
+        "busy": "Working",
+        "waiting": "Waiting for you",
+        "paused": "Paused",
+        "failed": "Failed"
+      },
+      "detail": {
+        "QUEUED": "Queued",
+        "STARTING": "Starting",
+        "STREAMING": "Working on your question",
+        "RETRYING": "Retrying",
+        "WAITING_FOR_PERMISSION": "Waiting for your permission",
+        "WAITING": "Waiting for your answer",
+        "INTERRUPTED": "Interrupted",
+        "FAILED": "Stopped by an error",
+        "COMPLETED": "Finished"
+      }
+    },
+    "plan": {
+      "eyebrow": "Proposal for a job",
+      "stepsOne": "1 step",
+      "stepsMany": "{count} steps",
+      "helpersOne": "1 helper",
+      "helpersMany": "{count} helpers",
+      "minutes": "about {low}–{high} minutes",
+      "limit": "about {low}–{high}% of your limit",
+      "limitUnknown": "share of your limit not known yet",
+      "limitUnknownWhy": "Forge can only estimate this after an earlier job of this kind.",
+      "estimateNote": "An estimate, not a promise. You can always stop the team.",
+      "estimateLabel": "Estimate",
+      "rolesLabel": "Who helps",
+      "listLabel": "Steps of this job",
+      "stepBy": "by {role}",
+      "start": "Start",
+      "adjust": "Adjust",
+      "later": "Not now"
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "lead": "Work faster in a conversation.",
+      "groups": {
+        "write": "Writing",
+        "conversation": "Conversation",
+        "everywhere": "Everywhere"
+      },
+      "items": {
+        "sendMessage": "Send message",
+        "newLine": "New line",
+        "closeSuggestions": "Close suggestions",
+        "slash": "Show quick commands (at the start of a line)",
+        "mention": "Mention a file",
+        "stepMessages": "Previous or next message (when a message is selected)",
+        "firstLast": "First or last message",
+        "palette": "Search and open",
+        "sidebar": "Show or hide the sidebar",
+        "overlay": "Open or close this overview"
+      },
+      "or": "or"
+    },
+    "pairing": {
+      "title": "Pair this window again",
+      "bodyBrowser": "This window is no longer paired with Forge, so Forge does nothing from here. First stop Forge in the window where it runs (Ctrl+C), then start it again with the command below. Open the pairing link it shows: that link works once, for two minutes. Chats that are still running stop when you do this.",
+      "bodyDesktop": "This window is no longer paired with Forge. Restart Forge Systeem: quit it from its icon in the notification area, then open it again.",
+      "commandLabel": "Command",
+      "copy": "Copy command",
+      "copied": "Copied",
+      "recheck": "Check again",
+      "checking": "Checking…",
+      "dismiss": "Close this notice",
+      "more": "Read more",
+      "less": "Show less"
+    }
+  },
+  "routeFallback": {
+    "loading": "Loading screen…",
+    "stuckTitle": "This screen is not loading.",
+    "stuckDetail": "Check the connection to Forge. Loading has taken longer than eight seconds.",
+    "offlineTitle": "No connection to Forge",
+    "offlineDetail": "This screen cannot load while Forge on this PC is unreachable. Forge keeps retrying on its own.",
+    "retry": "Reconnect",
+    "reload": "Reload page"
+  },
+  "inspector": {
+    "region": "Inspector",
+    "notFoundTitle": "Record not found",
+    "notInDataTitle": "Not in this dataset",
+    "notInLive": "The selected id does not exist in the live data.",
+    "notInExample": "The selected id does not exist in the local example data.",
+    "clearSelection": "Clear selection",
+    "exampleNote": "Every record in this panel is local example data. The prototype is not connected to Forge, Claude Code or any API.",
+    "noneRecorded": "None recorded.",
+    "kind": {
+      "none": "INSPECTOR",
+      "project": "PROJECT",
+      "conversation": "CONVERSATION",
+      "agent": "AGENT",
+      "task": "TASK",
+      "graphNode": "GRAPH NODE",
+      "artifact": "ARTIFACT",
+      "gate": "QUALITY GATE",
+      "proof": "PROOF LINE",
+      "file": "FILE",
+      "event": "EVENT"
+    },
+    "empty": {
+      "title": "Nothing selected",
+      "subtitle": "Select anything in the workspace and its record opens here.",
+      "startFrom": "START FROM",
+      "latestEvent": "Most recent event"
+    },
+    "project": {
+      "type": "Type",
+      "path": "Path",
+      "template": "Template",
+      "notSet": "Not set",
+      "lastActivity": "Last activity",
+      "pinned": "Pinned",
+      "yes": "yes",
+      "no": "no",
+      "health": "Health",
+      "score": "Score",
+      "tests": "Tests",
+      "testsValue": "{passed} passed · {failed} failed · {skipped} skipped",
+      "openItems": "Open tickets",
+      "blockers": "Blockers",
+      "counts": "Counts",
+      "conversations": "Conversations",
+      "jobs": "Missions",
+      "tasks": "Tasks",
+      "helpers": "Agents",
+      "skills": "Skills",
+      "skillsLabel": "Project skills",
+      "latestJob": "Latest run",
+      "job": "Run",
+      "started": "Started",
+      "duration": "Duration",
+      "notMeasured": "Not measured yet",
+      "noTestsYet": "No tests run yet",
+      "noOpenItemsKnown": "Not tracked yet"
+    },
+    "conversation": {
+      "project": "Project",
+      "messages": "Messages",
+      "updated": "Updated",
+      "lastMessage": "Last message",
+      "you": "you",
+      "forge": "forge",
+      "models": "Model labels",
+      "modelsLabel": "Model labels used in this thread",
+      "modelsLive": "Display labels carried on these messages. No model was contacted from this panel.",
+      "modelsExample": "Display labels written into the example data. No model was contacted.",
+      "history": "Thread"
+    },
+    "event": {
+      "kind": "Kind",
+      "helper": "Agent",
+      "system": "system",
+      "job": "Run",
+      "recorded": "Recorded",
+      "detail": "Detail",
+      "started": "Started",
+      "duration": "Duration",
+      "reportedBy": "Reported by"
+    },
+    "status": {
+      "running": "RUNNING",
+      "completed": "COMPLETED",
+      "waiting": "WAITING",
+      "verify": "VERIFY",
+      "review": "REVIEW",
+      "failed": "FAILED",
+      "blocked": "BLOCKED",
+      "idle": "IDLE"
+    },
+    "statusDetail": {
+      "running": "Work is in progress.",
+      "completed": "This is done.",
+      "waiting": "Forge is waiting for your answer or choice.",
+      "verify": "The proof is still being checked.",
+      "review": "The final review is still running.",
+      "failed": "This did not work; details are below.",
+      "blocked": "This cannot proceed until an earlier step clears.",
+      "idle": "Nothing is happening here right now."
+    }
+  },
+  "dock": {
+    "region": "Workspace dock",
+    "tabsLabel": "Dock panels",
+    "collapse": "Collapse dock",
+    "expand": "Expand dock",
+    "exampleNote": "Everything in the dock is local example data. No log was read, no command was run and no run was observed.",
+    "tab": {
+      "activity": "Activity",
+      "terminal": "Terminal",
+      "tests": "Tests",
+      "events": "Events",
+      "proof": "Proof",
+      "notices": "Notices"
+    },
+    "activity": {
+      "eyebrow": "ACTIVITY FEED",
+      "count": "{count} events",
+      "note": "Newest first · select a line to open it in the inspector",
+      "system": "system",
+      "emptyTitle": "No activity yet",
+      "emptyDetail": "Once the team works on a job, what happens shows up here."
+    },
+    "terminal": {
+      "listLabel": "Recorded transcripts",
+      "list": "TRANSCRIPTS",
+      "eyebrow": "RECORDED OUTPUT",
+      "exampleNote": "Hand-written example console text. No process was started and no output was captured.",
+      "noInputLive": "No input here. This panel does not run commands — it shows recorded output only when the gateway reports it.",
+      "noInputExample": "No input here. This prototype does not run commands — the text above is a recording.",
+      "emptyTitle": "No output yet",
+      "emptyDetail": "Output from checks appears here once Forge records it."
+    },
+    "tests": {
+      "eyebrow": "QUALITY GATES",
+      "count": "{done} completed · {open} open",
+      "note": "A gate that skipped its suites is not a green gate",
+      "items": "{count} evidence",
+      "emptyTitle": "No checks yet",
+      "emptyDetail": "Quality checks appear here once the team runs them."
+    },
+    "events": {
+      "eyebrow": "EVENT STREAM",
+      "note": "One line per recorded event, as the ledger would hold it",
+      "emptyTitle": "No events yet",
+      "emptyDetail": "Every step Forge records lands here as one line."
+    },
+    "proof": {
+      "eyebrow": "PROOF LEDGER",
+      "count": "{accepted} accepted · {rejected} rejected",
+      "note": "A claim without evidence is rejected, not rounded up",
+      "emptyTitle": "No proof yet",
+      "emptyDetail": "Once a helper shows that something is done, it appears here."
+    },
+    "notices": {
+      "eyebrow": "NOTICES",
+      "count": "{count} standing",
+      "note": "Standing facts about this session, not alerts",
+      "linkTitle": "Local Forge gateway — {state}",
+      "claudeLinkTitle": "Local Claude Code link — {state}",
+      "connected": "Connected",
+      "connecting": "Connecting",
+      "reconnecting": "Reconnecting",
+      "disconnected": "Disconnected",
+      "connectedDetail": "Connected to the local Forge gateway at {endpoint}. Everything in the dock is folded from its live event stream.",
+      "disconnectedDetail": "The workspace cannot reach the local gateway. It reconnects on its own once Forge runs again.",
+      "connectingDetail": "Reaching the local gateway at {endpoint}.",
+      "counts": "{projects} projects, {helpers} agents, {tasks} tasks, {events} events",
+      "dataLiveTitle": "Live records in memory",
+      "dataExampleTitle": "Example dataset in memory",
+      "dataLiveDetail": "{counts} — folded from the local gateway's event log as events arrived.",
+      "dataExampleDetail": "{counts}. Assembled locally at import time — nothing was fetched, read from disk or awaited.",
+      "gatesTitle": "{count} quality gates are not completed",
+      "gatesNoneLive": "No quality gates have been reported for this workspace yet.",
+      "gatesNoneExample": "Every example gate reports completed.",
+      "gatesSome": "{names}. Skipped suites and held screenshots stay visible rather than being counted as passes.",
+      "proofTitle": "{count} completion claims were rejected",
+      "proofNoneLive": "No completion claim has been recorded for this workspace yet.",
+      "proofNoneExample": "No claim in the example ledger was rejected.",
+      "proofSome": "{claims} — evidence did not show the claim on the build the claim referred to.",
+      "proofMore": "{shown}; and {count} more",
+      "blockedTitle": "{count} tasks are blocked",
+      "blockedNoneLive": "Nothing on the board is blocked.",
+      "blockedNoneExample": "Nothing in the example board is blocked.",
+      "blockedSome": "{ids} cannot proceed until an earlier step clears.",
+      "disconnectedStart": "The workspace cannot reach the local gateway. Start it with {command} and it reconnects on its own."
+    }
+  },
+  "relativeTime": {
+    "justNow": "just now",
+    "minutesAgo": "{count} min ago",
+    "hoursAgo": "{count} hr ago",
+    "dayAgo": "1 day ago",
+    "daysAgo": "{count} days ago",
+    "weekAgo": "1 week ago",
+    "weeksAgo": "{count} weeks ago",
+    "unknown": "unknown",
+    "fromEvents": "(from events)"
+  },
+  "home": {
+    "toast": {
+      "created": "Project created",
+      "installing": "Forge is being installed…",
+      "installed": "Forge installed",
+      "installFailed": "Forge install failed",
+      "installedDetail": "Forge installed for {id}.",
+      "installFailedDetail": "The Forge installer did not complete."
+    }
+  },
+  "projectOverview": {
+    "section": {
+      "tasks": {
+        "action": "Open tasks"
+      },
+      "files": {
+        "action": "Open files"
+      }
+    },
+    "noActiveTitle": "No project is active.",
+    "openBrowser": "Open the project browser",
+    "localPath": "Local path",
+    "sectionsLabel": "Project sections",
+    "messageOne": "1 message",
+    "messages": "{count} messages"
+  },
+  "appRouter": {
+    "loading": "Loading router…",
+    "loadError": "Forge cannot read the router settings right now.",
+    "retry": "Try again",
+    "unreadable": "Your saved router settings could not be read. You see the standard settings; saving writes them again.",
+    "problems": "Part of your router settings comes from a newer version of Forge. Saving is switched off so nothing gets lost.",
+    "modeLabel": "What does Forge do when your limit runs low?",
+    "modes": {
+      "off": {
+        "text": "No switching. At a limit you see the message that your limit is reached."
+      },
+      "claudeThenModel": {
+        "text": "Your Claude account first. When the limit is used up, Forge carries on with your own model, for example Ollama on this computer."
+      },
+      "modelFirst": {
+        "text": "Forge uses your own model right away. Claude accounts that are switched on come after it, for example when Ollama is not running."
+      }
+    },
+    "accounts": {
+      "heading": "Claude accounts",
+      "mainSub": "Your normal Claude login",
+      "extraSub": "Own folder: {folder}",
+      "extraSubNoFolder": "Own folder for this account",
+      "test": "Test",
+      "testLabel": "Test {label}",
+      "testHint": "Testing uses a little of your limit.",
+      "testSaveFirst": "Save first; then you can test this.",
+      "remove": "Remove",
+      "removeLabel": "Remove {label}",
+      "usage": "{pct}% of the {window}",
+      "usageNoPct": "Room: ok (no percentage reported)",
+      "usageUnknown": "Usage unknown — Forge switches only on a real limit message.",
+      "measured": "measured at {time}",
+      "measuredStale": "measured at {time} (out of date)",
+      "freeAgain": "probably free again",
+      "tooSoon": "You can test again in {min} min.",
+      "testFailed": "The test did not work: {reason}",
+      "refused": "This window may not change the router. Open Forge again from the app.",
+      "removeTitle": "Remove {label}?",
+      "removeText": "Forge then stops using this account. The folder {folder} stays, with the sign-in and history of this account. You can throw it away yourself.",
+      "removeTextNoFolder": "Forge then stops using this account. The folder of this account stays, with its sign-in and history. You can throw it away yourself.",
+      "removeAfter": "Then click Save.",
+      "cancel": "Cancel",
+      "testUnusable": "Not tested: the router skips this step right now.",
+      "testBlocked": "Testing is not possible now: the router skips this step."
+    },
+    "add": {
+      "title": "Add a Claude account",
+      "nameLabel": "Name of the account",
+      "namePlaceholder": "For example Work",
+      "nameHint": "Just a name. Forge never asks for your password.",
+      "create": "Next",
+      "creating": "Working…",
+      "step1": "1. Open a new command window (PowerShell).",
+      "step2": "2. Paste this line and press Enter.",
+      "step3": "3. Sign in to Claude with your other account in that window, then close it.",
+      "step4": "4. Come back and click Test.",
+      "otherShells": "Other command window",
+      "cmdLabel": "Command Prompt (cmd), in a new window",
+      "posixLabel": "macOS or Linux",
+      "note": "An extra account uses its own Claude settings. Personal settings from your normal Claude (your own agents, your personal CLAUDE.md) do not apply there. The project’s own settings do.",
+      "folderAt": "The folder is in {folder}.",
+      "done": "Done",
+      "exists": "There already is an account with this name, or you reached the maximum of 8 Claude accounts.",
+      "invalidName": "Choose a name of 1 to 40 characters.",
+      "failed": "Forge could not create the account: {reason}"
+    },
+    "multi": {
+      "title": "Switching between your own Claude accounts",
+      "warning": "Note. Anthropic says the Pro, Max and Ultra limits assume ‘ordinary, individual usage’. Nothing says whether you may switch between several accounts of your own to keep going after a limit; it may be seen as getting around a restriction, and Anthropic may then warn, throttle or stop your access. Sharing an account with someone else is never allowed. Only turn this on if every account is yours and you have read the terms yourself.",
+      "ack": "These accounts are all mine and I have read the terms.",
+      "offHint": "As long as this is not ticked, Forge uses only the first Claude account.",
+      "sources": "Read for yourself",
+      "linkTerms": "Consumer Terms",
+      "linkAup": "Usage Policy",
+      "linkLegal": "Claude Code legal",
+      "checkedOn": "Terms checked on {date}. This is not legal advice."
+    },
+    "fallback": {
+      "heading": "Your own model",
+      "providerLabel": "Where does the model run?",
+      "modelLabel": "Model",
+      "choose": "Choose…",
+      "ollamaLocal": "Ollama on this computer",
+      "codex": "Codex (your own ChatGPT login)",
+      "recommend": "Recommended: Ollama on this computer. Free, and your messages stay here.",
+      "ollamaDown": "Ollama is not running on this computer",
+      "checkAgain": "Check again",
+      "noModels": "Ollama has no models yet. Download one in Ollama first.",
+      "notPulled": "This model is not on this computer yet",
+      "listUnknown": "The model list has not been fetched yet. Click Test for this service under Accounts.",
+      "checking": "Checking…",
+      "capability": "This model can only answer: it cannot edit files or run commands.",
+      "capabilityCodex": "Codex: can read and answer",
+      "paidAck": "I know this model costs per use through my own key.",
+      "noticeAck": "I know my messages go to this service outside my computer."
+    },
+    "chain": {
+      "hint": "Forge tries from top to bottom. What is off, Forge skips.",
+      "up": "Move {label} up",
+      "down": "Move {label} down",
+      "use": "Use {label}",
+      "threshold": "Switch at",
+      "thresholdLabel": "Switch point for {label} in percent",
+      "thresholdHint": "% · empty = {pct}%",
+      "numCtx": "Context size",
+      "port": "Ollama port",
+      "kindClaude": "Claude",
+      "kindCodex": "Codex",
+      "kindModel": "Own model",
+      "general": "General",
+      "cooldown": "Wait between switches (minutes)",
+      "strategy": "New conversations start",
+      "strategyInOrder": "In order",
+      "strategySpread": "Alternating",
+      "returnLabel": "Back to an earlier account",
+      "returnNew": "with a new conversation",
+      "returnAsap": "as soon as it can",
+      "handover": "Messages passed on at a switch",
+      "unavailable": "This own API was removed, switched off or refused. The router skips this step and goes on to the next one.",
+      "unavailableIn": "{label}: this own API was removed, switched off or refused. The router skips this step."
+    },
+    "state": {
+      "unavailable": "Not available",
+      "testing": "Testing…",
+      "disabled": "Switched off",
+      "gated": "Switching between accounts is off",
+      "loggedOut": "Not signed in — follow the steps again",
+      "notPulled": "This model is not on this computer yet",
+      "down": "Not answering right now",
+      "ollamaDown": "Ollama is not running on this computer",
+      "limit": "Limit reached — free again at {time}",
+      "limitNoTime": "Limit reached — free again: unknown",
+      "testFailed": "Test failed",
+      "signedIn": "Signed in (tested {time})",
+      "answers": "Answers (tested {time})",
+      "nearLimit": "Almost used up: {pct}%",
+      "ready": "Ready",
+      "untested": "Not tested yet",
+      "unknown": "Usage unknown"
+    },
+    "window": {
+      "five_hour": "5-hour limit",
+      "seven_day": "weekly limit",
+      "seven_day_opus": "weekly limit for Opus",
+      "seven_day_sonnet": "weekly limit for Sonnet",
+      "other": "limit"
+    },
+    "save": {
+      "save": "Save",
+      "saving": "Saving…",
+      "discard": "Discard changes",
+      "dirty": "Your changes are not saved yet.",
+      "saved": "Router saved",
+      "savedDetail": "Forge uses the new settings from your next message.",
+      "notSaved": "Not saved: {reason}",
+      "stale": "This was just changed elsewhere; the latest version is loaded.",
+      "tooMany": "Tried too often. Try again in a moment.",
+      "issues": "To fix before you can save"
+    },
+    "issues": {
+      "tooMany": "At most {max} lines in your router.",
+      "tooManyClaude": "At most {max} Claude accounts.",
+      "ackNeeded": "First tick that all accounts are yours.",
+      "needsTwo": "This needs at least two Claude accounts that are switched on.",
+      "needsClaude": "Switch on at least one Claude account.",
+      "fallbackMissing": "Choose your own model to carry on with.",
+      "modelFirstOrder": "Put your own model at the top.",
+      "label": "A name is 1 to 40 characters.",
+      "threshold": "Choose a number from {min} to {max}, or leave it empty.",
+      "numCtx": "Choose a number from {min} to {max}.",
+      "port": "A port is 2 to 5 digits.",
+      "paidAck": "Confirm that this model costs per use.",
+      "noticeAck": "Confirm that your messages leave your computer.",
+      "model": "Choose a valid model.",
+      "range": "Choose a number from {min} to {max}."
+    }
+  },
+  "customApi": {
+    "feel": "Your own server, or a service that is not listed here? Enter its address; Forge then talks to it like your other accounts.",
+    "add": "Add your own API",
+    "loading": "Loading your own APIs…",
+    "missing": "This version of Forge cannot store your own API yet. Update Forge to use this.",
+    "loadError": "Forge cannot read the list of your own APIs right now.",
+    "retry": "Try again",
+    "empty": "No own API yet. Useful if you run your own server, for example vLLM or LM Studio on your network, or a service missing above.",
+    "dropped": "Forge could not read {count} own API(s); they stay unchanged.",
+    "edit": "Edit",
+    "off": "Off",
+    "plain": "Not encrypted",
+    "local": "On this computer",
+    "formats": {
+      "openai-chat": "OpenAI-compatible (chat)",
+      "openai-responses": "OpenAI Responses",
+      "anthropic": "Anthropic-compatible"
+    },
+    "form": {
+      "titleNew": "New own API",
+      "titleEdit": "Edit {name}",
+      "label": "Name",
+      "labelHint": "How you will see it in Forge, for example My vLLM server.",
+      "format": "API type",
+      "formatHint": "Most servers and services are OpenAI-compatible.",
+      "baseURL": "Address (base URL)",
+      "baseURLPlaceholder": "https://… or http://192.168.1.20:8000/v1",
+      "key": "Key",
+      "keyStore": "Store the key and test",
+      "noKey": "No key needed",
+      "noKeyHint": "For a server on your own computer or network without a password.",
+      "keyAfterSave": "After Save you enter the key here. It goes only to the app's encrypted vault, never to a settings file.",
+      "keyEnv": "Without the app: put the key in the environment variable {name} and start Forge again.",
+      "models": "Models",
+      "modelsEndpoint": "Fetch from the service automatically",
+      "modelsManual": "Enter them yourself",
+      "manualLabel": "One model per line",
+      "manualHint": "Use the names the service uses, for example qwen2.5-coder:32b.",
+      "advanced": "Advanced",
+      "authLabel": "How is the key sent?",
+      "auth": {
+        "auto": "The usual way for this type",
+        "bearer": "Authorization: Bearer",
+        "x-api-key": "x-api-key",
+        "api-key-header": "api-key",
+        "custom": "Own header"
+      },
+      "header": "Header name",
+      "prefix": "Prefix (may be empty)",
+      "prefixHint": "Goes before the key, for example \"Key \" with a space after it.",
+      "contextLength": "Context length (may be empty)",
+      "contextHint": "How much text the model can read at once. Empty means unknown.",
+      "enabled": "Use in Forge",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "close": "Done",
+      "remove": "Remove",
+      "confirmRemove": "Yes, remove",
+      "removeKeyToo": "The stored key of this API is removed too.",
+      "removing": "Removing…",
+      "savedLine": "Saved.",
+      "test": "Test",
+      "testing": "Testing…",
+      "testOk": "Connected ({ms} ms)",
+      "testOkNoTime": "Connected",
+      "testFail": "Did not work: {status}",
+      "foundModels": "Models found: {models}",
+      "noModelsYet": "The list of models appears after a successful test.",
+      "manualModels": "Your models: {models}",
+      "technical": "Technical details",
+      "fixFirst": "Something is not right yet; see the fields marked in red."
+    },
+    "url": {
+      "https": "Encrypted connection.",
+      "local": "On this computer.",
+      "lan": "This address is not encrypted (http). Only use it on your own computer or your own network.",
+      "openaiV1": "Tip: an OpenAI-style address usually ends in /v1.",
+      "anthropicNoV1": "Tip: leave /v1 off the end; Forge adds it itself."
+    },
+    "errors": {
+      "required": "Fill this in.",
+      "tooLong": "This is too long.",
+      "control": "Use ordinary characters.",
+      "secretLike": "This looks like a key. A key belongs only in the key field.",
+      "bad_url": "This is not a valid address. Start with https:// or http:// and leave out user names and #.",
+      "https_required": "An address outside your own network must start with https://.",
+      "blocked_host": "This address is not allowed.",
+      "blocked_port": "This port is not for web traffic. Choose another port.",
+      "badHeader": "Only letters, digits and dashes, starting with a letter.",
+      "reservedHeader": "This name has its own choice in the list, or it may not carry a key.",
+      "badModel": "One or more names are not right. Use letters, digits and . _ : / -",
+      "tooManyModels": "At most 50 models.",
+      "outOfRange": "A whole number between 1024 and 10000000.",
+      "modelsRequired": "Enter at least one model."
+    },
+    "outcome": {
+      "stale": "The list changed in the meantime. Forge loaded it again; please save once more.",
+      "duplicate": "There is already an own API with this name. Choose another name.",
+      "refused": "This window may not save anything yet. Pair it first with the notice at the top.",
+      "tooMany": "Tried too often. Wait a minute and try again.",
+      "failed": "Saving did not work: {reason}",
+      "removeFailed": "Removing did not work: {reason}"
+    },
+    "router": {
+      "inUse": "The router uses this own API in: {names}. If you remove it or switch it off, the router skips that step.",
+      "removed": "{name} was removed. The router still names it in: {names}. The router skips that step; remove it under “When your limit is used up”.",
+      "disabled": "{name} is switched off. The router still names it in: {names}. While it is off, the router skips that step."
+    }
+  },
+  "rd": {
+    "start": {
+      "title": "What do you want to make?",
+      "placeholder": "Describe it in your own words",
+      "chatPlaceholder": "Ask something or request a change",
+      "suggestions": {
+        "site": "Make a website",
+        "mail": "Automate emails",
+        "research": "Look something up"
+      },
+      "siteExample": "Make a simple website for my hair salon, with opening hours and a call button.",
+      "mailExample": "Every morning, put my new emails in a short overview.",
+      "researchExample": "Find out which tools other hair salons use for appointments.",
+      "resume": "Continue with: {name}",
+      "checklist": {
+        "title": "Start here",
+        "progress": "{done} of {total}",
+        "close": "Close",
+        "account": "Account connected",
+        "ask": "Ask your first question",
+        "proof": "See a delivery proof"
+      },
+      "multilineHint": "Enter sends, Shift+Enter starts a new line.",
+      "noProject": "No project chosen."
+    },
+    "tour": {
+      "skip": "Skip",
+      "next": "Next",
+      "done": "Done",
+      "replay": "Replay the tour",
+      "composerTitle": "Type what you want here",
+      "projectsTitle": "All your work lives here",
+      "card": {
+        "step": "{n} of {total}",
+        "composerBody": "Plain language works.",
+        "projectsBody": "Open a project.",
+        "helpTitle": "Need help? Look here",
+        "helpBody": "Short lessons and shortcuts."
+      }
+    },
+    "bar": {
+      "more": "More options",
+      "help": "Help",
+      "showDetails": "Show details",
+      "hideDetails": "Hide details",
+      "shortcuts": "Shortcuts",
+      "detailsTitle": "Details",
+      "detailsMore": "More",
+      "helpButton": "Help",
+      "helpLesson": "Help for this page",
+      "searchCommands": "Search commands",
+      "paneClose": "Close panel",
+      "detailsSelection": "Selection",
+      "detailsLog": "Log",
+      "helpFallback": "Short lessons are in Learn Forge.",
+      "helpOpenLearn": "Go to Learn Forge",
+      "shortcutSidebar": "Collapse or expand the sidebar",
+      "shortcutClose": "Close a menu, panel or tour"
+    },
+    "nav": {
+      "newChat": "New chat",
+      "recent": "Recent",
+      "learn": "Learn Forge",
+      "learnDescription": "Four short lessons about Forge",
+      "recentLabel": "Recent conversations",
+      "footLabel": "Help and settings",
+      "advancedLabel": "More screens",
+      "gatewayName": "Forge",
+      "gatewayTitle": "Forge on this pc, separate from your accounts. Details are in Settings.",
+      "connConnected": "Running",
+      "connConnecting": "Starting",
+      "connDegraded": "Recovering",
+      "connDisconnected": "Not reachable",
+      "sidebarLabel": "Sidebar"
+    },
+    "chat": {
+      "strip": {
+        "plan": "Planning",
+        "build": "Building",
+        "check": "Checking",
+        "deliver": "Delivering",
+        "done": "done",
+        "now": "working",
+        "waiting": "waiting",
+        "failed": "failed",
+        "helpers": "{n} helpers working",
+        "label": "Progress",
+        "todo": "not started"
+      },
+      "proof": {
+        "title": "Your website is ready"
+      },
+      "composer": {
+        "add": "Add",
+        "pickFolder": "Choose a folder",
+        "newProject": "New project…",
+        "messageLabel": "Message to Forge"
+      },
+      "usageLine": {
+        "near": "Your limit is almost used up ({percent} %).",
+        "toAccount": "Forge then switches to your next Claude account.",
+        "toModel": "Forge then switches to your own model. It can only answer.",
+        "region": "Usage"
+      },
+      "copyCode": "Copy the {lang} block",
+      "ask": {
+        "title": "Forge is asking",
+        "waiting": "A running Claude Code session is waiting for your real answer before it continues.",
+        "pager": "Question {n} of {total}",
+        "multiHint": "Select all that apply.",
+        "skippedHint": "Marked \"No preference\". Pick an option or type an answer below to change it.",
+        "recommended": "Recommended",
+        "otherLabel": "Something else — type your own answer",
+        "answerLabel": "Your answer",
+        "otherPlaceholder": "Something else…",
+        "answerPlaceholder": "Type your answer…",
+        "skip": "Skip — no preference",
+        "noPreference": "No preference",
+        "previous": "Previous",
+        "next": "Next",
+        "review": "Review answers",
+        "reviewTitle": "Review your answers",
+        "reviewMissing": "Answer every question — or mark it \"No preference\" — before sending.",
+        "back": "Back",
+        "send": "Send answers",
+        "sending": "Sending…",
+        "sendFailed": "The gateway could not record your answer.",
+        "closedTitle": "This question is no longer waiting for an answer.",
+        "closedBody": "The session that asked this question ended ({reason}) before you answered — no answer was recorded. Nothing typed here would reach it anymore.",
+        "dismiss": "Dismiss",
+        "reason": {
+          "ended": "the session ended",
+          "stopped": "the run was stopped",
+          "closed": "the run ended",
+          "timedOut": "the run's time limit was reached",
+          "restart": "the gateway was restarted"
+        }
+      }
+    },
+    "projects": {
+      "title": "My projects",
+      "new": "New project",
+      "waiting": "Waiting for you",
+      "all": "All projects",
+      "search": "Search a project",
+      "empty": "No projects yet. Start with a question.",
+      "emptyAction": "New chat",
+      "status": {
+        "busy": "Working",
+        "done": "Done",
+        "failed": "Failed",
+        "waiting": "Waiting",
+        "blocked": "Stuck"
+      },
+      "tabs": {
+        "chats": "Chats",
+        "delivered": "Delivered",
+        "files": "Files",
+        "jobs": "Jobs & proof",
+        "tasks": "Tasks",
+        "map": "Plan map"
+      },
+      "deliveredEmpty": "Nothing delivered yet.",
+      "proofLink": "See proof",
+      "askOne": "1 question for you",
+      "askMany": "{count} questions for you",
+      "rowMenu": "More for {name}",
+      "openItem": "Open",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "pinned": "Pinned",
+      "chatsEmpty": "No conversations in this project yet.",
+      "deliveredAll": "See all",
+      "mapAction": "Open plan map",
+      "folderChanged": "When this project folder last changed."
+    },
+    "settings": {
+      "title": "Settings",
+      "simple": "Simple",
+      "advanced": "Advanced",
+      "moreInfo": "More info",
+      "lessInfo": "Less info",
+      "sections": {
+        "general": "General",
+        "accounts": "Accounts",
+        "safety": "Safety",
+        "privacy": "Privacy",
+        "models": "Models",
+        "usage": "Usage",
+        "links": "Connections",
+        "folders": "Folders",
+        "diagnose": "Diagnostics",
+        "about": "About Forge"
+      },
+      "general": {
+        "light": "Light",
+        "dark": "Dark",
+        "system": "Like Windows",
+        "view": "View",
+        "tour": "Replay the tour",
+        "startAgain": "Show Start here again"
+      },
+      "accounts": {
+        "title": "Your accounts",
+        "yours": "Your subscription",
+        "viaCodex": "Via Codex",
+        "about": "About this account",
+        "add": "Add account",
+        "addTitle": "Which account do you want to add?"
+      },
+      "ownApi": {
+        "title": "Own API"
+      },
+      "router": {
+        "title": "When your limit is used up",
+        "ask": "What should Forge do then?",
+        "tellsYou": "Forge always tells you in the chat.",
+        "how": "How does this work?",
+        "none": "Do nothing",
+        "rotate": "Switch between my Claude accounts",
+        "claudeThenOwn": "Claude first, then my own model",
+        "ownNow": "My own model right away",
+        "order": "Order",
+        "risk": "When Forge switches, Anthropic can stop your access.",
+        "covers": "This covers:",
+        "rotateText": "Forge walks your own Claude accounts in order."
+      }
+    },
+    "onboarding": {
+      "step": "Step {n} of {total}",
+      "back": "Back",
+      "next": "Next",
+      "skip": "Skip",
+      "steps": {
+        "welcome": "Welcome",
+        "choose": "Choose",
+        "connect": "Connect",
+        "ready": "Ready"
+      },
+      "welcome": {
+        "title": "Everything is ready on this pc",
+        "lead": "Forge checked what is already installed."
+      },
+      "choose": {
+        "title": "What do you want to work with?",
+        "lead": "Pick what you already have. You can change it later.",
+        "claude": "Claude",
+        "claudeHint": "Your subscription or key",
+        "chatgpt": "ChatGPT",
+        "chatgptHint": "Via Codex, with your ChatGPT account",
+        "free": "Free on this pc",
+        "freeHint": "With Ollama. Your chats stay on your computer.",
+        "own": "Own key or server",
+        "ownHint": "An API key or your own address",
+        "info": "No Claude? You can still start; having files built needs Claude.",
+        "compare": "What can each path do?"
+      },
+      "connect": {
+        "copy": "Copy",
+        "recheck": "Check again"
+      },
+      "ready": {
+        "title": "Ready to begin",
+        "folder": "You work in: {folder}",
+        "otherFolder": "Other folder",
+        "begin": "Begin",
+        "look": "Let me look around"
+      }
+    },
+    "learn": {
+      "title": "Learn Forge",
+      "minutes": "{n} min",
+      "try": "Try it",
+      "done": "Done",
+      "next": "Next lesson",
+      "lessons": {
+        "first": {
+          "title": "Your first question",
+          "s1": "Type what you want in the box.",
+          "s2": "Press Enter to send.",
+          "s3": "Forge asks a question if something is unclear."
+        },
+        "project": {
+          "title": "Start a project",
+          "s1": "Choose New project.",
+          "s2": "Give it a name.",
+          "s3": "Your chats and files stay together."
+        },
+        "proof": {
+          "title": "Read a delivery proof",
+          "s1": "The green stamp means: checked.",
+          "s2": "Every line is something Forge really tested.",
+          "s3": "In doubt? Ask how it was checked."
+        },
+        "limit": {
+          "title": "When your limit is used up",
+          "s1": "Forge tells you in the chat.",
+          "s2": "You choose what happens then.",
+          "s3": "Find this under Settings, Accounts."
+        }
+      }
+    },
+    "states": {
+      "example": "Example",
+      "errorDetails": "More info"
+    },
+    "delivered": {
+      "title": "Delivered",
+      "truncated": "Not everything is in this list. More may have been delivered.",
+      "filterLabel": "Kind",
+      "kind": {
+        "all": "All",
+        "screenshot": "Screenshot",
+        "report": "Report",
+        "diagram": "Diagram",
+        "markdown": "Text",
+        "log": "Log",
+        "receipt": "Receipt",
+        "proof": "Proof"
+      },
+      "noneOfKind": "Nothing of this kind.",
+      "showAll": "Show all",
+      "previewOf": "View {name}",
+      "by": "Made by",
+      "task": "Task",
+      "created": "Created",
+      "size": "Size",
+      "download": "Download",
+      "noDims": "Dimensions not recorded",
+      "frameNote": "This capture is not rendered inline here yet. Please use Download below to fetch the real file.",
+      "downloadNoProject": "Pick an active project first. Downloads work per project.",
+      "downloadChat": "A dashboard chat run changed this file directly, so there is no separate copy to download.",
+      "byChat": "A conversation"
+    },
+    "agents": {
+      "title": "Agents",
+      "subtitle": "The team assigned to this project — who owns what, what they are holding, and whether verification has agreed with them yet.",
+      "toolbar": "Agent view controls",
+      "layout": {
+        "list": "List",
+        "grid": "Grid",
+        "grouped": "Grouped",
+        "nodes": "Nodes"
+      },
+      "filters": "Filter agents by state",
+      "filter": {
+        "all": "All",
+        "running": "Active",
+        "waiting": "Waiting",
+        "verify": "Verify",
+        "review": "Review",
+        "blocked": "Blocked",
+        "failed": "Failed",
+        "completed": "Completed"
+      },
+      "group": {
+        "control": "Control",
+        "context": "Context",
+        "planning": "Planning",
+        "domain": "Domain",
+        "execution": "Execution",
+        "review": "Review",
+        "memory": "Memory"
+      },
+      "groupNote": {
+        "control": "Owns the mission end to end and sets the bar for done.",
+        "context": "Gathers what the rest of the team would otherwise guess at.",
+        "planning": "Turns a request into work packages with owners and edges.",
+        "domain": "Specialists for one field of the build.",
+        "execution": "Writes the implementation and the unglamorous edge cases.",
+        "review": "Checks the claim against the evidence attached to it.",
+        "memory": "Keeps what worked so the next mission does not start cold."
+      },
+      "groupTitle": "{group} group",
+      "bandEmpty": "No agent in this group matches the current filter.",
+      "empty": {
+        "title": "No agents in this state",
+        "detail": "No agent in this roster has that status right now. Clear the filter to see the full team.",
+        "action": "Show all agents"
+      },
+      "currentTask": "Current task",
+      "noTask": "No task assigned right now.",
+      "skills": "Skills",
+      "skillsList": "Attached skills",
+      "noSkills": "No skills attached to this agent.",
+      "model": {
+        "runtime": "Runtime",
+        "tool": "Tool model",
+        "effort": "Effort",
+        "change": "Change {label}",
+        "changeHint": "Change {label} (currently {value})",
+        "choose": "Choose {label}",
+        "unset": "unset",
+        "failed": "Model change failed",
+        "failedDetail": "The gateway rejected this change.",
+        "saving": "Saving…"
+      },
+      "permission": {
+        "read-only": "Read-only",
+        "standard": "Standard",
+        "elevated": "Elevated",
+        "lead": "Lead"
+      },
+      "verification": {
+        "verified": "Verified",
+        "verifiedDetail": "Verification accepted the evidence attached to this agent’s last claim.",
+        "pending": "Pending",
+        "pendingDetail": "A claim is waiting on the verify loop — not yet accepted.",
+        "rejected": "Rejected",
+        "rejectedDetail": "Verification rejected the last claim and reopened the work.",
+        "not-required": "Not required",
+        "not-requiredDetail": "This role produces no claim that the verify loop has to check.",
+        "unknown": "Not checked yet",
+        "unknownDetail": "No verification evidence exists yet for this agent in the current run."
+      },
+      "effort": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "max": "Max"
+      },
+      "live": {
+        "title": "Live now",
+        "noRegistry": "No Forge agent registry found for this project.",
+        "none": "No subagent dispatch recorded yet for this project’s conversations.",
+        "noteRunning": "A running count is only ever shown when the conversation that dispatched it is genuinely still executing right now — everything else recorded here is a past dispatch.",
+        "noteIdle": "None of these are currently running — every dispatch above already finished (or its conversation is no longer executing).",
+        "noteStalled": " A stalled mark means the run went silent past the stale window — not proven finished, and not shown as still running.",
+        "noteSelfDispatched": " These are subagents the Claude Code session dispatched on its own.",
+        "chipRunning": "{label}: {running} running right now ({count} recorded in total)",
+        "chipStalled": "{label}: {stalled} of {count} recorded went silent past the stale window — not proven finished, not proven still running",
+        "chipDoneOne": "{label}: 1 dispatch recorded — none currently running",
+        "chipDoneMany": "{label}: {count} dispatches recorded — none currently running"
+      },
+      "graph": {
+        "label": "Agent reporting graph"
+      },
+      "access": {
+        "read-only": "Read-only",
+        "standard": "Standard",
+        "elevated": "Elevated",
+        "lead": "Full access"
+      },
+      "accessTitle": "Permission level: {level}",
+      "layoutLabel": "Agent layout",
+      "effortTitle": "Effort tier: {level}"
+    },
+    "mission": {
+      "noneTitle": "No mission running",
+      "noneEmpty": "No mission is running",
+      "noneDetail": "Start a run in a project to see its live multi-agent graph here.",
+      "chatTitle": "Chat activity",
+      "chatRun": "Chat run",
+      "chatEmpty": "No multi-agent Forge mission is running",
+      "chatDetail": "This project’s most recent recorded activity came from a dashboard chat session, shown above — it does not drive the multi-agent mission graph below.",
+      "run": "Run",
+      "elapsed": "Elapsed",
+      "started": "Started",
+      "graph": "Graph",
+      "stalled": "No real activity for a while — not proven finished, not proven still running.",
+      "endedUnknown": "Never closed — the run ended without reporting a real outcome.",
+      "controls": "Graph controls",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "fit": "Fit view",
+      "hintFit": "fit",
+      "hintZoom": "zoom",
+      "hintPan": "pan",
+      "legend": {
+        "flow": "Flow",
+        "dependency": "Dependency",
+        "feedback": "Return path"
+      },
+      "approvals": "Approvals",
+      "approvalsLabel": "Approvals for this run",
+      "approvalsNotRequested": "not requested",
+      "approvalsNone": "none recorded",
+      "gate": "Gate",
+      "agentPrefix": "Agent: ",
+      "recordedPrefix": "Recorded at: ",
+      "subtitle": "Who works on what in the running job, step by step.",
+      "stepsOne": "{n} step",
+      "stepsMany": "{n} steps",
+      "lanesOne": "{n} lane",
+      "lanesMany": "{n} lanes",
+      "edgesOne": "{n} link",
+      "edgesMany": "{n} links",
+      "approvalsUnknown": "not known yet"
+    },
+    "files": {
+      "notTracked": "Changes are not tracked here yet.",
+      "change": {
+        "added": "Added",
+        "modified": "Modified",
+        "deleted": "Deleted"
+      },
+      "changeInfo": {
+        "added": "Added — this file did not exist before this change.",
+        "modified": "Modified — this file was edited.",
+        "deleted": "Deleted — this file was removed."
+      },
+      "recent": "Recent",
+      "recentLabel": "Recent files",
+      "changedOnly": "Changed only",
+      "noSelection": {
+        "title": "No file selected",
+        "detail": "Pick a file in the tree, or one of the recent files above, to see its metadata and — where one was recorded — its diff."
+      },
+      "filter": "Filter by name or path",
+      "clearFilter": "Clear the filter",
+      "openAll": "Expand all folders",
+      "closeAll": "Collapse all folders",
+      "preview": {
+        "loading": "Reading the file…",
+        "loadingDetail": "Fetching this file's content from the working tree.",
+        "blocked": "Preview blocked",
+        "blockedDetail": "The gateway refuses to read this file's bytes because it looks like {reason}. Nothing was read.",
+        "binary": "Binary file",
+        "binaryDetail": "This file's content is binary, so it cannot be shown as text.",
+        "failed": "Preview failed",
+        "failedDetail": "{reason}",
+        "failedUnknown": "The gateway could not read this file.",
+        "title": "Preview",
+        "label": "File preview",
+        "content": "File content. Read only.",
+        "truncated": "Truncated",
+        "linesOne": "1 line",
+        "linesMany": "{count} lines"
+      },
+      "reason": {
+        "env-file": "an environment file",
+        "key-or-pem-file": "a private key file",
+        "ssh-private-key": "an SSH private key",
+        "git-config": "git's own config file",
+        "node-modules-content": "a dependency inside node_modules",
+        "secret-pattern-detected": "content that looks like a credential",
+        "policy": "this project’s file-preview policy"
+      },
+      "diff": {
+        "label": "Unified diff",
+        "title": "Changes",
+        "example": "Example patch. No repository was read and no file was opened — this diff is local example text.",
+        "scroll": "Unified diff for {path}. Read only.",
+        "added": "Added line: ",
+        "removed": "Removed line: ",
+        "none": "No diff recorded",
+        "noneDetail": "This example record carries metadata only. A handful of files in the tree carry a patch — try slots.ts, booking.css or README.md."
+      },
+      "toolbar": "File browser controls",
+      "trackingHint": "No change-tracking data is available from the gateway yet.",
+      "updatedAt": "Updated {when}",
+      "unknown": "unknown",
+      "tree": "File tree",
+      "treeLabel": "Project files",
+      "noMatch": "No files match",
+      "noMatchDetail": "No file matches that filter. Clear it to see the whole working tree again.",
+      "none": "No files yet",
+      "noneDetail": "This project has no files to show yet.",
+      "pane": "File preview",
+      "clearSelection": "Clear the selection",
+      "meta": {
+        "path": "Path",
+        "size": "Size",
+        "updated": "Updated",
+        "change": "Change",
+        "notTracked": "Not tracked",
+        "unchanged": "Unchanged"
+      }
+    },
+    "map": {
+      "maps": "Maps · {count}",
+      "mapsLabel": "Mind maps",
+      "noProject": {
+        "title": "No project is active.",
+        "detail": "Pick a project first; its mind maps open here.",
+        "action": "Open the project browser"
+      },
+      "empty": {
+        "title": "No mind map generated yet",
+        "detail": "It is created for L3/L4 runs. When a run writes one to .claude/forge-mindmaps/, it shows up here."
+      },
+      "loading": "Loading mind maps…",
+      "error": {
+        "title": "Could not load the mind maps",
+        "detail": "The Command Center gateway answered: {reason}. Check that it is running, then try again."
+      },
+      "retry": "Try again",
+      "nodesOne": "1 node",
+      "nodesMany": "{count} nodes",
+      "branchesOne": "1 branch",
+      "branchesMany": "{count} branches",
+      "levelsOne": "1 level",
+      "levelsMany": "{count} levels",
+      "unreadableOne": "1 map file could not be read and is not listed.",
+      "unreadableMany": "{count} map files could not be read and are not listed.",
+      "node": {
+        "region": "Selected node",
+        "heading": "Selected node · {kind}",
+        "kindRoot": "root",
+        "kindBranch": "branch",
+        "kindLeaf": "leaf",
+        "close": "Close the node details",
+        "orphan": "Not connected to the root in this map file.",
+        "path": "Path from the root",
+        "children": "Children · {count}",
+        "noChildren": "No children"
+      },
+      "open": {
+        "loading": "Loading the map…",
+        "error": "This map could not be opened",
+        "errorDetail": "{reason}",
+        "noUsable": "The file has no usable nodes.",
+        "noNodes": "This map has no nodes"
+      },
+      "refused": {
+        "title": "This project's mind-map folder is not read",
+        "detail": "The folder is a link or not a folder."
+      },
+      "canvas": "Mind map: {title}",
+      "canvasHelp": "{label}. Arrow keys pan, plus and minus zoom, 0 fits the map. Tab moves through the nodes.",
+      "zoom": "Zoom",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "zoomFit": "Fit the whole map"
+    },
+    "tasks": {
+      "tasksOne": "1 task",
+      "tasksMany": "{count} tasks",
+      "packagesOne": "1 work package",
+      "packagesMany": "{count} work packages",
+      "view": {
+        "kanban": "Kanban",
+        "table": "Table",
+        "work-packages": "Work packages",
+        "phases": "Phases"
+      },
+      "viewLabel": "Task layout",
+      "toolbarLabel": "Task view controls",
+      "note": "This board mirrors the real run state. Select a card to see its detail — moving a card between columns is not available here.",
+      "empty": {
+        "title": "No tasks yet",
+        "detail": "No tasks are recorded for this project yet."
+      },
+      "board": "Task board",
+      "columnLabel": "{column} — {count} tasks",
+      "columnEmpty": "Nothing in this column.",
+      "column": {
+        "backlog": "Backlog",
+        "planned": "Planned",
+        "running": "Running",
+        "self-review": "Self-review",
+        "verify": "Verify",
+        "review": "Review",
+        "blocked": "Blocked",
+        "completed": "Completed"
+      },
+      "phase": {
+        "intake": "Intake",
+        "plan": "Plan",
+        "build": "Build",
+        "verify": "Verify",
+        "review": "Review",
+        "handoff": "Handoff"
+      },
+      "phaseNote": {
+        "intake": "Understand the request before anything is written.",
+        "plan": "Cut the work into packages with owners and acceptance.",
+        "build": "Write the implementation and the edge cases.",
+        "verify": "Check the claim against the evidence attached.",
+        "review": "The last read before anything reaches the owner.",
+        "handoff": "Leave the owner able to run and change it."
+      },
+      "phaseEmpty": "No task sits in this phase.",
+      "th": {
+        "id": "ID",
+        "title": "Task",
+        "status": "Status",
+        "column": "Column",
+        "phase": "Phase",
+        "agent": "Agent",
+        "wp": "WP",
+        "progress": "Progress",
+        "proof": "Proof",
+        "repairs": "Repairs",
+        "deps": "Depends on",
+        "created": "Created",
+        "updated": "Updated",
+        "detail": "Detail"
+      },
+      "sortBy": "Sort by",
+      "ascending": "Ascending",
+      "descending": "Descending",
+      "stat": {
+        "proof": "proof",
+        "repairs": "repairs"
+      },
+      "pkg": {
+        "owner": "Owner",
+        "phase": "Phase",
+        "tasks": "Tasks",
+        "id": "Id",
+        "acceptance": "Acceptance criteria",
+        "noTasks": "This package owns no tasks yet."
+      }
+    },
+    "team": {
+      "noProjectAction": "Go to My projects",
+      "noRunsAction": "New conversation"
+    },
+    "tests": {
+      "expand": "Expand output",
+      "collapse": "Collapse all",
+      "toolbarLabel": "Gate board controls",
+      "expandNone": "No gate output to expand: no gates are recorded for this run yet.",
+      "expandAll": "Every gate is already expanded.",
+      "collapseNone": "Nothing to collapse: no gates are recorded for this run yet.",
+      "collapseAll": "Every gate is already collapsed.",
+      "gates": {
+        "title": "Quality gates",
+        "subtitle": "Each gate reveals the console output it recorded. Expand a gate to read it.",
+        "passed": "{passed} of {total} passed",
+        "failed": "{count} failed",
+        "blocked": "{count} blocked",
+        "open": "{count} still open",
+        "proofOne": "1 evidence item",
+        "proofMany": "{count} evidence items",
+        "empty": "No gates recorded for this run yet.",
+        "output": "Console output"
+      },
+      "th": {
+        "status": "Status",
+        "gate": "Gate",
+        "duration": "Duration",
+        "lastRun": "Last run",
+        "proof": "Evidence"
+      },
+      "ledger": {
+        "title": "Proof ledger",
+        "subtitle": "{count} claims — {accepted} accepted, {rejected} rejected, {pending} pending. Open a claim to read the reason.",
+        "verdict": "Verdict",
+        "verdictFilter": "Filter the ledger by verdict",
+        "agent": "Agent",
+        "allAgents": "All agents",
+        "all": "All",
+        "shown": "shown",
+        "clear": "Clear filters",
+        "noMatch": "No ledger lines match these filters",
+        "noClaims": "No claims have been ledgered yet.",
+        "widenOne": "The ledger holds 1 claim. Widen the verdict or agent filter to see them.",
+        "widenMany": "The ledger holds {count} claims. Widen the verdict or agent filter to see them.",
+        "real": "Each line is a completion claim the verify agent checked against real evidence.",
+        "sample": "Ledger lines are local example records. No verify agent produced these verdicts and no artifact exists on disk.",
+        "th": {
+          "time": "Timestamp",
+          "claim": "Claim",
+          "agent": "Agent",
+          "task": "Task",
+          "command": "Command",
+          "artifact": "Artifact",
+          "verdict": "Verdict"
+        }
+      },
+      "verdict": {
+        "accepted": "Accepted",
+        "rejected": "Rejected",
+        "pending": "Pending"
+      },
+      "verdictInfo": {
+        "accepted": "Accepted — the attached evidence shows the claim.",
+        "rejected": "Rejected — the attached evidence does not show the claim.",
+        "pending": "Pending — the check is still open, so there is no verdict yet."
+      },
+      "reason": {
+        "accepted": "Why it was accepted",
+        "rejected": "Why it was rejected",
+        "pending": "Why it is still open"
+      },
+      "runs": {
+        "title": "Recent runs",
+        "subtitleOne": "{count} run, {receipts} with a finalize receipt. Choose a run to read its health below.",
+        "subtitleMany": "{count} runs, {receipts} with a finalize receipt. Choose a run to read its health below.",
+        "receiptOnly": "With receipt only",
+        "sortedDesc": "Sorted newest first. Sort oldest first",
+        "sortedAsc": "Sorted oldest first. Sort newest first",
+        "newest": "Newest first",
+        "oldest": "Oldest first",
+        "shown": "shown",
+        "emptyNone": "No runs recorded for this project yet",
+        "emptyNoneDetail": "A run appears here as soon as Forge writes its first event.",
+        "emptyNoReceipt": "No run has a finalize receipt yet",
+        "emptyNoReceiptDetail": "Turn off \"With receipt only\" to see every run.",
+        "caption": "Runs of this project with their status and finalize proof. Choose a run id to load it into Run health.",
+        "th": {
+          "run": "Run",
+          "started": "Started",
+          "status": "Status",
+          "proof": "Proof",
+          "packages": "Work packages"
+        },
+        "pick": "Show run health for {id}",
+        "notRecorded": "not recorded",
+        "packagesDone": "{done}/{total} done"
+      },
+      "health": {
+        "title": "Run health",
+        "subtitleFor": "Gate evidence, the finalize receipt, the run contract, and any recorded reviews for {id}.",
+        "subtitle": "Gate evidence, the finalize receipt, the run contract, and any recorded reviews for this run.",
+        "gates": {
+          "title": "Gate evidence",
+          "empty": "No gate-evidence record has been read for this run yet.",
+          "total": "Gates run",
+          "failed": "Gates failed",
+          "allGreen": "All green",
+          "generated": "Generated",
+          "unnamed": "unnamed gate",
+          "exit": "exit {code}",
+          "timedOut": "Timed out"
+        },
+        "answer": {
+          "yes": "Yes",
+          "no": "No",
+          "unknown": "Unknown"
+        },
+        "finalize": {
+          "title": "Finalize receipt",
+          "written": "Receipt written",
+          "digest": "Digest",
+          "invalid": "A finalize receipt exists but no longer counts: {reason}.",
+          "none": "This run has not been finalized yet — no `run-finalized.json` receipt exists.",
+          "infoShow": "What this receipt can prove",
+          "infoHide": "Hide what this receipt can prove",
+          "checkResult": "Check result: {note}"
+        },
+        "contract": {
+          "title": "Run contract",
+          "green": "Green",
+          "red": "Red",
+          "unknown": "Unknown",
+          "missingOne": "Missing steps ({count}):",
+          "missingMany": "Missing steps ({count}):",
+          "empty": "No run-contract check has been recorded for this run yet."
+        },
+        "reviews": {
+          "title": "Reviews",
+          "empty": "No review has been recorded for this run yet.",
+          "unknownReviewer": "Unknown reviewer",
+          "pass": "Pass",
+          "passWithNotes": "Pass with notes",
+          "fail": "Fail",
+          "unknown": "Unknown"
+        }
+      },
+      "proof": {
+        "verified": {
+          "label": "Finalized (verified)",
+          "short": "verified",
+          "detail": "Re-checked: the log, evidence and code commit still match the receipt."
+        },
+        "archival": {
+          "label": "Archival record (not re-verified)",
+          "short": "archival, not re-verified",
+          "detail": "The log still matches the receipt byte for byte, but it was not re-verified."
+        },
+        "unverifiedArchival": {
+          "label": "Unverified archival",
+          "short": "unverified archival",
+          "detail": "The record is intact, but its rules or outputs cannot be reproduced and nothing vouches for it, so it does not prove the run was completed."
+        },
+        "stale": {
+          "label": "Stale",
+          "short": "stale",
+          "detail": "The run log, its evidence or the code changed after this receipt was written, so it no longer proves the run was completed."
+        },
+        "unconfirmed": {
+          "label": "Proof not confirmed",
+          "short": "proof not confirmed",
+          "detail": "The receipt could not be checked, so this run is not shown as finalized."
+        },
+        "checking": {
+          "label": "Checking proof",
+          "short": "checking proof",
+          "detail": "The receipt is being checked against the run log, its evidence and the code. This takes a moment."
+        },
+        "invalid": {
+          "label": "Receipt no longer counts",
+          "short": "receipt no longer counts",
+          "detail": "A finalize receipt exists but no longer counts: {reason}."
+        },
+        "none": {
+          "label": "Not finalized",
+          "short": "not finalized",
+          "detail": "No finalize receipt exists for this run."
+        }
+      }
+    },
+    "discord": {
+      "wizard": {
+        "title": "Connect Discord",
+        "subtitle": "Two clicks happen on Discord's own site; everything else happens right here.",
+        "step": "Step {number}",
+        "server": {
+          "title": "Make your own Discord server",
+          "copy": "Open Discord and create a new server of your own — this is the server the bot will join. A name is all it needs; it takes a few seconds.",
+          "open": "Open Discord"
+        },
+        "bot": {
+          "title": "Make the bot",
+          "copy": "In the Developer Portal: click {newApp}, give it a name, open the {bot} page and click {reset}.",
+          "copy2": "Copy the value it shows, then turn on {intent} on that same page (the bot cannot read messages without it).",
+          "open": "Open Developer Portal"
+        },
+        "key": {
+          "title": "Paste the token",
+          "label": "Bot token",
+          "hint": "Sent straight to your own local gateway and saved there — never shown again after this.",
+          "paste": "Paste the token you copied in step 2",
+          "connect": "Connect",
+          "connecting": "Connecting…",
+          "saveFailed": "The gateway could not save this token.",
+          "installing": "Installing the Discord bot's software — this only happens once, and can take about a minute…",
+          "installFailed": "The Discord bot’s software could not be installed automatically."
+        },
+        "invite": {
+          "title": "Get the bot into your server",
+          "pick": "This bot is already in {count} servers — pick the one you just made:",
+          "pickFailed": "The gateway could not save this choice.",
+          "copy": "Click below, pick the server you made in step 1, then click Discord's own {authorise} button on the page that opens — that last click has to be yours; nothing can do it for you.",
+          "open": "Invite to my server",
+          "waitLogin": "Waiting for the bot to log in…",
+          "waitServer": "Waiting for the bot to report which server it is in…"
+        },
+        "done": {
+          "title": "Done",
+          "connected": "Connected to {server}.",
+          "yourServer": "your server",
+          "ownerFound": "Owner detected automatically.",
+          "ownerMissing": "Owner not detected yet.",
+          "channels": "Channels are set up under {category}. A welcome message is posted in {channel} the first time this connects.",
+          "waitSetup": "Waiting for the bot to report that setup is finished…",
+          "finishFirst": "Finish the steps above first."
+        },
+        "limit": {
+          "server": "Forge can't create the server for you — a bot that creates its own server automatically owns it, which would not really be yours to control.",
+          "bot": "The bot itself has to be made on Discord's own site — there is no API for that step."
+        }
+      },
+      "unreachable": "Could not reach the gateway: {error}",
+      "notReported": "Not reported by the gateway.",
+      "loading": "Reading Discord service status…",
+      "notInstalled": "Discord service is not installed in this project",
+      "notInstalledDetail": "No Discord bot service was found for this project. Nothing here is running, and nothing can be started yet.",
+      "actionFailed": "The gateway could not complete this request.",
+      "transport": {
+        "mock": "Test transport — no real Discord connection is made.",
+        "live": "Live transport — genuinely connected to Discord."
+      },
+      "auto": {
+        "unsure": "UNSURE",
+        "no": "NO",
+        "notYet": "NOT YET",
+        "blocked": "BLOCKED",
+        "failed": "FAILED",
+        "yes": "YES",
+        "last": "Last Command Center start: {detail}.",
+        "saveError": "Forge {error}, so after a restart the bot follows your previous choice. Use the switch once more to save it.",
+        "settingOff": "Turned off in Settings (\"discord-autostart\"). Turn it on there to have the bot start by itself.",
+        "desiredStopped": "You switched the bot off, so it stays off after a restart. Switch it on and it comes back by itself.",
+        "settingUnknown": "Forge's settings could not be read right now, so the bot does not start by itself (the safe choice). This clears up as soon as the settings can be read again.",
+        "envOptOut": "Automatic start is turned off for this Command Center process (CC_DISCORD_AUTOSTART=off), usually a test or temporary copy.",
+        "desiredInvalid": "Your last on/off choice could not be read{note}, so the bot does not start by itself. Switch it on here to start it and save your choice again.",
+        "notReady": "It will start by itself once it can: {reason}. Finish connecting Discord first.",
+        "notReadyReason": "Discord is not set up yet",
+        "conflict": "Another program already answers on the bot's port, so the Command Center will not start a second bot: {conflict}. Once that program is gone, the bot starts by itself at the next Command Center start.",
+        "notEffective": "The gateway says the bot will not start by itself.",
+        "lastFailed": "The bot is set to start by itself, but the last automatic start failed: {detail}. It tries again at the next Command Center start.",
+        "noReason": "no reason given",
+        "on": "The bot starts by itself whenever the Command Center starts, also after a reboot. Switch it off here and it stays off."
+      },
+      "service": {
+        "title": "Service",
+        "subtitle": "A real on/off switch — the switch itself only flips once the next status poll confirms it.",
+        "switchOn": "Discord service running",
+        "switchOff": "Discord service stopped",
+        "starting": "Starting…",
+        "stopping": "Stopping…",
+        "status": "Status",
+        "statusHint": "From the gateway's own live status check.",
+        "running": "Running",
+        "stopped": "Stopped",
+        "autostart": "Starts automatically",
+        "pid": "PID",
+        "startedAt": "Started at",
+        "transport": "Transport",
+        "botPort": "Bot port",
+        "stateDir": "State directory",
+        "logFile": "Log file"
+      },
+      "env": {
+        "title": "Environment keys",
+        "subtitle": "Names and presence only — a value is never shown here.",
+        "empty": "No environment keys reported",
+        "present": "Present",
+        "missing": "Missing"
+      },
+      "health": {
+        "title": "Bot health",
+        "subtitle": "What the bot's own health check reports, in plain words. Hover a label to see the raw field name.",
+        "unreachable": "Bot not reachable — it may be stopped or still starting.",
+        "emptyReport": "The bot answered with an empty health report.",
+        "field": {
+          "live": "Live",
+          "phase": "Phase",
+          "pid": "Process ID",
+          "startedAt": "Started",
+          "uptimeSec": "Uptime",
+          "transport": "Transport",
+          "connected": "Connected to Discord",
+          "busy": "Busy",
+          "activeRuns": "Active runs",
+          "queueDepth": "Jobs by state",
+          "runner": "Runner",
+          "guildId": "Server ID",
+          "loginError": "Login error",
+          "botUsername": "Bot name",
+          "applicationId": "Application ID",
+          "guilds": "Servers",
+          "inviteUrl": "Invite link",
+          "projects": "Project channels",
+          "ts": "Reported at"
+        },
+        "value": {
+          "yes": "yes",
+          "no": "no",
+          "none": "none",
+          "itemsOne": "{count} item",
+          "itemsMany": "{count} items",
+          "fieldsOne": "{count} fields",
+          "fieldsMany": "{count} fields",
+          "listMore": "{total} — {list} and {count} more",
+          "objectMore": "{shown} · and {count} more"
+        }
+      },
+      "bot": {
+        "title": "Bot activity",
+        "subtitle": "What the Discord bot has done on this machine: its jobs, and the cost Claude Code recorded for them.",
+        "costHint": "Claude Code's own cost figure for each job. On a Claude subscription it estimates usage your plan covers; with an API key it is what was billed.",
+        "unknownProject": "Unknown project",
+        "tokensAcross": "Across recorded jobs.",
+        "tokensCache": "{amount} of the input was read from the prompt cache.",
+        "noCost": "{jobs} recorded no cost.",
+        "openNone": "None still open.",
+        "openOne": "{count} still open.",
+        "openMany": "{count} still open.",
+        "jobsOne": "{count} job",
+        "jobsMany": "{count} jobs",
+        "byState": "Jobs by state",
+        "perProject": "Per project",
+        "costPerProject": "Recorded cost per project",
+        "recent": "Recent jobs",
+        "notes": "Notes",
+        "loading": "Reading bot activity…",
+        "empty": "No bot activity yet",
+        "emptyDetail": "The bot has not handled a job on this machine yet. Its jobs and their recorded cost will appear here after the first one.",
+        "jobs": "Jobs",
+        "cost": "Recorded cost",
+        "last7": "Last 7 days",
+        "last24": "Last 24 hours",
+        "tokens": "Tokens",
+        "tokensValue": "{in} in / {out} out"
+      },
+      "job": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "deadLetter": "Gave up after retries",
+        "running": "Running",
+        "starting": "Starting",
+        "received": "Received",
+        "validated": "Validated",
+        "queued": "Queued",
+        "waitingForProject": "Waiting for project",
+        "waitingForConfirmation": "Waiting for confirmation",
+        "cancelled": "Cancelled",
+        "expired": "Expired",
+        "unknown": "Unknown state"
+      },
+      "dir": {
+        "title": "Projects folder",
+        "subtitle": "Every subfolder in this location automatically becomes a Discord project channel. The bot also keeps a short history file (FORGE_GESCHIEDENIS.txt) in each of those project folders, so it remembers earlier conversations.",
+        "sourceSetting": "Chosen by you.",
+        "sourceDefault": "The default location — nothing chosen yet.",
+        "sourceValueSetting": "setting",
+        "sourceValueDefault": "default",
+        "notExists": "This folder does not exist yet.",
+        "unreadable": "Could not read this folder right now.",
+        "truncated": "{count}+ project folders found (there may be more — this folder is very large).",
+        "none": "No project folders in here yet.",
+        "countOne": "{count} project folder found.",
+        "countMany": "{count} project folders found.",
+        "looksIn": "Discord looks in",
+        "source": "Source",
+        "loading": "Reading the projects folder…",
+        "restarted": "Saved — the bot restarted and channels are being made for each project folder.",
+        "restartFailed": "Saved, but the bot could not restart automatically: {error}",
+        "savedLater": "Saved. This folder will be used the next time the bot starts.",
+        "saveFailed": "The gateway could not save this folder.",
+        "saving": "Saving…",
+        "change": "Change folder",
+        "modalTitle": "Choose a projects folder",
+        "modalDetail": "Pick an existing folder, or type a path for advanced use.",
+        "cancel": "Cancel",
+        "readError": "Could not read that folder.",
+        "up": ".. (up one level)",
+        "reading": "Reading folders…",
+        "noSubfolders": "No subfolders here",
+        "partial": "This folder is very large — showing only part of the list.",
+        "useFolder": "Use this folder",
+        "typed": "Or type a path",
+        "typedHint": "For advanced use — the folder can be created for you if it does not exist yet.",
+        "typedPlaceholder": "C:\\Users\\you\\Documents\\ForgeProjects",
+        "create": "Create this folder if it doesn't exist yet",
+        "usePath": "Use this path"
+      }
+    },
+    "activity": {
+      "toolbar": "Activity view controls",
+      "bodyLabel": "Events of the run",
+      "countWordOne": "event",
+      "countWordMany": "events",
+      "groupByRun": "Group by run",
+      "run": "Run",
+      "runsTruncated": "Showing part of this project's runs — there are more than this list can show.",
+      "currentRun": "Current run",
+      "search": "Search",
+      "searchPlaceholder": "Message and detail",
+      "agent": "Agent",
+      "allAgents": "All agents",
+      "system": "system",
+      "statusLabel": "Status",
+      "allStatuses": "All statuses",
+      "kindLabel": "Kind",
+      "allKinds": "All kinds",
+      "kinds": {
+        "mission": "Mission",
+        "workPackage": "Work package",
+        "agent": "Agent",
+        "task": "Task",
+        "artifact": "Artifact",
+        "test": "Test",
+        "verify": "Verify",
+        "review": "Review",
+        "system": "System"
+      },
+      "statuses": {
+        "running": "RUNNING",
+        "completed": "COMPLETED",
+        "waiting": "WAITING",
+        "verify": "VERIFY",
+        "review": "REVIEW",
+        "failed": "FAILED",
+        "blocked": "BLOCKED",
+        "idle": "IDLE"
+      },
+      "filteringOn": "Filtering on",
+      "clearFilter": "Clear the {name} filter",
+      "clearAll": "Clear all",
+      "empty": {
+        "none": "No events have been recorded yet.",
+        "filtered": "No events match these filters",
+        "widenOne": "{count} event recorded. Widen a filter or clear the search to see them.",
+        "widenMany": "{count} events recorded. Widen a filter or clear the search to see them.",
+        "clearAll": "Clear all filters"
+      },
+      "planned": "Planned",
+      "plannedDetail": "Planned — created, not started yet.",
+      "noRunRecord": "No run record is loaded for this event.",
+      "truncated": "History truncated — earlier events are no longer available",
+      "unreadableOne": "unreadable line skipped",
+      "unreadableMany": "unreadable lines skipped",
+      "scanError": "Event log unreadable — event count may be understated",
+      "feedLive": "This feed updates live as new events arrive from the gateway.",
+      "feedSample": "Timestamps and agent names are example records. The feed does not update — there is nothing connected to update it.",
+      "sampleDetail": "Local example events. Nothing is streaming, no log was read and no agent emitted these lines.",
+      "recovery": {
+        "title": "Recovery & checkpoints",
+        "attempt": "Recovery attempt",
+        "attemptShort": "RECOVERY",
+        "noFinal": "No final status recorded on this attempt.",
+        "finding": "Doc-drift finding",
+        "findingShort": "DOCDRIFT",
+        "manifest": "Run manifest",
+        "manifestShort": "MANIFEST",
+        "manifestPresent": "manifest present",
+        "noData": "No recovery data yet",
+        "noDataDetail": "No project is selected, or the gateway has not answered yet.",
+        "notConfigured": "No recovery ledger configured",
+        "notConfiguredDetail": "This project has no recovery-attempts.jsonl file under .claude/forge-research.",
+        "empty": "No recovery attempts recorded",
+        "emptyDetail": "The recovery ledger exists but currently holds nothing.",
+        "docdrift": "Docdrift",
+        "rulesOne": "{count} rule(s) checked",
+        "rulesMany": "{count} rule(s) checked",
+        "driftedNone": "0 drifted",
+        "driftedOne": "{count} drifted",
+        "driftedMany": "{count} drifted",
+        "checkpoints": "Checkpoints",
+        "resumeAvailable": "resume state available",
+        "noResume": "no resume state",
+        "unknown": "not known yet",
+        "noManifests": "No run manifests",
+        "noManifestsDetail": "No run under this project has recorded a manifest.json yet."
+      }
+    },
+    "theme": {
+      "title": "Theme",
+      "lede": "The v1.0 tokens, live. Blued steel and one spark: calm mineral greys and Pauw as the only accent.",
+      "themeLabel": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System",
+      "densityLabel": "Density",
+      "comfortable": "Comfortable",
+      "compact": "Compact",
+      "mark": "Mark",
+      "markNote": "Below 20 px the mark turns one colour: the ember is too small to read.",
+      "colour": "Colour",
+      "colourNote": "Neutrals carry about 90 % of every screen. Pauw marks where you can act.",
+      "statusNote": "Status colours mean status.",
+      "group": {
+        "surfaces": "Surfaces",
+        "ink": "Ink",
+        "accent": "Accent",
+        "status": "Status"
+      },
+      "use": {
+        "bg": "Main background",
+        "bgSide": "Sidebar",
+        "surface": "Composer, lists, menus",
+        "surface2": "Row hover",
+        "sunken": "Your chat bubble, tracks",
+        "line": "Dividers, card edges",
+        "lineStrong": "Inputs, secondary buttons",
+        "ink": "Text",
+        "ink2": "Secondary text",
+        "ink3": "Captions, timestamps",
+        "accent": "Main button, send, focus",
+        "accentHover": "Button hover",
+        "accentText": "Links",
+        "accentSoft": "Selected row or option",
+        "ok": "Klaar, Verbonden",
+        "warn": "Wacht op jou",
+        "danger": "Mislukt, Verwijderen",
+        "info": "Tips"
+      },
+      "name": {
+        "accentHover": "Pauw, hover"
+      },
+      "type": "Type",
+      "typeNote": "Bahnschrift for display, Segoe UI Variable for everything else. Mono only for paths, commands and ids.",
+      "shape": "Space, radius and depth",
+      "space": "Space",
+      "radius": "Radius",
+      "depth": "Depth",
+      "struckNote": "The struck corner is for four things only: the mark, the composer, send and the proof stamp.",
+      "shadow": {
+        "raised": "Raised",
+        "floating": "Floating",
+        "dialogs": "Dialogs, tour"
+      },
+      "controls": "Controls and status",
+      "tabBefore": "Press",
+      "tabAfter": "to walk the controls: one focus ring everywhere, a canvas gap and a Pauw line.",
+      "motion": "Motion",
+      "motionNote": "Only transform and opacity move. Under reduced motion every duration is 0.",
+      "notSet": "not set"
+    },
+    "details": {
+      "field": {
+        "owner": "Owner",
+        "package": "Package",
+        "phase": "Phase",
+        "column": "Column",
+        "created": "Created",
+        "updated": "Updated",
+        "repairs": "Repairs",
+        "title": "Title",
+        "kind": "Kind",
+        "size": "Size",
+        "change": "Change",
+        "producedBy": "Produced by",
+        "group": "Group",
+        "permission": "Permission",
+        "effort": "Effort",
+        "runtime": "Runtime",
+        "toolModel": "Tool model",
+        "verification": "Verification",
+        "lastActivity": "Last activity",
+        "lane": "Lane",
+        "agent": "Agent",
+        "duration": "Duration",
+        "model": "Model",
+        "position": "Position",
+        "lastRun": "Last run",
+        "evidence": "Evidence",
+        "task": "Task",
+        "recorded": "Recorded",
+        "artifact": "Artifact"
+      },
+      "progress": "Progress",
+      "section": {
+        "detail": "Detail",
+        "dependencies": "Dependencies",
+        "proof": "Proof",
+        "workPackage": "Work package",
+        "currentTask": "Current task",
+        "summary": "Summary",
+        "skills": "Skills",
+        "tasks": "Tasks",
+        "preview": "Preview",
+        "change": "Change",
+        "producedFor": "Produced for",
+        "exampleChange": "Example change",
+        "contents": "Contents",
+        "whatHappened": "What happened here",
+        "edges": "Edges",
+        "output": "Recorded output",
+        "reason": "Verdict reason",
+        "command": "Command",
+        "linked": "Linked"
+      },
+      "noDependencies": "Nothing blocks this task.",
+      "noProof": "No proof entries have been recorded for this task.",
+      "proofNotInExample": "{count} recorded, none of them in the example ledger.",
+      "noTask": "No task assigned.",
+      "noTaskExample": "No task assigned in the example data.",
+      "agentSkills": "Agent skills",
+      "nodeSkills": "Node skills",
+      "spine": "spine",
+      "position": "col {col} · row {row}",
+      "notTracked": "not tracked",
+      "unchanged": "unchanged",
+      "none": "none",
+      "kindFile": "file",
+      "kindDir": "dir",
+      "exampleDiff": "Example unified diff",
+      "exampleDiffHint": "Hand-written diff text. Nothing was read from disk — the prototype has no filesystem access.",
+      "recordedChange": "Recorded change to {name}",
+      "changeHint": "The exact strings the CLI reported for this edit — what it replaced, and what it replaced it with. No diff algorithm was run and nothing was read from disk. Long text is capped by the gateway at capture time.",
+      "changeOmitted": "This edit is real, but its before/after text was left out of this response: the diff budget was already spent by earlier edits. Nothing was truncated — the text is absent, not shortened.",
+      "changeOmittedChars": "This edit is real, but its before/after text was left out of this response: the diff budget ({chars} characters) was already spent by earlier edits. Nothing was truncated — the text is absent, not shortened.",
+      "changeNone": "No diff was recorded for this edit — the change is real, but no before/after text was captured for it (runs recorded before diff capture existed have none). This is an absence of evidence, not evidence that nothing changed.",
+      "previewLive": "A summary recorded with this artifact by the run that produced it — not a live file read.",
+      "previewExample": "Written example content. No file was produced and nothing was rendered.",
+      "commandLive": "Recorded as text from the run that reported it. It is never executed from this panel.",
+      "commandExample": "Recorded as text in the example ledger. It was never executed here."
+    },
+    "statusWord": {
+      "running": "RUNNING",
+      "completed": "COMPLETED",
+      "waiting": "WAITING",
+      "verify": "VERIFY",
+      "review": "REVIEW",
+      "failed": "FAILED",
+      "idle": "IDLE",
+      "blocked": "BLOCKED"
+    },
+    "statusInfo": {
+      "running": "Running — work is in progress right now.",
+      "completed": "Completed — finished and accepted.",
+      "waiting": "Waiting — queued behind an earlier step.",
+      "verify": "Verifying — the claim is being checked against its evidence.",
+      "review": "In review — awaiting a review pass before it can be accepted.",
+      "failed": "Failed — stopped with an error and needs attention.",
+      "idle": "Idle — nothing is running or recorded here right now.",
+      "blocked": "Blocked — cannot proceed until something else clears."
+    },
+    "deleteChat": {
+      "title": "Delete conversation",
+      "body": "Permanently deletes \"{title}\". This cannot be undone.",
+      "cancel": "Cancel",
+      "confirm": "Delete",
+      "busy": "Deleting…",
+      "failed": "Delete failed",
+      "failedDetail": "The gateway could not delete this conversation."
+    },
+    "palette": {
+      "label": "Command palette",
+      "placeholder": "Search commands, projects and screens",
+      "list": "Matching commands",
+      "empty": "No command matches",
+      "groupProjects": "Projects",
+      "groupGo": "Go to",
+      "groupAppearance": "Appearance",
+      "groupLayout": "Layout",
+      "openProject": "Open {name}",
+      "searchProjectsDetail": "My projects, without a filter",
+      "newChatDetail": "In the chosen project",
+      "theme": "Theme: {name}",
+      "themeSaved": "Saved on this PC only.",
+      "hintMove": "move",
+      "hintRun": "run",
+      "hintClose": "close",
+      "honesty": "Only New chat sends anything to Forge."
+    }
+  }
+}

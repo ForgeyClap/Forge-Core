@@ -20,6 +20,8 @@ import { pickArray, pickBool, pickNumber, pickRecord, pickString, pickStringArra
 
 import { STATUS_WHEN_UNKNOWN } from './shared';
 import { parseFinalizeProof, type FinalizeProofInput } from './finalize-proof-label';
+import { getLocale, translate } from '@/i18n';
+import type { Locale, MessageKey } from '@/i18n';
 
 /* ========================================================================== */
 /*  2. Raw row shapes + parsers                                               */
@@ -695,10 +697,10 @@ export function formatDurationMs(ms: number | null): string {
  * as a precise measurement". Only the honest fallback gets the qualifier; a real
  * `'run-completed-event'` measurement (or the `''` "not measured" case) is untouched.
  */
-export function formatDurationWithSource(ms: number | null, source: string | null): string {
+export function formatDurationWithSource(ms: number | null, source: string | null, locale: Locale = getLocale()): string {
   const base = formatDurationMs(ms);
   if (base === '') return base;
-  return source === 'derived-from-events' ? `${base} (from events)` : base;
+  return source === 'derived-from-events' ? `${base} ${translate(locale, 'relativeTime.fromEvents')}` : base;
 }
 
 /**
@@ -717,20 +719,26 @@ export function formatDurationWithSource(ms: number | null, source: string | nul
  * "unknown attributes are shown as absence" rule; a future timestamp (clock skew) reads as
  * "just now" rather than a nonsensical negative age.
  */
-export function formatRelativeTime(iso: string | null): string {
+export function formatRelativeTime(iso: string | null, locale: Locale = getLocale()): string {
   if (iso === null || iso.trim() === '') return '';
   const thenMs = Date.parse(iso);
   if (!Number.isFinite(thenMs)) return '';
+  // B8-3: the words come from `relativeTime.*` in nl.json / en.json (Dutch is the default locale),
+  // so the sidebar and the inspector's "Laatst actief" no longer print English beside Dutch labels.
+  // The "<digits> <unit word>" shape is unchanged, so HomeView/ProjectsView `agoMinutes()` still
+  // sort it (both now also know the Dutch unit words).
+  const say = (key: MessageKey, count?: number): string =>
+    translate(locale, key, count === undefined ? undefined : { count });
   const diffMinutes = Math.max(0, (Date.now() - thenMs) / 60000);
-  if (diffMinutes < 1) return 'just now';
-  if (diffMinutes < 60) return `${Math.round(diffMinutes)} min ago`;
+  if (diffMinutes < 1) return say('relativeTime.justNow');
+  if (diffMinutes < 60) return say('relativeTime.minutesAgo', Math.round(diffMinutes));
   const diffHours = diffMinutes / 60;
-  if (diffHours < 24) return `${Math.round(diffHours)} hr ago`;
+  if (diffHours < 24) return say('relativeTime.hoursAgo', Math.round(diffHours));
   const diffDays = diffHours / 24;
   if (diffDays < 7) {
     const d = Math.round(diffDays);
-    return `${d} day${d === 1 ? '' : 's'} ago`;
+    return d === 1 ? say('relativeTime.dayAgo') : say('relativeTime.daysAgo', d);
   }
   const w = Math.round(diffDays / 7);
-  return `${w} week${w === 1 ? '' : 's'} ago`;
+  return w === 1 ? say('relativeTime.weekAgo') : say('relativeTime.weeksAgo', w);
 }

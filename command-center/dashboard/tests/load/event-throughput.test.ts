@@ -8,7 +8,7 @@
  *
  * TWO REAL PATHS ARE EXERCISED.
  *
- *  STORE (src/bridge/storage/store.ts) — the durable JSONL log.
+ *  STORE (archive/bridge/storage/store.ts) — the durable JSONL log.
  *    · append latency (ingestion): every `appendEvent` is timed, including the
  *      per-line fsync that makes it durable. That fsync is why 100k live appends
  *      do NOT stay under a few seconds, so 100k append is measured only when a
@@ -40,8 +40,8 @@ import { arch, platform, version as nodeVersion } from 'node:process';
 import { join, resolve } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
-import { ForgeStore } from '../../src/bridge/storage/store.ts';
-import { EVENT_SCHEMA_VERSION } from '../../src/bridge/storage/schema.ts';
+import { ForgeStore } from '../../archive/bridge/storage/store.ts';
+import { EVENT_SCHEMA_VERSION } from '../../archive/bridge/storage/schema.ts';
 import type { ForgeEvent } from '../../src/shared/protocol.ts';
 
 import { PROTOCOL_SCHEMA_VERSION } from '@/shared/protocol';

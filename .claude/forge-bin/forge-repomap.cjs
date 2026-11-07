@@ -87,7 +87,10 @@ const DEFAULT_EXCLUDE_DIR_NAMES = new Set([
 ]);
 // project-specific hard exclude, by RELATIVE PATH (not basename): THIS project's generated run-log
 // subtree only (not all of .claude/, and not any unrelated repo's own "forge-runs" directory elsewhere).
-const HARD_EXCLUDE_RELPATHS = ['.claude/forge-runs'];
+// WP 2.1: plus the whole opt-in `.forge` runtime-state root (runs, scribe inbox with verbatim owner prompts, memory,
+// index, ...) — never part of a code map. Matched by exact path segment like the legacy entry, so a project without a
+// .forge folder walks exactly as before.
+const HARD_EXCLUDE_RELPATHS = ['.claude/forge-runs', '.forge'];
 
 // ---- secrets: never list, never open (mirrors forge-harvest.cjs::isForbiddenFilename) ----
 function isForbiddenFilename(name) {

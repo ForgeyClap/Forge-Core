@@ -44,9 +44,19 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, execSync, execFileSync } = require('child_process');
 
-const CLAUDE_DIR = path.resolve(__dirname, '..');
-const PROJECT_DIR = path.resolve(__dirname, '..', '..');
-const PROJECT_NAME = path.basename(PROJECT_DIR);
+// WP 2.1: the project comes from forge-paths.cjs scriptRootInfo — an installed copy (<project>/.claude/forge-bin)
+// keeps CLAUDE_DIR = this folder's parent and PROJECT_DIR = its project exactly as before; a plugin copy uses the
+// discovered project's .claude. A plugin copy outside any project gets PROJECT_DIR null and the CLI refuses every
+// command before anything is read or written (CLAUDE_DIR then keeps the old value only so the paths below stay
+// computable). The binding file is left in .claude in both layouts (its memory class is not decided yet). Guarded:
+// an older or missing forge-paths.cjs keeps the literals.
+const SCRIPT_ROOT_INFO = (() => {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.scriptRootInfo === 'function') return P.scriptRootInfo(__dirname); } catch { /* the legacy literals */ }
+  return { root: path.resolve(__dirname, '..', '..'), source: 'script' };
+})();
+const PROJECT_DIR = SCRIPT_ROOT_INFO.root;
+const CLAUDE_DIR = SCRIPT_ROOT_INFO.source !== 'script' && PROJECT_DIR ? path.join(PROJECT_DIR, '.claude') : path.resolve(__dirname, '..');
+const PROJECT_NAME = PROJECT_DIR ? path.basename(PROJECT_DIR) : null;
 const BINDING_FILE = path.join(CLAUDE_DIR, 'FORGE_PAPERCLIP_BINDING.json');
 const LOG_EVENT = path.join(CLAUDE_DIR, 'forge-dashboard', 'log-event.cjs');
 const BASE = process.env.PAPERCLIP_URL || 'http://127.0.0.1:3100';
@@ -699,7 +709,10 @@ if (require.main === module) {
   // the only ones in this file.
   const gate = paperclipGate(cmd, { force: args.includes('--force') });
   if (gate.config_note) console.error('NOTE (settings): ' + gate.config_note);
-  if (!gate.allowed) {
+  if (!PROJECT_DIR) {
+    console.error('forge-paperclip: no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — run it from the project'); // WP 2.1
+    process.exitCode = 2;
+  } else if (!gate.allowed) {
     console.error(gate.message);
     process.exitCode = 3;
   } else {

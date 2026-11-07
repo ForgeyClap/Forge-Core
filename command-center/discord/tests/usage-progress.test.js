@@ -2,61 +2,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { SubscriptionUsage, normalize, bar, resetIn } from '../src/subscription-usage.js';
+import { LocalUsage, bar, resetIn } from '../src/local-usage.js';
 import { progressFromEvent, parseStream, buildArgs } from '../src/runner-claude.js';
 import { scanRecent, formatDiff } from '../src/project-diff.js';
 import { RunStatus } from '../src/run-status.js';
 import { MockTransport } from '../src/transport/mock.js';
 import { tmpStateDir } from './helpers.js';
 
-const PAYLOAD = {
-  limits: [
-    { kind: 'session', group: 'session', percent: 35, severity: 'normal', resets_at: new Date(Date.now() + 2 * 3600 * 1000).toISOString(), scope: null },
-    { kind: 'weekly_all', group: 'weekly', percent: 15, severity: 'normal', resets_at: new Date(Date.now() + 6 * 86400 * 1000).toISOString(), scope: null },
-    { kind: 'weekly_scoped', group: 'weekly', percent: 19, severity: 'normal', resets_at: new Date(Date.now() + 6 * 86400 * 1000).toISOString(), scope: { model: { display_name: 'Fable' } } },
-  ],
-  extra_usage: { is_enabled: false },
-};
-
-test('abonnement-usage: drie balken met juiste labels (sessie, week, Week Fable)', () => {
-  const u = normalize(PAYLOAD);
-  assert.deepEqual(u.limits.map((l) => l.label), ['Sessie (5 uur)', 'Week (7 dagen)', 'Week Fable']);
-  assert.deepEqual(u.limits.map((l) => l.percent), [35, 15, 19]);
-  const txt = SubscriptionUsage.format(u);
-  assert.ok(txt.includes('Week Fable'));
-  assert.ok(txt.includes('35%'));
-  assert.ok(txt.includes('▰'));
-  assert.equal(SubscriptionUsage.peak(u), 35);
-});
+// De verbruiksbron zelf (lokale logs, geen token, geen netwerk) wordt getest in
+// tests/local-usage.test.js. Hier alleen de gedeelde weergavehulpjes.
 
 test('usage-balk en resettijd zijn correct', () => {
   assert.equal(bar(0, 10), '▱▱▱▱▱▱▱▱▱▱');
   assert.equal(bar(100, 10), '▰▰▰▰▰▰▰▰▰▰');
   assert.equal(bar(50, 10), '▰▰▰▰▰▱▱▱▱▱');
-  assert.equal(resetIn(new Date(Date.now() + 3 * 3600 * 1000).toISOString()), '3u');
-  assert.equal(resetIn(new Date(Date.now() + 2 * 86400 * 1000).toISOString()), '2d');
-  assert.equal(resetIn(new Date(Date.now() - 1000).toISOString()), 'nu');
+  // One fixed clock for the input AND for resetIn: reading Date.now() twice made 3 h come out as 2.999 h -> '2u' under load.
+  const now = Date.now();
+  assert.equal(resetIn(new Date(now + 3 * 3600 * 1000).toISOString(), now), '3u');
+  assert.equal(resetIn(new Date(now + 2 * 86400 * 1000).toISOString(), now), '2d');
+  assert.equal(resetIn(new Date(now - 1000).toISOString(), now), 'nu');
 });
 
-test('usage: netwerkfout of ontbrekend token levert een eerlijke melding, geen crash', async () => {
-  const u = new SubscriptionUsage({ fetchImpl: async () => { throw new Error('offline'); } });
-  const res = await u.get();
-  assert.ok(res.unavailable);
-  assert.equal(res.limits.length, 0);
-  assert.ok(SubscriptionUsage.format(res).includes('Abonnement-verbruik'));
-});
-
-test('usage wordt gecachet (geen extra API-calls per commando)', async () => {
-  let calls = 0;
-  const u = new SubscriptionUsage({
-    cacheMs: 60_000,
-    fetchImpl: async () => { calls += 1; return { ok: true, json: async () => PAYLOAD }; },
-  });
-  // token kan ontbreken op een testmachine → dan is caching niet meetbaar
-  const first = await u.get();
-  if (first.unavailable) return;
-  await u.get();
-  assert.equal(calls, 1);
+test('peak: echte limieten geven het hoogste percentage, geen limieten geven null (onbekend)', () => {
+  assert.equal(LocalUsage.peak({ limits: [{ percent: 35 }, { percent: 19 }] }), 35);
+  assert.equal(LocalUsage.peak({ limits: [] }), null);
+  assert.equal(LocalUsage.peak({ unavailable: 'x', limits: [] }), null);
 });
 
 test('live voortgang: tool-events worden korte, leesbare regels', () => {

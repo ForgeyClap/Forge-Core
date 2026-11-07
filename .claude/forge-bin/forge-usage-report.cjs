@@ -64,7 +64,8 @@ function pct(a, p) {
 }
 const share = (t) => (t.ctx > 0 ? t.read / t.ctx : 0);
 const RUN_ID_RE = /forge-\d{4}-\d{2}-\d{2}-[A-Za-z0-9][A-Za-z0-9-]*/g;
-const RUN_CMD_RE = /log-event|runcontract|forge-runs/;
+// a transcript command that touches a run: the legacy forge-runs folder and (WP 2.1) the opt-in .forge/runs folder
+const RUN_CMD_RE = /log-event|runcontract|forge-runs|\.forge[\\/]+runs/;
 
 // One streaming pass per transcript: usage records, compaction timestamps, run-id markers.
 async function scanTranscript(file, since, knownRuns) {
@@ -163,13 +164,30 @@ const verdictOf = (e) => {
   return v.startsWith('PASS') ? 'PASS' : v.startsWith('FAIL') ? 'FAIL' : null;
 };
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+
 function loadRuns(projectRoot) {
-  const dir = path.join(projectRoot, '.claude', 'forge-runs');
   const runs = new Map();
+  // the runs folder(s) of this project's layout: legacy = .claude/forge-runs only (as before); forge = the active
+  // folder first, then the legacy one (a run id already loaded from the active folder wins)
+  const active = statePath(projectRoot, 'runs'), legacy = path.join(projectRoot, '.claude', 'forge-runs');
+  for (const dir of active === legacy ? [legacy] : [active, legacy]) loadRunsFrom(dir, runs);
+  return runs;
+}
+
+function loadRunsFrom(dir, runs) {
   let ents;
   try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return runs; }
   for (const e of ents) {
-    if (!e.isDirectory() || !/^forge-/.test(e.name)) continue;
+    if (!e.isDirectory() || !/^forge-/.test(e.name) || runs.has(e.name)) continue;
     const run = { id: e.name, start: null, end: null, events: [] };
     let txt = '';
     try { txt = fs.readFileSync(path.join(dir, e.name, 'events.jsonl'), 'utf8'); } catch (_) { /* none */ }

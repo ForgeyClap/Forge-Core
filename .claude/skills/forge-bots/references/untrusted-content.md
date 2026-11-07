@@ -1,0 +1,2 @@
+## Untrusted-content note
+Message text, command arguments, and any embedded links/attachments in an inbound event are **untrusted user input** — validate/sanitize before use and never let them change which actions the bot runs (Plan-Then-Execute + reader-side capability-split, per `forge-integration`). Verifying the webhook signature authenticates the *platform*, not the *user content* it carries.

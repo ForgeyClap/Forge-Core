@@ -7,10 +7,38 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// WP B1a: two directories can be relocated by env, read ONCE at import (never from a
+// request), so an installed app can keep its code read-only and its user data outside the install:
+//   FORGE_CORE_DIR - the read-only Forge core (holds .claude/); default = the dev derivation below.
+//   FORGE_DATA_DIR - every gateway write (conversations, attachments, sessions, discord state,
+//                    agent-model and config edit logs, ask-MCP configs); default = command-center/.data.
+// A set-but-invalid value FAILS the import with a clear error instead of silently falling back: a
+// gateway that quietly writes somewhere else than the caller asked splits the user's data.
+function envDirOrNull(name, { mustExist }) {
+  const raw = process.env[name];
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const trimmed = raw.trim();
+  const bad = (why) => new Error('[paths] ' + name + ' is invalid: ' + why);
+  // Same rules as UNC_RE / CONTROL_CHAR_RE further down, written out here because this runs at
+  // import time ABOVE those const declarations (reading them here would be a TDZ ReferenceError).
+  if (/^[\\/]{2}/.test(trimmed)) throw bad('a network or device path is not allowed');
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) throw bad('it contains control characters');
+  if (!path.isAbsolute(trimmed)) throw bad('"' + trimmed + '" is not an absolute path');
+  const resolved = path.resolve(trimmed);
+  if (isDriveRoot(resolved)) throw bad('"' + resolved + '" is a drive root');
+  let stat = null;
+  try { stat = fs.statSync(resolved); } catch { stat = null; }
+  if (stat && !stat.isDirectory()) throw bad('"' + resolved + '" exists but is not a directory');
+  if (!stat && mustExist) throw bad('"' + resolved + '" does not exist');
+  return resolved;
+}
+
 // gateway/src -> gateway -> command-center -> project root ("my project!")
 export const GATEWAY_DIR = path.resolve(__dirname, '..');
 export const COMMAND_CENTER_DIR = path.resolve(GATEWAY_DIR, '..');
-export const PROJECT_ROOT = path.resolve(COMMAND_CENTER_DIR, '..');
+const DERIVED_PROJECT_ROOT = path.resolve(COMMAND_CENTER_DIR, '..');
+const CORE_DIR_FROM_ENV = envDirOrNull('FORGE_CORE_DIR', { mustExist: true });
+export const PROJECT_ROOT = CORE_DIR_FROM_ENV || DERIVED_PROJECT_ROOT;
 export const CLAUDE_DIR = path.join(PROJECT_ROOT, '.claude');
 export const FORGE_RUNS_DIR = path.join(CLAUDE_DIR, 'forge-runs');
 export const FORGE_SYNC_CJS = path.join(CLAUDE_DIR, 'forge-bin', 'forge-sync.cjs');
@@ -23,7 +51,10 @@ export const APP_DIST_DIR = path.join(COMMAND_CENTER_DIR, 'dashboard', 'dist');
 // Fixed scan root for the project registry (forge-sync.cjs list <root>): the PARENT of this
 // project's own root, i.e. the Documents folder this whole "Forge fleet" lives under. Computed,
 // never taken from a request — satisfies "no user input in args ever" for the spawned CLI.
-export const SYNC_SCAN_ROOT = path.dirname(PROJECT_ROOT);
+// WP B1a: used in dev mode only. FORGE_PROJECT_ROOTS (see below) replaces it, and in installed mode
+// (FORGE_CORE_DIR set) it is never used, so an installed app never scans (or creates ForgeProjects/
+// in) the parent of its install folder.
+const DERIVED_SYNC_SCAN_ROOT = path.dirname(PROJECT_ROOT);
 
 // C1 fix (2026-09-26 laptop re-audit): SYNC_SCAN_ROOT alone only ever finds a project that
 // happens to be a SIBLING of wherever this repo was cloned — on a fresh machine where the clone
@@ -233,84 +264,121 @@ function realAncestryRelation(containerReal, targetReal) {
   return 'none';
 }
 
-// Returns a validated, resolved absolute path, or null (logging exactly why) when the raw env
-// value fails any check. Never throws — an operator's typo in an env var must never crash the
-// gateway at import time.
-export function validateExtraScanRoot(raw) {
+// checkScanRoot: `{ root }` (the validated, resolved real path), `{ reason }` (why it was refused),
+// or null for an empty value. Never logs and never throws; the callers below decide what a refusal
+// means (CC_PROJECTS_EXTRA_ROOT: one log line and ignored; FORGE_PROJECT_ROOTS: see further down).
+function checkScanRoot(raw) {
   if (typeof raw !== 'string' || raw.trim() === '') return null;
   const trimmed = raw.trim();
   // A UNC/network path (`\\host\share\...` or `//host/share/...`) is a fundamentally different
   // trust boundary than "another local folder on this machine" — rejected before path.resolve()
   // even normalizes it, so it can never sneak through as if it were a plain absolute path.
   if (UNC_RE.test(trimmed)) {
-    logRejectedExtraRoot('"' + trimmed + '" looks like a network/UNC path, not a local directory.');
-    return null;
+    return { reason: '"' + trimmed + '" looks like a network/UNC path, not a local directory.' };
   }
   if (!path.isAbsolute(trimmed)) {
-    logRejectedExtraRoot('"' + trimmed + '" is not an absolute path.');
-    return null;
+    return { reason: '"' + trimmed + '" is not an absolute path.' };
   }
   const resolved = path.resolve(trimmed);
   let stat;
   try {
     stat = fs.statSync(resolved);
   } catch {
-    logRejectedExtraRoot('"' + resolved + '" does not exist.');
-    return null;
+    return { reason: '"' + resolved + '" does not exist.' };
   }
   if (!stat.isDirectory()) {
-    logRejectedExtraRoot('"' + resolved + '" is not a directory.');
-    return null;
+    return { reason: '"' + resolved + '" is not a directory.' };
   }
   if (isDriveRoot(resolved)) {
-    logRejectedExtraRoot('"' + resolved + '" is a drive root — too wide to scan.');
-    return null;
+    return { reason: '"' + resolved + '" is a drive root — too wide to scan.' };
   }
   // Follow symlinks/junctions to the REAL target before the home check — a link whose literal path
   // reads like an ordinary folder but actually points at (or above) home must be caught here, not
   // let through because the un-resolved path looked fine.
   const real = realpathOrNull(resolved);
   if (real === null) {
-    logRejectedExtraRoot('"' + resolved + '" could not be resolved to its real, on-disk location.');
-    return null;
+    return { reason: '"' + resolved + '" could not be resolved to its real, on-disk location.' };
   }
   // Q2 fix: the TYPED-text UNC check above only ever sees what the operator wrote — a local-
   // looking folder path that is actually a symlink/junction pointing at a network share resolves,
   // via realpathSync.native, to a `\\host\share\...` target that never went through that check at
   // all. Reject the RESOLVED target too.
   if (UNC_RE.test(real)) {
-    logRejectedExtraRoot('"' + resolved + '" resolves to a network/UNC path ("' + real + '") — too wide a trust boundary.');
-    return null;
+    return { reason: '"' + resolved + '" resolves to a network/UNC path ("' + real + '") — too wide a trust boundary.' };
   }
   // same reasoning as the typed-path drive-root check above, but for the REAL target — a
   // junction/symlink whose typed path looks like an ordinary folder can still resolve to a drive
   // root ("C:\\"), which is exactly as wide as typing the drive root directly.
   if (isDriveRoot(real)) {
-    logRejectedExtraRoot('"' + resolved + '" resolves to a drive root ("' + real + '") — too wide to scan.');
-    return null;
+    return { reason: '"' + resolved + '" resolves to a drive root ("' + real + '") — too wide to scan.' };
   }
   const realHome = realpathOrNull(path.resolve(os.homedir())) ?? path.resolve(os.homedir());
   const homeRelation = realAncestryRelation(real, realHome);
   if (homeRelation === 'equal') {
-    logRejectedExtraRoot('"' + resolved + '" is the home folder itself — too wide to scan.');
-    return null;
+    return { reason: '"' + resolved + '" is the home folder itself — too wide to scan.' };
   }
   // `real` being an ANCESTOR of home (e.g. `C:\Users` above `C:\Users\YOU`, or a drive-level
   // folder above that, including a drive root that slipped past the check above for some other
   // reason) means home is CONTAINED IN the candidate, so scanning the candidate scans home too.
   // Rejected for the same reason as home itself: too wide to scan.
   if (homeRelation === 'contains') {
-    logRejectedExtraRoot('"' + resolved + '" contains the home folder — too wide to scan.');
-    return null;
+    return { reason: '"' + resolved + '" contains the home folder — too wide to scan.' };
   }
   // return the RESOLVED real target, not the typed/link path — a link re-pointed after
   // this validation ran must have no effect on what SYNC_SCAN_ROOTS actually scans.
-  return real;
+  return { root: real };
 }
+
+// Returns a validated, resolved absolute path, or null (logging exactly why) when the raw env
+// value fails any check. Never throws — an operator's typo in an env var must never crash the
+// gateway at import time.
+export function validateExtraScanRoot(raw) {
+  const r = checkScanRoot(raw);
+  if (r === null) return null;
+  if (r.reason) { logRejectedExtraRoot(r.reason); return null; }
+  return r.root;
+}
+
+// WP B1a: FORGE_PROJECT_ROOTS (a path.delimiter-separated list: ';' on Windows, ':'
+// elsewhere) REPLACES the built-in roots (repo parent, ~/Documents, ~/Desktop), so the Electron app
+// passes the user's own chosen folders and no user folder is hardcoded. Every entry goes through
+// the same checkScanRoot() rules as CC_PROJECTS_EXTRA_ROOT (local, existing, not a drive root, not
+// home or above home). A rejected entry is logged and skipped. B1a rework: when the variable is set
+// but NO entry is accepted (folder renamed, OneDrive not mounted yet, USB drive unplugged) the import
+// FAILS naming every rejected entry, like FORGE_DATA_DIR: silently falling back would scan, and
+// create ForgeProjects/ in, a folder the user never chose.
+export function parseProjectRootsEnv(raw) {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const roots = [];
+  const rejected = [];
+  for (const entry of raw.split(path.delimiter).map((p) => p.trim()).filter((p) => p.length > 0)) {
+    const r = checkScanRoot(entry);
+    if (r && r.root) roots.push(r.root); else if (r) rejected.push({ entry, reason: r.reason });
+  }
+  return { roots, rejected };
+}
+const PROJECT_ROOTS_ENV = parseProjectRootsEnv(process.env.FORGE_PROJECT_ROOTS);
+if (PROJECT_ROOTS_ENV && PROJECT_ROOTS_ENV.roots.length === 0) {
+  throw new Error('[paths] FORGE_PROJECT_ROOTS is invalid: no entry was accepted ('
+    + (PROJECT_ROOTS_ENV.rejected.map((x) => x.reason).join(' ') || 'the list is empty') + ')');
+}
+for (const x of (PROJECT_ROOTS_ENV ? PROJECT_ROOTS_ENV.rejected : [])) {
+  console.error('[paths] FORGE_PROJECT_ROOTS entry ignored: ' + x.reason);
+}
+const HAS_PROJECT_ROOTS_OVERRIDE = PROJECT_ROOTS_ENV !== null;
+// Installed mode (FORGE_CORE_DIR set): dirname(PROJECT_ROOT) is the install folder's parent, never a
+// user folder, so it is neither scanned nor used as the ForgeProjects host. Dev mode keeps it first.
+export const IS_INSTALLED_MODE = CORE_DIR_FROM_ENV !== null;
+const BUILTIN_SCAN_ROOTS = [
+  ...(IS_INSTALLED_MODE ? [] : [DERIVED_SYNC_SCAN_ROOT]),
+  path.join(os.homedir(), 'Documents'), path.join(os.homedir(), 'Desktop'),
+];
+const BASE_SCAN_ROOTS = HAS_PROJECT_ROOTS_OVERRIDE ? PROJECT_ROOTS_ENV.roots : BUILTIN_SCAN_ROOTS;
+export const SYNC_SCAN_ROOT = BASE_SCAN_ROOTS[0];
 
 const EXTRA_SCAN_ROOT = validateExtraScanRoot(process.env[EXTRA_SCAN_ROOT_ENV_NAME]);
 export const SYNC_SCAN_ROOTS = Array.from(new Set(
-  [SYNC_SCAN_ROOT, path.join(os.homedir(), 'Documents'), path.join(os.homedir(), 'Desktop'), EXTRA_SCAN_ROOT]
+  [...BASE_SCAN_ROOTS, EXTRA_SCAN_ROOT]
     .filter((p) => typeof p === 'string' && p.length > 0)
     .map((p) => path.resolve(p)),
 ));
@@ -349,7 +417,10 @@ export const FORGE_USAGE_GUARD_PID_FILE = path.join(os.homedir(), '.claude', 'fo
 
 // WP4 addition: the conversation store lives ONLY under command-center/.data/ (D2 "write boundary"
 // hard rule — the gateway never writes into .claude/). `.data/` is already `.gitignore`d.
-export const COMMAND_CENTER_DATA_DIR = path.join(COMMAND_CENTER_DIR, '.data');
+// WP B1a: FORGE_DATA_DIR relocates it (the app passes %APPDATA%/Forge Systeem); every gateway
+// writer derives its path from COMMAND_CENTER_DATA_DIR, so they all follow.
+export const DEFAULT_COMMAND_CENTER_DATA_DIR = path.join(COMMAND_CENTER_DIR, '.data');
+export const COMMAND_CENTER_DATA_DIR = envDirOrNull('FORGE_DATA_DIR', { mustExist: false }) || DEFAULT_COMMAND_CENTER_DATA_DIR;
 export const CONVERSATIONS_DIR = path.join(COMMAND_CENTER_DATA_DIR, 'conversations');
 
 // build-lastdemos addition: one directory per conversation, holding every file the composer's

@@ -27,7 +27,7 @@
  *
  * One case below is marked KNOWN DEFECT. It asserts what the code does today,
  * not what it should do, and says so in full. Encoding the bug is how the suite
- * stays honest while `src/bridge/**` is owned by another work package.
+ * stays honest while `archive/bridge/**` is owned by another work package.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,11 +54,11 @@ import {
   renewLock,
   writeAtomic,
   writeJsonAtomic,
-} from '../../src/bridge/storage/atomic.ts';
-import { ForgeStore, StoreLockError } from '../../src/bridge/storage/store.ts';
-import type { StoreOptions } from '../../src/bridge/storage/store.ts';
-import { LIVE_RUN_STATUSES, isTerminalRunStatus } from '../../src/bridge/storage/schema.ts';
-import type { RunRecord } from '../../src/bridge/storage/schema.ts';
+} from '../../archive/bridge/storage/atomic.ts';
+import { ForgeStore, StoreLockError } from '../../archive/bridge/storage/store.ts';
+import type { StoreOptions } from '../../archive/bridge/storage/store.ts';
+import { LIVE_RUN_STATUSES, isTerminalRunStatus } from '../../archive/bridge/storage/schema.ts';
+import type { RunRecord } from '../../archive/bridge/storage/schema.ts';
 import type { OperationalStatus, ProjectRecord } from '../../src/shared/protocol.ts';
 
 /* ------------------------------------------------------------------ fixtures */
@@ -283,7 +283,7 @@ describe('a JSONL log whose final line was cut in half', () => {
   /*
    * KNOWN DEFECT — reported, not papered over.
    *
-   * `appendLineDurable` (src/bridge/storage/atomic.ts) writes `line + "\n"` in
+   * `appendLineDurable` (archive/bridge/storage/atomic.ts) writes `line + "\n"` in
    * append mode without first checking that the file ends with a newline. After
    * a crash that left an unterminated final line, the next append is therefore
    * GLUED ONTO THE FRAGMENT: `appendEvent` returns a result claiming sequence

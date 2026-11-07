@@ -118,7 +118,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1: this copy's project via forge-paths.cjs scriptRoot (an installed .claude/forge-bin copy keeps its own
+// project, as before; a plugin copy discovers it from the cwd, null when there is none). Guarded: a missing or older
+// forge-paths.cjs keeps the old two-folders-up answer. forge-checkpoints has no canon state key, so it stays legacy.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const PROJECT_ROOT_DEFAULT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 const TEST_HOOKS_ENABLED = process.env.FORGE_CHECKPOINT_TEST_HOOKS === '1';
 const VALID_STATUS = new Set(['pending', 'running', 'done', 'failed']);
 const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
@@ -127,6 +131,7 @@ const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
 function resolveRoot(explicit) {
   if (explicit) return path.resolve(explicit);
   if (process.env.FORGE_CHECKPOINT_ROOT) return path.resolve(process.env.FORGE_CHECKPOINT_ROOT);
+  if (!PROJECT_ROOT_DEFAULT) throw new Error('forge-checkpoint: no project root found (no .claude, .forge or .git above the current folder; pass --root)');
   return PROJECT_ROOT_DEFAULT;
 }
 function checkpointsBase(root) { return path.join(root, '.claude', 'forge-checkpoints'); }

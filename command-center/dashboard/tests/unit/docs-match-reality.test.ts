@@ -52,8 +52,52 @@ function findProjectRoot(): string {
 
 const PROJECT_ROOT = findProjectRoot();
 
+/**
+ * Where `CLAUDE.md` moved its dashboard detail (modernization WP 3.6, 2026-10-24: the always-loaded
+ * file was cut under 6 KB and the dashboard section moved here word for word; `CLAUDE.md` points
+ * here with "Detail: `docs/claude-md/dashboard.md`").
+ */
+const DASHBOARD_DETAIL_DOC = 'docs/claude-md/dashboard.md';
+
 /** The documents that describe how to run this project. */
-const DOCS = ['CLAUDE.md', join('.claude', 'commands', 'forge.md')];
+const DOCS = ['CLAUDE.md', join('.claude', 'commands', 'forge.md'), DASHBOARD_DETAIL_DOC];
+
+const GATEWAY_ENTRY = 'command-center/gateway/bin.mjs';
+const LEGACY_SERVER_MARKERS = ['.claude/forge-dashboard/server.cjs', 'server.cjs'];
+
+function firstIndexOf(text: string, needles: readonly string[]): number {
+  const hits = needles.map((needle) => text.indexOf(needle)).filter((index) => index > -1);
+  return hits.length === 0 ? -1 : Math.min(...hits);
+}
+
+/**
+ * Returns why `claudeMd` (with its dashboard detail doc) fails to present the Command Center as this
+ * project's dashboard, or null when it does. The Command Center must be named by its real origin or
+ * gateway entrypoint BEFORE any mention of the legacy server, in both files, and the gateway
+ * entrypoint must be reachable: named in `CLAUDE.md` itself, or in the detail doc it points to.
+ */
+function dashboardClaimProblem(claudeMd: string, detailDoc: string, originHostPort: string): string | null {
+  const anchors = [originHostPort, GATEWAY_ENTRY];
+  const ccIndex = firstIndexOf(claudeMd, anchors);
+  if (ccIndex === -1) return 'CLAUDE.md no longer names the Command Center (its origin or gateway entrypoint) at all';
+
+  const legacyIndex = firstIndexOf(claudeMd, LEGACY_SERVER_MARKERS);
+  if (legacyIndex > -1 && legacyIndex < ccIndex) {
+    return 'CLAUDE.md describes the legacy Control Center before the Command Center';
+  }
+
+  if (claudeMd.includes(GATEWAY_ENTRY)) return null;
+  if (!claudeMd.includes(DASHBOARD_DETAIL_DOC)) {
+    return `CLAUDE.md names neither ${GATEWAY_ENTRY} nor the detail doc ${DASHBOARD_DETAIL_DOC}`;
+  }
+  const detailCc = detailDoc.indexOf(GATEWAY_ENTRY);
+  if (detailCc === -1) return `${DASHBOARD_DETAIL_DOC} does not name ${GATEWAY_ENTRY}`;
+  const detailLegacy = firstIndexOf(detailDoc, LEGACY_SERVER_MARKERS);
+  if (detailLegacy > -1 && detailLegacy < detailCc) {
+    return `${DASHBOARD_DETAIL_DOC} describes the legacy Control Center before the Command Center`;
+  }
+  return null;
+}
 
 function readDoc(relativePath: string): string {
   const full = join(PROJECT_ROOT, relativePath);
@@ -111,15 +155,36 @@ describe('project docs agree with the code about the Command Center', () => {
 
     // The regression this pins: the Command Center must be named as this project's dashboard
     // BEFORE the legacy section, so a reader acting on the first answer acts on the right one.
-    const commandCenterIndex = text.indexOf('command-center/gateway/bin.mjs');
-    const legacyIndex = text.indexOf('.claude/forge-dashboard/server.cjs');
+    // Since WP 3.6 the short CLAUDE.md names it by origin and points to the detail doc for the
+    // gateway entrypoint, so the check follows that pointer instead of demanding the literal path.
+    const problem = dashboardClaimProblem(
+      text,
+      readDoc(DASHBOARD_DETAIL_DOC),
+      GATEWAY_ORIGIN.replace(/^https?:\/\//, ''),
+    );
+    expect(problem, `${problem ?? ''}. A reader stops at the first answer; it must be the right dashboard.`).toBeNull();
+  });
 
-    expect(commandCenterIndex, 'CLAUDE.md no longer names the Command Center gateway at all').toBeGreaterThan(-1);
-    if (legacyIndex === -1) return; // Legacy section removed entirely — also fine.
+  it('the CLAUDE.md dashboard check still rejects the regressions it exists for', () => {
+    const origin = GATEWAY_ORIGIN.replace(/^https?:\/\//, '');
+    const detail = `Start it with node ${GATEWAY_ENTRY}. The old .claude/forge-dashboard/server.cjs was removed.`;
+    const pointer = `Detail: \`${DASHBOARD_DETAIL_DOC}\`.`;
+
+    // Legacy server named first: the original 2026 regression.
     expect(
-      commandCenterIndex,
-      'CLAUDE.md describes the legacy Control Center before the Command Center. A reader stops at the ' +
-        'first answer, and the first answer would be the wrong dashboard for this project.',
-    ).toBeLessThan(legacyIndex);
+      dashboardClaimProblem(`Dashboard: .claude/forge-dashboard/server.cjs on 3737. Also ${origin}. ${pointer}`, detail, origin),
+    ).toMatch(/legacy Control Center before/);
+    // No Command Center at all.
+    expect(dashboardClaimProblem('Dashboard: see the docs.', detail, origin)).toMatch(/no longer names/);
+    // Origin named, but the entrypoint is nowhere reachable.
+    expect(dashboardClaimProblem(`Dashboard on ${origin}.`, detail, origin)).toMatch(/names neither/);
+    // Pointer followed, but the detail doc lost the entrypoint or puts the legacy server first.
+    expect(dashboardClaimProblem(`Dashboard on ${origin}. ${pointer}`, 'Use server.cjs.', origin)).toMatch(/does not name/);
+    expect(
+      dashboardClaimProblem(`Dashboard on ${origin}. ${pointer}`, `server.cjs first, then ${GATEWAY_ENTRY}`, origin),
+    ).toMatch(/legacy Control Center before/);
+    // Both accepted shapes: entrypoint inline, or origin plus pointer to a correct detail doc.
+    expect(dashboardClaimProblem(`Run node ${GATEWAY_ENTRY} on ${origin}.`, '', origin)).toBeNull();
+    expect(dashboardClaimProblem(`Dashboard on ${origin}; old server.cjs removed. ${pointer}`, detail, origin)).toBeNull();
   });
 });

@@ -3,12 +3,12 @@
  *
  * House rules observed here:
  *   - no raw hex, rgb() or hsl(). Every colour, space, radius, size and
- *     duration is a var(--forge-*) token (or a --fw-* density hook from
+ *     duration is a var(--fs-*) token (or a --fw-* density hook from
  *     src/styles/app.css, which itself resolves to forge tokens).
  *   - the diff is monochrome. Added and removed lines are told apart by a
  *     leading +/- glyph, a left gutter rule whose STYLE differs (solid vs
  *     dashed), and a subtle surface step — never by a red or green fill.
- *   - change markers carry glyph + uppercase label + border style. Three
+ *   - change markers carry glyph + sentence-case label + border style. Three
  *     signals, so the state survives greyscale and a laser printer.
  *   - the only motion is the disclosure chevron, and it stops under
  *     prefers-reduced-motion.
@@ -24,7 +24,7 @@
   block-size: 100%;
   min-block-size: 0;
   min-inline-size: 0;
-  background: var(--forge-color-bg);
+  background: var(--fs-bg);
 }
 
 /* ------------------------------------------------------------------ head */
@@ -35,62 +35,80 @@
   flex-direction: column;
   gap: var(--fw-gap);
   padding: var(--fw-gutter) var(--fw-gutter) var(--fw-gutter-tight);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-files__heading {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-files__title {
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-tight);
-  color: var(--forge-color-text);
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: calc(var(--fs-text-13) * 2);
+  font-weight: 400;
+  font-stretch: 92%;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  color: var(--fs-ink);
 }
 
 .fw-files__subtitle {
-  max-inline-size: var(--forge-layout-reading);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
+/* Sentence-case labels and plain numbers (v1.0: mono only for paths and diff lines). */
+.fw-files-label {
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
+}
+
+.fw-files-quiet {
+  color: var(--fs-ink-3);
+}
+
+.fw-files-num {
+  font-variant-numeric: tabular-nums;
+}
+
 
 /* The head already carries the gutter, so the toolbar drops its own. */
 .fw-files__toolbar {
   padding-inline: 0;
   flex-wrap: wrap;
-  row-gap: var(--forge-space-2);
+  row-gap: var(--fs-space-2);
 }
 
 /* Change tallies. Glyph + count + short label, all monospace. */
 .fw-files__tally {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  block-size: var(--forge-control-xs);
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-1);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-1);
+  block-size: 22px;
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__tally-glyph {
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-bold);
-  line-height: var(--forge-leading-none);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fs-ink-2);
 }
 
 .fw-files__tally-label {
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  line-height: var(--forge-leading-none);
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  line-height: 1;
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -101,12 +119,12 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-inline-size: 0;
   padding-inline: var(--fw-gutter);
-  padding-block: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-surface-1);
+  padding-block: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-surface);
 }
 
 .fw-files__recent-label {
@@ -118,53 +136,57 @@
   min-inline-size: 0;
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   /* Vertical room so the focus ring is not clipped by the scroll container. */
-  padding: var(--forge-space-1) 0;
+  padding: var(--fs-space-1) 0;
   list-style: none;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
+  /* W3FX-BC: the list is the containing block of the chips' visually hidden spans, so they are clipped
+     by this scroller instead of widening the page; the last 2rem fades to show there is more. */
+  position: relative;
+  mask-image: linear-gradient(to right, var(--fs-ink) calc(100% - 2rem), transparent);
 }
 
 .fw-files__chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   block-size: var(--fw-control-h-sm);
-  max-inline-size: var(--forge-layout-node-w);
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-secondary);
+  max-inline-size: 188px;
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-2);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .fw-files__chip:hover {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text);
+  background: var(--fs-sunken);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink);
 }
 
 .fw-files__chip[aria-pressed='true'] {
-  background: var(--forge-color-selected);
-  border-color: var(--forge-color-line-loud);
-  color: var(--forge-color-text);
+  background: var(--fs-accent-soft);
+  border-color: var(--fs-ink-3);
+  color: var(--fs-ink);
 }
 
 .fw-files__chip-name {
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-files__chip-mark {
   flex: none;
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-bold);
-  line-height: var(--forge-leading-none);
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -176,10 +198,10 @@
   min-block-size: 0;
   min-inline-size: 0;
   display: grid;
-  /* No --forge-layout-tree token exists; the sidebar and inspector widths are
+  /* No layout-tree token exists; the sidebar and inspector widths are
      the closest existing pair and read correctly next to the real sidebar. */
   grid-template-columns:
-    minmax(var(--forge-layout-sidebar), var(--forge-layout-inspector))
+    minmax(264px, 340px)
     minmax(0, 1fr);
 }
 
@@ -191,8 +213,8 @@
 }
 
 .fw-files__pane--tree {
-  border-inline-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-surface-1);
+  border-inline-end: 1px solid var(--fs-line);
+  background: var(--fs-surface);
 }
 
 /* ---------------------------------------------------------------- search */
@@ -201,34 +223,34 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   padding: var(--fw-gutter-tight);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-files__search-icon {
   flex: none;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__search-input {
   flex: 1 1 auto;
   min-inline-size: 0;
   block-size: var(--fw-control-h);
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-sunken);
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-sm);
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-13);
 }
 
 .fw-files__search-input::placeholder {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__search-input:hover {
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-files__search-clear {
@@ -240,7 +262,7 @@
 .fw-files__tree-scroll {
   flex: 1 1 auto;
   min-block-size: 0;
-  padding-block: var(--forge-space-2);
+  padding-block: var(--fs-space-2);
 }
 
 .fw-files__tree,
@@ -260,34 +282,34 @@
 }
 
 .fw-files__item:focus-visible > .fw-files__row {
-  box-shadow: var(--forge-shadow-focus-ring);
-  border-radius: var(--forge-radius-sm);
+  box-shadow: var(--fs-focus);
+  border-radius: var(--fs-radius-xs);
 }
 
 .fw-files__row {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   block-size: var(--fw-row-h);
   min-inline-size: 0;
-  padding-inline-end: var(--forge-space-2);
+  padding-inline-end: var(--fs-space-2);
   padding-inline-start: calc(
-    var(--forge-space-2) + var(--forge-space-4) * (var(--fw-files-depth, 1) - 1)
+    var(--fs-space-2) + var(--fs-space-4) * (var(--fw-files-depth, 1) - 1)
   );
-  border-inline-start: var(--forge-border-thick) solid transparent;
-  color: var(--forge-color-text-secondary);
+  border-inline-start: 2px solid transparent;
+  color: var(--fs-ink-2);
   cursor: pointer;
 }
 
 .fw-files__row:hover {
-  background: var(--forge-color-hover);
-  color: var(--forge-color-text);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  color: var(--fs-ink);
 }
 
 .fw-files__row[data-selected='true'] {
-  background: var(--forge-color-selected);
-  border-inline-start-color: var(--forge-color-line-loud);
-  color: var(--forge-color-text);
+  background: var(--fs-accent-soft);
+  border-inline-start-color: var(--fs-ink-3);
+  color: var(--fs-ink);
 }
 
 .fw-files__twist {
@@ -295,11 +317,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  inline-size: var(--forge-icon-sm);
-  block-size: var(--forge-icon-sm);
-  color: var(--forge-color-text-faint);
+  inline-size: 14px;
+  block-size: 14px;
+  color: var(--fs-ink-3);
   transform: rotate(0deg);
-  transition: transform var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  transition: transform var(--fs-dur-1) var(--fs-ease);
 }
 
 .fw-files__twist[data-open='true'] {
@@ -308,27 +330,27 @@
 
 .fw-files__glyph {
   flex: none;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__row:hover .fw-files__glyph,
 .fw-files__row[data-selected='true'] .fw-files__glyph {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__name {
   flex: 1 1 auto;
-  font-size: var(--forge-text-sm);
+  font-size: var(--fs-text-13);
 }
 
 .fw-files__match {
-  background: var(--forge-color-selected);
-  color: var(--forge-color-text);
-  padding-inline: var(--forge-space-px);
-  border-radius: var(--forge-radius-xs);
+  background: var(--fs-accent-soft);
+  color: var(--fs-ink);
+  padding-inline: 1px;
+  border-radius: var(--fs-radius-xs);
   text-decoration: underline;
-  text-decoration-thickness: var(--forge-border-hair);
-  text-underline-offset: var(--forge-space-px);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 1px;
 }
 
 /* =========================================================================
@@ -339,43 +361,42 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  block-size: var(--forge-control-xs);
-  padding-inline: var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-xs);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-1);
+  block-size: 22px;
+  padding-inline: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  color: var(--fs-ink-3);
   vertical-align: middle;
 }
 
 .fw-files__change[data-change='added'] {
   border-style: solid;
-  border-color: var(--forge-color-line-loud);
-  color: var(--forge-color-text-secondary);
+  border-color: var(--fs-ink-3);
+  color: var(--fs-ink-2);
 }
 
 .fw-files__change[data-change='modified'] {
   border-style: dashed;
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-files__change[data-change='deleted'] {
   border-style: dotted;
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text-faint);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__change-glyph {
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-bold);
-  line-height: var(--forge-leading-none);
+  font-size: var(--fs-text-12);
+  font-weight: 700;
+  line-height: 1;
 }
 
 .fw-files__change-label {
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-wide);
-  line-height: var(--forge-leading-none);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
+  line-height: 1;
 }
 
 /* =========================================================================
@@ -383,30 +404,30 @@
    ========================================================================= */
 
 .fw-files__pane--preview {
-  background: var(--forge-color-bg);
+  background: var(--fs-bg);
 }
 
 .fw-files__preview-head {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-block-size: var(--fw-header-h);
   min-inline-size: 0;
   padding-inline: var(--fw-gutter);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-files__preview-glyph {
   flex: none;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__preview-name {
   min-inline-size: 0;
-  font-size: var(--forge-text-md);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+  color: var(--fs-ink);
 }
 
 .fw-files__preview-scroll {
@@ -423,19 +444,19 @@
 .fw-files__meta {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   margin: 0;
   min-inline-size: 0;
 }
 
 .fw-files__meta-row {
   display: grid;
-  grid-template-columns: minmax(0, var(--forge-space-20)) minmax(0, 1fr);
-  gap: var(--forge-space-3);
+  grid-template-columns: minmax(0, 5rem) minmax(0, 1fr);
+  gap: var(--fs-space-3);
   align-items: baseline;
   min-inline-size: 0;
-  padding-block-end: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-end: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-files__meta-row:last-child {
@@ -447,7 +468,7 @@
   margin: 0;
   min-inline-size: 0;
   overflow-wrap: anywhere;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 /* =========================================================================
@@ -457,19 +478,19 @@
 .fw-files__diff {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-files__diff-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-files__diff-count {
-  font-size: var(--forge-text-2xs);
+  font-size: var(--fs-text-12);
   font-variant-numeric: tabular-nums;
 }
 
@@ -478,32 +499,32 @@
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
 }
 
 .fw-files__diff-body {
   min-inline-size: max-content;
-  padding-block: var(--forge-space-2);
+  padding-block: var(--fs-space-2);
 }
 
 .fw-files__dline {
   display: flex;
   align-items: flex-start;
-  border-inline-start: var(--forge-border-thick) solid transparent;
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
+  border-inline-start: 2px solid transparent;
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
   font-variant-ligatures: none;
 }
 
 .fw-files__dnum {
   flex: none;
-  inline-size: var(--forge-space-10);
-  padding-inline-end: var(--forge-space-2);
+  inline-size: var(--fs-space-8);
+  padding-inline-end: var(--fs-space-2);
   text-align: end;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
   font-variant-numeric: tabular-nums;
   user-select: none;
   -webkit-user-select: none;
@@ -511,9 +532,9 @@
 
 .fw-files__dglyph {
   flex: none;
-  inline-size: var(--forge-space-4);
+  inline-size: var(--fs-space-4);
   text-align: center;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -521,54 +542,54 @@
 .fw-files__dcode {
   white-space: pre;
   font: inherit;
-  color: var(--forge-color-text-secondary);
-  padding-inline-end: var(--forge-space-4);
+  color: var(--fs-ink-2);
+  padding-inline-end: var(--fs-space-4);
 }
 
 /* Added: solid gutter rule, one surface step up, full-value text. */
 .fw-files__dline[data-kind='add'] {
-  background: var(--forge-color-surface-3);
-  border-inline-start-color: var(--forge-color-line-loud);
+  background: var(--fs-sunken);
+  border-inline-start-color: var(--fs-ink-3);
 }
 
 .fw-files__dline[data-kind='add'] .fw-files__dcode {
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
 }
 
 .fw-files__dline[data-kind='add'] .fw-files__dglyph {
-  color: var(--forge-color-text);
-  font-weight: var(--forge-weight-bold);
+  color: var(--fs-ink);
+  font-weight: 700;
 }
 
 /* Removed: dashed gutter rule, one surface step down, muted text. */
 .fw-files__dline[data-kind='del'] {
-  background: var(--forge-color-sunken);
+  background: var(--fs-sunken);
   border-inline-start-style: dashed;
-  border-inline-start-color: var(--forge-color-line-strong);
+  border-inline-start-color: var(--fs-line-strong);
 }
 
 .fw-files__dline[data-kind='del'] .fw-files__dcode {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__dline[data-kind='del'] .fw-files__dglyph {
-  color: var(--forge-color-text-muted);
-  font-weight: var(--forge-weight-bold);
+  color: var(--fs-ink-3);
+  font-weight: 700;
 }
 
 .fw-files__dline[data-kind='meta'] .fw-files__dcode,
 .fw-files__dline[data-kind='hunk'] .fw-files__dcode {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-files__dline[data-kind='meta'],
 .fw-files__dline[data-kind='hunk'] {
-  background: var(--forge-color-surface-2);
+  background: var(--fs-surface-2);
 }
 
 .fw-files__dline[data-kind='hunk'] {
-  border-block: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  margin-block: var(--forge-space-1);
+  border-block: 1px solid var(--fs-line);
+  margin-block: var(--fs-space-1);
 }
 
 /* =========================================================================
@@ -576,19 +597,19 @@
    ========================================================================= */
 
 :root[data-density='compact'] .fw-files__title {
-  font-size: var(--forge-text-lg);
+  font-size: var(--fs-text-22);
 }
 
 :root[data-density='compact'] .fw-files__recent {
-  padding-block: var(--forge-space-1);
+  padding-block: var(--fs-space-1);
 }
 
 :root[data-density='compact'] .fw-files__dline {
-  line-height: var(--forge-leading-tight);
+  line-height: var(--fs-leading-tight);
 }
 
 :root[data-density='compact'] .fw-files__meta-row {
-  padding-block-end: var(--forge-space-1);
+  padding-block-end: var(--fs-space-1);
 }
 
 /* =========================================================================
@@ -604,7 +625,7 @@
 
   .fw-files__pane--tree {
     border-inline-end: 0;
-    border-block-end: var(--forge-border-hair) solid var(--forge-color-line);
+    border-block-end: 1px solid var(--fs-line);
   }
 
   .fw-files__tree-scroll {
@@ -614,8 +635,8 @@
   .fw-files__preview-head {
     position: sticky;
     inset-block-start: 0;
-    z-index: var(--forge-z-sticky);
-    background: var(--forge-color-bg);
+    z-index: 100;
+    background: var(--fs-bg);
   }
 }
 

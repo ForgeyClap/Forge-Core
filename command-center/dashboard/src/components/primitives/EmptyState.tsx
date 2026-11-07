@@ -1,8 +1,8 @@
 /**
  * EmptyState — what a region says when it has nothing to show.
  *
- * Quiet by design: a bordered glyph, one line of title, one line of detail, and
- * at most one action. No illustration, no oversized heading.
+ * DESIGN.md §4: one line and one action, centred. A small Inleg tile with the
+ * struck-style corner, a title line, an optional detail line, at most one action.
  */
 
 import type { ReactNode } from 'react';

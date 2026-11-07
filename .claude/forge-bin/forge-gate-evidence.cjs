@@ -40,7 +40,21 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1: forge-paths.cjs is optional (a copied tool or an older install keeps the own-folder root and the legacy
+// .claude/forge-runs). With it the run folder is the ACTIVE runs folder (.forge/runs once <root>/.forge/ exists, the
+// same place log-event.cjs writes the run), and a plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+function runsDir(root) {
+  const legacy = path.join(root, '.claude', 'forge-runs');
+  if (!forgePaths) return legacy;
+  try { return forgePaths.stateDir(root, 'runs'); } catch { return legacy; }
+}
+const PROJECT_ROOT_DEFAULT = defaultRoot();
 
 function parseArgs(argv) {
   const o = { run: null, root: null, gates: null, json: false, inline: [], merge: false };
@@ -52,8 +66,17 @@ function parseArgs(argv) {
     else if (a === '--json') o.json = true;
     else if (a === '--merge') o.merge = true;
     else if (a === '--gate') o.inline.push(argv[++i]);
+    else (o.unknown || (o.unknown = [])).push(a); // G-EV1: never silently dropped (an unquoted --gate split by the shell)
   }
   return o;
+}
+
+/** G-EV1: an interpreter or package runner with no script and no arguments runs nothing (node with stdin
+ *  closed exits 0 with no output), so a gate like that proves nothing and must never read as green. */
+const BARE_RUNNERS = new Set(['node', 'nodejs', 'python', 'python3', 'py', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'deno', 'bash', 'sh', 'zsh', 'pwsh', 'powershell', 'cmd']);
+function bareRunnerGate(g) {
+  const base = path.basename(String(g && g.cmd || '')).toLowerCase().replace(/\.(exe|cmd|bat)$/, '');
+  return BARE_RUNNERS.has(base) && !(Array.isArray(g.args) && g.args.some((x) => String(x).trim()));
 }
 
 /** runGate — voert EEN poort uit en levert het bewijsrecord.
@@ -292,7 +315,9 @@ function gitState(root) {
    *  dat we op dit moment schrijven en de door een hook geregenereerde snapshot zijn zelfreferentiële
    *  ruis: zolang die meetellen kan `worktree_clean` per definitie nooit true worden, en dan zegt het
    *  veld niets meer. Ze blijven zichtbaar in dirty_files — alleen het OORDEEL kijkt naar de bron. */
-  const eigenRuis = (p) => /\.claude\/forge-runs\/[^/]+\/gate-evidence\.json$/.test(p) || /\.claude\/FORGE_SNAPSHOT\.md$/.test(p);
+  // WP 2.1: the same two files in the opt-in .forge/ layout (.forge/runs/<id>/, .forge/memory/FORGE_SNAPSHOT.md)
+  const eigenRuis = (p) => /\.claude\/forge-runs\/[^/]+\/gate-evidence\.json$/.test(p) || /\.claude\/FORGE_SNAPSHOT\.md$/.test(p)
+    || /(^|\/)\.forge\/runs\/[^/]+\/gate-evidence\.json$/.test(p) || /(^|\/)\.forge\/memory\/FORGE_SNAPSHOT\.md$/.test(p);
   const bron = paden ? paden.filter((p) => !eigenRuis(p)) : null;
   /** HEAD + een boolean is een grove maat. De vingerafdruk hasht de volledige status-uitvoer van
    *  de vuile BRONbestanden, zodat een wijziging die de clean-vlag niet omzet toch zichtbaar is. */
@@ -325,8 +350,9 @@ function gitState(root) {
 
 function record(runId, gates, opts) {
   opts = opts || {};
+  if (!opts.root && !PROJECT_ROOT_DEFAULT) throw new Error('no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>');
   const root = opts.root ? path.resolve(opts.root) : PROJECT_ROOT_DEFAULT;
-  const runDir = path.join(root, '.claude', 'forge-runs', runId);
+  const runDir = path.join(runsDir(root), runId);
   const rawDir = path.join(runDir, 'gate-output');
   // a malformed wrapped gate is refused BEFORE any gate runs, so a long earlier gate is never wasted
   for (const g of gates) parseTestrunGate(g);
@@ -527,6 +553,11 @@ if (require.main === module) {
     console.error('       a test gate: --gate "naam::node .claude/forge-bin/forge-testrun.cjs -- <test command>" (only its summary is printed; the evidence is its full log)');
     process.exit(2);
   }
+  if (o.unknown && o.unknown.length) {
+    console.error('forge-gate-evidence: argument(s) not understood / niet begrepen: ' + o.unknown.slice(0, 6).map((x) => JSON.stringify(x)).join(' ') + (o.unknown.length > 6 ? ' …' : ''));
+    console.error('  quote each --gate value as ONE argument / zet elke --gate-waarde tussen aanhalingstekens: --gate "naam::node .claude/forge-bin/forge-testrun.cjs -- node x.test.cjs"');
+    process.exit(2);
+  }
   let gates = [];
   if (o.gates) {
     try { gates = JSON.parse(fs.readFileSync(path.resolve(o.gates), 'utf8')); }
@@ -541,6 +572,12 @@ if (require.main === module) {
     gates.push({ name, cmd: parts[0], args: parts.slice(1) });
   }
   if (!gates.length) { console.error('geen poorten opgegeven (--gates of --gate)'); process.exit(2); }
+  const bare = gates.filter(bareRunnerGate);
+  if (bare.length) {
+    console.error('forge-gate-evidence: gate(s) ' + bare.map((g) => '"' + g.name + '" (' + g.cmd + ')').join(', ') + ' run only an interpreter with no script — that proves nothing / draait alleen een interpreter zonder script, dat bewijst niets. Quote the whole command: --gate "naam::node <script> <args>"');
+    process.exit(2);
+  }
+  if (!o.root && !PROJECT_ROOT_DEFAULT) { console.error('forge-gate-evidence: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); process.exit(2); }
   const { manifest, manifestFile } = record(o.run, gates, { root: o.root, merge: o.merge });
   if (o.json) console.log(JSON.stringify(manifest, null, 2));
   else console.log('\n' + manifest.gates_total + ' poort(en) · ' + (manifest.all_green ? 'ALLE GROEN' : manifest.gates_failed + ' GEFAALD') + ' -> ' + path.relative(process.cwd(), manifestFile));

@@ -360,6 +360,140 @@ await tAsync('V-03: a port conflict exits 1 with an honest message, no manual st
   }
 });
 
+// FU-STEP2 (Security Boss Step 2, decision A-prime): the dashboard credential is an out-of-band HttpOnly cookie.
+// The launcher makes the UI session secret and a one-time pairing code, hands both to the gateway through its
+// environment (never argv), and prints http://127.0.0.1:<port>/?pair=<code>; the gateway swaps the code once,
+// within 120 s, for the cookie. The launcher module is read as a whole object so each test fails on its own on
+// the code from before this change.
+const launch = require('./forge-cc-launch.cjs');
+
+t('FU-STEP2: makePairing gives a 64-hex secret, a 48-hex one-time code and a 120 s expiry, as gateway env', () => {
+  assert(typeof launch.makePairing === 'function', 'makePairing must be exported');
+  let n = 0;
+  const p = launch.makePairing({ now: 1000, randomBytes: (len) => Buffer.alloc(len, ++n) });
+  assert(p.secret === '01'.repeat(32), 'secret from the first 32 bytes: ' + p.secret);
+  assert(p.code === '02'.repeat(24), 'code from the next 24 bytes: ' + p.code);
+  assert(p.expiresAt === 121000, 'expires 120 s after now: ' + p.expiresAt);
+  assert(JSON.stringify(Object.keys(p.env).sort()) === JSON.stringify(['FORGE_UI_PAIRING_CODE', 'FORGE_UI_SESSION_SECRET']), Object.keys(p.env).join(','));
+  assert(p.env.FORGE_UI_SESSION_SECRET === p.secret);
+  assert(p.env.FORGE_UI_PAIRING_CODE === p.code + '.121000', p.env.FORGE_UI_PAIRING_CODE);
+  const real1 = launch.makePairing();
+  const real2 = launch.makePairing();
+  assert(/^[0-9a-f]{64}$/.test(real1.secret) && /^[0-9a-f]{48}$/.test(real1.code), 'real randomness, hex');
+  assert(real1.secret !== real2.secret && real1.code !== real2.code, 'new values every run');
+});
+
+t('FU-STEP2: pairingLink is the gateway root with only the code as query', () => {
+  assert(typeof launch.pairingLink === 'function', 'pairingLink must be exported');
+  assert(launch.pairingLink('http://127.0.0.1:4100', 'abc123') === 'http://127.0.0.1:4100/?pair=abc123');
+});
+
+t('FU-STEP2: gatewayEnv adds the default project and the pairing env, drops any inherited FORGE_UI_* (any case), never mutates its input', () => {
+  assert(typeof launch.gatewayEnv === 'function', 'gatewayEnv must be exported');
+  const base = { PATH: 'p', forge_ui_session_secret: 'stale', FORGE_UI_PAIRING_CODE: 'stale-code', CC_PORT: '4100' };
+  const frozen = JSON.stringify(base);
+  const pairing = launch.makePairing({ now: 5, randomBytes: (len) => Buffer.alloc(len, 7) });
+  const env = launch.gatewayEnv(base, 'C:\\proj', pairing);
+  assert(JSON.stringify(base) === frozen, 'input untouched');
+  assert(env.PATH === 'p' && env.CC_PORT === '4100', 'the rest is kept');
+  assert(env.FORGE_CC_DEFAULT_PROJECT === 'C:\\proj');
+  const uiKeys = Object.keys(env).filter((k) => k.toUpperCase().startsWith('FORGE_UI_'));
+  assert(JSON.stringify(uiKeys.sort()) === JSON.stringify(['FORGE_UI_PAIRING_CODE', 'FORGE_UI_SESSION_SECRET']), uiKeys.join(','));
+  assert(env.FORGE_UI_SESSION_SECRET === pairing.secret && env.FORGE_UI_PAIRING_CODE === pairing.env.FORGE_UI_PAIRING_CODE);
+  const noProject = launch.gatewayEnv(base, null, pairing);
+  assert(!('FORGE_CC_DEFAULT_PROJECT' in noProject), 'no project root: no default project');
+});
+
+t('FU-STEP2: the start and already-running texts say how to pair, and never print the secret', () => {
+  assert(typeof launch.pairingLines === 'function' && typeof launch.alreadyRunningPairingLines === 'function', 'both text helpers must be exported');
+  const pairing = launch.makePairing({ now: 0, randomBytes: (len) => Buffer.alloc(len, 9) });
+  const start = launch.pairingLines('http://127.0.0.1:4100', pairing).join('\n');
+  assert(start.includes('http://127.0.0.1:4100/?pair=' + pairing.code), start);
+  assert(/once/i.test(start) && /2 minutes/.test(start), 'single use and 2 minutes are named: ' + start);
+  assert(!start.includes(pairing.secret), 'the secret is never printed');
+  const running = launch.alreadyRunningPairingLines().join('\n');
+  assert(/forge dashboard/.test(running) && /pairing link/i.test(running), running);
+});
+
+// Security fix round (Security Boss FAIL, HIGH): the gateway trusts the Vite dev origins (:5173) only with the dev
+// switch FORGE_DEV_ORIGINS=1. The launcher never sets it itself; a switch the developer set is passed on, and the
+// launcher then says so out loud (never a silent dev mode).
+t('FU-STEP2 fix: devOriginsLines warns only when the gateway will trust the Vite dev origins', () => {
+  assert(typeof launch.devOriginsLines === 'function', 'devOriginsLines must be exported');
+  for (const env of [{}, { FORGE_DEV_ORIGINS: '' }, { FORGE_DEV_ORIGINS: '0' }, { FORGE_DEV_ORIGINS: 'true' }, { PATH: 'p' }]) {
+    assert(launch.devOriginsLines(env).length === 0, 'no warning for ' + JSON.stringify(env));
+  }
+  for (const env of [{ FORGE_DEV_ORIGINS: '1' }, { FORGE_DEV_ORIGINS: ' 1 ' }, { forge_dev_origins: '1' }]) {
+    const text = launch.devOriginsLines(env).join(' ');
+    assert(/FORGE_DEV_ORIGINS/.test(text) && /5173/.test(text), 'the warning names the switch and the port: ' + text);
+    assert(/development/i.test(text), 'the warning says it is for development only: ' + text);
+  }
+});
+
+t('FU-STEP2 fix: gatewayEnv never ADDS the dev switch; a switch the developer set is passed on unchanged', () => {
+  const pairing = launch.makePairing({ now: 1, randomBytes: (len) => Buffer.alloc(len, 3) });
+  const plain = launch.gatewayEnv({ PATH: 'p' }, null, pairing);
+  assert(!Object.keys(plain).some((k) => k.toUpperCase() === 'FORGE_DEV_ORIGINS'), 'not set by the launcher');
+  const dev = launch.gatewayEnv({ PATH: 'p', FORGE_DEV_ORIGINS: '1' }, null, pairing);
+  assert(dev.FORGE_DEV_ORIGINS === '1', 'an explicit developer switch is kept');
+});
+
+// The contract with the real gateway (command-center/gateway): a real bin.mjs on a free port and a temp data dir gets
+// the launcher's env and swaps the printed code for a cookie whose value is the secret. Stopped by its exact handle.
+// A Forge project without its own command-center/ (an installed copy of forge-bin) skips this one, visibly.
+const PAIR_CC = findCommandCenter(launch.PROJECT_ROOT, os.homedir());
+if (!PAIR_CC || PAIR_CC.origin !== 'project-local') {
+  console.log('  skip FU-STEP2 real-gateway pairing contract: no project-local command-center/gateway here');
+} else await tAsync('FU-STEP2: a real gateway started with gatewayEnv swaps the printed pairing link once for the cookie', async () => {
+  assert(typeof launch.makePairing === 'function' && typeof launch.gatewayEnv === 'function', 'makePairing/gatewayEnv must be exported');
+  const found = PAIR_CC;
+  const { spawn } = require('child_process');
+  const probe = http.createServer();
+  await new Promise((r) => probe.listen(0, '127.0.0.1', r));
+  const port = probe.address().port;
+  await new Promise((r) => probe.close(r));
+  const dataDir = mkTmp('cc-launch-pair');
+  const pairing = launch.makePairing();
+  const env = launch.gatewayEnv(Object.assign({}, process.env, {
+    CC_PORT: String(port), FORGE_DATA_DIR: dataDir, CC_DISCORD_AUTOSTART: 'off', CC_EXEC_MOCK: '1',
+  }), null, pairing);
+  const child = spawn(process.execPath, [path.join(found.root, 'gateway', 'bin.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+  const get = (urlPath, headers) => new Promise((resolve, reject) => {
+    const req = http.get({ host: '127.0.0.1', port, path: urlPath, headers: headers || {} }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers }));
+    });
+    req.on('error', reject);
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('gateway did not listen within 30s: ' + out.slice(-800))), 30000);
+      const check = () => { if (/gateway listening http:\/\/127\.0\.0\.1:\d+/.test(out)) { clearTimeout(timer); resolve(); } };
+      child.stdout.on('data', check);
+      child.on('exit', (c) => { clearTimeout(timer); reject(new Error('gateway exited early (' + c + '): ' + out.slice(-800))); });
+      check();
+    });
+    const link = launch.pairingLink('http://127.0.0.1:' + port, pairing.code);
+    const first = await get(link.slice(('http://127.0.0.1:' + port).length), { 'Sec-Fetch-Site': 'none' });
+    const cookie = [].concat(first.headers['set-cookie'] || [])[0] || '';
+    assert(first.status === 302 && first.headers.location === '/', 'swap answers 302 to /: ' + first.status);
+    assert(cookie.split(';')[0] === 'forge_ui=' + pairing.secret, 'the cookie carries the launcher secret');
+    assert(/HttpOnly/.test(cookie) && /SameSite=Strict/.test(cookie) && /Path=\//.test(cookie), cookie.replace(pairing.secret, '<secret>'));
+    const second = await get(link.slice(('http://127.0.0.1:' + port).length), { 'Sec-Fetch-Site': 'none' });
+    assert(!second.headers['set-cookie'], 'the printed link works once');
+    assert(!out.includes(pairing.secret) && !out.includes(pairing.code), 'the gateway never logs the secret or the code');
+  } finally {
+    if (child.exitCode === null) {
+      const exited = new Promise((r) => child.once('exit', r));
+      child.kill();
+      await exited;
+    }
+  }
+});
+
 cleanupTmpDirs();
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');

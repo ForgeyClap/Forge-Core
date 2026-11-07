@@ -1,0 +1,108 @@
+{
+  "skill": "ship-readiness",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "use-when",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "Use before a deploy, go-live or client handoff",
+      "why": "description carries a when-trigger"
+    },
+    {
+      "id": "advisory",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "not an enforced gate",
+      "why": "ship-readiness stays advisory"
+    },
+    {
+      "id": "deploy-phases",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "## Deploy phases",
+      "why": "SA-W1-C1 graft (anthropics deploy-checklist): pre/deploy/post"
+    },
+    {
+      "id": "triggers-first",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "Decide the rollback triggers **before** the deploy",
+      "why": "rollback triggers set before the deploy"
+    },
+    {
+      "id": "first-hour",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "**Post-deploy, first hour:**",
+      "why": "SA-W1-C1 graft (shipping-and-launch): first-hour checks"
+    },
+    {
+      "id": "owner-gated",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "stay owner-gated",
+      "why": "deploys stay owner-gated"
+    },
+    {
+      "id": "template-file",
+      "type": "file_exists",
+      "path": ".claude/skills/ship-readiness/references/deploy-phases.md",
+      "why": "the fill-in template lives in references/"
+    },
+    {
+      "id": "drafted-only",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/references/deploy-phases.md",
+      "needle": "DRAFTED (owner sends)",
+      "why": "outreach drafted only"
+    },
+    {
+      "id": "domain-lists-kept",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "## n8n",
+      "why": "the per-domain checklists stay (not replaced by a web-only list)"
+    },
+    {
+      "id": "provenance",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "d900840716eb262e1feb17c6f4406c9ce0e06bcf",
+      "why": "pinned SHA of deploy-checklist (Apache-2.0)"
+    },
+    {
+      "id": "verdict-format",
+      "type": "contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "Ship-block findings",
+      "why": "verdict format and ship-block list grafted from production-audit"
+    },
+    {
+      "id": "no-score",
+      "type": "not_contains",
+      "path": ".claude/skills/ship-readiness/SKILL.md",
+      "needle": "0-100",
+      "why": "no numeric score copied"
+    }
+  ]
+}

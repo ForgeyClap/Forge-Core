@@ -4,7 +4,8 @@
  * forge-scribe-store.cjs — storage layer for Forge Scribe. Zero deps.
  * Callers go through forge-scribe.cjs; this module never decides whether a transition is allowed.
  *
- * Layout (<root>/.claude/forge-scribe/, project-local, never synced):
+ * Layout (<root>/.claude/forge-scribe/, or <root>/.forge/scribe/ in a project that opted into the .forge layout (WP 2.1);
+ * project-local, never synced):
  *   inbox.jsonl   one record per owner prompt, word-for-word except secrets (scrubbed), hash-chained:
  *                 {v,pid,ts,session_id,source,transcript_path,uuid,prompt_id,text,redacted,truncated?,chars?,
  *                  text_sha256,duplicate_of?,prev_sha256}
@@ -72,8 +73,18 @@ const TAIL_WINDOW = 64 * 1024;
 
 const sha256 = (s) => crypto.createHash('sha256').update(typeof s === 'string' ? Buffer.from(s, 'utf8') : s).digest('hex');
 
+// WP 2.1 (opt-in .forge layout): the store folder comes from forge-paths.cjs stateDir(root, 'scribe') — .forge/scribe
+// only in a project that has a .forge folder (or FORGE_STATE_DIR), otherwise exactly the legacy .claude/forge-scribe.
+// Read-modify-write store (hash chains): ONE active folder, never a fallback read of the other one. Guarded: an older
+// or missing forge-paths.cjs (a partially synced project) keeps the legacy literal.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' ? m : null; } catch { return null; } })();
+function scribeDirOf(root) {
+  if (forgePaths) { try { return forgePaths.stateDir(root, 'scribe'); } catch { /* unresolvable root or canon: legacy */ } }
+  return path.join(root, '.claude', 'forge-scribe');
+}
+
 function paths(root) {
-  const dir = path.join(root, '.claude', 'forge-scribe');
+  const dir = scribeDirOf(root);
   return {
     dir,
     inbox: path.join(dir, 'inbox.jsonl'),
@@ -715,11 +726,16 @@ function transcriptEntryOf(tp, rec, cfg) {
   // WP-ACK-IMAGE: the exact hash as before, or the same text after collapsing whitespace on both sides (the hook's
   // newline-joined parts vs. however the transcript side was joined). Equality of the full texts only — no substrings.
   const inboxWs = typeof rec.text === 'string' && rec.text.trim() ? wsNorm(rec.text) : null;
-  const sameText = (t) => {
+  const sameText1 = (t) => {
     if (t == null) return false;
     const n = normalizePrompt(t, max).text;
     return sha256(n) === rec.text_sha256 || (inboxWs != null && wsNorm(n) === inboxWs);
   };
+  //.8: the hook records the prompt WITHOUT its leading harness blocks; the transcript still holds them
+  const sameText = (t) => sameText1(t) || (t != null && typeof C.stripLeadingHarness === 'function' && (() => {
+    const l = C.stripLeadingHarness(t);
+    return l.stripped > 0 && sameText1(l.text);
+  })());
   const sameSession = (e) => (e.sessionId !== undefined ? e.sessionId === rec.session_id : path.basename(tp, '.jsonl') === rec.session_id);
   const entries = readJsonl(tp, false);
   const removedAt = new Map(); // queue command uuid -> when the running turn absorbed it

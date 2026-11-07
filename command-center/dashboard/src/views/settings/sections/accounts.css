@@ -1,0 +1,399 @@
+/*
+ * Settings › Accounts (WP B2 part 2; v1.0 redesign DESIGN.md §3.4, mockups/04-instellingen-*.png).
+ * One row per account: a letter tile, the name and one sub-line, the status as dot + word, and a `...`
+ * menu. Under a row only what the person opened: the test result, the sign-in command, the key field,
+ * "Over dit account". v1.0 tokens only; motion is transform/opacity, none under reduced motion.
+ */
+
+/* ------------------------------------------------------------------ rows */
+
+.fs-acct {
+  display: grid;
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  min-inline-size: 0;
+}
+
+.fs-acct__list > * + * {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-acct__main {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--fs-space-4);
+  min-block-size: 36px;
+}
+
+/* A row without a menu (the checkup fallback) keeps the badge at the end. */
+.fs-acct__main:not(:has(.fs-rowmenu)) {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+
+.fs-acct__ini {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 10px 4px 10px 10px;
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font: 600 15px / 1 var(--fs-font-display);
+}
+
+.fs-acct__text {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.fs-acct__name {
+  overflow: hidden;
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fs-acct__sub {
+  font-size: var(--fs-text-13);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
+}
+
+.fs-acct__state,
+.fs-acct__note {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+}
+
+.fs-acct__state {
+  padding: var(--fs-space-3) var(--fs-space-4);
+}
+
+.fs-acct__note {
+  padding-inline: var(--fs-space-1);
+}
+
+/* Full-width lines under a row start under the name, not under the tile. */
+.fs-prov__line {
+  min-inline-size: 0;
+  margin-inline-start: calc(36px + var(--fs-space-4));
+}
+
+.fs-prov__line:empty {
+  display: none;
+}
+
+.fs-prov__result {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+.fs-prov__result[data-ok='true'] {
+  color: var(--fs-ok);
+  font-weight: 500;
+}
+
+.fs-prov__result[data-ok='false'] {
+  color: var(--fs-danger);
+  font-weight: 500;
+}
+
+.fs-prov__detail summary {
+  cursor: pointer;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fs-prov__detail summary:hover {
+  color: var(--fs-ink);
+}
+
+.fs-prov__detail summary:focus-visible {
+  outline: none;
+  border-radius: var(--fs-radius-xs);
+  box-shadow: var(--fs-focus);
+}
+
+.fs-prov__detail code {
+  display: block;
+  margin-top: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fs-acct__about {
+  display: grid;
+  gap: var(--fs-space-1);
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-2);
+}
+
+.fs-acct__about[hidden] {
+  display: none;
+}
+
+.fs-acct__tos {
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+}
+
+/* ------------------------------------------------------------ row menu */
+
+.fs-rowmenu {
+  position: relative;
+  display: inline-flex;
+}
+
+.fs-rowmenu__btn {
+  color: var(--fs-ink-2);
+}
+
+.fs-rowmenu__pop {
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  min-inline-size: 220px;
+  padding: var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-2);
+  animation: fs-rowmenu-in var(--fs-dur-1) var(--fs-ease) both;
+}
+
+@keyframes fs-rowmenu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.fs-rowmenu__entry {
+  display: grid;
+}
+
+.fs-rowmenu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  min-block-size: 36px;
+  padding: 0 var(--fs-space-3);
+  border: 0;
+  border-radius: var(--fs-radius-sm);
+  background: transparent;
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-14);
+  text-align: start;
+  cursor: pointer;
+}
+
+.fs-rowmenu__item:hover,
+.fs-rowmenu__item:focus-visible {
+  background: var(--fs-sunken);
+}
+
+.fs-rowmenu__item:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-rowmenu__item[aria-disabled='true'] {
+  color: var(--fs-ink-3);
+  cursor: default;
+}
+
+.fs-rowmenu__icon {
+  color: var(--fs-ink-3);
+}
+
+.fs-rowmenu__reason {
+  padding: 0 var(--fs-space-3) var(--fs-space-2) calc(var(--fs-space-3) + 16px + var(--fs-space-3));
+  font-size: var(--fs-text-12);
+  line-height: 1.45;
+  color: var(--fs-ink-3);
+}
+
+/* ------------------------------------------------------- sign-in panel */
+
+.fs-prov__signin {
+  display: grid;
+  gap: var(--fs-space-3);
+  margin-top: var(--fs-space-1);
+  padding: var(--fs-space-4);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-bg);
+  border: 1px solid var(--fs-line);
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+}
+
+.fs-prov__signin p {
+  margin: 0;
+  max-inline-size: 62ch;
+  color: var(--fs-ink-2);
+}
+
+/* The command box: machine text in mono on the sunken plate, with its copy button. */
+.fs-prov__cmd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3);
+  padding: var(--fs-space-2) var(--fs-space-2) var(--fs-space-2) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+}
+
+.fs-prov__cmd code {
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.fs-prov__signin-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3);
+  color: var(--fs-ink-3);
+}
+
+.fs-prov__key {
+  padding-top: var(--fs-space-1);
+}
+
+/* ------------------------------------------------------------ more list */
+
+.fs-prov__more > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  min-block-size: 48px;
+  padding: 0 var(--fs-space-4);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.fs-prov__more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fs-prov__more > summary:hover {
+  background: var(--fs-surface-2);
+  color: var(--fs-ink);
+}
+
+.fs-prov__more > summary:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-prov__chev {
+  color: var(--fs-ink-3);
+  transition: transform var(--fs-dur-1) var(--fs-ease);
+}
+
+.fs-prov__more[open] .fs-prov__chev {
+  transform: rotate(90deg);
+}
+
+.fs-prov__more-hint {
+  margin: 0;
+  padding: 0 var(--fs-space-4) var(--fs-space-3) calc(var(--fs-space-4) + 16px + var(--fs-space-3));
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-prov__more-list {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-prov__more-list > * + * {
+  border-top: 1px solid var(--fs-line);
+}
+
+/* ------------------------------------------------- add-account dialog */
+
+.fs-addacct__step {
+  display: grid;
+  gap: var(--fs-space-3);
+  justify-items: start;
+}
+
+.fs-addacct__step > * {
+  justify-self: stretch;
+}
+
+.fs-addacct__step > .fw-button {
+  justify-self: start;
+}
+
+.fs-addacct__state {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  margin: 0;
+  font-size: var(--fs-text-14);
+}
+
+.fs-addacct__line {
+  margin: 0;
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+}
+
+.fs-addacct__help {
+  margin: 0;
+  max-inline-size: 62ch;
+  font-size: var(--fs-text-13);
+  line-height: 1.55;
+  color: var(--fs-ink-2);
+}
+
+@media (max-width: 640px) {
+  .fs-acct__main {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+  .fs-acct__main .fs-pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .fs-prov__line {
+    margin-inline-start: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-prov__chev {
+    transition: none;
+  }
+  .fs-rowmenu__pop {
+    animation: none;
+  }
+}

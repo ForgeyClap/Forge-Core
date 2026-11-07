@@ -6,12 +6,36 @@
  * file's own header for the full refactor rationale.
  */
 
+import type { ReactNode } from 'react';
 import { Icon, Machine, Meter } from '@/components/primitives';
+import { t } from '@/i18n';
+import { getUiMode } from '@/state/ui-mode';
 import { hasMeasuredProjectDetail } from '@/prototype/state/gateway-adapter';
 import { selectProject } from '@/prototype/state/prototype-store';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { Chips, Fields, KIND_LABEL, MarkdownProse, Prose, Section } from './inspector-shared';
-import type { Detail, SelectFn } from './inspector-shared';
+import { Chips, Fields, KIND_LABEL, MarkdownProse, Prose, Section, Quiet } from './inspector-shared';
+import type { Detail, FieldRow, SelectFn } from './inspector-shared';
+
+/**
+ * B8-3 (review: the MAP value broke inside a folder name, "...\Documents\6" / "8 agents works!"):
+ * a break opportunity after every path separator, so a long path wraps between folders first. The
+ * full path stays in the title; `overflow-wrap: anywhere` on the field remains the last resort for a
+ * single folder name wider than the panel.
+ */
+function pathValue(path: string): ReactNode {
+  const parts = path.split(/(?<=[\\/])/);
+  return (
+    <Machine title={path}>
+      {parts.map((part, index) => (
+        // The index is a stable key: a path's segments never reorder.
+        <span key={index}>
+          {part}
+          {index < parts.length - 1 ? <wbr /> : null}
+        </span>
+      ))}
+    </Machine>
+  );
+}
 
 export function buildProjectDetail(
   state: PrototypeState,
@@ -38,87 +62,110 @@ export function buildProjectDetail(
   // measurement (the exact F3-class bug this item closes). `undefined` (fixtures/bridge
   // records) means "trust it" — only an explicit `false` counts as unmeasured.
   const testsMeasured = measured && project.health.testsMeasured !== false;
-  const orDash = (value: number): string | number => (measured ? value : '—');
+  const notMeasured = t('inspector.project.notMeasured');
+  const orDash = (value: number): string | number => (measured ? value : notMeasured);
+  // WP B3-copy (plan §4.2): Eenvoudig hides the developer-only rows — an unknown project type, the
+  // template version, the raw id under the title, the raw counts and the run id. Uitgebreid keeps all.
+  const advanced = getUiMode() === 'uitgebreid';
+  const typeKnown = project.type !== 'unknown';
+  const fieldRows: FieldRow[] = [
+    ...(advanced || typeKnown ? [{ label: t('inspector.project.type'), value: <Machine>{project.type}</Machine> }] : []),
+    { label: t('inspector.project.path'), value: pathValue(project.path) },
+    ...(advanced
+      ? [
+          {
+            label: t('inspector.project.template'),
+            // fix: no Forge version known yet renders a word, never a blank value.
+            value: project.templateVersion !== '' ? <Machine>{project.templateVersion}</Machine> : <Quiet>{t('inspector.project.notSet')}</Quiet>,
+          },
+        ]
+      : []),
+    { label: t('inspector.project.lastActivity'), value: <Quiet>{project.lastActivity !== '' ? project.lastActivity : t('relativeTime.unknown')}</Quiet> },
+    {
+      label: t('inspector.project.pinned'),
+      value: project.pinned ? t('inspector.project.yes') : t('inspector.project.no'),
+    },
+  ];
   return {
     eyebrow: KIND_LABEL.project,
     title: project.name,
     status: project.status,
-    subtitle: <Machine muted>{project.id}</Machine>,
+    subtitle: advanced ? <Machine muted>{project.id}</Machine> : undefined,
     body: (
       <>
         <MarkdownProse text={project.description} idPrefix={`insp-project-${project.id}`} />
-        <Fields
-          rows={[
-            { label: 'Type', value: <Machine>{project.type}</Machine> },
-            { label: 'Path', value: <Machine>{project.path}</Machine> },
-            { label: 'Template', value: <Machine>{project.templateVersion}</Machine> },
-            { label: 'Last activity', value: <Machine muted>{project.lastActivity}</Machine> },
-            { label: 'Pinned', value: <Machine muted>{project.pinned ? 'yes' : 'no'}</Machine> },
-          ]}
-        />
+        <Fields rows={fieldRows} />
         {/* fix-cert-rest (item 3): health.score is now `number | null` (prototype-types.ts) —
             a genuine absence (this project has never been measured) renders '—', never a
             fabricated "null%"/a `Meter` fed a non-numeric value. */}
-        <Section title="Health" defaultOpen count={project.health.score !== null ? `${project.health.score}%` : '—'}>
+        <Section title={t('inspector.project.health')} defaultOpen count={project.health.score !== null ? `${project.health.score}%` : undefined}>
           {/* Neutral on purpose: the ember is rationed to running progress,
               and a health score is a measurement, not a run. */}
           {project.health.score !== null ? (
-            <Meter value={project.health.score} label="Score" showValue />
+            <Meter value={project.health.score} label={t('inspector.project.score')} showValue />
           ) : (
-            <Machine muted>—</Machine>
+            <Quiet>{notMeasured}</Quiet>
           )}
           <Fields
             rows={[
               {
-                label: 'Tests',
+                label: t('inspector.project.tests'),
                 value: (
-                  <Machine>
+                  <>
                     {testsMeasured
-                      ? `${tests.passed} passed · ${tests.failed} failed · ${tests.skipped} skipped`
-                      : '—'}
-                  </Machine>
+                      ? t('inspector.project.testsValue', { passed: tests.passed, failed: tests.failed, skipped: tests.skipped })
+                      : t('inspector.project.noTestsYet')}
+                  </>
                 ),
               },
               {
                 // WP-CCD (item 8): `openTickets` is real for EVERY project row now (not gated by
                 // `measured`/active-project — see `ProjectHealth.openTickets`'s own doc comment),
                 // so it is read directly rather than through the active-project-only `orDash` gate.
-                label: 'Open tickets',
-                value: <Machine>{project.health.openTickets ?? '—'}</Machine>,
+                label: t('inspector.project.openItems'),
+                value: project.health.openTickets ?? t('inspector.project.noOpenItemsKnown'),
               },
-              { label: 'Blockers', value: <Machine>{orDash(project.health.blockers)}</Machine> },
+              { label: t('inspector.project.blockers'), value: orDash(project.health.blockers) },
             ]}
           />
         </Section>
         {/* fix-cert-rest (item 3): taskCount is now `number | null` — '—' when unmeasured. */}
-        <Section title="Counts" count={project.taskCount ?? '—'}>
-          <Fields
-            rows={[
-              { label: 'Conversations', value: <Machine>{project.conversationCount}</Machine> },
-              { label: 'Missions', value: <Machine>{orDash(project.missionCount)}</Machine> },
-              { label: 'Tasks', value: <Machine>{project.taskCount ?? '—'}</Machine> },
-              { label: 'Agents', value: <Machine>{orDash(project.agentCount)}</Machine> },
-            ]}
-          />
-        </Section>
-        <Section title="Skills" count={project.skills.length}>
-          <Chips items={project.skills} label="Project skills" />
+        {advanced ? (
+          <Section title={t('inspector.project.counts')} count={project.taskCount ?? undefined}>
+            <Fields
+              rows={[
+                { label: t('inspector.project.conversations'), value: project.conversationCount },
+                { label: t('inspector.project.jobs'), value: orDash(project.missionCount) },
+                { label: t('inspector.project.tasks'), value: project.taskCount ?? notMeasured },
+                { label: t('inspector.project.helpers'), value: orDash(project.agentCount) },
+              ]}
+            />
+          </Section>
+        ) : null}
+        <Section title={t('inspector.project.skills')} count={project.skills.length}>
+          <Chips items={project.skills} label={t('inspector.project.skillsLabel')} />
         </Section>
         {run ? (
-          <Section title="Latest run" count={run.workPackageIds.length}>
+          <Section title={t('inspector.project.latestJob')} count={advanced ? run.workPackageIds.length : undefined}>
             <Prose>{run.goal}</Prose>
             <Fields
               rows={[
-                { label: 'Run', value: <Machine>{run.id}</Machine> },
-                { label: 'Started', value: <Machine muted>{run.startedAt}</Machine> },
-                { label: 'Duration', value: <Machine muted>{run.duration}</Machine> },
-                { label: 'Agents', value: <Machine>{run.agentIds.length}</Machine> },
+                ...(advanced ? [{ label: t('inspector.project.job'), value: <Machine>{run.id}</Machine> }] : []),
+                {
+                  label: t('inspector.project.started'),
+                  value: <Quiet>{run.startedAt !== '' ? run.startedAt : t('relativeTime.unknown')}</Quiet>,
+                },
+                {
+                  label: t('inspector.project.duration'),
+                  value: <Quiet>{run.duration !== '' ? run.duration : t('relativeTime.unknown')}</Quiet>,
+                },
+                { label: t('inspector.project.helpers'), value: run.agentIds.length },
               ]}
             />
           </Section>
         ) : null}
         {conversations.length > 0 ? (
-          <Section title="Conversations" count={conversations.length}>
+          <Section title={t('inspector.project.conversations')} count={conversations.length}>
             <div className="fw-inspector__links">
               {conversations.map((conversation) => (
                 <button

@@ -9,8 +9,9 @@
  *
  * WHAT THIS IS FOR. A destructive-delete SHAPE (rm -rf, Remove-Item -Recurse -Force, rimraf, their aliases)
  * passes the hook only when EVERY segment of the command is itself a provable delete (review wp9a L2) whose
- * targets ALL resolve inside a scratch area — `_scratch/`, `node_modules/`, `dist/`, `.claude/forge-backups/`,
- * a `gate-output` folder, `command-center/.data/tmp`, or strictly inside the OS temp dir outside the project —
+ * targets ALL resolve inside a scratch area — `_scratch/`, `node_modules/`, `dist/`, `.claude/forge-backups/`
+ * or `.forge/backups/` (WP 2.1: the opt-in `.forge/` state root, the same rule), a `gate-output` folder under
+ * `.claude/forge-runs/` or `.forge/runs/`, `command-center/.data/tmp`, or strictly inside the OS temp dir outside the project —
  * with no `{ } ( )` and no cwd/layout/exec token anywhere on the line (security wp9b L3). This is reached for
  * EVERY destructive-delete shape the hook sees, including one the classifier's own except-valve already
  * excused (codex-recheck I01: that valve is supplemental detection for the classifier's own advisory verdict,
@@ -36,7 +37,11 @@ const PROVABLE_SEGMENT_RE = /^[A-Za-z0-9_\s.\-/\\:'"=+]*$/; // no expansion, glo
 // (`C:\Users\RUNNER~1\AppData\Local\Temp`, the runner's os.tmpdir()) carry one — while bash tilde expansion only
 // applies to a tilde that STARTS a word (`~`, `~user`, `~/x`) or follows `=`/`:` in an assignment. Only the in-word
 // tilde is neutralised before the whitelist test; a leading or `=`/`:`-prefixed tilde stays unprovable.
-const provableSegment = (seg) => PROVABLE_SEGMENT_RE.test(String(seg).replace(/(?<=[A-Za-z0-9_])~(?=[A-Za-z0-9_])/g, '_'));
+// G-FP3 (category tests round 6): a PowerShell switch bound to `$true`/`$false` (`-Confirm:$false`,
+// `-Force:$true`) is a literal — both are constants that cannot be reassigned — so it is neutralised too. Only that exact
+// switch form: a bare `$false`, `$falsey`, `$env:X` or any other `$` stays unprovable.
+const SWITCH_CONSTANT_RE = /(^|\s)(-[A-Za-z][A-Za-z0-9]*):\$(true|false)(?=\s|$)/gi;
+const provableSegment = (seg) => PROVABLE_SEGMENT_RE.test(String(seg).replace(/(?<=[A-Za-z0-9_])~(?=[A-Za-z0-9_])/g, '_').replace(SWITCH_CONSTANT_RE, '$1$2:$3'));
 const sameName = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 
 /** tokenize(segment) -> [{v, quoted}] | null. Whole-word quotes only; a quote glued to other text is refused. */
@@ -73,7 +78,8 @@ function extractTargets(tokens, verbAt) {
   for (let k = verbAt + 1; k < tokens.length; k++) {
     const { v, quoted } = tokens[k];
     if (!endOfOptions && !quoted && v === '--') { endOfOptions = true; continue; }
-    if (!endOfOptions && !quoted && v.startsWith('-')) { if (v.includes(':')) return null; continue; }
+    // G-FP3: `-Confirm:$false` / `-Force:$true` binds a constant, never a path; every other `-Name:value` stays refused
+    if (!endOfOptions && !quoted && v.startsWith('-')) { if (v.includes(':') && !/^-[A-Za-z][A-Za-z0-9]*:\$(true|false)$/i.test(v)) return null; continue; }
     targets.push(v);
   }
   return targets;
@@ -139,6 +145,8 @@ function resolveTarget(raw, ctx) {
 /** areaOf(abs, ctx) -> { area, display } | null — the scratch area that contains abs, judged on real paths.
  *  Fails closed (returns null) the instant ANY realish() call in this function cannot canonicalize — I02. */
 function areaOf(abs, ctx) {
+  // WP 2.1: a hook copy that found no project (a plugin copy outside any project) has no root — nothing is provable.
+  if (typeof ctx.root !== 'string' || !ctx.root) return null;
   const targetR = realish(abs);
   if (!targetR.ok) return null;
   const real = targetR.real;
@@ -167,7 +175,9 @@ function areaOf(abs, ctx) {
     if (s.some((x) => sameName(x, 'node_modules'))) return { area: 'node_modules', display: show };
     if (s.some((x) => sameName(x, 'dist'))) return { area: 'dist', display: show };
     if (is(0, '.claude') && is(1, 'forge-backups') && s.length >= 3) return { area: 'forge-backups', display: show };
+    if (is(0, '.forge') && is(1, 'backups') && s.length >= 3) return { area: 'forge-backups', display: show }; // WP 2.1 state root
     if (is(0, '.claude') && is(1, 'forge-runs') && s.slice(2).some((x) => sameName(x, 'gate-output'))) return { area: 'gate-output', display: show };
+    if (is(0, '.forge') && is(1, 'runs') && s.slice(2).some((x) => sameName(x, 'gate-output'))) return { area: 'gate-output', display: show }; // WP 2.1
     if (is(0, 'command-center') && is(1, '.data') && is(2, 'tmp')) return { area: 'command-center/.data/tmp', display: show };
   }
   if (tmpRel) return { area: 'tmpdir', display: '<tmp>/' + tmpRel.split(/[\\/]+/).join('/') }; // strictly inside, outside the project

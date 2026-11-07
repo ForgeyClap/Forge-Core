@@ -142,6 +142,23 @@ function resolveProjectRoot(opts) {
   if (process.env.CLAUDE_PROJECT_DIR) return path.resolve(process.env.CLAUDE_PROJECT_DIR);
   return process.cwd();
 }
+
+// WP 2.1 (opt-in .forge layout): FORGE_SNAPSHOT.md is read from forge-paths.cjs memoryFile(read) — .forge/memory only
+// in a project with a .forge folder (or FORGE_STATE_DIR), else exactly .claude/FORGE_SNAPSHOT.md. The sibling copy is
+// tried first, then the target project's own copy (the GLOBAL hook has no sibling); an older or missing copy keeps the
+// legacy literal. The .forge-snapshot-due.json marker has no canon key and stays in .claude (shared with the marker).
+let FP_SIBLING = null;
+try { FP_SIBLING = require('./forge-paths.cjs'); } catch { FP_SIBLING = null; }
+function snapshotFileFor(root) {
+  let P = FP_SIBLING && typeof FP_SIBLING.memoryFile === 'function' ? FP_SIBLING : null;
+  if (!P) { try { P = require(path.join(root, '.claude', 'forge-bin', 'forge-paths.cjs')); } catch { P = null; } } // eslint-disable-line global-require
+  if (P && typeof P.memoryFile === 'function') {
+    try { return P.memoryFile(root, 'FORGE_SNAPSHOT.md', { read: true }); } catch { /* unresolvable canon: the legacy file */ }
+  }
+  return path.join(root, '.claude', 'FORGE_SNAPSHOT.md');
+}
+/** snapshotRelFor(root) — the project-relative pointer shown to the model ('.claude/FORGE_SNAPSHOT.md' in the legacy layout). */
+function snapshotRelFor(root) { return path.relative(root, snapshotFileFor(root)).split(path.sep).join('/'); }
 function readFileSafe(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
 function readJsonSafe(p) { const t = readFileSafe(p); if (t == null) return null; try { return JSON.parse(t); } catch { return null; } }
 
@@ -158,9 +175,9 @@ function extractSection(text, heading) {
   return (next === -1 ? rest : rest.slice(0, next)).trim();
 }
 
-function truncate(text, max) {
+function truncate(text, max, pointer) {
   if (!text || text.length <= max) return text;
-  return text.slice(0, max).replace(/\s+\S*$/, '') + '\n_(truncated — see .claude/FORGE_SNAPSHOT.md)_';
+  return text.slice(0, max).replace(/\s+\S*$/, '') + '\n_(truncated — see ' + (pointer || '.claude/FORGE_SNAPSHOT.md') + ')_';
 }
 
 function normCase(p) { return process.platform === 'win32' ? p.toLowerCase() : p; }
@@ -317,7 +334,9 @@ function run(opts) {
 
   let snapshotPart = null;
   if (printSnapshot) {
-    const snapshotText = readFileSafe(path.join(root, '.claude', 'FORGE_SNAPSHOT.md'));
+    const snapFile = snapshotFileFor(root);
+    const snapRel = path.relative(root, snapFile).split(path.sep).join('/');
+    const snapshotText = readFileSafe(snapFile);
     const mission = snapshotText ? extractSection(snapshotText, 'Mission') : null;
     const currentState = snapshotText ? extractSection(snapshotText, 'Current state') : null;
     const nextActions = snapshotText ? extractSection(snapshotText, 'Next actions') : null;
@@ -326,7 +345,7 @@ function run(opts) {
     if (snapshotText) {
       lines.push('');
       lines.push('MISSION:');
-      lines.push(mission || '_(no Mission section found in .claude/FORGE_SNAPSHOT.md)_');
+      lines.push(mission || '_(no Mission section found in ' + snapRel + ')_');
       lines.push('');
       lines.push('CURRENT STATE:');
       lines.push(currentState || '_(no Current state section found)_');
@@ -334,11 +353,11 @@ function run(opts) {
       lines.push('NEXT ACTIONS:');
       lines.push(nextActions || '_(no Next actions section found)_');
     } else {
-      lines.push('_.claude/FORGE_SNAPSHOT.md was not found — no prior snapshot to re-inject; this is likely the FIRST compaction on this project._');
+      lines.push('_' + snapRel + ' was not found — no prior snapshot to re-inject; this is likely the FIRST compaction on this project._');
     }
     lines.push('');
-    lines.push('ACTION REQUIRED: refresh .claude/FORGE_SNAPSHOT.md (sections 3-9) from real evidence before continuing (`node .claude/forge-bin/forge-snapshot.cjs write --reason phase`).');
-    snapshotPart = truncate(lines.join('\n'), MAX_CHARS);
+    lines.push('ACTION REQUIRED: refresh ' + snapRel + ' (sections 3-9) from real evidence before continuing (`node .claude/forge-bin/forge-snapshot.cjs write --reason phase`).');
+    snapshotPart = truncate(lines.join('\n'), MAX_CHARS, snapRel);
   }
 
   // the active run's outstanding obligations, then ONE session_resumed on that run.
@@ -361,7 +380,7 @@ function run(opts) {
 }
 
 module.exports = {
-  run, resolveProjectRoot, extractSection, truncate, configOn, configRead, MAX_CHARS,
+  run, resolveProjectRoot, extractSection, truncate, configOn, configRead, MAX_CHARS, snapshotFileFor, snapshotRelFor,
 
   deferToProjectCopy, projectRegistersReinject, sameFile, obligationsBlock, OBLIGATIONS_MAX_CHARS, TOTAL_MAX_CHARS,
 

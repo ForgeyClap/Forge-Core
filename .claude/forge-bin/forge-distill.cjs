@@ -45,7 +45,19 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const memory = require('./forge-memory.cjs');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+// WP 2.1 (opt-in .forge layout): the default root and the run folder come from forge-paths.cjs (a run is read from
+// whichever run folder holds it; a project without .forge reads exactly .claude/forge-runs/<id>). Lessons stay in
+// .claude/agent-memory (Claude Code's own folder). Guarded: an older or missing forge-paths.cjs keeps the legacy
+// literals. A plugin copy outside any project has no default root (the CLI then refuses).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.existingStateDirs === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT)
+  : viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
+/** runDirOf(root, runId) — the run's folder in whichever run folder holds it, else under the active run folder. */
+function runDirOf(root, runId) {
+  for (const d of viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => [])) if (fs.existsSync(path.join(d, runId))) return path.join(d, runId);
+  return path.join(viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(root, '.claude', 'forge-runs')), runId);
+}
 
 // ---- event vocabulary this tool reacts to (see .claude/forge-dashboard/log-event.cjs header) ----
 const FAILURE_TYPES = new Set(['subagent_failed', 'agent_failed', 'rework_task_created', 'rework_assigned', 'quality_gate_blocked', 'check_failed']);
@@ -134,7 +146,8 @@ function distillRun(runId, opts) {
   const root = opts.root;
   // Same run-id shape log-event.cjs enforces (security-boss LOW-1): no traversal via --run, even read-only.
   if (!/^[A-Za-z0-9_-]+$/.test(String(runId == null ? '' : runId))) return { error: `invalid run id '${runId}' (allowed: A-Za-z0-9_- only)` };
-  const runDir = path.join(root, '.claude', 'forge-runs', runId);
+  if (!root) return { error: 'no project root found (this copy is not inside a project) — set FORGE_PROJECT_ROOT or pass opts.root' };
+  const runDir = runDirOf(root, runId);
   const eventsPath = path.join(runDir, 'events.jsonl');
   if (!fs.existsSync(eventsPath)) return { error: `run '${runId}' not found (no events.jsonl at ${eventsPath})` };
 
@@ -249,6 +262,7 @@ function printUsage() {
 if (require.main === module) {
   try {
     const opts = parseArgs(process.argv.slice(2));
+    if (!PROJECT_ROOT) throw new Error('no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — set FORGE_PROJECT_ROOT');
     if (opts.mode === 'run') {
       if (!opts.runId || opts.runId.startsWith('--')) { console.error('forge-distill: --run requires a <run_id>'); process.exitCode = 2; }
       else {

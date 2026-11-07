@@ -31,7 +31,10 @@ import { pickString } from '@/prototype/state/gateway-client';
 import { useGatewayCheckpoints, useGatewayRecovery } from '@/prototype/state/gateway-recovery';
 import type { GatewayDocdriftFinding, GatewayRunManifest } from '@/prototype/state/gateway-recovery';
 import type { StatusKey } from '@/prototype/types/prototype-types';
+import { LocalTime } from './LocalTime';
 import './activity.css';
+import { useLocale } from '@/i18n/use-locale';
+import type { Translate } from '@/i18n';
 
 export interface RecoveryPanelProps {
   readonly projectName: string;
@@ -64,9 +67,10 @@ interface AttemptRowProps {
   readonly index: number;
   readonly expanded: boolean;
   readonly onToggle: (id: string) => void;
+  readonly t: Translate;
 }
 
-function AttemptRow({ row, index, expanded, onToggle }: AttemptRowProps) {
+function AttemptRow({ row, index, expanded, onToggle, t }: AttemptRowProps) {
   const id = `recovery-attempt-${index}`;
   const detailId = `fw-recovery-detail--${id}`;
   const headId = `fw-recovery-head--${id}`;
@@ -75,13 +79,13 @@ function AttemptRow({ row, index, expanded, onToggle }: AttemptRowProps) {
   const finalStatusText = pickString(row, ['finalStatus', 'final_status']);
   const resultSource = pickString(row, ['resultSource', 'result_source']);
   const itemId = pickString(row, ['itemId', 'item_id']) ?? '—';
-  const timestamp = pickString(row, ['timestamp']) ?? '—';
+  const timestamp = pickString(row, ['timestamp']);
 
   return (
     <li className="fw-event fw-status" data-status={status}>
-      <span className="fw-event__node" title="Recovery attempt">
+      <span className="fw-event__node" title={t('rd.activity.recovery.attempt')}>
         <Icon name="RotateCcw" size="sm" />
-        <span className="fw-visually-hidden">RECOVERY</span>
+        <span className="fw-visually-hidden">{t('rd.activity.recovery.attemptShort')}</span>
       </span>
 
       <button
@@ -93,9 +97,7 @@ function AttemptRow({ row, index, expanded, onToggle }: AttemptRowProps) {
         onClick={() => onToggle(id)}
       >
         <span className="fw-event__stamp">
-          <Machine muted className="fw-event__time">
-            {timestamp}
-          </Machine>
+          <LocalTime value={timestamp} muted={false} className="fw-event__time fw-activity-num" />
         </span>
         <Machine className="fw-event__agent fw-truncate">{itemId}</Machine>
         <span className="fw-event__status">
@@ -107,7 +109,7 @@ function AttemptRow({ row, index, expanded, onToggle }: AttemptRowProps) {
 
       <div className="fw-event__detail" id={detailId} role="region" aria-labelledby={headId} hidden={!expanded}>
         <p className="fw-event__detail-text">
-          {finalStatusText ?? 'No final status recorded on this attempt.'}
+          {finalStatusText ?? t('rd.activity.recovery.noFinal')}
           {resultSource ? <> — <Machine muted>{resultSource}</Machine></> : null}
         </p>
       </div>
@@ -117,19 +119,17 @@ function AttemptRow({ row, index, expanded, onToggle }: AttemptRowProps) {
 
 /* ------------------------------------------------------------------ finding */
 
-function FindingRow({ finding }: { finding: GatewayDocdriftFinding }) {
+function FindingRow({ finding, t }: { finding: GatewayDocdriftFinding; t: Translate }) {
   const status = findingStatus(finding);
   return (
     <li className="fw-event fw-status" data-status={status}>
-      <span className="fw-event__node" title="Doc-drift finding">
+      <span className="fw-event__node" title={t('rd.activity.recovery.finding')}>
         <Icon name="SearchCheck" size="sm" />
-        <span className="fw-visually-hidden">DOCDRIFT</span>
+        <span className="fw-visually-hidden">{t('rd.activity.recovery.findingShort')}</span>
       </span>
       <div className="fw-event__head">
         <span className="fw-event__stamp">
-          <Machine muted className="fw-event__time">
-            {finding.lastChecked ?? '—'}
-          </Machine>
+          <LocalTime value={finding.lastChecked} muted={false} className="fw-event__time fw-activity-num" />
         </span>
         <Machine className="fw-event__agent fw-truncate">{finding.ruleId || '—'}</Machine>
         <span className="fw-event__status">
@@ -143,19 +143,19 @@ function FindingRow({ finding }: { finding: GatewayDocdriftFinding }) {
 
 /* ------------------------------------------------------------------ manifest */
 
-function ManifestRow({ manifest }: { manifest: GatewayRunManifest }) {
+function ManifestRow({ manifest, t }: { manifest: GatewayRunManifest; t: Translate }) {
   return (
     <li className="fw-event fw-status" data-status="completed">
-      <span className="fw-event__node" title="Run manifest">
+      <span className="fw-event__node" title={t('rd.activity.recovery.manifest')}>
         <Icon name="ClipboardCheck" size="sm" />
-        <span className="fw-visually-hidden">MANIFEST</span>
+        <span className="fw-visually-hidden">{t('rd.activity.recovery.manifestShort')}</span>
       </span>
       <div className="fw-event__head">
         <Machine className="fw-event__agent fw-truncate">{manifest.runId || '—'}</Machine>
         <span className="fw-event__status">
           <StatusBadge status="completed" size="sm" />
         </span>
-        <span className="fw-event__message">manifest present</span>
+        <span className="fw-event__message">{t('rd.activity.recovery.manifestPresent')}</span>
       </div>
     </li>
   );
@@ -167,6 +167,7 @@ export function RecoveryPanel({ projectName }: RecoveryPanelProps) {
   const recovery = useGatewayRecovery(projectName);
   const checkpoints = useGatewayCheckpoints(projectName);
   const headingId = useId();
+  const { t, n } = useLocale();
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set<string>());
 
   function toggle(id: string): void {
@@ -179,10 +180,10 @@ export function RecoveryPanel({ projectName }: RecoveryPanelProps) {
     <section className="fw-run" aria-labelledby={headingId}>
       <header className="fw-run__head">
         <h2 id={headingId} className="fw-run__id">
-          <Machine>RECOVERY &amp; CHECKPOINTS</Machine>
+          {t('rd.activity.recovery.title')}
         </h2>
         <p className="fw-run__meta">
-          <Machine muted>{projectName || '—'}</Machine>
+          <span>{projectName || '—'}</span>
         </p>
       </header>
 
@@ -191,22 +192,22 @@ export function RecoveryPanel({ projectName }: RecoveryPanelProps) {
         <EmptyState
           compact
           icon="RotateCcw"
-          title="No recovery data yet"
-          detail="No project is selected, or the gateway has not answered yet."
+          title={t('rd.activity.recovery.noData')}
+          detail={t('rd.activity.recovery.noDataDetail')}
         />
       ) : recovery.recoveryProvenance === 'NOT CONFIGURED' ? (
         <EmptyState
           compact
           icon="RotateCcw"
-          title="No recovery ledger configured"
-          detail="This project has no recovery-attempts.jsonl file under .claude/forge-research."
+          title={t('rd.activity.recovery.notConfigured')}
+          detail={t('rd.activity.recovery.notConfiguredDetail')}
         />
       ) : recovery.recoveryAttempts.length === 0 ? (
         <EmptyState
           compact
           icon="RotateCcw"
-          title="No recovery attempts recorded"
-          detail="The recovery ledger exists but currently holds nothing."
+          title={t('rd.activity.recovery.empty')}
+          detail={t('rd.activity.recovery.emptyDetail')}
         />
       ) : (
         <ol className="fw-activity__list">
@@ -217,68 +218,77 @@ export function RecoveryPanel({ projectName }: RecoveryPanelProps) {
               index={index}
               expanded={openIds.has(`recovery-attempt-${index}`)}
               onToggle={toggle}
+              t={t}
             />
           ))}
         </ol>
       )}
 
       {/* ------------------------------------------------------------ docdrift */}
-      <p className="fw-run__meta">
-        <span className="fw-run__meta-word">Docdrift</span>
+      <p className="fw-run__meta fw-run__meta--line">
+        <span className="fw-run__meta-word">{t('rd.activity.recovery.docdrift')}</span>
         <span className="fw-run__meta-sep" aria-hidden="true">
           ·
         </span>
-        <Machine muted>
-          {recovery.docdriftProvenance === null ? '—' : `${recovery.docdriftFindingsCount} rule(s) checked`}
-        </Machine>
-        <span className="fw-run__meta-sep" aria-hidden="true">
-          ·
-        </span>
-        <Machine muted>
-          {recovery.docdriftProvenance === null ? '—' : `${recovery.docdriftDriftedCount} drifted`}
-        </Machine>
+        {recovery.docdriftProvenance === null ? (
+          <span>{t('rd.activity.recovery.unknown')}</span>
+        ) : (
+          <>
+            <span className="fw-activity-num">
+              {n(recovery.docdriftFindingsCount, 'rd.activity.recovery.rulesOne', 'rd.activity.recovery.rulesMany')}
+            </span>
+            <span className="fw-run__meta-sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="fw-activity-num">
+              {recovery.docdriftDriftedCount === 0
+                ? t('rd.activity.recovery.driftedNone')
+                : n(recovery.docdriftDriftedCount, 'rd.activity.recovery.driftedOne', 'rd.activity.recovery.driftedMany')}
+            </span>
+          </>
+        )}
         {recovery.docdriftLastCheck ? (
           <>
             <span className="fw-run__meta-sep" aria-hidden="true">
               ·
             </span>
-            <Machine muted>{recovery.docdriftLastCheck}</Machine>
+            <LocalTime value={recovery.docdriftLastCheck} muted={false} className="fw-activity-num" />
           </>
         ) : null}
       </p>
       {drifted.length > 0 ? (
         <ol className="fw-activity__list">
           {drifted.map((finding) => (
-            <FindingRow key={finding.ruleId} finding={finding} />
+            <FindingRow key={finding.ruleId} finding={finding} t={t} />
           ))}
         </ol>
       ) : null}
 
       {/* ---------------------------------------------------------- checkpoints */}
-      <p className="fw-run__meta">
-        <span className="fw-run__meta-word">Checkpoints</span>
+      <p className="fw-run__meta fw-run__meta--line">
+        <span className="fw-run__meta-word">{t('rd.activity.recovery.checkpoints')}</span>
         <span className="fw-run__meta-sep" aria-hidden="true">
           ·
         </span>
-        <Machine muted>
+        <span>
           {checkpoints.provenance === null
-            ? '—'
+            ? t('rd.activity.recovery.unknown')
             : checkpoints.resumeAvailable
-              ? 'resume state available'
-              : (checkpoints.resumeNote ?? 'no resume state')}
-        </Machine>
+              ? t('rd.activity.recovery.resumeAvailable')
+              : (checkpoints.resumeNote ?? t('rd.activity.recovery.noResume'))}
+        </span>
       </p>
       {checkpoints.runsWithManifest.length === 0 ? (
         <EmptyState
           compact
           icon="ClipboardCheck"
-          title="No run manifests"
-          detail="No run under this project has recorded a manifest.json yet."
+          title={t('rd.activity.recovery.noManifests')}
+          detail={t('rd.activity.recovery.noManifestsDetail')}
         />
       ) : (
         <ol className="fw-activity__list">
           {checkpoints.runsWithManifest.map((manifest) => (
-            <ManifestRow key={manifest.runId} manifest={manifest} />
+            <ManifestRow key={manifest.runId} manifest={manifest} t={t} />
           ))}
         </ol>
       )}

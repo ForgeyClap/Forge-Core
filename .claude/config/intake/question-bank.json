@@ -1,6 +1,15 @@
 {
   "_doc": "Forge Prompt Master intake question bank (subagent-brainstormed 2026-07-13; beginner layer added 2026-09-24; from .claude/forge-research/prompt-coaching-2026-09-24.md). Read by forge-bin/forge-intake.cjs. universal[] applies to any project (asked first); byType[<slug>] adds domain-specific questions. Each question: {dimension, question, why, options[], tier(required|recommended)} — the fields forge-intake.cjs reads — plus the beginner layer used by the forge-prompt-coach skill: question_nl, options_nl[] (1:1 with options), why_nl, beginner {options[] (at most 3 outcome-worded options + 'Something else'), options_nl[] (same, + 'Iets anders'), recommended (index into beginner.options, or null for a pure fact question with no earned recommendation), assume + assume_nl (the safe default when nothing answers the question)}, triggers[] (failure-mode ids F1-F13, see skills/forge-prompt-coach/references/failure-modes.md). Owner-editable; extend byType for new project types.",
   "version": "2026-09-24",
+  "one_question_policy": {
+    "_doc": "Modernization WP 3.2: the machine-readable side of forge-intake THE QUESTION POLICY. Per mission Forge asks the owner at most ONE question; every question in this bank is a vetted one (domain = 'universal' or its byType key; choices = beginner.options / options_nl, at most 3 outcome options + 'Something else'; default = beginner.assume / assume_nl, the answer Forge uses when the owner does not answer). forge-bin/forge-plan-card.cjs validate-bank checks every question against this, `question --domain <slug> [--trigger F<id>]` returns exactly one question (or none), and `render` refuses a mission that carries more than one owner question. The cap is pinned at 1 in code: a different value here is reported as invalid, never applied.",
+    "max_owner_questions_per_mission": 1,
+    "choices_field": "beginner.options",
+    "default_field": "beginner.assume",
+    "domain_from": "universal | byType key",
+    "when_to_ask": "only when two readings would lead to materially different builds, or for an outward or irreversible action (send, publish, pay, deploy); otherwise Forge records the default as an assumption",
+    "unanswered": "Forge proceeds with the question's default and records it under Assumptions (auto-filled); the question is never asked again"
+  },
   "universal": [
     {
       "dimension": "goal",

@@ -8,6 +8,9 @@
     "full-auto-within-mission": "Like continue-within-mission, with no additional phase-boundary confirmation at all. Still bound by every entry in always_interrupt — full autonomy never bypasses a hard gate or a usage-limit pause."
   },
   "always_interrupt": [
+    "data-delete",
+    "plugin-install",
+    "settings-edit",
     "deploy",
     "git-push",
     "spend",
@@ -22,6 +25,9 @@
     "git-destructive",
     "opaque-exec",
     "secret-print",
+    "plugin-install-command",
+    "settings-edit-command",
+    "global-input-command",
     "write-outside-root",
     "usage-limit"
   ],

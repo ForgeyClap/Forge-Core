@@ -84,7 +84,24 @@ const { ONCE_KEYS, ONCE_MS, ONCE_QUOTE_MAX } = onceLib;
 // sibling so forge-config-once.cjs stays under this project's file-size guidance; see that file's header.
 const onceStore = require('./forge-config-once-store.cjs');
 
-const PROJECT_ROOT_DEFAULT = path.resolve(__dirname, '..', '..');
+// WP 2.1: forge-paths.cjs is optional here (guarded: a copied tool or an older install keeps the legacy paths). With it
+// the default project is scriptRoot (an installed copy: exactly the old own-folder answer; a plugin copy: the project
+// found from CLAUDE_PROJECT_DIR / the cwd, never the plugin's parent folder), and the two per-project memory files this
+// module touches (FORGE_SESSION_STATE.json, FORGE_OWNER_PROFILE.json) follow the project's layout (.claude/<name>, or
+// .forge/memory/<name> once <root>/.forge/ exists, reading the legacy file until the new one is written).
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function' && typeof fp.memoryFile === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultProjectRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+/** memoryPath(root, name, read) -> the project's memory file: write path, or (read) the path to read it from. */
+function memoryPath(root, name, read) {
+  const legacy = path.join(root, '.claude', name);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.memoryFile(root, name, read ? { read: true } : {}); } catch { return legacy; }
+}
+const PROJECT_ROOT_DEFAULT = defaultProjectRoot();
 const SCHEMA_PATH_DEFAULT = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json');
 const FILE_NAME = 'FORGE_CONFIG.json';
 const TYPES = ['bool', 'int', 'number', 'enum', 'int-or-auto'];
@@ -115,7 +132,9 @@ class ConfigError extends Error {
 // ---- paths (env read at call time, so a test or CI job can point everything at temp dirs) ----
 function pathsFor(opts) {
   opts = opts || {};
-  const root = path.resolve(opts.projectRoot || process.env.FORGE_PROJECT_ROOT || PROJECT_ROOT_DEFAULT);
+  const rootIn = opts.projectRoot || process.env.FORGE_PROJECT_ROOT || PROJECT_ROOT_DEFAULT;
+  if (!rootIn) throw new ConfigError('no-project-root', 'forge-config: no project root found (no .claude, .forge or .git above the current folder) — set FORGE_PROJECT_ROOT or pass a project root', 2);
+  const root = path.resolve(rootIn);
   const home = path.resolve(opts.configHome || process.env.FORGE_CONFIG_HOME || path.join(os.homedir(), '.claude'));
   return {
     projectRoot: root,
@@ -123,7 +142,8 @@ function pathsFor(opts) {
     schema: opts.schemaPath || SCHEMA_PATH_DEFAULT,
     global: opts.globalPath || path.join(home, FILE_NAME),
     project: opts.projectPath || path.join(root, '.claude', FILE_NAME),
-    sessionState: opts.sessionStatePath || path.join(root, '.claude', 'FORGE_SESSION_STATE.json'),
+    sessionState: opts.sessionStatePath || memoryPath(root, 'FORGE_SESSION_STATE.json', false),
+    sessionStateRead: opts.sessionStatePath || memoryPath(root, 'FORGE_SESSION_STATE.json', true), // WP 2.1 read fallback
     setupMarker: opts.setupMarkerPath || path.join(root, '.claude', '.forge-setup.json'),
     logEvent: opts.logEventPath || path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs'),
   };
@@ -516,7 +536,7 @@ function productDefaults(schema, opts, P, lang) {
   try { prefs = require('./forge-prefs.cjs'); }
   catch (e) { return { values, notes: [text.t(lang).prefsSkipped(e.message)] }; }
   const prefsOpts = opts.prefsOpts || {
-    profilePath: path.join(P.projectRoot, '.claude', 'FORGE_OWNER_PROFILE.json'),
+    profilePath: memoryPath(P.projectRoot, 'FORGE_OWNER_PROFILE.json', true), // read-only use (WP 2.1 layout-aware)
     globalProfilePath: path.join(P.configHome, 'FORGE_OWNER_PROFILE.json'),
   };
   for (const [key, m] of Object.entries(map)) {
@@ -1185,7 +1205,7 @@ function readSessionState(file, lang, P) {
   return r.present ? r : { present: false, data: {} };
 }
 function writeSeen(P, values, nowMs, lang) {
-  const fresh = readSessionState(P.sessionState, lang, P); // re-read: never clobber a field another tool just wrote
+  const fresh = readSessionState(P.sessionStateRead || P.sessionState, lang, P); // re-read: never clobber a field another tool just wrote
   const seen = { hash: hashValues(values), at: new Date(nowMs).toISOString(), values };
   atomicWriteJson(P.sessionState, Object.assign({}, fresh.data, { config_seen: seen }));
   return Object.assign({ path: P.sessionState }, seen);
@@ -1215,7 +1235,7 @@ function diff(opts) {
   const lang = cur.lang;
   const persistent = opts.flags ? resolve(noFlags(opts)) : cur;
   const schema = loadSchema(P.schema, opts);
-  const state = readSessionState(P.sessionState, lang, P);
+  const state = readSessionState(P.sessionStateRead || P.sessionState, lang, P);
   const cs = state.data.config_seen;
   const seen = isObj(cs) && isObj(cs.values) ? cs : null;
   const current = valuesOf(cur.settings);

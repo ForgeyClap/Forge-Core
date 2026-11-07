@@ -1,6 +1,7 @@
 ---
 name: forge-heartbeat
-description: Detects a dispatched agent gone silent mid-run from events.jsonl. Use during multi-agent runs or when a run feels quiet — silent agent, stalled run, heartbeat check, timeout.
+description: "Use when a multi-agent run feels stalled: finds the silent agent."
+# W2-BUDGET original description (listing budget): "Detects a dispatched agent gone silent mid-run from events.jsonl. Use during multi-agent runs or when a run feels stalled."
 ---
 
 # forge-heartbeat — stall/silence watchdog

@@ -47,8 +47,20 @@ export function activeProjectsRoot() {
 // complete: ~8 minutes overall, with `--doctor-timeout` at ~5 minutes (comfortably below the
 // overall budget, preserving the same "forge-sync's own graceful rollback path fires first" property
 // documented above).
-const INSTALL_TIMEOUT_MS = 8 * 60_000;
-const INSTALL_DOCTOR_TIMEOUT_MS = 5 * 60_000;
+//
+// Category tests F4: the ~5 minute doctor limit was still too short. A fresh install's doctor
+// runs the whole suite (17 232 tests, 229 suites) and took 9-11 minutes on this machine, and
+// `--allow-degraded` does NOT let a doctor TIMEOUT pass (forge-sync treats it as BLOCKED and rolls back),
+// so every fresh install from this button still failed. The doctor limit now matches forge-sync's own
+// default (DEFAULT_DOCTOR_TIMEOUT_MS, 30 min) and the kill timer stays above it.
+// Guard: test/projects-create-timeouts.test.mjs.
+export const INSTALL_DOCTOR_TIMEOUT_MS = 30 * 60_000;
+export const INSTALL_TIMEOUT_MS = 35 * 60_000;
+
+/** The exact argv for the installer child: only the fixed installer path and the derived target. */
+export function installArgs(targetDir) {
+  return [FORGE_SYNC_CJS, 'install', targetDir, '--doctor-timeout', String(INSTALL_DOCTOR_TIMEOUT_MS), '--allow-degraded'];
+}
 
 let installRunnerOverride = null;
 /** Test-only seam: replace the real child-process call with a stub (same shape `defaultInstallRunner`
@@ -74,7 +86,7 @@ function defaultInstallRunner(targetDir) {
     // degraded-pad: installeren met backup, doctor-validatie mag vervallen. Voor een VERSE lege
     // map is dat de juiste afweging - er bestaat nog niets dat een misgelopen sync zou kunnen
     // beschadigen, en het alternatief was een knop die altijd faalt.
-    const args = [FORGE_SYNC_CJS, 'install', targetDir, '--doctor-timeout', String(INSTALL_DOCTOR_TIMEOUT_MS), '--allow-degraded'];
+    const args = installArgs(targetDir);
     execFile(
       process.execPath,
       args,

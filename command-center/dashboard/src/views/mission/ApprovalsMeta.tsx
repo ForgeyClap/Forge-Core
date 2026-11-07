@@ -19,6 +19,7 @@ import { useMemo } from 'react';
 import { Machine, StatusBadge } from '@/components/primitives';
 import type { GatewayApprovals, GatewayGateEvaluation } from '@/prototype/state/gateway-recovery';
 import type { StatusKey } from '@/prototype/types/prototype-types';
+import { useLocale } from '@/i18n/use-locale';
 
 // Module-private on purpose. Both helpers below are pure and have no caller outside this file
 // (MissionControlView and the panel test import only the component), and exporting a non-component
@@ -43,21 +44,22 @@ export interface ApprovalsMetaProps {
 }
 
 export function ApprovalsMeta({ approvals }: ApprovalsMetaProps) {
+  const { t } = useLocale();
   const gateReasonById = useMemo(
     () => new Map(approvals.gates.map((gate) => [gate.id, gate.reason] as const)),
     [approvals.gates],
   );
 
   return (
-    <div className="fw-mission__meta" aria-label="Approvals for this run">
+    <div className="fw-mission__meta" aria-label={t('rd.mission.approvalsLabel')}>
       <span className="fw-mission__meta-item">
-        <span className="fw-mission__meta-key">APPROVALS</span>
+        <span className="fw-mission__meta-key">{t('rd.mission.approvals')}</span>
         {approvals.evaluationsProvenance === null ? (
-          <Machine muted>—</Machine>
+          <span className="fw-mission__value">{t('rd.mission.approvalsUnknown')}</span>
         ) : approvals.evaluationsProvenance === 'NOT REQUESTED' ? (
-          <Machine muted>not requested</Machine>
+          <span className="fw-mission__value">{t('rd.mission.approvalsNotRequested')}</span>
         ) : approvals.evaluations.length === 0 ? (
-          <Machine muted>none recorded</Machine>
+          <span className="fw-mission__value">{t('rd.mission.approvalsNone')}</span>
         ) : (
           <StatusBadge status={worstApprovalStatus(approvals.evaluations)} size="sm" />
         )}
@@ -68,7 +70,7 @@ export function ApprovalsMeta({ approvals }: ApprovalsMetaProps) {
           className="fw-mission__meta-item fw-mission__meta-item--wide"
           title={evaluation.gateId ? (gateReasonById.get(evaluation.gateId) ?? undefined) : undefined}
         >
-          <span className="fw-mission__meta-key">{evaluation.gateId ?? 'GATE'}</span>
+          <span className="fw-mission__meta-key">{evaluation.gateId ?? t('rd.mission.gate')}</span>
           <StatusBadge status={approvalStatus(evaluation)} size="sm" />
           {/*
             a11y-new: two bare values used to sit here with no key, breaking the one-key-one-value
@@ -76,9 +78,9 @@ export function ApprovalsMeta({ approvals }: ApprovalsMetaProps) {
             position; a screen reader gets two unlabelled strings — and once either is absent, two
             unexplained dashes. The labels are visually hidden, so the frozen layout is untouched.
           */}
-          <span className="fw-visually-hidden">Agent: </span>
+          <span className="fw-visually-hidden">{t('rd.mission.agentPrefix')}</span>
           <Machine muted>{evaluation.agent ?? '—'}</Machine>
-          <span className="fw-visually-hidden">Recorded at: </span>
+          <span className="fw-visually-hidden">{t('rd.mission.recordedPrefix')}</span>
           <Machine muted>{evaluation.timestamp ?? '—'}</Machine>
         </span>
       ))}

@@ -2,8 +2,9 @@
  * ExampleTag — the honesty chip.
  *
  * Goes next to anything that looks like evidence but is not: simulated command
- * output, an example test run, a fixture connection state. Small, dashed,
- * muted — it belongs in the detail layer, not stretched across the interface.
+ * output, an example test run, a fixture connection state. A quiet dashed pill on
+ * the item itself (DESIGN.md §4 "Example data"), never a page-wide banner. The
+ * uppercase default text is shown in sentence case.
  */
 
 import { isProductionMode } from '@/config/mode';
@@ -15,7 +16,7 @@ const DEFAULT_DETAIL =
 export interface ExampleTagProps {
   /** Overrides the tooltip / screen-reader sentence. */
   detail?: string;
-  /** Overrides the visible text. Keep it short and uppercase. */
+  /** Overrides the visible text. Keep it to one short word. */
   text?: string;
   className?: string;
 }
@@ -37,7 +38,7 @@ export function ExampleTag({ detail = DEFAULT_DETAIL, text = 'EXAMPLE', classNam
   return (
     <span className={classes.join(' ')} title={detail}>
       <Icon name="FlaskConical" size="xs" className="fw-example-tag__icon" />
-      <span className="fw-example-tag__text fg-machine" aria-hidden="true">
+      <span className="fw-example-tag__text fw-sentence" aria-hidden="true">
         {text}
       </span>
       <span className="fw-visually-hidden">{detail}</span>

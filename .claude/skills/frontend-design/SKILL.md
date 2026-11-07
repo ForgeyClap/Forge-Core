@@ -1,6 +1,8 @@
 ---
 name: frontend-design
-description: "Distinctive, intentional visual design for new or reshaped UI: aesthetic direction, typography, layout."
+description: "Distinctive visual design for new or restyled UI. Use when building UI."
+# A10 original description (listing budget; added the missing trigger phrase): "Distinctive, intentional visual design for new or reshaped UI: aesthetic direction, typography, layout."
+# W2-BUDGET original description (listing budget): "Distinctive visual design for new or reshaped UI. Use when building or restyling pages and components."
 license: Complete terms in LICENSE.txt
 ---
 
@@ -11,6 +13,7 @@ license: Complete terms in LICENSE.txt
   License: Apache-2.0 -- complete terms in LICENSE.txt next to this file
   Forge vendor note: this provenance block added (Apache-2.0 section 4(b) change notice); upstream frontmatter, license: key and body verbatim; LICENSE.txt shipped unmodified next to this file; the pinned upstream skill directory contains no separate NOTICE file.
   Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by build-boss, 2026-09-24 -- clean; every upstream file sha256-verified against the pinned-commit manifest before copying.
+  Upgrade check 2026-11-02 (Skill Boss): upstream main at ca45fc496a3436251f191354091d557da31c15b5; the last upstream change to skills/frontend-design/ is 41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f ("avoid generic design defaults", #1713), which predates the pin. Upstream git blobs at HEAD: SKILL.md a5333457c414d20d625f307df945842c0952ecc3, LICENSE.txt f433b1a53f5b830a205fd2df78e2b34974656c7b; the local LICENSE.txt hashes to the same blob, and the vendored SKILL.md with this comment removed and the original upstream description restored hashes to a5333457 as well, so this copy IS the newest version; no text change was needed. The trimmed description above is the A10 listing-budget edit, not an upstream change.
 -->
 
 # Frontend Design

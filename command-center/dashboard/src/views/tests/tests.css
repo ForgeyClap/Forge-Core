@@ -2,9 +2,9 @@
  * Tests & proof — view stylesheet.
  *
  * House rules held here:
- *   - no raw hex, rgb() or hsl(). Every colour is a var(--forge-*) token.
+ *   - no raw hex, rgb() or hsl(). Every colour is a var(--fs-*) token.
  *   - status is carried by the .fw-status token trio (value / style / width)
- *     on top of the icon and the uppercase label the badge already renders.
+ *     on top of the icon and the sentence-case label the badge already renders.
  *   - the ember accent appears nowhere in this file. Selection is drawn with
  *     line-loud and the selected surface step, not with hue.
  *   - the only animation is a chevron rotation, disabled under reduced motion.
@@ -27,7 +27,7 @@
   min-block-size: 0;
   min-inline-size: 0;
   /* The view owns its background so sticky chrome inside it never mismatches. */
-  background: var(--forge-color-bg);
+  background: var(--fs-bg);
 }
 
 :root[data-density='compact'] .fw-tests {
@@ -48,28 +48,32 @@
   flex: none;
   padding: var(--fw-gutter);
   padding-block-end: var(--fw-gutter-tight);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-tests__title {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-tests__h1 {
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-tight);
-  color: var(--forge-color-text);
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: calc(var(--fs-text-13) * 2);
+  font-weight: 400;
+  font-stretch: 92%;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  color: var(--fs-ink);
 }
 
 .fw-tests__lede {
-  max-inline-size: 62ch;
-  font-size: var(--forge-text-sm);
-  line-height: var(--forge-leading-normal);
-  color: var(--forge-color-text-muted);
+  max-inline-size: 60ch;
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 .fw-tests__toolbar {
@@ -101,42 +105,24 @@
    ========================================================================= */
 
 .fw-tests__summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: var(--forge-space-2) 0;
+  margin: 0;
   padding: var(--fw-panel-pad);
-  padding-block-end: var(--forge-space-3);
-}
-
-.fw-tests__stat {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: var(--forge-space-1);
-  padding-inline: var(--forge-space-5);
-  border-inline-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-}
-
-.fw-tests__stat:first-child {
-  padding-inline-start: 0;
-  border-inline-start: 0;
-}
-
-.fw-tests__stat-value {
-  font-size: var(--forge-text-xl);
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-none);
-  color: var(--forge-color-text);
+  padding-block-end: var(--fs-space-3);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
   font-variant-numeric: tabular-nums;
 }
 
-.fw-tests__stat--quiet .fw-tests__stat-value {
-  color: var(--forge-color-text-muted);
-  font-weight: var(--forge-weight-regular);
+/* Sentence-case labels and plain numbers (v1.0: mono only for paths, commands and ids). */
+.fw-tests-label {
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink-3);
 }
 
-.fw-tests__stat-label {
-  white-space: nowrap;
+.fw-tests-num {
+  color: var(--fs-ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ============================================================== gate board */
@@ -153,13 +139,13 @@
     var(--fw-gate-col-status)
     minmax(0, 1fr)
     max-content
-    var(--forge-icon-md);
+    16px;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   padding-inline: var(--fw-panel-pad);
-  padding-block: var(--forge-space-2);
-  border-block: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-surface-2);
+  padding-block: var(--fs-space-2);
+  border-block: 1px solid var(--fs-line);
+  background: var(--fs-surface-2);
 }
 
 .fw-gates__list {
@@ -169,7 +155,7 @@
 }
 
 .fw-gate {
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
   /*
    * The status treatment tokens do real work here: width and style differ per
    * status, so a row is readable with the colour removed entirely.
@@ -182,7 +168,7 @@
 }
 
 .fw-gate[data-selected='true'] {
-  background: var(--forge-color-selected);
+  background: var(--fs-accent-soft);
   border-inline-start-color: var(--fw-status-color);
 }
 
@@ -192,20 +178,20 @@
     var(--fw-gate-col-status)
     minmax(0, 1fr)
     max-content
-    var(--forge-icon-md);
+    16px;
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   inline-size: 100%;
   min-block-size: var(--fw-row-h);
   padding-inline: var(--fw-panel-pad);
-  padding-block: var(--forge-space-2);
+  padding-block: var(--fs-space-2);
   text-align: start;
   cursor: pointer;
   color: inherit;
 }
 
 .fw-gate__head:hover {
-  background: var(--forge-color-hover);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
 }
 
 .fw-gate__badge {
@@ -214,36 +200,36 @@
 }
 
 .fw-gate__name {
-  font-size: var(--forge-text-base);
-  font-weight: var(--forge-weight-medium);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-14);
+  font-weight: 500;
+  color: var(--fs-ink);
 }
 
 .fw-gate__meta {
   display: grid;
   grid-template-columns: var(--fw-gate-col-dur) var(--fw-gate-col-run) var(--fw-gate-col-ev);
   align-items: center;
-  gap: var(--forge-space-3);
+  gap: var(--fs-space-3);
   min-inline-size: 0;
 }
 
 .fw-gate__cell {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
   white-space: nowrap;
 }
 
 .fw-gate__cell-icon {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-gate__chev {
   justify-self: end;
-  color: var(--forge-color-text-faint);
-  transition: transform var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  color: var(--fs-ink-3);
+  transition: transform var(--fs-dur-1) var(--fs-ease);
 }
 
 .fw-gate__head[aria-expanded='true'] .fw-gate__chev {
@@ -254,25 +240,25 @@
 
 .fw-gate__output {
   padding-inline: var(--fw-panel-pad);
-  padding-block-end: var(--forge-space-4);
+  padding-block-end: var(--fs-space-4);
 }
 
 .fw-gate__output-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding-block: var(--forge-space-2);
+  gap: var(--fs-space-2);
+  padding-block: var(--fs-space-2);
 }
 
 .fw-gate__pre {
   margin: 0;
-  padding: var(--forge-space-3) var(--forge-space-4);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-sunken);
-  color: var(--forge-color-text-secondary);
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-normal);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-body);
   /* Wide console lines scroll inside this block, never the page. */
   white-space: pre;
   overflow-x: auto;
@@ -294,7 +280,7 @@
   align-items: flex-end;
   gap: var(--fw-gap);
   padding: var(--fw-panel-pad);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-proof__filter {
@@ -304,25 +290,25 @@
 .fw-proof__select {
   block-size: var(--fw-control-h-sm);
   min-inline-size: 12rem;
-  padding-inline: var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-xs);
+  padding-inline: var(--fs-space-2);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-12);
   cursor: pointer;
 }
 
 .fw-proof__select:hover {
-  border-color: var(--forge-color-line-strong);
+  border-color: var(--fs-line-strong);
 }
 
 .fw-proof__count {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
   white-space: nowrap;
 }
 
@@ -333,63 +319,63 @@
   max-inline-size: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  /* W3FX-BC: the scroller is the containing block of the table's visually hidden caption and cell
+     labels, so they are clipped here instead of widening the page at 960 px. */
+  position: relative;
 }
 
 .fw-proof__table {
   inline-size: 100%;
   min-inline-size: 62rem;
   border-collapse: collapse;
-  font-size: var(--forge-text-sm);
+  font-size: var(--fs-text-13);
 }
 
 .fw-proof__thead th {
   position: sticky;
   inset-block-start: 0;
-  z-index: var(--forge-z-base);
-  padding-inline: var(--forge-space-3);
-  padding-block: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-muted);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
+  z-index: 0;
+  padding-inline: var(--fs-space-3);
+  padding-block: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-3);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
   text-align: start;
   white-space: nowrap;
 }
 
 .fw-proof__group {
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-inline-start: var(--forge-border-hair) solid transparent;
+  border-block-end: 1px solid var(--fs-line);
+  border-inline-start: 1px solid transparent;
 }
 
 /*
- * Verdict has no --forge-verdict-* token trio, so it borrows the closest
+ * Verdict has no verdict token trio, so it borrows the closest
  * status treatments: completed for accepted, failed for rejected, waiting for
  * pending. The border style and width differ per verdict, so the row still
  * reads correctly in greyscale.
  */
 .fw-proof__group[data-verdict='accepted'] {
-  --fw-verdict-color: var(--forge-status-completed);
-  --fw-verdict-line: var(--forge-status-completed-line);
-  --fw-verdict-style: var(--forge-status-completed-style);
-  --fw-verdict-width: var(--forge-status-completed-width);
+  --fw-verdict-color: var(--fs-ok);
+  --fw-verdict-line: color-mix(in srgb, var(--fs-ok) 40%, transparent);
+  --fw-verdict-style: solid;
+  --fw-verdict-width: 1px;
 }
 
 .fw-proof__group[data-verdict='rejected'] {
-  --fw-verdict-color: var(--forge-status-failed);
-  --fw-verdict-line: var(--forge-status-failed-line);
-  --fw-verdict-style: var(--forge-status-failed-style);
-  --fw-verdict-width: var(--forge-status-failed-width);
+  --fw-verdict-color: var(--fs-danger);
+  --fw-verdict-line: color-mix(in srgb, var(--fs-danger) 40%, transparent);
+  --fw-verdict-style: solid;
+  --fw-verdict-width: 2px;
 }
 
 .fw-proof__group[data-verdict='pending'] {
-  --fw-verdict-color: var(--forge-status-waiting);
-  --fw-verdict-line: var(--forge-status-waiting-line);
-  --fw-verdict-style: var(--forge-status-waiting-style);
-  --fw-verdict-width: var(--forge-status-waiting-width);
+  --fw-verdict-color: var(--fs-warn);
+  --fw-verdict-line: color-mix(in srgb, var(--fs-warn) 40%, transparent);
+  --fw-verdict-style: dashed;
+  --fw-verdict-width: 1px;
 }
 
 .fw-proof__group[data-verdict='rejected'] {
@@ -397,8 +383,8 @@
 }
 
 .fw-proof__group[data-selected='true'] {
-  background: var(--forge-color-selected);
-  border-inline-start: var(--forge-border-thick) solid var(--forge-color-line-loud);
+  background: var(--fs-accent-soft);
+  border-inline-start: 2px solid var(--fs-ink-3);
 }
 
 .fw-proof__row {
@@ -406,14 +392,14 @@
 }
 
 .fw-proof__row:hover {
-  background: var(--forge-color-hover);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
 }
 
 .fw-proof__cell {
-  padding-inline: var(--forge-space-3);
-  padding-block: var(--forge-space-2);
+  padding-inline: var(--fs-space-3);
+  padding-block: var(--fs-space-2);
   vertical-align: baseline;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fw-proof__cell--time,
@@ -423,24 +409,24 @@
 
 .fw-proof__cell--command {
   max-inline-size: 26rem;
-  font-size: var(--forge-text-xs);
+  font-size: var(--fs-text-12);
 }
 
 .fw-proof__none {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-proof__claim {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   inline-size: 100%;
   text-align: start;
   cursor: pointer;
-  color: var(--forge-color-text);
-  font-size: var(--forge-text-sm);
-  font-weight: var(--forge-weight-medium);
-  line-height: var(--forge-leading-snug);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  line-height: var(--fs-leading-snug);
 }
 
 .fw-proof__claim:hover .fw-proof__claim-text {
@@ -451,8 +437,8 @@
 .fw-proof__chev {
   flex: none;
   align-self: center;
-  color: var(--forge-color-text-faint);
-  transition: transform var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  color: var(--fs-ink-3);
+  transition: transform var(--fs-dur-1) var(--fs-ease);
 }
 
 .fw-proof__claim[aria-expanded='true'] .fw-proof__chev {
@@ -472,40 +458,40 @@
 .fw-proof__detail-inner {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
-  margin-inline: var(--forge-space-3);
-  margin-block-end: var(--forge-space-3);
-  padding: var(--forge-space-3) var(--forge-space-4);
-  border-inline-start: var(--fw-verdict-width, var(--forge-border-thick))
-    var(--fw-verdict-style, solid) var(--fw-verdict-color, var(--forge-color-line-strong));
-  border-radius: 0 var(--forge-radius-md) var(--forge-radius-md) 0;
-  background: var(--forge-color-surface-2);
+  gap: var(--fs-space-2);
+  margin-inline: var(--fs-space-3);
+  margin-block-end: var(--fs-space-3);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-inline-start: var(--fw-verdict-width, 2px)
+    var(--fw-verdict-style, solid) var(--fw-verdict-color, var(--fs-line-strong));
+  border-radius: 0 var(--fs-radius-sm) var(--fs-radius-sm) 0;
+  background: var(--fs-surface-2);
 }
 
 .fw-proof__reason {
   max-inline-size: var(--fw-tests-reading);
-  font-size: var(--forge-text-md);
-  line-height: var(--forge-leading-relaxed);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-15);
+  line-height: 1.7;
+  color: var(--fs-ink);
 }
 
 .fw-proof__detail-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--forge-space-2);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-proof__note {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-3) var(--fw-panel-pad);
-  border-block-start: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  gap: var(--fs-space-2);
+  padding: var(--fs-space-3) var(--fw-panel-pad);
+  border-block-start: 1px solid var(--fs-line);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-proof__note-icon {
@@ -517,12 +503,12 @@
 .fw-verdict {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  padding: 2px var(--forge-space-2);
-  border: var(--fw-verdict-width, var(--forge-border-hair)) var(--fw-verdict-style, solid)
-    var(--fw-verdict-line, var(--forge-color-line));
-  border-radius: var(--forge-radius-sm);
-  color: var(--fw-verdict-color, var(--forge-color-text-secondary));
+  gap: var(--fs-space-1);
+  padding: 2px var(--fs-space-2);
+  border: var(--fw-verdict-width, 1px) var(--fw-verdict-style, solid)
+    var(--fw-verdict-line, var(--fs-line));
+  border-radius: var(--fs-radius-xs);
+  color: var(--fw-verdict-color, var(--fs-ink-2));
   white-space: nowrap;
 }
 
@@ -531,9 +517,8 @@
 }
 
 .fw-verdict__label {
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-wide);
+  font-size: var(--fs-text-12);
+  font-weight: 500;
 }
 
 /* ============================================================== responsive
@@ -547,12 +532,12 @@
   }
 
   .fw-gate__head {
-    grid-template-columns: minmax(0, 1fr) var(--forge-icon-md);
+    grid-template-columns: minmax(0, 1fr) 16px;
     grid-template-areas:
       'name  chev'
       'badge chev'
       'meta  chev';
-    row-gap: var(--forge-space-1);
+    row-gap: var(--fs-space-1);
     align-items: center;
   }
 
@@ -568,7 +553,7 @@
     grid-area: meta;
     display: flex;
     flex-wrap: wrap;
-    gap: var(--forge-space-1) var(--forge-space-4);
+    gap: var(--fs-space-1) var(--fs-space-4);
   }
 
   .fw-gate__chev {
@@ -599,10 +584,10 @@
   }
 
   .fw-proof__group {
-    margin-block-end: var(--forge-space-3);
-    border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-    border-radius: var(--forge-radius-md);
-    background: var(--forge-color-surface-2);
+    margin-block-end: var(--fs-space-3);
+    border: 1px solid var(--fs-line);
+    border-radius: var(--fs-radius-sm);
+    background: var(--fs-surface-2);
   }
 
   .fw-proof__group[data-verdict='rejected'] {
@@ -612,23 +597,20 @@
   .fw-proof__cell {
     display: flex;
     align-items: baseline;
-    gap: var(--forge-space-3);
-    padding-block: var(--forge-space-1);
+    gap: var(--fs-space-3);
+    padding-block: var(--fs-space-1);
   }
 
   .fw-proof__cell::before {
     content: attr(data-label);
     flex: none;
     inline-size: 9rem;
-    font-family: var(--forge-font-mono);
-    font-size: var(--forge-text-2xs);
-    letter-spacing: var(--forge-tracking-eyebrow);
-    text-transform: uppercase;
-    color: var(--forge-color-text-faint);
+    font-size: var(--fs-text-12);
+    color: var(--fs-ink-3);
   }
 
   .fw-proof__cell--claim {
-    padding-block-start: var(--forge-space-3);
+    padding-block-start: var(--fs-space-3);
   }
 
   .fw-proof__cell--claim::before {
@@ -636,11 +618,11 @@
   }
 
   .fw-proof__cell--verdict {
-    padding-block-end: var(--forge-space-3);
+    padding-block-end: var(--fs-space-3);
   }
 
   .fw-proof__detail-inner {
-    margin-inline: var(--forge-space-3);
+    margin-inline: var(--fs-space-3);
   }
 }
 
@@ -656,30 +638,8 @@
 /* an empty gate board says so in words, instead of an empty legend row. */
 .fw-gates__empty {
   margin: 0;
-  padding: var(--forge-space-3) var(--fw-panel-pad) var(--fw-panel-pad);
-  font-size: var(--forge-text-sm);
-  color: var(--forge-color-text-muted);
+  padding: var(--fs-space-3) var(--fw-panel-pad) var(--fw-panel-pad);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
 }
 
-/* on a phone the six counters sit in an even three-column grid. Wrapped flex items used to
-   keep their divider and inset, so the second row started indented and out of line. */
-@media (max-width: 40rem) {
-  .fw-tests__summary {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--forge-space-4) 0;
-  }
-
-  .fw-tests__stat {
-    padding-inline: var(--forge-space-3);
-  }
-
-  .fw-tests__stat:nth-child(3n + 1) {
-    padding-inline-start: 0;
-    border-inline-start: 0;
-  }
-
-  .fw-tests__stat-label {
-    white-space: normal;
-  }
-}

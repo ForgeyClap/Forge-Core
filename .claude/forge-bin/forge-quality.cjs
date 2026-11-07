@@ -46,6 +46,26 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// WP 2.1 (forge-paths): SCRIPT_ROOT = this copy's project (an installed .claude/forge-bin copy keeps its own project
+// exactly as before; a plugin copy discovers it from the cwd, null when there is none). Reads of shipped config keep
+// a default (CONFIG_ROOT, the old two-folders-up answer when no project is found); every WRITE needs SCRIPT_ROOT or
+// an explicit root and is refused otherwise, never beside the script. Guarded: a missing or older forge-paths.cjs
+// keeps the old answer. Run folders follow the project's layout (runDirOf).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+const SCRIPT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
+const CONFIG_ROOT = SCRIPT_ROOT || path.resolve(__dirname, '..', '..');
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+
 // Eigenaarsinstellingen (forge-config.cjs) — soft-required, zie de header.
 const COUNCIL_OFF_REASON = 'owner config council=off';
 let cfg = null;
@@ -79,7 +99,9 @@ function configOn(key, def, opts) { return configRead(key, def, opts).value; }
 const DISPOSITIES = new Set(['RELEVANT', 'NOT_APPLICABLE', 'DEFERRED', 'OWNER_GATED']);
 const SOURCE_TYPES = new Set(['EXPLICIT', 'INFERRED_FROM_LOCAL_EVIDENCE', 'INFERRED_FROM_STANDARD', 'RESEARCH_HYPOTHESIS', 'OPTIONAL', 'OWNER_GATED']);
 const PRIORITEITEN = new Set(['P0', 'P1', 'P2', 'P3']);
-/** primary-volgorde: het meest specifieke bouwdomein wint van generieke (api/integration/cli). */
+/** primary-volgorde: het meest specifieke bouwdomein wint van generieke (api/integration/cli). Sinds WP I.8a ALLEEN
+ *  nog de terugval van compileMissionProfile wanneer forge-domain-discovery.cjs niet laadbaar is (domain_evidence.source
+ *  zegt dat dan); normaal komt de primary uit de gedeelde scorer. Blijft geëxporteerd voor bestaande aanroepers. */
 const PRIMARY_VOLGORDE = ['ecommerce', 'website', 'fullstack', 'n8n', 'rag', 'agent', 'voice', 'prediction', 'mobile', 'electron', 'game', 'extension', 'cms', 'figma', 'migration', 'mlops', 'data', 'scraping', 'payments', 'bots', 'api', 'integration', 'cli'];
 
 function loadCatalog(root) {
@@ -179,19 +201,58 @@ function raakt(tekst, kw) {
   return new RegExp(links + esc + (stam ? '' : rechts)).test(tekst);
 }
 
+/** EEN bron voor het projectdomein (WP I.8a): primary, domeinlabels en classification_confidence komen
+ *  uit DEZELFDE scorer als `forge-domain-discovery.cjs classify`. Daarvoor koos dit profiel met een vaste
+ *  PRIMARY_VOLGORDE (ecommerce eerst, bots bijna achteraan) en hele-woordmatching: de intelligence evals maten 6 van
+ *  36 opdrachten waarop de twee classifiers het oneens waren (een Telegram-supportbot voor een fietsenzaak werd als
+ *  webshop gepland, een WordPress-site als generieke website, een "scraper" werd niet herkend, een gameserver-monitor
+ *  kreeg het game-playbook). Is de discovery-module niet laadbaar (een half gesynchroniseerde installatie), dan valt
+ *  het profiel EERLIJK terug op de oude trefwoordlogica en zegt dat in domain_evidence.source. */
+let discoveryModule;
+function discovery() {
+  if (discoveryModule === undefined) { try { discoveryModule = require('./forge-domain-discovery.cjs'); } catch { discoveryModule = null; } }
+  return discoveryModule;
+}
+let normalizeModule;
+function normalizer() {
+  if (normalizeModule === undefined) { try { normalizeModule = require('./forge-text-normalize.cjs'); } catch { normalizeModule = null; } }
+  return normalizeModule;
+}
+const HINT_MIN = 2; // een onbekend type houdt alleen hints met minstens één catalogusterm (2 punten) als label
+/** domeinBewijs(missie, cat, root) -> { routerLabels, herkend, primary, bewijs }. */
+function domeinBewijs(missie, tekst, cat, root) {
+  const D = discovery();
+  let cls = null;
+  if (D && typeof D.classify === 'function') { try { cls = D.classify(String(missie || ''), { root }); } catch { cls = null; } }
+  if (cls) {
+    const herkend = cls.verdict !== 'UNKNOWN';
+    const ranked = Object.keys(cls.scores || {});
+    const routerLabels = (herkend ? (cls.labels || [cls.best]) : ranked.filter((d) => cls.scores[d] >= HINT_MIN)).filter((d) => cat.domains[d]);
+    const primary = herkend ? cls.best : (routerLabels[0] || 'fullstack');
+    return { routerLabels, herkend, primary, bewijs: { source: 'forge-domain-discovery.classify', verdict: cls.verdict, confidence: cls.confidence, best: cls.best, mixed: cls.mixed, scores: cls.scores } };
+  }
+  const routerLabels = Object.entries(cat.domains).filter(([, def]) => (def.keywords || []).some((k) => raakt(tekst, k))).map(([slug]) => slug);
+  const herkend = routerLabels.length > 0;
+  const primary = PRIMARY_VOLGORDE.find((d) => routerLabels.includes(d)) || routerLabels[0] || 'fullstack';
+  return { routerLabels, herkend, primary, bewijs: { source: 'legacy-keywords (forge-domain-discovery.cjs niet laadbaar: vaste primary-volgorde, alleen hele woorden)', verdict: herkend ? 'KNOWN' : 'UNKNOWN' } };
+}
+
 function compileMissionProfile(missie, ctx) {
   ctx = ctx || {};
   const tekst = String(missie || '').toLowerCase();
-  const cat = loadCatalog(ctx.root || path.resolve(__dirname, '..', '..'));
-  const labels = [];
-  for (const [slug, def] of Object.entries(cat.domains)) {
-    if ((def.keywords || []).some((k) => raakt(tekst, k))) labels.push(slug);
-  }
+  const root = ctx.root || CONFIG_ROOT;
+  const cat = loadCatalog(root);
+  const dom = domeinBewijs(missie, tekst, cat, root);
+  const labels = [...dom.routerLabels];
+  // cross-labels: dezelfde normaliser (meervoud: "credentials" -> credential), geen samenstellingen
+  const M = normalizer();
+  const m = M && typeof M.matcher === 'function' ? M.matcher(tekst) : null;
+  const kruis = (k) => (m ? m.has(k, { compound: false }) : raakt(tekst, k));
   for (const [label, kws] of Object.entries(cat.cross_labels || {})) {
     if (label.startsWith('_')) continue;
-    if (kws.some((k) => raakt(tekst, k))) labels.push(label);
+    if (kws.some(kruis)) labels.push(label);
   }
-  const routerLabels = labels.filter((l) => cat.domains[l]);
+  const routerLabels = dom.routerLabels;
   /** F-06 (Codex batch-1-review): een missie die LETTERLIJK 'contactformulier' of 'GA4' zegt, werd
    *  genegeerd omdat alleen ctx-vlaggen telden — de vlaggenschipomissies (thank-you, duplicate submit)
    *  werden dan standaard gemist. De missietekst is nu zelf een contextbron; expliciet meegegeven ctx
@@ -203,12 +264,13 @@ function compileMissionProfile(missie, ctx) {
     indexable: (raakt(tekst, 'seo') || /vindbaar|indexeer|zoekmachine/.test(tekst)) ? true : undefined,
   };
   for (const k of Object.keys(afgeleid)) { if (ctx[k] === undefined && afgeleid[k] !== undefined) ctx = Object.assign({}, ctx, { [k]: afgeleid[k] }); }
-  const herkend = routerLabels.length > 0;
-  const primary = PRIMARY_VOLGORDE.find((d) => routerLabels.includes(d)) || routerLabels[0] || 'fullstack';
+  const herkend = dom.herkend;
+  const primary = dom.primary;
   /** onbekenden EERLIJK benoemen: wat niet uit de missietekst of context af te leiden is, wordt een
    *  unknown — niet een stil ingevulde aanname. Aannames die we WEL doen staan in assumptions. */
   const unknowns = [];
-  if (!herkend) unknowns.push('projecttype NIET herkend uit de missietekst — primary "fullstack" is een fallback-AANNAME, geen classificatie; stel het type expliciet vast voor er wordt gebouwd');
+  if (!herkend && routerLabels.length) unknowns.push('projecttype NIET met voldoende bewijs herkend (forge-domain-discovery classify: UNKNOWN) — primary "' + primary + '" is een zwakke hint en een AANNAME, geen classificatie; stel het type expliciet vast (of maak een discovery brief) voor er wordt gebouwd');
+  else if (!herkend) unknowns.push('projecttype NIET herkend uit de missietekst — primary "fullstack" is een fallback-AANNAME, geen classificatie; stel het type expliciet vast voor er wordt gebouwd');
   if (ctx.has_form === undefined) unknowns.push('heeft het project een formulier/submitflow? (has_form niet meegegeven)');
   if (ctx.has_physical_location === undefined && (routerLabels.includes('website') || routerLabels.includes('ecommerce'))) unknowns.push('is er een fysieke locatie? (bepaalt maps/route-eisen)');
   if (ctx.tracking === undefined && routerLabels.includes('website')) unknowns.push('is er een analytics/tracking-behoefte én grondslag? (bepaalt consent-eisen)');
@@ -230,6 +292,7 @@ function compileMissionProfile(missie, ctx) {
     council_mode: ctx.council_mode || 'NONE',
     classification_confidence: herkend ? (routerLabels.length > 1 ? 'multi' : 'single') : 'none',
     context: { has_form: ctx.has_form, has_physical_location: ctx.has_physical_location, tracking: ctx.tracking, indexable: ctx.indexable },
+    domain_evidence: dom.bewijs,
   };
 }
 
@@ -497,7 +560,7 @@ function buildMissionPack(profiel, delen) {
  *  tokens_est is een SCHATTING (woorden × 1.35), geen tokenizer-meting, en zo gelabeld. */
 function loadKnowledgeCard(root, slug) {
   if (typeof slug !== 'string' || !/^[a-z0-9-]+$/.test(slug)) return null; // padinjectie uitgesloten
-  const p = path.join(root || path.resolve(__dirname, '..', '..'), '.claude', 'config', 'quality', 'cards', slug + '.md');
+  const p = path.join(root || CONFIG_ROOT, '.claude', 'config', 'quality', 'cards', slug + '.md');
   if (!fs.existsSync(p)) return null;
   const content = fs.readFileSync(p, 'utf8');
   const woorden = content.split(/\s+/).filter(Boolean).length;
@@ -510,7 +573,7 @@ function loadKnowledgeCard(root, slug) {
  *  cross-labels 0.6; volgorde binnen een band volgt het profiel). Max 6, max 3 retrievalrondes
  *  blijft de afspraak in de kernel. */
 function selectKnowledgeCards(profiel, root) {
-  const basis = root || path.resolve(__dirname, '..', '..');
+  const basis = root || CONFIG_ROOT;
   const cat = loadCatalog(basis);
   /** F-08: alleen labels die de catalogus KENT tellen; de primary telt alleen mee als hij geldig is. */
   const isDomein = (l) => !!cat.domains[l];
@@ -539,7 +602,7 @@ function selectKnowledgeCards(profiel, root) {
  *  validator zou weigeren). */
 function analyzeMission(missie, ctx) {
   ctx = ctx || {};
-  const basis = ctx.root || path.resolve(__dirname, '..', '..');
+  const basis = ctx.root || CONFIG_ROOT;
   const profiel = compileMissionProfile(missie, ctx);
   const cat = loadCatalog(basis);
   const omissions = mineOmissions(profiel);
@@ -659,7 +722,7 @@ function persistCouncilRecord(root, runId, rec) {
   if (!v.ok) return { ok: false, reden: 'record valideert niet: ' + v.reden, written: null };
   if (typeof runId !== 'string' || !/^[a-z0-9][a-z0-9-]*$/i.test(runId)) return { ok: false, reden: 'ongeldig run_id (padtekens geweigerd)', written: null };
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(rec.council_id)) return { ok: false, reden: 'council_id met padtekens geweigerd', written: null };
-  const dir = path.join(root, '.claude', 'forge-runs', runId, 'council');
+  const dir = path.join(runDirOf(root, runId), 'council');
   const p = path.join(dir, rec.council_id + '.json');
   fs.mkdirSync(dir, { recursive: true });
   /** F-35 (review batch 2+3): existsSync + writeFileSync was een TOCTOU-paar — twee gelijktijdige
@@ -676,17 +739,387 @@ function persistCouncilRecord(root, runId, rec) {
 
 function sha256(s) { return crypto.createHash('sha256').update(String(s), 'utf8').digest('hex'); }
 
+/* ---- Quality gate cards (modernization WP 3.4) -------------------------------------------------
+ * One card per catalog domain at .claude/config/quality/cards/<domain>.json (the .md files next to them are the
+ * knowledge cards above). Verify Boss runs `gate --domain <d>` and marks every listed check PASS / FAIL / NOT_RUN
+ * with evidence. Every check cites a section of the domain playbook (or a FORGE_HARD_RULES.json rule) plus a
+ * fragment that must still be found there; verifyGateCitations() re-checks that against the current files. This
+ * code only LISTS checks: a card that carries a result field does not validate, and nothing here marks a pass. */
+const GATE_MARKS = ['PASS', 'FAIL', 'NOT_RUN'];
+const CITE = { type: 'object', description: 'markdown: {path, section, quote}; FORGE_HARD_RULES.json: {path, rule_id, quote}', required: ['path', 'quote'], properties: { path: { type: 'string' }, section: { type: 'string' }, rule_id: { type: 'string' }, quote: { type: 'string' } }, additionalProperties: false };
+const GATE_CARD_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  title: 'Forge quality gate card',
+  type: 'object',
+  required: ['domain', 'version', 'source', 'checks', 'hard_gates', 'not_applicable_when', 'gaps'],
+  additionalProperties: false,
+  properties: {
+    domain: { type: 'string', pattern: '^[a-z0-9-]+$', description: 'equals the file name and a domain-catalog.json domain' },
+    version: { type: 'integer', minimum: 1 },
+    source: { type: 'array', minItems: 1, items: { type: 'object', required: ['path', 'section'], properties: { path: { type: 'string' }, section: { type: 'string' } }, additionalProperties: false } },
+    checks: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', required: ['id', 'claim', 'evidence_required', 'how_to_run', 'severity', 'honesty_note', 'source'], additionalProperties: false, properties: { id: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]*$' }, claim: { type: 'string' }, evidence_required: { type: 'string' }, how_to_run: { type: 'string' }, severity: { enum: ['block', 'warn'] }, honesty_note: { type: 'string' }, source: CITE } } },
+    hard_gates: { type: 'array', items: { type: 'object', required: ['gate', 'source'], properties: { gate: { type: 'string' }, source: CITE }, additionalProperties: false } },
+    not_applicable_when: { type: 'array', items: { type: 'string' } },
+    gaps: { type: 'array', items: { type: 'string' }, description: 'places where the playbook has no verifiable gate — said, never filled in' },
+  },
+};
+
+const isText = (v) => typeof v === 'string' && v.trim() !== '';
+/** shapeProblems(obj, schemaNode, where) -> problems for required/additional keys and non-empty strings (one level). */
+function shapeProblems(obj, node, where) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [where + ' is not an object'];
+  const out = [];
+  for (const k of node.required || []) if (!(k in obj)) out.push(where + '.' + k + ' is missing');
+  for (const k of Object.keys(obj)) if (!(node.properties || {})[k]) out.push(where + '.' + k + ' is not a card field (a card lists checks, it never carries results)');
+  for (const [k, p] of Object.entries(node.properties || {})) if (p.type === 'string' && k in obj && !isText(obj[k])) out.push(where + '.' + k + ' must be a non-empty string');
+  return out;
+}
+
+/** citeShape(c, where) -> problems: the CITE shape plus exactly one locator (section for markdown, rule_id for the hard rules). */
+function citeShape(c, where) {
+  const out = shapeProblems(c, CITE, where);
+  if (c && typeof c === 'object' && !isText(c.section) === !isText(c.rule_id)) out.push(where + ' needs exactly one of section or rule_id');
+  return out;
+}
+/** validateGateCard(card, {domain}) -> {ok, problems[]} against GATE_CARD_SCHEMA. Never throws. */
+function validateGateCard(card, opts) {
+  const S = GATE_CARD_SCHEMA.properties;
+  const problems = shapeProblems(card, GATE_CARD_SCHEMA, 'card');
+  if (problems.length && (!card || typeof card !== 'object')) return { ok: false, problems };
+  if (!isText(card.domain) || !/^[a-z0-9-]+$/.test(card.domain)) problems.push('card.domain must be a slug');
+  if (opts && opts.domain && card.domain !== opts.domain) problems.push('card.domain "' + card.domain + '" does not match the file name "' + opts.domain + '"');
+  if (!Number.isInteger(card.version) || card.version < 1) problems.push('card.version must be an integer >= 1');
+  if (!Array.isArray(card.source) || !card.source.length) problems.push('card.source must list at least one playbook section');
+  else card.source.forEach((s, i) => problems.push(...shapeProblems(s, S.source.items, 'card.source[' + i + ']')));
+  if (!Array.isArray(card.checks) || card.checks.length < 1 || card.checks.length > 12) problems.push('card.checks must hold 1..12 checks (cards stay small)');
+  const ids = new Set();
+  (Array.isArray(card.checks) ? card.checks : []).forEach((ch, i) => {
+    const w = 'checks[' + i + ']';
+    problems.push(...shapeProblems(ch, S.checks.items, w));
+    if (!ch || typeof ch !== 'object') return;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(String(ch.id))) problems.push(w + '.id must be a slug');
+    if (ids.has(ch.id)) problems.push(w + '.id "' + ch.id + '" is a duplicate');
+    ids.add(ch.id);
+    if (!S.checks.items.properties.severity.enum.includes(ch.severity)) problems.push(w + '.severity "' + ch.severity + '" is not block|warn');
+    problems.push(...citeShape(ch.source, w + '.source'));
+  });
+  if (!Array.isArray(card.hard_gates)) problems.push('card.hard_gates must be an array');
+  else card.hard_gates.forEach((g, i) => { problems.push(...shapeProblems(g, S.hard_gates.items, 'hard_gates[' + i + ']')); if (g && typeof g === 'object') problems.push(...citeShape(g.source, 'hard_gates[' + i + '].source')); });
+  for (const k of ['not_applicable_when', 'gaps']) {
+    if (!Array.isArray(card[k])) problems.push('card.' + k + ' must be an array (empty is allowed)');
+    else if (!card[k].every(isText)) problems.push('card.' + k + ' must hold non-empty strings');
+  }
+  return { ok: problems.length === 0, problems };
+}
+
+/** citation text compare: bold markers, backticks and whitespace runs do not count. */
+const normCite = (s) => String(s).replace(/\*\*/g, '').replace(/`/g, '').replace(/\s+/g, ' ').trim();
+/** mdSection(text, heading) -> the body under the first heading whose text starts with `heading`, up to the next
+ *  heading of the same or a higher level; null when there is no such heading. */
+function mdSection(text, heading) {
+  const lines = String(text).split(/\r?\n/);
+  let level = 0, body = null;
+  for (const line of lines) {
+    const m = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (body !== null && m && m[1].length <= level) break;
+    if (body !== null) { body.push(line); continue; }
+    if (m && m[2].trim().startsWith(heading)) { level = m[1].length; body = []; }
+  }
+  return body === null ? null : body.join('\n');
+}
+/** verifyGateCitations(card, root) -> {ok, checked, problems[]}: every card-level source, check and hard gate
+ *  must point at a file inside root, a heading (or hard-rule id / JSON key) that exists, and a quote found in
+ *  THAT section. A playbook edit that drops the cited text makes the card stale, visibly. */
+function verifyGateCitations(card, root) {
+  const problems = [];
+  let checked = 0;
+  const cache = new Map();
+  const read = (rel) => {
+    if (!isText(rel) || !rel.startsWith('.claude/') || rel.split('/').includes('..')) return { err: 'path "' + rel + '" must stay inside .claude/' };
+    if (!cache.has(rel)) { try { cache.set(rel, { text: fs.readFileSync(path.join(root, ...rel.split('/')), 'utf8') }); } catch { cache.set(rel, { err: rel + ' does not exist' }); } }
+    return cache.get(rel);
+  };
+  const one = (where, c, needQuote) => {
+    checked++;
+    const f = read(c && c.path);
+    if (f.err) return problems.push(where + ': ' + f.err);
+    if (/\.json$/.test(c.path)) {
+      let j; try { j = JSON.parse(f.text); } catch { return problems.push(where + ': ' + c.path + ' is not valid JSON'); }
+      if (c.rule_id === undefined) return (c.section in j) ? null : problems.push(where + ': key "' + c.section + '" not in ' + c.path);
+      const r = [...(j.rules || []), ...(j.orchestration_hard_rules || [])].find((x) => x && x.id === c.rule_id);
+      if (!r) return problems.push(where + ': rule id "' + c.rule_id + '" not in ' + c.path);
+      if (needQuote && !normCite(r.rule).includes(normCite(c.quote))) problems.push(where + ': quote not found in rule ' + c.rule_id);
+      return null;
+    }
+    const body = mdSection(f.text, String(c.section || ''));
+    if (body === null) return problems.push(where + ': no heading "' + c.section + '" in ' + c.path);
+    if (needQuote && !normCite(body).includes(normCite(c.quote))) problems.push(where + ': quote "' + String(c.quote).slice(0, 60) + '" not found under "' + c.section + '" in ' + c.path);
+    return null;
+  };
+  (card.source || []).forEach((s, i) => one('source[' + i + ']', s, false));
+  (card.checks || []).forEach((ch) => one(ch.id, ch.source, true));
+  (card.hard_gates || []).forEach((g, i) => one('hard_gates[' + i + ']', g.source, true));
+  return { ok: problems.length === 0, checked, problems };
+}
+
+const gateCardDir = (root) => path.join(root, '.claude', 'config', 'quality', 'cards');
+/** loadGateCard(root, domain) -> {card, path, rel, sha256} | {error} | null (null = no card for that slug). */
+function loadGateCard(root, domain) {
+  if (typeof domain !== 'string' || !/^[a-z0-9-]+$/.test(domain)) return null;
+  const p = path.join(gateCardDir(root), domain + '.json');
+  if (!fs.existsSync(p)) return null;
+  const raw = fs.readFileSync(p, 'utf8');
+  const rel = '.claude/config/quality/cards/' + domain + '.json';
+  try { return { card: JSON.parse(raw), path: p, rel, sha256: sha256(raw) }; } catch (e) { return { error: rel + ' is not valid JSON: ' + e.message, path: p, rel }; }
+}
+/** listGateCards(root) -> [{domain, checks, block, warn, valid, problems}] sorted by domain. */
+function listGateCards(root) {
+  let files = [];
+  try { files = fs.readdirSync(gateCardDir(root)).filter((f) => f.endsWith('.json')).sort(); } catch { files = []; }
+  return files.map((f) => {
+    const domain = f.replace(/\.json$/, '');
+    const r = loadGateCard(root, domain);
+    if (!r || r.error) return { domain, checks: 0, block: 0, warn: 0, valid: false, problems: [r ? r.error : 'unreadable'] };
+    const v = validateGateCard(r.card, { domain });
+    const cs = Array.isArray(r.card.checks) ? r.card.checks : [];
+    return { domain, checks: cs.length, block: cs.filter((c) => c.severity === 'block').length, warn: cs.filter((c) => c.severity === 'warn').length, valid: v.ok, problems: v.problems };
+  });
+}
+const citeText = (c) => (c.url || c.path) + (c.rule_id ? ' rule ' + c.rule_id : c.section ? ' § ' + c.section : '') + ' — "' + c.quote + '"';
+
+/* ---- Generic fallback + provisional cards (Phase I.4 universal projects) ---------------------------
+ * generic.json (in the card folder, not a catalog domain) holds the checks that apply to ANY deliverable. A
+ * well-formed domain without a card first looks for a PROVISIONAL card in the project's research state folder
+ * (written by the Lead from sources Search Boss actually read, see forge-domain-discovery.cjs), else falls back to
+ * generic. A provisional card must say provisional: true, carry created + sources[] and a citation on every check;
+ * the tool cannot check those sources, so its output is marked UNVERIFIED-SOURCES behind a loud banner. */
+const GENERIC_DOMAIN = 'generic';
+const SLUG_RE = /^[a-z0-9-]+$/;
+const PCITE = { type: 'object', description: 'exactly one of url (http/https) or path (project-relative), plus the quote that was read', required: ['quote'], properties: { url: { type: 'string' }, path: { type: 'string' }, section: { type: 'string' }, quote: { type: 'string' } }, additionalProperties: false };
+const PROVISIONAL_CARD_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  title: 'Forge PROVISIONAL quality card (a project type without a playbook)',
+  type: 'object',
+  required: ['domain', 'version', 'provisional', 'created', 'sources', 'checks', 'hard_gates', 'not_applicable_when', 'gaps'],
+  additionalProperties: false,
+  properties: {
+    domain: { type: 'string', pattern: '^[a-z0-9-]+$', description: 'equals the file name; never generic, never the name of a real card' },
+    version: { type: 'integer', minimum: 1 },
+    provisional: { const: true },
+    created: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}', description: 'ISO date the card was derived' },
+    sources: { type: 'array', minItems: 1, items: { type: 'object', description: 'exactly one of url or path: what the Lead / Search Boss actually read', properties: { url: { type: 'string' }, path: { type: 'string' }, note: { type: 'string' } }, additionalProperties: false } },
+    checks: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'object', required: ['id', 'claim', 'evidence_required', 'how_to_run', 'severity', 'honesty_note', 'source'], additionalProperties: false, properties: { id: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]*$' }, claim: { type: 'string' }, evidence_required: { type: 'string' }, how_to_run: { type: 'string' }, severity: { enum: ['block', 'warn'] }, honesty_note: { type: 'string' }, source: PCITE } } },
+    hard_gates: { type: 'array', items: { type: 'object', required: ['gate', 'source'], properties: { gate: { type: 'string' }, source: PCITE }, additionalProperties: false } },
+    not_applicable_when: { type: 'array', items: { type: 'string' } },
+    gaps: { type: 'array', items: { type: 'string' } },
+  },
+};
+const RESULT_KEYS = new Set(['status', 'result', 'verdict', 'pass', 'passed', 'evidence', 'marked']);
+
+/** provisionalCardDir(root) -> <research state folder>/provisional-cards (forge-paths.cjs stateDir when it can
+ *  resolve this root, else the legacy literal .claude/forge-research/provisional-cards). */
+function provisionalCardDir(root) {
+  try {
+    const P = require('./forge-paths.cjs');
+    if (typeof P.stateDir === 'function') return path.join(P.stateDir(root, 'research'), 'provisional-cards');
+  } catch { /* a root forge-paths cannot resolve (no canon, bare fixture) uses the legacy literal below */ }
+  return path.join(root, '.claude', 'forge-research', 'provisional-cards');
+}
+/** locatorProblems(c, where) -> problems unless c carries exactly one of url / path, each well-formed. */
+function locatorProblems(c, where) {
+  if (!c || typeof c !== 'object') return [];
+  const out = [];
+  if (isText(c.url) === isText(c.path)) out.push(where + ' needs exactly one of url or path (what was actually read)');
+  if (isText(c.url) && !/^https?:\/\/\S+$/.test(c.url)) out.push(where + '.url must be an http(s) URL');
+  if (isText(c.path) && (path.isAbsolute(c.path) || /^[a-zA-Z]:/.test(c.path) || c.path.split(/[\\/]/).includes('..'))) out.push(where + '.path must be project-relative without ..');
+  return out;
+}
+/** resultFieldProblems(node, where) -> problems for any result-shaped key or a PASS value anywhere in the card. */
+function resultFieldProblems(node, where, out) {
+  const acc = out || [];
+  if (Array.isArray(node)) node.forEach((x, i) => resultFieldProblems(x, where + '[' + i + ']', acc));
+  else if (node && typeof node === 'object') {
+    for (const [k, v] of Object.entries(node)) {
+      if (RESULT_KEYS.has(k.toLowerCase())) acc.push(where + '.' + k + ' is a result field (a card never carries results)');
+      resultFieldProblems(v, where + '.' + k, acc);
+    }
+  } else if (typeof node === 'string' && /^(pass|passed)$/i.test(node.trim())) acc.push(where + ' carries a PASS value (a card never claims a pass)');
+  return acc;
+}
+/** validateProvisionalCard(card, {domain, root}) -> {ok, problems[]} against PROVISIONAL_CARD_SCHEMA. Never throws. */
+function validateProvisionalCard(card, opts) {
+  const o = opts || {};
+  const S = PROVISIONAL_CARD_SCHEMA.properties;
+  const problems = shapeProblems(card, PROVISIONAL_CARD_SCHEMA, 'card');
+  if (!card || typeof card !== 'object' || Array.isArray(card)) return { ok: false, problems };
+  if (card.provisional !== true) problems.push('card.provisional must be true (a provisional card says so)');
+  if (!isText(card.domain) || !SLUG_RE.test(card.domain)) problems.push('card.domain must be a slug');
+  else {
+    if (card.domain === GENERIC_DOMAIN) problems.push('card.domain "generic" is the shipped fallback card; pick the project type slug');
+    if (o.root && fs.existsSync(path.join(gateCardDir(o.root), card.domain + '.json'))) problems.push('card.domain "' + card.domain + '" shadows a real playbook card; use that card instead');
+  }
+  if (o.domain && card.domain !== o.domain) problems.push('card.domain "' + card.domain + '" does not match the file name "' + o.domain + '"');
+  if (!Number.isInteger(card.version) || card.version < 1) problems.push('card.version must be an integer >= 1');
+  if (!isText(card.created) || !/^\d{4}-\d{2}-\d{2}/.test(card.created)) problems.push('card.created must be an ISO date (YYYY-MM-DD)');
+  if (!Array.isArray(card.sources) || !card.sources.length) problems.push('card.sources must list at least one source that was actually read');
+  else card.sources.forEach((s, i) => problems.push(...shapeProblems(s, S.sources.items, 'card.sources[' + i + ']'), ...locatorProblems(s, 'card.sources[' + i + ']')));
+  if (!Array.isArray(card.checks) || card.checks.length < 1 || card.checks.length > 12) problems.push('card.checks must hold 1..12 checks (cards stay small)');
+  const ids = new Set();
+  (Array.isArray(card.checks) ? card.checks : []).forEach((ch, i) => {
+    const w = 'checks[' + i + ']';
+    problems.push(...shapeProblems(ch, S.checks.items, w));
+    if (!ch || typeof ch !== 'object') return;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(String(ch.id))) problems.push(w + '.id must be a slug');
+    if (ids.has(ch.id)) problems.push(w + '.id "' + ch.id + '" is a duplicate');
+    ids.add(ch.id);
+    if (!S.checks.items.properties.severity.enum.includes(ch.severity)) problems.push(w + '.severity "' + ch.severity + '" is not block|warn');
+    problems.push(...shapeProblems(ch.source, PCITE, w + '.source'), ...locatorProblems(ch.source, w + '.source'));
+  });
+  if (!Array.isArray(card.hard_gates)) problems.push('card.hard_gates must be an array');
+  else card.hard_gates.forEach((g, i) => { problems.push(...shapeProblems(g, S.hard_gates.items, 'hard_gates[' + i + ']')); if (g && typeof g === 'object') problems.push(...shapeProblems(g.source, PCITE, 'hard_gates[' + i + '].source'), ...locatorProblems(g.source, 'hard_gates[' + i + '].source')); });
+  for (const k of ['not_applicable_when', 'gaps']) {
+    if (!Array.isArray(card[k])) problems.push('card.' + k + ' must be an array (empty is allowed)');
+    else if (!card[k].every(isText)) problems.push('card.' + k + ' must hold non-empty strings');
+  }
+  resultFieldProblems(card, 'card', problems);
+  return { ok: problems.length === 0, problems: [...new Set(problems)] };
+}
+/** loadProvisionalCard(root, domain) -> {card, path, rel, sha256} | {error} | null. */
+function loadProvisionalCard(root, domain) {
+  if (typeof domain !== 'string' || !SLUG_RE.test(domain)) return null;
+  const p = path.join(provisionalCardDir(root), domain + '.json');
+  if (!fs.existsSync(p)) return null;
+  const rel = path.relative(root, p).split(path.sep).join('/');
+  const raw = fs.readFileSync(p, 'utf8');
+  try { return { card: JSON.parse(raw), path: p, rel, sha256: sha256(raw) }; } catch (e) { return { error: rel + ' is not valid JSON: ' + e.message, path: p, rel }; }
+}
+/** listProvisionalCards(root) -> [{domain, checks, valid, problems}] sorted by domain. */
+function listProvisionalCards(root) {
+  let files = [];
+  try { files = fs.readdirSync(provisionalCardDir(root)).filter((f) => f.endsWith('.json')).sort(); } catch { files = []; }
+  return files.map((f) => {
+    const domain = f.replace(/\.json$/, '');
+    const r = loadProvisionalCard(root, domain);
+    if (!r || r.error) return { domain, checks: 0, valid: false, problems: [r ? r.error : 'unreadable or not a slug name'] };
+    const v = validateProvisionalCard(r.card, { domain, root });
+    return { domain, checks: Array.isArray(r.card.checks) ? r.card.checks.length : 0, valid: v.ok, problems: v.problems };
+  });
+}
+const PROVISIONAL_BANNER = (card) => [
+  '==================== PROVISIONAL ====================',
+  'PROVISIONAL quality card for "' + card.domain + '" (created ' + card.created + '): derived for a project type without a Forge playbook; it is not a reviewed playbook.',
+  'UNVERIFIED-SOURCES: this tool cannot check the cited web pages or files; it only checked that every check cites one. Judge each source before trusting a check.',
+  'The generic card (gate --domain generic) applies on top.',
+  '=====================================================',
+];
+const fallbackNotice = (d) => 'no playbook for ' + d + '; showing the GENERIC card; run forge-domain-discovery to derive a provisional card';
+
+/** renderGate(card, meta, {json}) -> the checklist Verify Boss fills in. Deterministic: no clock, no randomness.
+ *  meta.provisional -> banner + UNVERIFIED-SOURCES (no citation check); meta.fallback -> the generic-card notice first. */
+function renderGate(card, meta, opts) {
+  const cit = meta.citations;
+  if (opts && opts.json) {
+    const out = {
+      domain: card.domain, version: card.version, card: meta.rel, card_sha256: meta.sha256, marks: GATE_MARKS,
+      instructions: 'Mark every check PASS, FAIL or NOT_RUN with evidence. A block check that is FAIL or NOT_RUN fails the gate; a warn check is reported. This output claims nothing passed.',
+      citations: { ok: cit.ok, checked: cit.checked, problems: cit.problems },
+      checks: card.checks.map((c) => Object.assign({}, c, { status: null, evidence: null })),
+      hard_gates: card.hard_gates, not_applicable_when: card.not_applicable_when, gaps: card.gaps,
+    };
+    if (meta.provisional) Object.assign(out, { provisional: true, created: card.created, sources: card.sources, sources_status: 'UNVERIFIED-SOURCES', banner: PROVISIONAL_BANNER(card).slice(1, -1) });
+    if (meta.fallback) out.fallback = { requested: meta.fallback.requested, notice: fallbackNotice(meta.fallback.requested) };
+    return JSON.stringify(out, null, 2);
+  }
+  const L = [];
+  if (meta.fallback) { L.push(fallbackNotice(meta.fallback.requested)); L.push('  (node .claude/forge-bin/forge-domain-discovery.cjs classify --text "<project description>", then brief --name ' + meta.fallback.requested + ')'); L.push(''); }
+  if (meta.provisional) { L.push(...PROVISIONAL_BANNER(card)); L.push(''); }
+  L.push('Quality gate: ' + card.domain + ' (card v' + card.version + ', ' + meta.rel + ', sha256 ' + meta.sha256.slice(0, 12) + ')');
+  L.push('Sources: ' + (card.source || card.sources).map((s) => (s.url || s.path) + (s.section ? ' § ' + s.section : '')).join('; '));
+  if (!cit.ok && !meta.provisional) { L.push('STALE CARD: ' + cit.problems.length + ' citation(s) no longer match the playbook — report this, judge the checks with care:'); for (const p of cit.problems) L.push('  - ' + p); }
+  L.push('');
+  L.push('Verify Boss: mark every check PASS / FAIL / NOT_RUN with evidence (the command and its output, a screenshot path, a run id).');
+  L.push('A block check that is FAIL or NOT_RUN fails the gate; a warn check is reported. This list claims nothing passed.');
+  L.push('');
+  for (const c of card.checks) {
+    L.push('[ ] ' + c.id + '  (' + c.severity + ')');
+    L.push('    claim:    ' + c.claim);
+    L.push('    evidence: ' + c.evidence_required);
+    L.push('    run:      ' + c.how_to_run);
+    L.push('    honesty:  ' + c.honesty_note);
+    L.push('    source:   ' + citeText(c.source));
+  }
+  L.push('');
+  L.push('Hard gates (confirm none was bypassed):' + (card.hard_gates.length ? '' : ' none beyond the shared gates'));
+  for (const g of card.hard_gates) L.push('  - ' + g.gate + '  [' + citeText(g.source) + ']');
+  L.push('Not applicable when:' + (card.not_applicable_when.length ? '' : ' (none listed)'));
+  for (const n of card.not_applicable_when) L.push('  - ' + n);
+  L.push('Gaps (no verifiable gate in the playbook):' + (card.gaps.length ? '' : ' none found'));
+  for (const g of card.gaps) L.push('  - ' + g);
+  L.push('Shared gates for every playbook: .claude/docs/forge-reference/playbook-template.md (Shared gates).');
+  return L.join('\n');
+}
+
+/** gateCli(rest, root) -> exit code; prints to stdout/stderr. */
+function gateCli(rest, root) {
+  const has = (f) => rest.includes(f);
+  const val = (f) => { const i = rest.indexOf(f); return i >= 0 ? rest[i + 1] : undefined; };
+  const r0 = val('--root') || root;
+  const json = has('--json');
+  if (has('--schema')) { console.log(JSON.stringify(GATE_CARD_SCHEMA, null, 2)); return 0; }
+  if (has('--list')) {
+    const cards = listGateCards(r0);
+    const prov = listProvisionalCards(r0);
+    if (json) console.log(JSON.stringify({ cards, provisional: prov }, null, 2));
+    else {
+      console.log('Quality gate cards (' + cards.length + '):'); for (const c of cards) console.log('  ' + c.domain.padEnd(12) + ' ' + c.checks + ' checks (' + c.block + ' block, ' + c.warn + ' warn)' + (c.valid ? '' : '  INVALID: ' + c.problems.join('; ')));
+      if (prov.length) { console.log('PROVISIONAL cards in this project (' + prov.length + ', unreviewed):'); for (const c of prov) console.log('  ' + c.domain.padEnd(12) + ' ' + c.checks + ' checks' + (c.valid ? '' : '  INVALID: ' + c.problems.join('; '))); }
+    }
+    return 0;
+  }
+  const domain = val('--domain');
+  if (!domain) { console.error('usage: node forge-quality.cjs gate --domain <domain> [--json] | gate --list [--json] | gate --schema'); return 2; }
+  const known = listGateCards(r0).map((c) => c.domain);
+  if (!SLUG_RE.test(domain)) { console.error('no quality gate card for domain "' + domain + '": a domain is a slug (a-z, 0-9, -). Known domains: ' + (known.join(', ') || '(none)')); return 2; }
+  const r = loadGateCard(r0, domain);
+  if (r) {
+    if (r.error) { console.error('gate card unreadable: ' + r.error); return 3; }
+    const v = validateGateCard(r.card, { domain });
+    if (!v.ok) { console.error('gate card ' + r.rel + ' is invalid (fix the card, nothing is listed):\n  - ' + v.problems.join('\n  - ')); return 3; }
+    console.log(renderGate(r.card, { rel: r.rel, sha256: r.sha256, citations: verifyGateCitations(r.card, r0) }, { json }));
+    return 0;
+  }
+  const pr = loadProvisionalCard(r0, domain);
+  if (pr) {
+    if (pr.error) { console.error('provisional card unreadable: ' + pr.error); return 3; }
+    const pv = validateProvisionalCard(pr.card, { domain, root: r0 });
+    if (!pv.ok) { console.error('provisional card ' + pr.rel + ' is invalid (fix it with forge-domain-discovery.cjs validate-card; nothing is listed):\n  - ' + pv.problems.join('\n  - ')); return 3; }
+    console.log(renderGate(pr.card, { rel: pr.rel, sha256: pr.sha256, citations: { ok: null, checked: 0, problems: [] }, provisional: true }, { json }));
+    return 0;
+  }
+  const g = loadGateCard(r0, GENERIC_DOMAIN);
+  if (!g) { console.error('no quality gate card for domain "' + domain + '" and no generic card in this install (' + gateCardDir(r0) + '). Known domains: ' + (known.join(', ') || '(none)')); return 2; }
+  if (g.error) { console.error('generic card unreadable: ' + g.error); return 3; }
+  const gv = validateGateCard(g.card, { domain: GENERIC_DOMAIN });
+  if (!gv.ok) { console.error('generic card ' + g.rel + ' is invalid (fix the card, nothing is listed):\n  - ' + gv.problems.join('\n  - ')); return 3; }
+  if (json) console.error(fallbackNotice(domain));
+  console.log(renderGate(g.card, { rel: g.rel, sha256: g.sha256, citations: verifyGateCitations(g.card, r0), fallback: { requested: domain } }, { json }));
+  return 0;
+}
+
 module.exports = {
   loadCatalog, catalogDrift, compileMissionProfile, evaluateLenses, mineOmissions,
   validateRequirementCard, qualityKernel, buildMissionPack, selectKnowledgeCards,
   councilTrigger, validateCouncilRecord, sha256, configOn, configRead, COUNCIL_OFF_REASON,
   loadKnowledgeCard, analyzeMission, persistCouncilRecord,
+  GATE_CARD_SCHEMA, GATE_MARKS, validateGateCard, verifyGateCitations, loadGateCard, listGateCards, renderGate,
+  GENERIC_DOMAIN, PROVISIONAL_CARD_SCHEMA, validateProvisionalCard, loadProvisionalCard, listProvisionalCards, provisionalCardDir,
   DISPOSITIES, SOURCE_TYPES, PRIMARY_VOLGORDE,
 };
 
 if (require.main === module) {
   const [cmd, ...rest] = process.argv.slice(2);
-  const root = path.resolve(__dirname, '..', '..');
+  const root = CONFIG_ROOT; // reads; a write below needs SCRIPT_ROOT (or --root) and is refused without one
+  const NO_ROOT = 'forge-quality: no project root found (no .claude, .forge or .git above the current folder) — refused, nothing is written beside this script';
   if (cmd === 'drift') {
     const d = catalogDrift(root);
     console.log(JSON.stringify(d, null, 2));
@@ -707,7 +1140,8 @@ if (require.main === module) {
     }
     const uitkomst = analyzeMission(missieDelen.join(' '), { root: analyseRoot });
     console.log(JSON.stringify(uitkomst, null, 2));
-    if (logRun) {
+    if (logRun && analyseRoot === root && !SCRIPT_ROOT) { console.error(NO_ROOT); process.exitCode = 3; }
+    else if (logRun) {
       const writer = path.join(analyseRoot, '.claude', 'forge-dashboard', 'log-event.cjs');
       const extra = JSON.stringify({ agent: 'forge-router', note: 'councilTrigger-besluit: mode=' + uitkomst.council.mode + ' — ' + uitkomst.council.trigger_reason, decision: 'council-mode-' + uitkomst.council.mode });
       const rr = require('child_process').spawnSync(process.execPath, [writer, logRun, 'decision_logged', extra], { encoding: 'utf8' });
@@ -723,15 +1157,18 @@ if (require.main === module) {
     const [runId, recPad] = rest;
     let rec; let geparsed = false;
     try { rec = JSON.parse(fs.readFileSync(recPad, 'utf8')); geparsed = true; } catch (e) { console.error('record onleesbaar: ' + e.message); process.exitCode = 3; }
-    if (geparsed) {
-      const uit = persistCouncilRecord(root, runId, rec);
+    if (geparsed && !SCRIPT_ROOT) { console.error(NO_ROOT); process.exitCode = 3; }
+    else if (geparsed) {
+      const uit = persistCouncilRecord(SCRIPT_ROOT, runId, rec);
       console.log(JSON.stringify(uit, null, 2));
       process.exitCode = uit.ok ? 0 : 3;
     }
+  } else if (cmd === 'gate') {
+    process.exitCode = gateCli(rest, root);
   } else if (cmd === 'kernel') {
     console.log(qualityKernel());
   } else {
-    console.log('usage: node forge-quality.cjs drift | profile "<missie>" | analyze "<missie>" | card <slug> | council-save <run_id> <record.json> | kernel');
+    console.log('usage: node forge-quality.cjs drift | profile "<missie>" | analyze "<missie>" | card <slug> | gate --domain <d> [--json] | gate --list | gate --schema | council-save <run_id> <record.json> | kernel');
     process.exitCode = 2;
   }
 }

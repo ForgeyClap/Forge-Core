@@ -69,6 +69,13 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const harvestTool = require('./forge-harvest.cjs');
+// WP 2.1 (opt-in .forge layout): per scanned project, its run folders (every one that exists) and its FORGE_MEMORY.md
+// read path come from forge-paths.cjs; a project without .forge reads exactly .claude/forge-runs and
+// .claude/FORGE_MEMORY.md, and every evidence pointer stays byte-identical there. Read-only, as before. Guarded: an
+// older or missing forge-paths.cjs keeps the legacy literals.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.existingStateDirs === 'function' && typeof m.memoryFile === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const relPosix = (root, p) => path.relative(root, p).split(path.sep).join('/');
 
 const DEFAULT_STALE_DEPENDENCY_DAYS = 180;
 const DEFAULT_STALE_MEMORY_DAYS = 90;
@@ -148,21 +155,23 @@ function checkStaleDependencies(entry, opts) {
  *  finding at all — this tool never claims doctor status it never actually observed. */
 function checkDoctorReceipt(entry) {
   const out = [];
-  const runsDir = path.join(entry.path, '.claude', 'forge-runs');
-  let runDirs;
-  try { runDirs = fs.readdirSync(runsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); }
-  catch { return out; }
+  const runsDirs = viaForgePaths((P) => P.existingStateDirs(entry.path, 'runs'), () => [path.join(entry.path, '.claude', 'forge-runs')]);
+  const runDirs = []; // [{name, dir}] across every run folder (legacy layout: the one .claude/forge-runs)
+  for (const runsDir of runsDirs) {
+    try { for (const e of fs.readdirSync(runsDir, { withFileTypes: true })) if (e.isDirectory()) runDirs.push({ name: e.name, dir: runsDir }); }
+    catch { /* unreadable folder: skipped */ }
+  }
   if (!runDirs.length) return out;
 
-  let latest = null, latestMtimeMs = -Infinity;
-  for (const name of runDirs) {
+  let latest = null, latestDir = null, latestMtimeMs = -Infinity;
+  for (const r of runDirs) {
     let st;
-    try { st = fs.statSync(path.join(runsDir, name)); } catch { continue; }
-    if (st.mtimeMs > latestMtimeMs) { latestMtimeMs = st.mtimeMs; latest = name; }
+    try { st = fs.statSync(path.join(r.dir, r.name)); } catch { continue; }
+    if (st.mtimeMs > latestMtimeMs) { latestMtimeMs = st.mtimeMs; latest = r.name; latestDir = r.dir; }
   }
   if (!latest) return out;
 
-  const doctorPath = path.join(runsDir, latest, 'doctor.json');
+  const doctorPath = path.join(latestDir, latest, 'doctor.json');
   if (harvestTool.isForbiddenFilename(path.basename(doctorPath))) return out; // defense-in-depth (never true here)
   let raw;
   try { raw = fs.readFileSync(doctorPath, 'utf8'); } catch { return out; }
@@ -175,7 +184,7 @@ function checkDoctorReceipt(entry) {
       severity: 'high',
       project: entry.project,
       message: entry.project + ': the most recent doctor run (' + latest + ') reported ok:false.',
-      evidence: { project: entry.project, file: '.claude/forge-runs/' + latest + '/doctor.json', fact: 'doctor.json for run "' + latest + '" has ok:false' },
+      evidence: { project: entry.project, file: relPosix(entry.path, doctorPath), fact: 'doctor.json for run "' + latest + '" has ok:false' },
     });
   }
   return out;
@@ -186,7 +195,7 @@ function checkDoctorReceipt(entry) {
  *  legitimately keeps a short, stable FORGE_MEMORY.md is not penalized for its length, only its recency. */
 function checkMemoryStaleness(entry, opts) {
   const out = [];
-  const memPath = path.join(entry.path, '.claude', 'FORGE_MEMORY.md');
+  const memPath = viaForgePaths((P) => P.memoryFile(entry.path, 'FORGE_MEMORY.md', { read: true }), () => path.join(entry.path, '.claude', 'FORGE_MEMORY.md'));
   if (harvestTool.isForbiddenFilename(path.basename(memPath))) return out; // defense-in-depth (never true here)
   let st;
   try { st = fs.statSync(memPath); } catch { return out; }
@@ -200,7 +209,7 @@ function checkMemoryStaleness(entry, opts) {
       severity: 'low',
       project: entry.project,
       message: entry.project + ': FORGE_MEMORY.md has not been updated in ' + ageDays + ' days.',
-      evidence: { project: entry.project, file: '.claude/FORGE_MEMORY.md', fact: 'FORGE_MEMORY.md mtime is ' + ageDays + ' days old (>= ' + thresholdDays + '-day staleness threshold)' },
+      evidence: { project: entry.project, file: relPosix(entry.path, memPath), fact: 'FORGE_MEMORY.md mtime is ' + ageDays + ' days old (>= ' + thresholdDays + '-day staleness threshold)' },
     });
   }
   return out;

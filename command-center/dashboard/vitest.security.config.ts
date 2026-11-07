@@ -40,12 +40,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(here, 'src'),
+      '@archive': path.resolve(here, 'archive'),
       '@brand': path.resolve(here, 'brand'),
     },
   },
   test: {
     // HONEST NAME (system-checkup finding): this suite's every test
-    // file imports `@/bridge/**` (router, security/paths, storage/store,
+    // file imports `@archive/bridge/**` (router, security/paths, storage/store,
     // attachments, claude adapter) — the WebSocket bridge the shipped product
     // never runs. Called plain `security`, a green line here read as "the live
     // Command Center's security is verified", which it is not: the LIVE security

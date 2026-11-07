@@ -33,8 +33,21 @@
 const fs = require('fs');
 const path = require('path');
 
-const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
-const RUNS_DIR = path.join(PROJECT_ROOT, '.claude', 'forge-runs');
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+/** runDirOf(root, id) -> the run's folder: the active runs folder, or the legacy one when the run only exists there. */
+function runDirOf(root, id) {
+  const active = path.join(statePath(root, 'runs'), id), legacy = path.join(root, '.claude', 'forge-runs', id);
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+const PROJECT_ROOT = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
 const DEFAULT_STALL_MS = 15 * 60 * 1000; // 15 min silent + no terminal event = stalled
 
 const RE_START = /^(agent|subagent)_started$/;
@@ -84,7 +97,7 @@ function projectRunWatch(events, opts = {}) {
 }
 
 function readEvents(runId, opts = {}) {
-  const p = opts.eventsPath || path.join(opts.runsDir || RUNS_DIR, runId, 'events.jsonl');
+  const p = opts.eventsPath || path.join(opts.runsDir ? path.join(opts.runsDir, runId) : runDirOf(PROJECT_ROOT, runId), 'events.jsonl');
   let raw; try { raw = fs.readFileSync(p, 'utf8'); } catch { return null; }
   const out = [];
   for (const line of raw.split(/\r?\n/)) { const t = line.trim(); if (!t) continue; try { const v = JSON.parse(t); if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v); } catch {} }
@@ -106,6 +119,7 @@ if (require.main === module) {
   const smIdx = args.indexOf('--stall-min');
   const stallMs = smIdx >= 0 ? (parseFloat(args[smIdx + 1]) * 60 * 1000) : undefined;
   if (!runId || !/^[A-Za-z0-9_.-]+$/.test(runId)) { console.error('usage: node forge-runwatch.cjs <run_id> [--stall-min N] [--json]'); process.exit(2); }
+  if (!PROJECT_ROOT) { console.error('forge-runwatch: no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)'); process.exit(2); }
   const st = watch(runId, { stallMs });
   if (st == null) { console.error('no such run / no events: ' + runId); process.exit(2); }
   if (json) { console.log(JSON.stringify(st, null, 2)); }

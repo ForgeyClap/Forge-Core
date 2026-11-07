@@ -1,9 +1,14 @@
 ---
 name: forge-fullstack
-description: "Forge: full-stack apps — frontend + backend + database + auth: full-stack, SaaS, CRUD app, Postgres, Supabase, JWT, session, signup, dashboard."
+description: "Playbook for full-stack apps: backend, auth, SaaS, CRUD dashboards (gebruik bij een webapp)."
+# A10 original description (listing budget): "Playbook for full-stack apps: frontend, backend, database, auth, SaaS and CRUD dashboards (gebruik bij een webapp bouwen)."
+# W2-BUDGET original description (listing budget): "Playbook for full-stack apps: frontend, backend, database, auth, SaaS and CRUD dashboards (gebruik bij een webapp bouwen)."
 ---
 
 # Forge playbook — Full-stack app
+
+## When to use
+- Use for: full-stack apps: frontend, backend, database and auth together.
 
 **Do not duplicate ECC skills — defer to:** `make-plan`/`do` (planning+execution), `using-git-worktrees` (parallel isolation), `subagent-driven-development` (both ship with Forge as pinned vendored skills). Orchestration only.
 
@@ -34,3 +39,9 @@ Auth flow tested (signup/login/logout/refresh); validation on all endpoints; mig
 
 ## Ship-readiness (unique)
 Migrations run clean on a fresh DB; auth flow verified; `.env.example` complete; no secrets in repo; rollback/seed documented; dev/preview by default (production needs explicit user approval). The `ship-readiness` full-stack/auth checklist is advisory; optionally run `codex-reviewer` (Codex) on auth/migration code — not a blocker.
+
+## Safety, approval and honesty
+- Approval / safety: dev/preview by default; production needs explicit user approval.
+- Approval / safety: secrets in env + `.env.example`; none in the client bundle or repo.
+- Honest failure: auth flow and fresh-DB migrations count as verified only when actually run.
+- Shared gates for every playbook (honesty, owner approval, secrets, reviews): `.claude/docs/forge-reference/playbook-template.md`.

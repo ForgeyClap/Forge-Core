@@ -1,0 +1,6 @@
+{
+  "code": "gateway_restarted",
+  "details": null,
+  "expect_title": "Forge is opnieuw opgestart",
+  "expect_action": "Opnieuw versturen"
+}

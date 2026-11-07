@@ -1,0 +1,536 @@
+/*
+ * "Eigen API" (v1.0 redesign DESIGN.md §3.4). The list is one surface of rows (the name, the
+ * address in mono, a "Niet versleuteld" badge for http on the own network, Aanpassen); the form opens
+ * in a dialog in Settings and inline in onboarding, so it is self-contained. v1.0 tokens only.
+ * Motion: none of its own.
+ */
+
+/* ------------------------------------------------------------- states, list */
+
+.fs-capi__state {
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+}
+
+.fs-capi__state--problem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3);
+  color: var(--fs-ink-2);
+}
+
+.fs-capi__box > * + * {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-capi__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fs-capi__row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--fs-space-4);
+  min-block-size: 60px;
+  padding: var(--fs-space-3) var(--fs-space-4);
+}
+
+.fs-capi__row + .fs-capi__row {
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-capi__row[data-enabled='false'] .fs-capi__row-main {
+  opacity: 0.66;
+}
+
+.fs-capi__tile {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 10px 4px 10px 10px;
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+}
+
+.fs-capi__row-main {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.fs-capi__row-name {
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
+  overflow-wrap: anywhere;
+}
+
+.fs-capi__row-host,
+.fs-capi__code {
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.fs-capi__code {
+  padding: 1px 6px;
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-sunken);
+}
+
+.fs-capi__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+}
+
+.fs-capi__tags:empty {
+  display: none;
+}
+
+.fs-capi__row:has(.fs-capi__tags:empty) {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+
+/* The list and the form size themselves to their own box (dialog, Settings column, onboarding). */
+.fs-capi,
+.fs-capi__form-wrap {
+  container-type: inline-size;
+}
+
+/* -------------------------------------------------------------------- form */
+
+.fs-capi__form-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-4);
+  padding: var(--fs-space-5);
+  border-radius: var(--fs-radius-sm);
+  /* surface-1, not canvas: in the light theme canvas equals sunken, which hid the notes inside. */
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+}
+
+/* In the Settings dialog the dialog is the surface: the form sits on it without a second frame. */
+.fw-modal .fs-capi__form-wrap {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.fs-capi__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-5);
+}
+
+.fs-capi__form-title {
+  margin: 0;
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fs-capi__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--fs-space-4) var(--fs-space-5);
+}
+
+@container (min-width: 620px) {
+  .fs-capi__grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+
+  .fs-capi__field--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.fs-capi__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fs-capi__label {
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fs-capi__label--sub {
+  font-weight: 500;
+  color: var(--fs-ink-2);
+}
+
+.fs-capi__input,
+.fs-capi__select {
+  inline-size: 100%;
+  min-width: 0;
+  block-size: 36px;
+  padding: 0 12px;
+  border-radius: var(--fs-radius-xs);
+  border: 1px solid var(--fs-line-strong);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+}
+
+.fs-capi__select {
+  padding-inline-end: 30px;
+}
+
+.fs-capi__input--mono {
+  font-family: var(--fs-font-mono);
+}
+
+.fs-capi__textarea {
+  block-size: auto;
+  min-block-size: 76px;
+  padding-block: 8px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.fs-capi__input::placeholder {
+  color: var(--fs-ink-3);
+  opacity: 0.8;
+}
+
+.fs-capi__input:hover:not(:disabled),
+.fs-capi__select:hover:not(:disabled) {
+  border-color: var(--fs-ink-3);
+}
+
+.fs-capi__input:focus-visible,
+.fs-capi__select:focus-visible {
+  outline: none;
+  border-color: var(--fs-ink-3);
+  box-shadow: var(--fs-focus);
+}
+
+.fs-capi__input[aria-invalid='true'] {
+  border-color: var(--fs-danger);
+}
+
+.fs-capi__hint,
+.fs-capi__error {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  line-height: 1.5;
+  color: var(--fs-ink-3);
+}
+
+.fs-capi__error {
+  font-weight: 500;
+  color: var(--fs-danger);
+}
+
+.fs-capi__urlstate {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-2);
+  margin: 0;
+  font-size: var(--fs-text-12);
+  line-height: 1.5;
+  color: var(--fs-ok);
+}
+
+.fs-capi__urlstate > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* D1: the http warning is a visible note, not a whisper. */
+.fs-capi__urlstate[data-tone='warn'] {
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-warn-soft);
+  color: var(--fs-ink);
+  font-size: var(--fs-text-13);
+}
+
+.fs-capi__urlstate[data-tone='warn'] > svg {
+  color: var(--fs-warn);
+  margin-top: 3px;
+}
+
+.fs-capi__set {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.fs-capi__set > legend {
+  margin-bottom: var(--fs-space-2);
+}
+
+.fs-capi__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-3);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+  cursor: pointer;
+}
+
+.fs-capi__check > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fs-capi__check small {
+  font-size: var(--fs-text-12);
+  font-weight: 400;
+  color: var(--fs-ink-3);
+}
+
+.fs-capi__check input,
+.fs-capi__radio input {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 1px 0 0;
+  flex: none;
+  accent-color: var(--fs-accent);
+  cursor: pointer;
+}
+
+.fs-capi__check input:focus-visible,
+.fs-capi__radio input:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+.fs-capi__aside {
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-sunken);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  line-height: 1.5;
+}
+
+.fs-capi__choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+}
+
+.fs-capi__radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  padding: 7px 14px 7px 10px;
+  border-radius: var(--fs-radius-sm);
+  border: 1px solid var(--fs-line-strong);
+  background: var(--fs-surface);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink-2);
+  cursor: pointer;
+}
+
+.fs-capi__radio input {
+  margin: 0;
+}
+
+.fs-capi__radio:hover {
+  border-color: var(--fs-ink-3);
+  color: var(--fs-ink);
+}
+
+.fs-capi__radio[data-checked='true'] {
+  border-color: var(--fs-accent);
+  color: var(--fs-ink);
+  /* A soft tint of the accent (accent-quiet is a full fill in this theme and failed contrast). */
+  background: color-mix(in srgb, var(--fs-accent) 10%, var(--fs-surface));
+}
+
+.fs-capi__more {
+  border-top: 1px solid var(--fs-line);
+  padding-top: var(--fs-space-4);
+}
+
+.fs-capi__more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink-2);
+  border-radius: var(--fs-radius-xs);
+}
+
+.fs-capi__more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fs-capi__more > summary:hover {
+  color: var(--fs-ink);
+}
+
+.fs-capi__more > summary:focus-visible {
+  outline: none;
+  border-radius: var(--fs-radius-xs);
+  box-shadow: var(--fs-focus);
+}
+
+.fs-capi__chev {
+  transition: transform var(--fs-dur-1) var(--fs-ease);
+}
+
+.fs-capi__more[open] > summary .fs-capi__chev {
+  transform: rotate(90deg);
+}
+
+.fs-capi__more[open] > .fs-capi__grid {
+  margin-top: var(--fs-space-4);
+}
+
+.fs-capi__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+}
+
+.fs-capi__foot-main,
+.fs-capi__foot-side {
+  display: flex;
+  gap: var(--fs-space-2);
+  flex-wrap: wrap;
+}
+
+.fs-capi__notice {
+  margin: calc(var(--fs-space-2) * -1) 0 0;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+}
+
+.fs-capi__notice:empty {
+  display: none;
+}
+
+.fs-capi__notice[data-tone='ok'] {
+  color: var(--fs-ok);
+}
+
+.fs-capi__notice[data-tone='bad'] {
+  color: var(--fs-danger);
+}
+
+/* ------------------------------------------------------- after saving */
+
+.fs-capi__connect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  padding-top: var(--fs-space-4);
+  border-top: 1px solid var(--fs-line);
+}
+
+.fs-capi__keyblock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-2);
+}
+
+.fs-capi__testrow {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+}
+
+.fs-capi__testline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink-2);
+}
+
+.fs-capi__testline:empty,
+.fs-capi__testline:has(> span:empty:only-child) {
+  display: none;
+}
+
+.fs-capi__testline[data-tone='ok'] {
+  color: var(--fs-ok);
+}
+
+.fs-capi__testline[data-tone='bad'] {
+  color: var(--fs-danger);
+}
+
+.fs-capi__models {
+  margin: 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.fs-capi__detail {
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fs-capi__detail > summary {
+  cursor: pointer;
+}
+
+.fs-capi__detail code {
+  display: block;
+  margin-top: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-sunken);
+  font-family: var(--fs-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 420px) {
+  .fs-capi__row {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .fs-capi__row > .fs-capi__tags,
+  .fs-capi__row > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-capi__chev {
+    transition: none;
+  }
+}

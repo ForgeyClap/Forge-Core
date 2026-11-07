@@ -1,0 +1,4 @@
+# forge-mlops — ship-readiness (full text)
+
+## Ship-readiness
+Reproducible-run evidence (same seed/data → same metric, with the real command output); versioned artifact + a rollback that was actually exercised; offline metric shown **relative to the incumbent** with its validation scheme; a shadow/canary plan (or executed canary result) before promotion; drift + decay monitors defined/live with alert thresholds and a retrain trigger; **promotion is owner-gated and no autonomous real-money/irreversible action is wired**; no secret in any artifact. Advisory checklist — optionally run `codex-reviewer` (Codex) on the training + serving + feature-parity code (recommended for production ML). **State the Python/infra opt-in status honestly:** if the pipeline was scaffolded/reviewed but not trained or served because the env wasn't available, label those checks not-run rather than implying they passed.

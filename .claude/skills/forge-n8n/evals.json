@@ -1,0 +1,205 @@
+{
+  "skill": "forge-n8n",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "Use when building, fixing or validating an n8n workflow",
+      "why": "description carries a when-trigger"
+    },
+    {
+      "id": "ecc-deference",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "Do not duplicate ECC n8n skills — defer to them.",
+      "why": "the n8n-* skills stay the how-to; the playbook only adds Forge rules"
+    },
+    {
+      "id": "two-step-error-output",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "An error output is a two-step setup",
+      "why": "SA-W1-B3 graft (czlonkowski n8n-error-handling): onError plus wired main[1]; half-wired is a silent failure"
+    },
+    {
+      "id": "validate-misses-half-wired",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "does not catch a half-wired output",
+      "why": "SA-W1-B3 graft: validate_workflow passes a half-wired output, re-read the JSON"
+    },
+    {
+      "id": "retry-defaults",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "`maxTries: 3`, `waitBetweenTries: 5000`",
+      "why": "SA-W1-B3 graft: retryOnFail 3/5000 on network nodes"
+    },
+    {
+      "id": "respond-code-default",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "answers `200` unless you set `options.responseCode`",
+      "why": "SA-W1-B3 graft: Respond to Webhook defaults to 200, also on error branches"
+    },
+    {
+      "id": "switch-fallback",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "options.fallbackOutput: \"extra\"",
+      "why": "SA-W1-B3 graft: no hanging branches"
+    },
+    {
+      "id": "recursion-trap",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "recursion trap",
+      "why": "SA-W1-B3 graft: the error workflow alerts on a different channel"
+    },
+    {
+      "id": "green-run-not-proof",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "A green run is not proof",
+      "why": "SA-W1-B3 graft: errors inside {{ }} resolve to null"
+    },
+    {
+      "id": "bot-self-loop",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "filter out the bot's own user id",
+      "why": "SA-W1-B3 graft (n8n-io idea): chat-triggered workflows never retrigger themselves"
+    },
+    {
+      "id": "raw-body-hmac",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "over the raw body",
+      "why": "HMAC is verified over the raw body, never a re-serialized $json.body"
+    },
+    {
+      "id": "read-execution-first",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "read the failed execution first",
+      "why": "SA-W1-B3 graft (n8n-io debugging idea)"
+    },
+    {
+      "id": "two-families",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "Two tool families, never mixed",
+      "why": "community n8n-mcp and instance-native MCP are kept apart"
+    },
+    {
+      "id": "inactive-gate",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "stay **inactive** until the owner approves activation",
+      "why": "owner gate: no live activation"
+    },
+    {
+      "id": "webhooks-link",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "forge-integration/references/webhooks.md",
+      "why": "links the shared webhook section"
+    },
+    {
+      "id": "provenance-czl",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "e037563e101749e630e6688d121d04529fe6ee7b",
+      "why": "MIT provenance names the pinned czlonkowski SHA"
+    },
+    {
+      "id": "provenance-n8nio",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "27b6b9f429ac0be90cae764512dbc579d7107e95",
+      "why": "Apache provenance names the pinned n8n-io SHA"
+    },
+    {
+      "id": "no-npx",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "npx ",
+      "why": "no install or run lines copied"
+    },
+    {
+      "id": "ref-detail",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-n8n/references/hard-rules-detail.md",
+      "why": "the detail the hard rules point to must exist"
+    },
+    {
+      "id": "ref-debugging",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-n8n/references/debugging.md",
+      "why": "the debugging reference must exist"
+    },
+    {
+      "id": "detail-expression-rules",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/references/hard-rules-detail.md",
+      "needle": "## 6. Expression rules",
+      "why": "expression rules live in the detail reference"
+    },
+    {
+      "id": "detail-code-rules",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/references/hard-rules-detail.md",
+      "needle": "## 7. Code-node rules",
+      "why": "Code-node rules live in the detail reference"
+    },
+    {
+      "id": "retry-only-harmless-hard-rule",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "Network nodes retry before they fail, but only when a repeat is harmless.",
+      "why": "guard (repeat of a review finding): the hard rule limits retryOnFail to calls where a repeat is harmless"
+    },
+    {
+      "id": "retry-only-idempotent-step-4a",
+      "type": "contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "set `retryOnFail` on idempotent network nodes only",
+      "why": "guard: step 4a repeats the condition, not a blanket retry"
+    },
+    {
+      "id": "no-blanket-retry-step-4a",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-n8n/SKILL.md",
+      "needle": "set `retryOnFail` on network nodes, explicit Respond codes",
+      "why": "guard: the old unconditional step-4a wording (fixed twice) must not come back"
+    },
+    {
+      "id": "no-blanket-retry-detail",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-n8n/references/hard-rules-detail.md",
+      "needle": "on every node that calls a network service",
+      "why": "guard: the detail reference must not retry every network node either"
+    }
+  ]
+}

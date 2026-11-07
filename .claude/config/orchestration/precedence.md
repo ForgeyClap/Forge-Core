@@ -8,7 +8,10 @@ before intake — never re-derive this ordering elsewhere; point back to this fi
 
 1. **Hard gates** — `.claude/config/orchestration/hard-gates.json`, read via
    `.claude/forge-bin/forge-actiongate.cjs::classify()`. An irreversible action (deploy, git-push,
-   spend, DNS change, prod-activate, credential attach/rotate, workflow-activate, outbound SMS) or a
+   spend, DNS change, prod-activate, credential attach/rotate, workflow-activate, outbound SMS, since
+   WP 3.3 data-delete: deleting a folder, database, branch or backups in plain words, and since WP 3.3b
+   plugin-install: installing or enabling a Claude Code plugin or adding a marketplace, and settings-edit:
+   editing the Claude Code settings that grant permissions or register hooks) or a
    project-isolation escape (write-outside-root) stops the run **whenever the classifier fires**,
    regardless of every layer below — including a standing rule, an owner-profile pref, or the current
    owner instruction. This is also tier 2 of `.claude/forge-bin/forge-autonomy.cjs::decide()`.
@@ -25,8 +28,8 @@ before intake — never re-derive this ordering elsewhere; point back to this fi
      documented non-coverage (see `hard-gates.json`'s `_not_caught` block, which lists exactly what
      it does not see). An action it does not recognise is simply not gated — so the absence of an
      interrupt is never evidence that an action was safe.
-   - **The exception — five COMMAND gates are hook-enforced (three WP16; `opaque-exec` since the 2026-09-24 codex-recheck; `secret-print` 2026-09-27) — a classifier, not a proof.**
-     `destructive-delete`, `kill-by-name`, `git-destructive`, `opaque-exec` and `secret-print` are also checked by a real PreToolUse hook,
+   - **The exception — seven COMMAND gates are hook-enforced (three WP16; `opaque-exec` since the 2026-09-24 codex-recheck; `secret-print` 2026-09-27; `plugin-install-command` and `settings-edit-command` since WP 3.3b 2026-10-24) — a classifier, not a proof.**
+     `destructive-delete`, `kill-by-name`, `git-destructive`, `opaque-exec`, `secret-print`, `plugin-install-command` and `settings-edit-command` are also checked by a real PreToolUse hook,
      `.claude/forge-bin/forge-gate-hook.cjs` (matcher `Bash|PowerShell`, started as
      `node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-gate-hook.cjs"` so it works from any working directory),
      which blocks a matching command with exit 2 BEFORE it runs: a recursive delete with OR without the force
@@ -34,7 +37,13 @@ before intake — never re-derive this ordering elsewhere; point back to this fi
      that discard uncommitted work, feeding unknown/decoded content straight into an interpreter, and printing
      the CONTENTS of a secret file (`.env`-shaped files except `.env.example`/`.env.sample`/`.env.template`,
      `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `.claude/.credentials.json`, `secrets/**`) via a shell reader
-     like `cat`/`type`/`Get-Content`/`grep`. Config key `gate-hook`, default on. Only the owner switches it off — an
+     like `cat`/`type`/`Get-Content`/`grep`, installing or enabling a Claude Code plugin or marketplace
+     (`claude plugin install|enable|update`, `claude plugin marketplace add`), and writing, replacing, moving or
+     deleting the Claude Code settings (`.claude/settings.json`, `.claude/settings.local.json`,
+     `~/.claude/settings.json` — a redirect, `tee`, `sed -i`, `Set-Content`/`Out-File`, `cp`/`mv` onto it, inline
+     `node -e`/`python -c` code) or `claude config set`; reading those files, `claude plugin list|validate|eval` and
+     Forge's own tools (`forge-config`, `forge-sync`, `forge-settings-merge`, `forge-plugin-build`) stay allowed.
+     Config key `gate-hook`, default on. Only the owner switches it off — an
      agent's own `forge-config … set gate-hook off` / `unset` / `reset` is itself blocked; the one exact shape
      `node .claude/forge-bin/forge-config.cjs set gate-hook off --once "<quote>"` (a quoted owner approval with a
      short expiry) passes, and while the gate is off every call it would have stopped still prints a visible
@@ -48,9 +57,12 @@ before intake — never re-derive this ordering elsewhere; point back to this fi
      findstr/git grep) is not a command and is not gated, unless the same command later feeds it to an
      interpreter. Whenever the hook cannot judge a call (own error, oversized payload, stdin read error or
      timeout) it exits 1 — visible, never a silent pass (see `HOOKS_OPT_IN.md` "Scratch pass-through" and
-     "Gate hook"). The text gates (deploy, git-push, spend, dns-change, prod-activate, credential
-     attach/rotate, workflow-activate, outbound-sms) and `write-outside-root` remain classifier + prose, and the
-     standing rules (tier 3) stay advisory.
+     "Gate hook"). The twelve text gates (deploy, git-push, spend, dns-change, prod-activate, credential
+     attach/rotate, workflow-activate, outbound-sms, data-delete since WP 3.3, plugin-install and settings-edit
+     since WP 3.3b) and `write-outside-root` remain classifier + prose, and the standing rules (tier 3) stay
+     advisory. Since WP 3.3b, data-delete, plugin-install and settings-edit fire on an INSTRUCTION, not on a
+     feature description or a quoted mention (`the app can delete files`, `add a button to delete files` and
+     `de gebruiker kan de map verwijderen` are silent; `can you delete the old backups` still fires).
    The honest one-line summary, and the sentence both files must agree on: **a fired gate always
    interrupts and cannot be overridden; an unfired gate proves nothing.**
 2. **Current owner instruction** — whatever the owner explicitly asked for in THIS turn/session always

@@ -1,0 +1,78 @@
+{
+  "ok": true,
+  "mode": "claude-then-model",
+  "entries": [
+    {
+      "id": "main",
+      "kind": "claude-account",
+      "label": "Hoofdaccount",
+      "enabled": true,
+      "eligible": true,
+      "ineligible_reason": null,
+      "state": "near-limit",
+      "max_pct": 94,
+      "windows": [
+        { "type": "five_hour", "pct": 94, "resets_at": "2026-11-02T16:40:00.000Z", "status": "allowed_warning" },
+        { "type": "seven_day", "pct": 41, "resets_at": "2026-11-07T09:00:00.000Z", "status": "allowed" }
+      ],
+      "measured_at": "2026-11-02T13:58:00.000Z",
+      "source": "turn",
+      "resume_at": null,
+      "capability": "full"
+    },
+    {
+      "id": "werk",
+      "kind": "claude-account",
+      "label": "Werk",
+      "enabled": true,
+      "eligible": false,
+      "ineligible_reason": "multi_account_off",
+      "state": "unknown",
+      "max_pct": null,
+      "windows": [],
+      "measured_at": null,
+      "source": null,
+      "resume_at": null,
+      "capability": "full"
+    },
+    {
+      "id": "codex",
+      "kind": "codex-account",
+      "label": "Codex",
+      "enabled": false,
+      "eligible": false,
+      "ineligible_reason": "disabled",
+      "state": "unknown",
+      "max_pct": null,
+      "windows": [],
+      "measured_at": null,
+      "source": null,
+      "resume_at": null,
+      "capability": "read-answer"
+    },
+    {
+      "id": "ollama-llama31",
+      "kind": "provider-model",
+      "label": "Ollama · llama3.1",
+      "enabled": true,
+      "eligible": true,
+      "ineligible_reason": null,
+      "state": "ready",
+      "max_pct": null,
+      "windows": [],
+      "measured_at": "2026-11-02T13:59:00.000Z",
+      "source": "test",
+      "resume_at": null,
+      "capability": "answers-only"
+    }
+  ],
+  "next": {
+    "kind": "target",
+    "entry": { "id": "main", "label": "Hoofdaccount", "kind": "claude-account" },
+    "reason": "sticky",
+    "switched": false,
+    "from": null
+  },
+  "last_switch": null,
+  "captured_at": "2026-11-02T14:00:05.000Z"
+}

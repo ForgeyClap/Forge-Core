@@ -1,0 +1,6 @@
+{
+  "code": "unknown",
+  "details": "TypeError: Cannot read properties of undefined (reading 'session_id') at C:\\Users\\iemand\\Forge\\exec.mjs:12 ANTHROPIC_API_KEY=sk-ant-api03-FAKEFAKE mail iemand@example.com",
+  "expect_title": "Er ging iets mis",
+  "expect_action": "Opnieuw proberen"
+}

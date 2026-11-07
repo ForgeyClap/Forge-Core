@@ -1,0 +1,17 @@
+{
+  "_doc": "Account rotator PATH A hook registration (work packages R.2+R.3). NOT active by itself: a later integration package merges ONLY the `hooks` block below into .claude/settings.json (same shape and timeout as the existing hooks there); this `_doc` key is never copied (settings.json carries no prose keys). StopFailure fires instead of Stop when a turn ends on an API error; Claude Code ignores its output and exit code. The hook is registered SYNCHRONOUSLY on purpose (no `async`): the Claude Code hooks reference (fetched 2026-10-24) says that in non-interactive `-p` mode Claude Code kills any async hook still running at teardown, and `-p` jobs are exactly the runs forge-rotator-supervisor.cjs relies on the marker for. The hook finishes well inside its own 2 s failsafe, under the 5 s timeout. It writes only when the owner setting rotator-auto-resume is on (default off); env FORGE_ROTATOR_HOOK=off disables it. Removing this block from settings.json is the rollback.",
+  "hooks": {
+    "StopFailure": [
+      {
+        "matcher": "rate_limit|overloaded",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-rotator-hook.cjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

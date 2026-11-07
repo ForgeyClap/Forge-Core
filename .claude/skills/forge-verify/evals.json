@@ -14,6 +14,12 @@
     { "id": "enforce-flag-documented", "type": "contains", "path": ".claude/skills/forge-verify/SKILL.md", "needle": "--enforce",
       "why": "the --enforce flag is how a mismatch actually becomes rework, not just a report" },
     { "id": "learnings-wiring", "type": "contains", "path": ".claude/skills/forge-verify/SKILL.md", "needle": "learnings.md",
-      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use and appending corrections after" }
+      "why": "wp-skill-evals: the skill must instruct reading its own learnings.md before use and appending corrections after" },
+    { "id": "claim-verdict-exported", "type": "contains", "path": ".claude/forge-bin/forge-verify.cjs", "needle": "assessClaim",
+      "why": "the graded claim verdict (narrative strip, absent-test and hedge rules) must stay exported from forge-verify.cjs" },
+    { "id": "claim-flag-documented", "type": "contains", "path": ".claude/skills/forge-verify/SKILL.md", "needle": "--claim",
+      "why": "the skill must tell the verifier how to grade one claim from the stripped packet" },
+    { "id": "verdict-grades-in-contract", "type": "contains", "path": ".claude/forge-bin/forge-report.cjs", "needle": "VERDICT_GRADES",
+      "why": "the four verdict words are owned by the report contract and validated there" }
   ]
 }

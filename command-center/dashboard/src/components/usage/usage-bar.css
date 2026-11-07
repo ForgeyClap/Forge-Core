@@ -2,7 +2,7 @@
  * Forge Workspace — the live usage bar stylesheet.
  *
  * Monochrome, tokens only. There is no hex, no rgb() and no hsl() in this file:
- * every value is a var(--forge-*) token, so it inherits both themes and the
+ * every value is a v1.0 var(--fs-*) token, so it inherits both themes and the
  * density switch for free. The one place a value earns emphasis is a context
  * alert, and it earns it with border WEIGHT, never a hue — in keeping with the
  * workspace's status treatment.
@@ -21,15 +21,15 @@
 .fw-usage {
   flex: none;
   position: relative;
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  background: var(--forge-color-bg);
+  border-block-end: 1px solid var(--fs-line);
+  background: var(--fs-bg);
 }
 
 .fw-usage__inner {
   inline-size: 100%;
-  max-inline-size: var(--forge-layout-reading);
+  max-inline-size: 46rem;
   margin-inline: auto;
-  padding: var(--forge-space-2) var(--fw-gutter);
+  padding: var(--fs-space-2) var(--fw-gutter);
   min-inline-size: 0;
 }
 
@@ -39,11 +39,11 @@
 .fw-usage__summary {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   inline-size: 100%;
-  padding: var(--forge-space-1) var(--forge-space-2);
-  border: var(--forge-border-hair) solid transparent;
-  border-radius: var(--forge-radius-md);
+  padding: var(--fs-space-1) var(--fs-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--fs-radius-sm);
   background: transparent;
   text-align: start;
   cursor: pointer;
@@ -51,8 +51,8 @@
 }
 
 .fw-usage__summary:hover {
-  background: var(--forge-color-hover);
-  border-color: var(--forge-color-line-subtle);
+  background: color-mix(in srgb, var(--fs-ink) 5%, transparent);
+  border-color: var(--fs-line);
 }
 
 /* =========================================================================
@@ -63,54 +63,54 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--forge-space-1) var(--forge-space-3);
+  gap: var(--fs-space-1) var(--fs-space-3);
   min-inline-size: 0;
 }
 
 .fw-usage__brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  font-size: var(--forge-text-xs);
-  font-weight: var(--forge-weight-semibold);
-  color: var(--forge-color-text);
+  gap: var(--fs-space-1);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  color: var(--fs-ink);
   white-space: nowrap;
 }
 
 .fw-usage__brand-icon {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 /* One key/value cluster: a muted uppercase key, then a machine value + chip. */
 .fw-usage__group {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-usage__k {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
+  gap: var(--fs-space-1);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
   text-transform: uppercase;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
   white-space: nowrap;
 }
 
 .fw-usage__pair {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   min-inline-size: 0;
 }
 
 .fw-usage__v {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -118,21 +118,21 @@
 }
 
 .fw-usage__v--muted {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage__v--strong {
-  color: var(--forge-color-text);
+  color: var(--fs-ink);
 }
 
 .fw-usage__sub {
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 /* Secondary rows collapse on narrow viewports until the bar is expanded. */
 .fw-usage__row--secondary {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -142,32 +142,32 @@
 .fw-usage__conn {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  padding-inline: var(--forge-space-1);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-1);
+  padding-inline: var(--fs-space-1);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
+  color: var(--fs-ink-3);
   white-space: nowrap;
 }
 
 .fw-usage__conn-dot {
-  inline-size: var(--forge-space-2);
-  block-size: var(--forge-space-2);
-  border-radius: var(--forge-radius-full);
-  border: var(--forge-border-hair) solid var(--forge-color-line-loud);
+  inline-size: var(--fs-space-2);
+  block-size: var(--fs-space-2);
+  border-radius: var(--fs-radius-pill);
+  border: 1px solid var(--fs-ink-3);
   background: transparent;
   flex: none;
 }
 
 .fw-usage__conn[data-status='CONNECTED'] .fw-usage__conn-dot {
-  background: var(--forge-color-text-secondary);
-  border-color: var(--forge-color-text-secondary);
+  background: var(--fs-ink-2);
+  border-color: var(--fs-ink-2);
 }
 
 .fw-usage__conn[data-status='DEGRADED'] .fw-usage__conn-dot {
   border-style: dashed;
-  border-color: var(--forge-color-text-muted);
+  border-color: var(--fs-ink-3);
 }
 
 .fw-usage__conn[data-status='CONNECTING'] .fw-usage__conn-dot {
@@ -176,7 +176,7 @@
 
 .fw-usage__conn[data-status='DISCONNECTED'] .fw-usage__conn-dot {
   border-style: dotted;
-  border-color: var(--forge-color-text-faint);
+  border-color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -186,30 +186,29 @@
 .fw-usage__ctx {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-usage__track {
   inline-size: clamp(3.5rem, 12vw, 7rem);
-  block-size: var(--forge-space-1);
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-color-sunken);
-  box-shadow: var(--forge-shadow-inset);
+  block-size: var(--fs-space-1);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-sunken);
+  box-shadow: inset 0 0 0 0 transparent;
   overflow: hidden;
   flex: none;
 }
 
 .fw-usage__track-fill {
   block-size: 100%;
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-color-text-muted);
-  transition: inline-size var(--forge-motion-base) var(--forge-motion-ease-standard);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-ink-3);
 }
 
 .fw-usage[data-context-severity='85'] .fw-usage__track-fill,
 .fw-usage[data-context-severity='95'] .fw-usage__track-fill {
-  background: var(--forge-color-text-secondary);
+  background: var(--fs-ink-2);
 }
 
 /* =========================================================================
@@ -220,53 +219,53 @@
   display: inline-flex;
   align-items: center;
   flex: none;
-  padding: 0 var(--forge-space-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-xs);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-none);
-  letter-spacing: var(--forge-tracking-wide);
+  padding: 0 var(--fs-space-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  line-height: 1;
+  letter-spacing: 0.01em;
   text-transform: uppercase;
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
   white-space: nowrap;
 }
 
 .fw-usage-chip[data-accuracy='EXACT'] {
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text-secondary);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink-2);
 }
 
 .fw-usage-chip[data-accuracy='DERIVED'] {
   border-style: solid;
-  border-color: var(--forge-color-line);
-  color: var(--forge-color-text-muted);
+  border-color: var(--fs-line);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage-chip[data-accuracy='ESTIMATED'] {
   border-style: dashed;
-  border-color: var(--forge-color-line-strong);
-  color: var(--forge-color-text-muted);
+  border-color: var(--fs-line-strong);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage-chip[data-accuracy='UNAVAILABLE'] {
   border-style: dotted;
-  border-color: var(--forge-color-line);
-  color: var(--forge-color-text-faint);
+  border-color: var(--fs-line);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage__stale {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  padding: 0 var(--forge-space-1);
-  border: var(--forge-border-hair) dashed var(--forge-color-line-strong);
-  border-radius: var(--forge-radius-xs);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  letter-spacing: var(--forge-tracking-wide);
+  gap: var(--fs-space-1);
+  padding: 0 var(--fs-space-1);
+  border: 1px dashed var(--fs-line-strong);
+  border-radius: var(--fs-radius-xs);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-12);
+  letter-spacing: 0.01em;
   text-transform: uppercase;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
   white-space: nowrap;
 }
 
@@ -278,14 +277,14 @@
 .fw-usage__expand {
   display: none;
   position: absolute;
-  inset-block-start: var(--forge-space-2);
+  inset-block-start: var(--fs-space-2);
   inset-inline-end: var(--fw-gutter);
-  z-index: var(--forge-z-sticky);
+  z-index: 100;
 }
 
 .fw-usage__spacer {
   flex: 1 1 auto;
-  min-inline-size: var(--forge-space-2);
+  min-inline-size: var(--fs-space-2);
 }
 
 /* =========================================================================
@@ -293,61 +292,61 @@
    ========================================================================= */
 
 .fw-usage__alert {
-  margin-block-start: var(--forge-space-1);
-  margin-inline: var(--forge-space-2);
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border-inline-start: var(--forge-border-hair) solid var(--forge-color-line-strong);
-  border-radius: 0 var(--forge-radius-sm) var(--forge-radius-sm) 0;
-  background: var(--forge-color-surface-1);
+  margin-block-start: var(--fs-space-1);
+  margin-inline: var(--fs-space-2);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border-inline-start: 1px solid var(--fs-line-strong);
+  border-radius: 0 var(--fs-radius-xs) var(--fs-radius-xs) 0;
+  background: var(--fs-surface);
 }
 
 .fw-usage__alert[data-severity='85'] {
-  border-inline-start-width: var(--forge-border-thick);
+  border-inline-start-width: 2px;
 }
 
 .fw-usage__alert[data-severity='95'] {
-  border-inline-start-width: var(--forge-border-thick);
-  border-inline-start-color: var(--forge-color-line-loud);
-  background: var(--forge-color-surface-2);
+  border-inline-start-width: 2px;
+  border-inline-start-color: var(--fs-ink-3);
+  background: var(--fs-surface-2);
 }
 
 .fw-usage__alert-head {
   display: flex;
   align-items: center;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-usage__alert-icon {
   flex: none;
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage__alert-msg {
-  font-size: var(--forge-text-xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-secondary);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-2);
   min-inline-size: 0;
 }
 
 .fw-usage__alert-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--forge-space-1) var(--forge-space-2);
-  margin-block-start: var(--forge-space-2);
-  padding-inline-start: calc(var(--forge-icon-sm) + var(--forge-space-2));
+  gap: var(--fs-space-1) var(--fs-space-2);
+  margin-block-start: var(--fs-space-2);
+  padding-inline-start: calc(14px + var(--fs-space-2));
 }
 
 .fw-usage__alert-action {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-muted);
+  gap: var(--fs-space-1);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage__alert-action-icon {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -355,11 +354,11 @@
    ========================================================================= */
 
 .fw-usage__note {
-  margin-block-start: var(--forge-space-1);
-  padding-inline: var(--forge-space-2);
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-faint);
+  margin-block-start: var(--fs-space-1);
+  padding-inline: var(--fs-space-2);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -369,14 +368,14 @@
 .fw-usage-details {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-5);
+  gap: var(--fs-space-5);
   min-inline-size: 0;
 }
 
 .fw-usage-details__section {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
@@ -384,14 +383,14 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
 }
 
 .fw-usage-details__dl {
   display: grid;
   grid-template-columns: minmax(9rem, auto) 1fr;
-  gap: var(--forge-space-1) var(--forge-space-3);
+  gap: var(--fs-space-1) var(--fs-space-3);
   margin: 0;
   min-inline-size: 0;
 }
@@ -401,66 +400,66 @@
 }
 
 .fw-usage-details__k {
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
   min-inline-size: 0;
 }
 
 .fw-usage-details__cell {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-px);
+  gap: 1px;
   min-inline-size: 0;
-  padding-block-end: var(--forge-space-2);
-  border-block-end: var(--forge-border-hair) solid var(--forge-color-line-subtle);
+  padding-block-end: var(--fs-space-2);
+  border-block-end: 1px solid var(--fs-line);
 }
 
 .fw-usage-details__val {
   display: flex;
   align-items: baseline;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   flex-wrap: wrap;
   min-inline-size: 0;
 }
 
 .fw-usage-details__num {
-  font-size: var(--forge-text-sm);
-  color: var(--forge-color-text);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink);
   overflow-wrap: anywhere;
 }
 
 .fw-usage-details__num--muted {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage-details__src {
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-faint);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
   overflow-wrap: anywhere;
 }
 
 .fw-usage-details__plan {
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) dotted var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-1);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-secondary);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px dotted var(--fs-line);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-surface);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-2);
 }
 
 .fw-usage-details__warnings {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-1);
+  gap: var(--fs-space-1);
   margin: 0;
-  padding-inline-start: var(--forge-space-4);
+  padding-inline-start: var(--fs-space-4);
 }
 
 .fw-usage-details__warning {
-  font-size: var(--forge-text-2xs);
-  line-height: var(--forge-leading-snug);
-  color: var(--forge-color-text-muted);
+  font-size: var(--fs-text-12);
+  line-height: var(--fs-leading-snug);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -470,21 +469,21 @@
 .fw-usage-spark {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-2);
   min-inline-size: 0;
 }
 
 .fw-usage-spark__svg {
   inline-size: 100%;
   block-size: 88px;
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-1);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
 }
 
 .fw-usage-spark__line {
   fill: none;
-  stroke: var(--forge-color-text-muted);
+  stroke: var(--fs-ink-3);
   stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -492,12 +491,12 @@
 }
 
 .fw-usage-spark__area {
-  fill: var(--forge-color-hover);
+  fill: color-mix(in srgb, var(--fs-ink) 5%, transparent);
   stroke: none;
 }
 
 .fw-usage-spark__dot {
-  fill: var(--forge-color-text-secondary);
+  fill: var(--fs-ink-2);
 }
 
 .fw-usage-spark__empty {
@@ -505,24 +504,24 @@
   align-items: center;
   justify-content: center;
   min-block-size: 88px;
-  border: var(--forge-border-hair) dashed var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-1);
-  font-size: var(--forge-text-xs);
-  color: var(--forge-color-text-faint);
+  border: 1px dashed var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage-spark__legend {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: var(--forge-space-1) var(--forge-space-3);
-  font-size: var(--forge-text-2xs);
-  color: var(--forge-color-text-faint);
+  gap: var(--fs-space-1) var(--fs-space-3);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
 }
 
 .fw-usage-spark__legend-name {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 /* =========================================================================
@@ -543,7 +542,7 @@
   }
 
   .fw-usage__summary {
-    padding-inline-end: calc(var(--forge-control-sm) + var(--forge-space-2));
+    padding-inline-end: calc(26px + var(--fs-space-2));
   }
 
   .fw-usage__v {
@@ -556,5 +555,5 @@
    ========================================================================= */
 
 :root[data-density='compact'] .fw-usage__inner {
-  padding-block: var(--forge-space-1);
+  padding-block: var(--fs-space-1);
 }

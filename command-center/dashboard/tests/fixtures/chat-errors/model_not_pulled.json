@@ -1,0 +1,7 @@
+{
+  "code": "model_not_pulled",
+  "model": "qwen3:8b",
+  "details": "model \"qwen3:8b\" not found, try pulling it first",
+  "expect_title": "Dit model staat nog niet op deze pc",
+  "expect_action": "Model downloaden"
+}

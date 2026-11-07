@@ -8,6 +8,19 @@ matcher-less `Stop` entry with 's advisory `forge-stop-obligations.cjs` (it was 
 `forge-settings-merge.cjs`, never a second entry). The rule `owner-requests-reconciled` (warn) and the writer check
 on `owner_requests_reconciled` complete the loop.
 
+**Status (updated 2026-10-24, WP 3.3b):** the gate hook (section 6) now BLOCKS **seven** command gates.
+`plugin-install-command` stops `claude plugin install|enable|update` and `claude plugin marketplace add` (new
+plugin code with its own hooks, agents and permissions); `settings-edit-command` stops a shell command that
+writes, replaces, moves or deletes the Claude Code settings — `.claude/settings.json`, `.claude/settings.local.json`,
+`~/.claude/settings.json` (a redirect, `tee`, `sed -i`, `Set-Content`/`Out-File`, `cp`/`mv` onto it, inline
+`node -e`/`python -c` code that writes it) — and `claude config set`. The settings file is the one that wires THIS
+hook, so an agent can no longer switch the gate off by editing it from the shell. Reading the files,
+`claude plugin list|validate|eval` and Forge's own tools (`forge-config`, `forge-sync`, `forge-settings-merge`,
+`forge-plugin-build`) stay allowed, and the quoted-data rule below applies unchanged. Not seen: an Edit/Write TOOL
+call on settings.json (this hook's matcher is Bash|PowerShell), a path held in a variable, and a write from a
+script file — see `hard-gates.json` → `_not_caught._gate_coverage`. The text twins `plugin-install` and
+`settings-edit` are classifier-only, like the other text gates.
+
 **Status (updated 2026-09-27):** the gate hook (section 6) now BLOCKS **five** command gates,
 not four — `secret-print` joined `destructive-delete`, `kill-by-name`, `git-destructive` and `opaque-exec`.
 `secret-print` fires on a Bash/PowerShell command that PRINTS the CONTENTS of a secret file
@@ -339,7 +352,7 @@ command form. The hook therefore works even when the session's working directory
 | Exit | Meaning |
 |---|---|
 | **2** | **Blocked.** Claude Code stops the call and shows Claude one plain-language reason in Dutch and English. |
-| **1** | **Not blocked, but VISIBLE** to the user (security M2 / M3). Used when the gate is switched off and the call *would* have been blocked, and when the hook could not check the call (internal error, payload over 8 MB, stdin that never ends, classifier unavailable). |
+| **1** | **Not blocked, but VISIBLE** to the user (security M2 / M3). Used when the gate is switched off and the call *would* have been blocked, and when the hook could not check the call (internal error, payload over 8 MB, stdin that never ends, classifier unavailable) and the text it could still read shows no hard-gate keyword; with such a keyword a call it cannot check is blocked (exit 2, gate id `cannot-judge-risky`; the classifier-unavailable branch keeps its own id). |
 | **0** | Allowed. |
 
 | Gate | What gets blocked | Safe variant the message offers |
@@ -363,6 +376,25 @@ clean -d` (a config override that makes an unforced clean destructive). These st
 - a trailing `--` with no path;
 - `git worktree remove ../wt-a` without `--force` (git itself refuses a dirty worktree there);
 - `git -c clean.requireForce=false clean -d -n` / `--dry-run` (a dry run never deletes).
+
+### Write-scope freeze (optional, OFF by default, package 3.3c)
+The same hook carries an optional per-task freeze (logic in `forge-gate-writescope.cjs`). It is OFF unless
+`FORGE_WRITE_SCOPE` is set to an absolute, existing folder in the environment Claude Code starts with: the scope is
+env-only, because the config schema has no string/path type (there is no `write-scope` key); a relative or missing
+folder is ignored with a visible notice on every call. While it is on, every Bash/PowerShell call is read for the
+files it WRITES (output redirects `>`, `>>`, `>|`, `&>`, `n>`, `<>` and PowerShell `*>`; `tee`/`Tee-Object`;
+`sed -i`/`--in-place`; `Set-Content`/`Add-Content`/`Out-File`) and each target is judged: inside the folder is
+silent; provably outside is a visible warning (exit 1) in mode `warn`, the default, or a block (exit 2, gate id
+`write-scope`, so the gate-hook off and one-off approval rules above apply to it unchanged) in mode `deny`; a target
+it cannot check (a variable, a glob, a `cd` earlier in the command, an MSYS mount such as `/tmp`, a UNC share, a
+symlink whose `..` reads two ways) is a visible "could not check" notice in either mode, never a block. The mode
+comes from `FORGE_WRITE_SCOPE_MODE=warn|deny` first, then the project setting `write-scope-mode`
+(`/forge config set write-scope-mode deny`); an agent cannot change the env var during a session, but it could run
+that config command, so set the env var when the freeze must hold. What it cannot see: `cp`/`mv`/`Copy-Item`,
+`New-Item`, `perl -i`, an interpreter writing from inline code (`node -e`, `python -c`), npm or git writing on their
+own, the aliases `sc`/`ac`, a redirect inside a `$(...)` within double quotes, and Edit/Write tool calls (they never
+reach this `Bash|PowerShell` hook; covering them needs an `Edit|Write` matcher, an owner-gated settings change). A
+missing `forge-gate-writescope.cjs` with a scope set gives a visible "NOT checked" notice, never a silent pass.
 
 ### Switching the gate off (security M3, codex-recheck S05/S06/S07)
 - **The owner** can always switch it off: run `/forge config set gate-hook off` yourself, or any command
@@ -752,16 +784,18 @@ the owner's `/forge config set gate-hook off`: the entry stays wired and, while 
 - The project `CLAUDE.md` states the security posture explicitly: no mandatory gates, no `secrets-guard`/`prod-deploy-guard` hooks, normal builds not slowed by blocking. A default-on ENFORCEMENT hook (lock/doctor/secret-scrub-as-a-gate) would contradict that, so sections 1-3 stay documented-only.
 - Section 4 is different in kind: it is purely **advisory continuity tooling** (it writes a markdown file and re-injects a short summary; it never blocks, never gates, never enforces anything), and the owner explicitly asked for it to be live, "dit geldt ook voor globaal" — so it was turned on for real, with a backup + a proven-safe merge first.
 - Section 6 (gate hook) IS an enforcement hook, and it departs on purpose from the first bullet — for the
-  five command gates only. The owner decided it (: the `gate-hook` setting, default ON, in
+  seven command gates only (five until WP 3.3b, 2026-10-24, added `plugin-install-command` and
+  `settings-edit-command`). The owner decided it (: the `gate-hook` setting, default ON, in
   `FORGE_CONFIG_SCHEMA.json`) after the beginner research showed prose rules do not stop a destructive
   command. It is scoped to Bash/PowerShell calls that trip `destructive-delete`, `kill-by-name`,
   `git-destructive`, (since the 2026-09-24 codex-recheck) `opaque-exec`, or
   `secret-print` (printing the CONTENTS of a `.env`/key/`.claude/.credentials.json`/`secrets/**`-shaped file
-  via a shell reader — `cat`/`type`/`Get-Content`/`grep`/etc.); everything else stays advisory. It
+  via a shell reader — `cat`/`type`/`Get-Content`/`grep`/etc.), or (since WP 3.3b) `plugin-install-command`
+  and `settings-edit-command`; everything else stays advisory. It
   is a classifier, not a proof — what it does not recognise it does not stop (`hard-gates.json` →
   `_not_caught`). The owner switches it off with one command; an agent's own attempt is blocked. CLOSED
   2026-09-24 (and again): the project `CLAUDE.md` security-posture paragraph and
-  `precedence.md` now name this exception with the same five gates and the same caveat.
+  `precedence.md` now name this exception with the same gates (seven since WP 3.3b) and the same caveat.
 - Section 7 (scribe hooks) is part of the overhaul blueprint the owner approved: the capture
   hook never blocks anything; the Stop reminder blocks a stop at most once per unplanned owner request, never a loop.
   It is a discipline nudge for the owner's own requests, not a security gate. Both have their own env switch.

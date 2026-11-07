@@ -1,6 +1,7 @@
 ---
 name: forge-prd
-description: Generates a structured PRD + ticket per acceptance criterion. Use before a non-trivial feature/build, after Deep Learn Mode — write a PRD, scope this feature, spec this out.
+description: "Use before a non-trivial feature (schrijf een PRD, spec this out): PRD + tickets."
+# A10 original description (listing budget): "Use before a non-trivial feature (schrijf een PRD, spec this out): PRD + one ticket per criterion."
 ---
 
 # Forge PRD generator (WP3)
@@ -10,37 +11,33 @@ A **Forge PRD** is a structured product-requirements document the Lead writes be
 ## When the Lead generates one
 - Before a non-trivial feature/build (new module, new integration, anything touching 3+ files) — not for a 1-2 line fix.
 - Typically right after **Deep Learn Mode** (`forge-deeplearn` skill) so the PRD's risks/architecture sections are grounded in the real codebase, not guesswork.
+- Too big for one session (several deliverables, open decisions): the owner charts it first with `forge-plan-large` (owner-invoked), then one PRD per deliverable.
 - Not needed when the task is a small, well-understood change or a PRD for this exact scope already exists — check `.claude/forge-prd/index.jsonl` first.
 
-## How
-1. The Lead produces the PRD content itself — real analysis, not filler — as a JSON object:
-   ```json
-   {
-     "prd_id": "prd-<short-slug>",
-     "title": "…", "project": "…",
-     "sections": {
-       "goal": "…", "users": ["…"], "problem": "…", "solution": "…", "modules": ["…"],
-       "user_stories": ["…"], "mvp_scope": "…", "non_goals": "…", "architecture": "…",
-       "risks": ["…"], "test_plan": "…", "roadmap": "…",
-       "acceptance_criteria": [
-         { "id": "ac-1", "text": "…", "owner": "coder", "required_tests": ["…"] }
-       ]
-     }
-   }
-   ```
-   Each section value may be a plain string or an array of strings (rendered as bullets). A section the Lead genuinely has nothing for is simply omitted — it renders honestly as `_(not specified)_`, never invented.
-2. Write it:
+## How (short)
+The Lead writes the PRD content itself (real analysis, no filler) as JSON with `prd_id`, `title`, `project` and `sections` (goal … roadmap, plus `acceptance_criteria` entries `{id, text, owner, required_tests}`), then runs:
    ```
    node .claude/forge-bin/forge-prd.cjs write '<prd-json>' --run <run_id> --tickets
    ```
    - `--tickets` auto-creates one ticket per `acceptance_criteria` entry (`.claude/forge-tickets/tk-<prd_id>-<n>`, `status: "open"`) — these feed the Ticket Board and the review gates the same as any other ticket.
    - `--run <run_id>` logs `prd_generated` (and one `ticket_created` per ticket) to that run's dashboard events.
-   - Dry-run a preview without writing anything: `node .claude/forge-bin/forge-prd.cjs render '<prd-json>'`.
+The JSON shape, the dry-run `render` command and what gets written where: `references/prd-format.md`.
 
-## What it produces
-`.claude/forge-prd/<prd_id>.md` (the rendered PRD, fixed section order: Goal, Users, Problem, Solution, Modules, User Stories, MVP Scope, Non-Goals, Architecture, Risks, Acceptance Criteria, Test Plan, Roadmap), `.claude/forge-prd/<prd_id>.meta.json` (the structured PRD + `_generated` timestamp), and an appended row in `.claude/forge-prd/index.jsonl`. The dashboard's **PRD** dock tab reads these read-only — it lists every generated PRD (title, project, created, acceptance-criteria count) and lets you expand one to see which sections are present.
+## Writing the content
+- Missing problem, users or success measure? Ask at most three short questions first; gaps the owner waves through become labelled assumptions in `risks`, never facts. Lean by default (one to two pages); omit empty sections. Section-by-section guide and review mode: `references/prd-writing.md`.
+- Stories and testable acceptance criteria (user vs job stories, INVEST, splitting): `references/stories-and-criteria.md`.
+- Scope too big for one version: `references/prioritization.md` (opportunity score, ICE, RICE, MoSCoW).
+- After delivery, user-facing release notes: `references/release-notes.md`.
 
 ## Honesty rule (non-negotiable)
 - **Real content only.** Every section reflects an actual decision the Lead made — no placeholder/lorem sections, no invented acceptance criteria just to pad the count.
 - **Secrets are auto-redacted.** Every string in the PRD is redacted (`forge-store.cjs`'s `redactValue`) before it is rendered to markdown or written to disk — never write a raw secret into a PRD.
 - **The PRD viewer is read-only.** There is no write endpoint on the dashboard for PRDs; the only way to create or change one is `forge-prd.cjs write` (or hand-editing the store files, which the dashboard will simply reflect on next read).
+
+## References
+- `references/prd-format.md` — JSON shape, write/render commands, outputs.
+- `references/prd-writing.md` — questions, section content, consistency checks, review mode.
+- `references/stories-and-criteria.md` — story formats, acceptance criteria, INVEST, splitting patterns.
+- `references/prioritization.md` — which prioritization method when, formulas, honesty rules.
+- `references/release-notes.md` — categories, benefit-first entries, audience tone.
+- The four files above are adapted from phuryn/pm-skills (MIT); notice in `LICENSE`.

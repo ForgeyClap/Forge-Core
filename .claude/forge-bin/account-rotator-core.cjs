@@ -80,11 +80,18 @@ function effectiveReading(rec, now) {
   return { status: live ? 'live' : 'estimated', windows, maxPct: maxPct(windows), measuredAt: r.measuredAt, adjusted, unmeasurable };
 }
 
-/** judge(reading, threshold) -> {usable: true|false|null, maxPct, crossed}. null = we do not know (unknown /
- *  unmeasurable) — never treated as "fine" and never as "full". */
+/** isUntested(reading) -> true for an ESTIMATE that no live reading backs (WP SA-ROTATOR-ORGBLOCK, incident 2026-11-04):
+ *  a window's reset passed since the last measurement (its 0 % is inferred, not measured), or the token was refused
+ *  (401/403) after that measurement. Such an account is "niet getest / untested" — never usable, never chosen. */
+function isUntested(reading) {
+  return !!(reading && reading.status === 'estimated' && (reading.adjusted || reading.unmeasurable));
+}
+/** judge(reading, threshold) -> {usable: true|false|null, maxPct, crossed, untested}. null = we do not know (unknown /
+ *  unmeasurable / untested) — never treated as "fine" and never as "full". A FULL window still counts as full. */
 function judge(reading, threshold) {
   if (!reading || reading.maxPct === null || reading.maxPct === undefined) return { usable: null, maxPct: null, crossed: [] };
   const c = crossed(reading.windows, threshold);
+  if (!c.length && isUntested(reading)) return { usable: null, maxPct: reading.maxPct, crossed: c, untested: true };
   return { usable: c.length === 0, maxPct: reading.maxPct, crossed: c };
 }
 
@@ -202,8 +209,9 @@ const STATUS_RANK = { live: 0, estimated: 1, unknown: 2, unmeasurable: 3 };
  *  o.accounts = [{name, eligible, reading}] (reading = effectiveReading()), o.activeName, o.threshold, o.now,
  *  o.lastLeft, o.exclude (Set of names already tried this event). Tiers: 'clear' (< threshold-5), 'near'
  *  (< threshold, only when no clear one exists), 'unknown' (never measured / unmeasurable — last resort, the
- *  caller MUST confirm it live after switching). Never picks the active account or the one we just left
- *  before it has reset. */
+ *  caller MUST confirm it live after switching). Never picks the active account, the one we just left
+ *  before it has reset. o.skipUntested (token mode: recommend + launch --auto) also skips an untested estimate
+ *  (isUntested — 'untested'); file mode keeps ranking it by its estimate because it verifies every switch live. */
 function selectTarget(o) {
   const threshold = o.threshold;
   const exclude = o.exclude instanceof Set ? o.exclude : new Set();
@@ -216,7 +224,8 @@ function selectTarget(o) {
     if (o.lastLeft && o.lastLeft.name === a.name && !hasReset(o.lastLeft, rd, o.now, threshold)) { skipped.push({ name: a.name, why: 'just-left' }); continue; }
     const j = judge(rd, threshold);
     if (j.usable === false) { skipped.push({ name: a.name, why: 'full', maxPct: j.maxPct }); continue; }
-    const tier = j.usable === null ? 'unknown' : (j.maxPct < threshold - HYSTERESIS ? 'clear' : 'near');
+    if (j.untested && o.skipUntested) { skipped.push({ name: a.name, why: 'untested', maxPct: j.maxPct }); continue; } // token mode: never picked, not even as the last resort
+    const tier = j.usable === null && !j.untested ? 'unknown' : (j.maxPct < threshold - HYSTERESIS ? 'clear' : 'near'); // file mode keeps its reset-then-verify-live rule
     ranked.push({ name: a.name, tier, status: rd.status, maxPct: j.maxPct });
   }
   const statusRank = (s) => (Object.prototype.hasOwnProperty.call(STATUS_RANK, s) ? STATUS_RANK[s] : 9); // live is 0 — never `|| 9`
@@ -268,5 +277,5 @@ module.exports = {
   HYSTERESIS, MAX_AUTO_SWITCHES_PER_DAY, MAX_FAILED_PER_DAY, BACKOFF_MAX_MIN, MAX_HOPS, DAY_MS, FIVE_H_MS, LIVE_FRESH_MS,
   PENDING_VERIFY_MAX_MS, CORROBORATE_MAX_AGE_MS,
   cleanWindows, crossed, maxPct, soonestReset, effectiveReading, judge, hasReset, antiFlap, allowanceLeft, swapTimes, failureGate,
-  classifyLive, classifyPair, sameAccountReading, selectTarget, roundRobin, maskEmail, slotMode, fmtPct,
+  classifyLive, classifyPair, sameAccountReading, isUntested, selectTarget, roundRobin, maskEmail, slotMode, fmtPct,
 };

@@ -1,0 +1,89 @@
+/*
+ * Chat status chip (WP B3). Tokens only. "Wacht op jou" is the loudest (inverted solid), because
+ * it is the one state that asks for the user; busy carries the ember glyph; paused is quiet (dashed
+ * outline); failed has a firm outline and always sits next to an error card. COMPLETED has no chip.
+ */
+
+.fw-chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  min-block-size: 26px;
+  padding: 0 var(--fs-space-3) 0 var(--fs-space-2);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-surface-2);
+  font: 500 var(--fs-text-13) / 1 var(--fs-font-body);
+  color: var(--fs-ink);
+  /* Uitgebreid adds a detail and the log name; on a phone the chip may wrap, never overflow
+     WAITING_FOR_PERMISSION pushed the page 44px wide at 390px). */
+  flex-wrap: wrap;
+  row-gap: var(--fs-space-1);
+  max-inline-size: 100%;
+  padding-block: var(--fs-space-1);
+}
+
+.fw-chat-status__word,
+.fw-chat-status__detail {
+  white-space: nowrap;
+}
+
+.fw-chat-status__glyph {
+  display: inline-grid;
+  place-items: center;
+}
+
+.fw-chat-status[data-simple='busy'] .fw-chat-status__glyph {
+  color: var(--fs-accent);
+  animation: fw-chat-status-spin 1.4s linear infinite;
+}
+
+@keyframes fw-chat-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-chat-status[data-simple='busy'] .fw-chat-status__glyph {
+    animation: none;
+  }
+}
+
+.fw-chat-status[data-simple='waiting'] {
+  background: var(--fs-accent);
+  border-color: var(--fs-accent);
+  color: var(--fs-ink-on-accent);
+  font-weight: 600;
+}
+
+/* Mislukt: a firm outline and the full text colour; the error card next to it explains. */
+.fw-chat-status[data-simple='failed'] {
+  border-color: var(--fs-ink);
+  color: var(--fs-ink);
+  font-weight: 600;
+}
+
+.fw-chat-status[data-simple='paused'] {
+  border-style: dashed;
+  border-color: var(--fs-ink-3);
+}
+
+.fw-chat-status__detail {
+  padding-inline-start: var(--fs-space-2);
+  border-inline-start: 1px solid currentColor;
+  font-weight: 400;
+}
+
+.fw-chat-status__code {
+  overflow-wrap: anywhere;
+  font: var(--fs-text-12) / 1 var(--fs-font-mono);
+  opacity: 0.75;
+}
+
+/* Q7: in the dock (Eenvoudig, above the composer) the chip sits on the reply column like the composer. The
+   chip's own `max-inline-size: 100%` above would otherwise win over the dock's column cap, so at desktop
+   width the dashed "Gepauzeerd" strip ran across the whole main area. */
+.fw-chat__dock > .fw-chat-status {
+  max-inline-size: var(--fs-column);
+}

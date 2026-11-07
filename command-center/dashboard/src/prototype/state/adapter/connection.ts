@@ -14,8 +14,9 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { ConnectionState, ConnectionStatus } from '@/prototype/state/bridge-client';
 import type { ClaudeCodeStatus } from '@/shared/protocol';
 
+import { t } from '@/i18n';
 import { gwGet, pickBool, pickNumber, pickRecord, pickString } from '@/prototype/state/gateway-client';
-import { GATEWAY_ORIGIN, GATEWAY_START_COMMAND } from '@/prototype/state/gateway-client';
+import { GATEWAY_START_COMMAND, gatewayOrigin, isDesktopApp } from '@/prototype/state/gateway-client';
 import { parseExecutionAvailability } from '@/prototype/state/gateway-chat';
 
 /* ========================================================================== */
@@ -96,6 +97,11 @@ export class GatewayConnectionStore {
     this.timer = setInterval(() => void this.poll(), HEALTH_POLL_MS);
   }
 
+  /** WP B3: the banner's "Opnieuw proberen" — one health poll right now (skipped while one is in flight). */
+  retryNow(): void {
+    void this.poll();
+  }
+
   stop(): void {
     if (this.timer === null) return;
     clearInterval(this.timer);
@@ -157,7 +163,7 @@ export class GatewayConnectionStore {
   /**
    * cc-wire-usage: a negative or non-finite delta is proof of clock trouble
    * (e.g. a system clock adjustment mid-request), never a perfect 0ms — it is
-   * REJECTED and simply not counted, mirroring `bridge/usage/latency.ts`'s own
+   * REJECTED and simply not counted, mirroring `shared/latency.ts`'s own
    * "reject, never clamp" principle without importing that dead-bridge module.
    */
   private recordLatency(ms: number): void {
@@ -187,12 +193,20 @@ function getSharedConnectionStore(): GatewayConnectionStore {
   return sharedConnectionStore;
 }
 
+/** WP B3: asks the shared connection store to check the gateway again right away. */
+export function retryGatewayConnection(): void {
+  getSharedConnectionStore().retryNow();
+}
+
 function useGatewayConnectionInternal(): GatewayConnectionInternal {
   const store = getSharedConnectionStore();
   return useSyncExternalStore(store.subscribe, store.getState, store.getState);
 }
 
-function connectionDetail(status: ConnectionStatus): string | null {
+function connectionDetail(status: ConnectionStatus, desktop: boolean): string | null {
+  // WP B3-ui: the desktop app starts its own gateway, so a developer command is never the answer
+  // there. It has no restart policy yet either, so the sentence says what the user can do.
+  if (desktop && status === 'DISCONNECTED') return t('shell.connection.disconnectedDesktop');
   switch (status) {
     case 'CONNECTED':
       return null;
@@ -204,19 +218,27 @@ function connectionDetail(status: ConnectionStatus): string | null {
       // "from the project root" is not filler: the command is relative and resolves one directory
       // above `command-center`, so without it a reader inside `command-center` gets
       // "Cannot find module" from the one instruction meant to unblock them.
-      return `Not connected to the Forge gateway. Start it from the project root with \`${GATEWAY_START_COMMAND}\` (it listens on ${GATEWAY_ORIGIN}).`;
+      return `Not connected to the Forge gateway. Start it from the project root with \`${GATEWAY_START_COMMAND}\` (it listens on ${gatewayOrigin()}).`;
   }
 }
 
 /**
- * The real gateway connection state, shaped exactly like `bridge-client.ts`'s
- * `ConnectionState` so every existing consumer (`Topbar`, `ConnectionBanner`,
- * `Dock`, `Sidebar`, `ClaudeCodeChip`, `UsageBar`) keeps working with only its
- * import swapped — no JSX/markup changes anywhere.
+ * `bridge-client.ts`'s `ConnectionState`, except that `startCommand` is null inside the desktop app
+ * (WP B3-ui): the developer command that starts the gateway must never reach a desktop user.
  */
-export function useGatewayConnection(): ConnectionState {
+export type GatewayConnectionState = Omit<ConnectionState, 'startCommand'> & {
+  readonly startCommand: string | null;
+};
+
+/**
+ * The real gateway connection state, shaped like `bridge-client.ts`'s `ConnectionState` so every
+ * existing consumer (`Topbar`, `ConnectionBanner`, `Dock`, `Sidebar`, `ClaudeCodeChip`, `UsageBar`)
+ * keeps working with only its import swapped. `startCommand` is null in the desktop app.
+ */
+export function useGatewayConnection(): GatewayConnectionState {
   const internal = useGatewayConnectionInternal();
-  return useMemo<ConnectionState>(
+  const desktop = isDesktopApp();
+  return useMemo<GatewayConnectionState>(
     () => ({
       status: internal.status,
       since: internal.since,
@@ -228,11 +250,11 @@ export function useGatewayConnection(): ConnectionState {
       // The gateway has no per-stream sequence/gap concept to reconcile (see
       // this file's header, point 1) — there is never anything to list here.
       reconciling: [],
-      startCommand: GATEWAY_START_COMMAND,
-      endpoint: GATEWAY_ORIGIN,
-      detail: connectionDetail(internal.status),
+      startCommand: desktop ? null : GATEWAY_START_COMMAND,
+      endpoint: gatewayOrigin(),
+      detail: connectionDetail(internal.status, desktop),
     }),
-    [internal],
+    [internal, desktop],
   );
 }
 

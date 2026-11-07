@@ -33,8 +33,11 @@ const SRC = resolve(process.cwd(), 'src');
  * in production.
  */
 const EXCLUDED = [
-  // The bridge's own modules. Their copy accurately describes the bridge.
-  join(SRC, 'bridge'),
+  // The bridge's own modules. Their copy accurately describes the bridge. The bridge itself was
+  // archived to `archive/bridge/**` (WP A9) and is no longer under src/ at all; its
+  // latency tracker moved to `src/shared/latency.ts` because `bridge-client.ts` (excluded below)
+  // still constructs it, so the same exclusion follows the file.
+  join(SRC, 'shared', 'latency.ts'),
   join(SRC, 'prototype', 'state', 'bridge-client.ts'),
   join(SRC, 'shared', 'protocol.ts'),
   // Fixture data that depicts the prototype's bridge concept. Accurate about what it depicts, and

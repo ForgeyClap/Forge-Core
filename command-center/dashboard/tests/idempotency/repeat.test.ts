@@ -35,19 +35,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { INVARIANT_DECLARATIONS, PROTOCOL_SCHEMA_VERSION } from '@/shared/protocol';
 import type { ConversationRecord, OperationResponse, ProofEntry } from '@/shared/protocol';
 
-import { BRIDGE_PROJECT_ID, ForgeStore, openStore } from '@/bridge/storage/store';
-import { runMigrations } from '@/bridge/storage/schema';
-import type { Migration, MigrationIo, MigrationState, RecordEnvelope, RunRecord } from '@/bridge/storage/schema';
-import { ProjectRegistry } from '@/bridge/projects/registry';
-import { discoverProjects } from '@/bridge/projects/discover';
-import { createAttachmentPipeline } from '@/bridge/attachments/pipeline';
-import { registerArtifactOperations } from '@/bridge/operations/artifacts';
-import { ConversationService } from '@/bridge/operations/conversations';
-import { createRunService } from '@/bridge/operations/runs';
-import type { LocateResult } from '@/bridge/claude/locate';
-import { loadConfig } from '@/bridge/config';
-import { Router } from '@/bridge/router';
-import { createStoreSink, Transport } from '@/bridge/transport';
+import { BRIDGE_PROJECT_ID, ForgeStore, openStore } from '@archive/bridge/storage/store';
+import { runMigrations } from '@archive/bridge/storage/schema';
+import type { Migration, MigrationIo, MigrationState, RecordEnvelope, RunRecord } from '@archive/bridge/storage/schema';
+import { ProjectRegistry } from '@archive/bridge/projects/registry';
+import { discoverProjects } from '@archive/bridge/projects/discover';
+import { createAttachmentPipeline } from '@archive/bridge/attachments/pipeline';
+import { registerArtifactOperations } from '@archive/bridge/operations/artifacts';
+import { ConversationService } from '@archive/bridge/operations/conversations';
+import { createRunService } from '@archive/bridge/operations/runs';
+import type { LocateResult } from '@archive/bridge/claude/locate';
+import { loadConfig } from '@archive/bridge/config';
+import { Router } from '@archive/bridge/router';
+import { createStoreSink, Transport } from '@archive/bridge/transport';
 
 /* ========================================================================== */
 /*  Fixtures — a fresh, isolated, throwaway workspace per test                  */

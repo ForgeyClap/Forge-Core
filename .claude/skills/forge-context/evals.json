@@ -1,0 +1,100 @@
+{
+  "skill": "forge-context",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "name-matches-folder",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "name: forge-context\n",
+      "why": "frontmatter name must equal the folder name"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load budget: descriptions over 200 chars get truncated in the listing"
+    },
+    {
+      "id": "description-use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "description: \"Use ",
+      "why": "audit finding on never-triggering skills: the description must say WHEN to use it"
+    },
+    {
+      "id": "max-lines",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "n": 500,
+      "why": "project rule: files under 500 lines, detail in references/"
+    },
+    {
+      "id": "learnings-wiring",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "learnings.md",
+      "why": "wp-skill-evals: read own learnings.md before use"
+    },
+    {
+      "id": "learnings-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-context/learnings.md",
+      "why": "the learnings file the skill points to must exist"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "## Provenance",
+      "why": "adopted text keeps its license and source in a provenance block"
+    },
+    {
+      "id": "no-kill-by-name",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "taskkill /IM",
+      "why": "HARD MUST 4: never kill processes by image name"
+    },
+    {
+      "id": "ref-degradation",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-context/references/degradation-patterns.md",
+      "why": "the pattern detail the SKILL.md points to must exist"
+    },
+    {
+      "id": "owner-60pct",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "60 %",
+      "why": "owner rule: compact with focus around 60% context use"
+    },
+    {
+      "id": "reboot-test",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "Where am I going?",
+      "why": "the 5-question reboot test is the post-compaction self-check"
+    },
+    {
+      "id": "points-to-token-economy",
+      "type": "contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "forge-token-economy",
+      "why": "plan resolution: forge-token-economy owns the budget; forge-context points to it"
+    },
+    {
+      "id": "no-hook-setup",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-context/SKILL.md",
+      "needle": "\"PreToolUse\"",
+      "why": "the ECC suggest-compact hook is excluded; no hook config may be copied"
+    }
+  ]
+}

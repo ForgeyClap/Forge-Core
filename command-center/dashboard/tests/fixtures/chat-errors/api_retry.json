@@ -1,0 +1,8 @@
+{
+  "code": "api_retry",
+  "attempt": 2,
+  "max_attempts": 10,
+  "details": "API Error: 529 overloaded_error",
+  "expect_title": "Claude reageert traag",
+  "expect_action": "Stoppen"
+}

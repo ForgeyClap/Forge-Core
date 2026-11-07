@@ -1,0 +1,491 @@
+/*
+ * Onboarding (DESIGN.md §3.5, mockup 05-onboarding). v1.0 tokens only (--fs-*): no raw colour, no
+ * local token redefinitions. Motion: transform and opacity only; the token durations are 0 under
+ * reduced motion, and the one entrance animation is switched off there too.
+ *
+ * The wizard has no sidebar: the shell still draws its chrome on /onboarding, so this layer covers the
+ * whole window (OnboardingView makes the chrome behind it inert).
+ */
+
+.fs-onb {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: var(--fs-space-8) var(--fs-space-5);
+  background: var(--fs-bg);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-body);
+}
+
+.fs-onb__card {
+  inline-size: min(100%, 560px);
+  display: grid;
+  gap: var(--fs-space-6);
+  animation: fs-onb-rise var(--fs-dur-3) var(--fs-ease) both;
+}
+
+@keyframes fs-onb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------ top */
+
+.fs-onb__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-4);
+}
+
+.fs-onb__lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  font-family: var(--fs-font-display);
+  font-size: var(--fs-text-18);
+  white-space: nowrap;
+}
+
+.fs-onb__lockup b {
+  font-weight: 600;
+  margin-inline-start: var(--fs-space-1);
+}
+
+.fs-onb__lockup span {
+  font-weight: 300;
+  color: var(--fs-ink-2);
+}
+
+.fs-onb__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+}
+
+.fs-onb__steps {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fs-onb__steps li {
+  inline-size: 28px;
+  block-size: 4px;
+  border-radius: 2px;
+  background: var(--fs-line);
+}
+
+.fs-onb__steps li.is-done {
+  background: var(--fs-ink-3);
+}
+
+.fs-onb__steps li.is-on {
+  background: var(--fs-accent);
+}
+
+.fs-onb__stepof {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------- head */
+
+.fs-onb__head {
+  display: grid;
+  gap: var(--fs-space-2);
+}
+
+.fs-onb__title {
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: var(--fs-text-40);
+  font-weight: 350;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+  text-wrap: balance;
+}
+
+.fs-onb__title:focus,
+.fs-onb__title:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.fs-onb__lead {
+  margin: 0;
+  color: var(--fs-ink-2);
+}
+
+/* ------------------------------------------------------------- content */
+
+.fs-onb__content {
+  min-inline-size: 0;
+}
+
+.fs-onb__stack {
+  display: grid;
+  gap: var(--fs-space-4);
+}
+
+.fs-onb__hint {
+  margin: 0;
+  font-size: var(--fs-text-14);
+  color: var(--fs-ink-3);
+}
+
+.fs-onb__checking {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+}
+
+.fs-onb__note {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: flex-start;
+  margin: 0;
+  font-size: var(--fs-text-13);
+  line-height: 1.5;
+  color: var(--fs-ink-2);
+}
+
+.fs-onb__note .fw-icon,
+.fs-onb__note svg {
+  flex: none;
+  margin-block-start: 1px;
+  color: var(--fs-info);
+}
+
+.fs-onb__warn,
+.fs-onb__ok {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-md);
+  font-size: var(--fs-text-14);
+  color: var(--fs-ink);
+}
+
+.fs-onb__warn {
+  background: var(--fs-warn-soft);
+}
+
+.fs-onb__warn svg {
+  flex: none;
+  margin-block-start: 3px;
+  color: var(--fs-warn);
+}
+
+.fs-onb__ok {
+  background: var(--fs-ok-soft);
+}
+
+.fs-onb__ok svg {
+  flex: none;
+  margin-block-start: 3px;
+  color: var(--fs-ok);
+}
+
+.fs-onb__more {
+  justify-self: start;
+  inline-size: 100%;
+}
+
+/* ------------------------------------------------------- capability table */
+
+.fs-cap {
+  margin-block-start: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  overflow-x: auto;
+}
+
+.fs-cap__title {
+  margin: 0;
+  padding: var(--fs-space-4) var(--fs-space-4) var(--fs-space-3);
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+}
+
+.fs-cap__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-text-13);
+}
+
+.fs-cap__table th,
+.fs-cap__table td {
+  padding: 10px var(--fs-space-3);
+  text-align: start;
+  vertical-align: top;
+  border-block-start: 1px solid var(--fs-line);
+}
+
+.fs-cap__table thead th {
+  border-block-start: 0;
+  background: var(--fs-surface-2);
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+}
+
+.fs-cap__table thead th:nth-child(3) {
+  inline-size: 30%;
+}
+
+.fs-cap__table tbody th {
+  font-weight: 600;
+}
+
+.fs-cap__table tr.is-chosen {
+  background: var(--fs-accent-soft);
+}
+
+.fs-cap__table tr.is-chosen th {
+  box-shadow: inset 3px 0 0 var(--fs-accent);
+}
+
+.fs-cap__yes {
+  color: var(--fs-ok);
+  font-weight: 600;
+}
+
+.fs-cap__no {
+  color: var(--fs-ink-3);
+}
+
+.fs-cap__yes small,
+.fs-cap__no small {
+  font-weight: 400;
+  color: var(--fs-ink-3);
+}
+
+.fs-cap__note {
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4) var(--fs-space-4);
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+  border-block-start: 1px solid var(--fs-line);
+}
+
+/* --------------------------------------------------------------- connect */
+
+.fs-onb__connect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-4);
+}
+
+.fs-onb__connect p {
+  margin: 0;
+}
+
+.fs-onb__connect-row {
+  display: flex;
+  gap: var(--fs-space-2);
+}
+
+.fs-onb__command {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+  padding: var(--fs-space-2) var(--fs-space-2) var(--fs-space-2) var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-sunken);
+}
+
+.fs-onb__command code {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-14);
+  color: var(--fs-ink);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* ---------------------------------------------------------------- folder */
+
+.fs-onb__folder {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  padding: var(--fs-space-3) var(--fs-space-3) var(--fs-space-3) var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+}
+
+.fs-onb__folder > svg {
+  flex: none;
+  color: var(--fs-ink-2);
+}
+
+.fs-onb__folder-text {
+  flex: 1;
+  min-inline-size: 0;
+  font-size: var(--fs-text-14);
+  overflow-wrap: anywhere;
+}
+
+.fs-folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+}
+
+.fs-folder__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  flex-wrap: wrap;
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-sunken);
+}
+
+.fs-folder__label {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+.fs-folder__path {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  overflow-wrap: anywhere;
+}
+
+.fs-folder__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--fs-space-1);
+  max-block-size: 220px;
+  overflow: auto;
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 2px;
+}
+
+.fs-folder__item {
+  inline-size: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--fs-radius-sm);
+  background: transparent;
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-14);
+  text-align: start;
+  cursor: pointer;
+  transition: transform var(--fs-dur-1) var(--fs-ease);
+}
+
+.fs-folder__item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fs-folder__item:hover {
+  background: var(--fs-surface-2);
+}
+
+.fs-folder__item:active {
+  transform: scale(0.985);
+}
+
+.fs-folder__item:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-folder__chosen {
+  display: flex;
+  gap: var(--fs-space-2);
+  align-items: flex-start;
+  font-size: var(--fs-text-14);
+}
+
+.fs-folder__chosen-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+/* ------------------------------------------------------------------ foot */
+
+.fs-onb__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  padding-block-start: var(--fs-space-2);
+}
+
+.fs-onb__spacer {
+  flex: 1;
+}
+
+.fs-onb__primary {
+  min-inline-size: 120px;
+}
+
+@media (max-width: 640px) {
+  .fs-onb__top {
+    flex-wrap: wrap;
+  }
+  .fs-onb__title {
+    font-size: var(--fs-text-30);
+  }
+  /* Step 4 has three buttons (Terug, Laat me rondkijken, Begin): side by side they were wider than a
+     390 px phone and pushed the whole card past the right edge. On a phone the main button takes its own
+     full-width row under the others. */
+  .fs-onb__foot {
+    flex-wrap: wrap;
+    row-gap: var(--fs-space-3);
+  }
+  .fs-onb__primary {
+    order: 1;
+    flex: 1 1 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-onb__card {
+    animation: none;
+  }
+  .fs-folder__item {
+    transition: none;
+  }
+  .fs-folder__item:active {
+    transform: none;
+  }
+}

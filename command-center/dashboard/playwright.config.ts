@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
@@ -45,9 +49,44 @@ import { defineConfig, devices } from '@playwright/test';
  * (composer mentions/slash-commands/modes/queue/delete, `tests/e2e/composer-*`,
  * `tests/e2e/conversation-delete.spec.ts`) only ever assume the real API contract, never which
  * backend answered it, so they run correctly either way.
+ *
+ * UI SESSION PAIRING (FU-STEP2 P3): the gateway no longer serves a
+ * `cc-exec-token` meta tag. The dashboard authenticates its writes with the HttpOnly `forge_ui` cookie
+ * whose value is the gateway's UI session secret. This config mints that secret once per run
+ * (`FORGE_E2E_UI_SESSION`, inherited by every worker), hands it to the spawned gateway as
+ * `FORGE_UI_SESSION_SECRET`, and `pairContext()` (`tests/e2e/live-gateway-helpers.ts`) puts the same
+ * value in the browser context's cookie jar before the first page load: the real cookie path, no header.
+ * LIMIT: with `CC_E2E_REUSE_LIVE_GATEWAY=1` the harness cannot know the reused gateway's secret, so every
+ * write helper gets 403 `ui_session_required` there. There is deliberately no route that hands it out.
+ *
+ * PORT + DATA DIR (same work package): `FORGE_E2E_GATEWAY_PORT` (default 4100, unchanged) pins the
+ * spawned gateway's port (`CC_PORT`) and the baseURL, so the suite can run next to a developer's own
+ * gateway on 4100 without touching it. The spawned gateway always gets its own data dir
+ * (`FORGE_E2E_DATA_DIR`, else a fresh temp folder), so test conversations never land in the
+ * developer's real `command-center/.data` and the gateway's one-per-data-dir lock never collides.
  */
+const E2E_PORT = Number(process.env.FORGE_E2E_GATEWAY_PORT || 4100);
+const E2E_ORIGIN = `http://127.0.0.1:${E2E_PORT}`;
+process.env.FORGE_E2E_ORIGIN = E2E_ORIGIN; // workers inherit it (live-gateway-helpers.ts pairContext)
+const UI_SECRET = process.env.FORGE_E2E_UI_SESSION ?? randomBytes(32).toString('hex');
+process.env.FORGE_E2E_UI_SESSION = UI_SECRET; // workers inherit it
+const E2E_DATA_DIR = process.env.FORGE_E2E_DATA_DIR ?? mkdtempSync(path.join(tmpdir(), 'forge-dashboard-e2e-'));
+process.env.FORGE_E2E_DATA_DIR = E2E_DATA_DIR; // a worker's re-import must not mint a second folder
+// The browser build always calls 127.0.0.1:4100 (gateway-client.ts GATEWAY_ORIGIN). Off 4100, the specs
+// that load the real gateway page in plain browser mode (no `prepareLivePage` bridge, no route mock)
+// would send their reads to whatever owns 4100 (a developer's own gateway) and fail on CORS. They only
+// run on 4100; off 4100 they are left out, loudly, instead of producing fake failures or touching that
+// other gateway.
+const BROWSER_MODE_ONLY_SPECS = ['**/no-network.spec.ts', '**/responsive.spec.ts', '**/screenshots.spec.ts'];
+const OFF_4100 = E2E_PORT !== 4100;
+if (OFF_4100 && !process.env.FORGE_E2E_QUIET) {
+  process.env.FORGE_E2E_QUIET = '1';
+  console.warn(`[e2e] gateway on ${E2E_ORIGIN}: skipping ${BROWSER_MODE_ONLY_SPECS.join(', ')} (they need port 4100).`);
+}
+
 export default defineConfig({
   testDir: './tests/e2e',
+  testIgnore: OFF_4100 ? BROWSER_MODE_ONLY_SPECS : [],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -58,7 +97,7 @@ export default defineConfig({
   use: {
     // Same-origin with the gateway (see header) — required for the connected
     // state to actually connect under the gateway's own CORS allowlist.
-    baseURL: 'http://127.0.0.1:4100',
+    baseURL: E2E_ORIGIN,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     // Deterministic screenshots: no caret blink, no scrollbar drift.
@@ -72,12 +111,21 @@ export default defineConfig({
     // assumption the old `npm run preview`-based command made (preview never
     // rebuilds either); no new pre-requirement introduced.
     command: 'node ../gateway/bin.mjs',
-    url: 'http://127.0.0.1:4100/api/health',
+    url: `${E2E_ORIGIN}/api/health`,
     // NEVER `!process.env.CI` here — see the cost-guard header above. The one exception is the
     // explicit, manual `CC_E2E_REUSE_LIVE_GATEWAY=1` opt-in documented in this file's own header —
     // never `process.env.CI`, never on by default.
     reuseExistingServer: process.env.CC_E2E_REUSE_LIVE_GATEWAY === '1',
     timeout: 120_000,
-    env: { CC_EXEC_MOCK: '1' },
+    env: {
+      CC_EXEC_MOCK: '1',
+      // The mock answers in ~100 ms; composer-queue-real-send.spec.ts must SEE an active run (the
+      // Queue/Stop state) to prove a message typed meanwhile is queued. The gateway's own documented
+      // knob (gateway/src/exec-argv.mjs) keeps each mocked run open this long. Still zero real calls.
+      CC_EXEC_MOCK_DELAY_MS: process.env.CC_EXEC_MOCK_DELAY_MS ?? '3000',
+      CC_PORT: String(E2E_PORT),
+      FORGE_DATA_DIR: E2E_DATA_DIR,
+      FORGE_UI_SESSION_SECRET: UI_SECRET,
+    },
   },
 });

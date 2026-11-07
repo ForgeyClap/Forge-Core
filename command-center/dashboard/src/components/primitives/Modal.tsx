@@ -134,7 +134,9 @@ export function Modal({
         aria-describedby={description != null ? descriptionId : undefined}
         tabIndex={-1}
       >
-        <header className="fw-modal__head">
+        {/* A div, not <header>/<footer>: portalled into <body>, those would be a second banner and a
+            contentinfo landmark next to the shell bar (axe landmark-no-duplicate-banner). */}
+        <div className="fw-modal__head">
           <div className="fw-modal__heading">
             <h2 id={titleId} className="fw-modal__title">
               {title}
@@ -148,9 +150,9 @@ export function Modal({
           {hideClose ? null : (
             <IconButton icon="X" label="Close" size="sm" onClick={() => closeRef.current()} />
           )}
-        </header>
+        </div>
         <div className="fw-modal__body fw-scroll">{children}</div>
-        {footer != null ? <footer className="fw-modal__foot">{footer}</footer> : null}
+        {footer != null ? <div className="fw-modal__foot">{footer}</div> : null}
       </div>
     </div>,
     document.body,

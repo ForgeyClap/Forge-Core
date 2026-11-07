@@ -81,8 +81,8 @@ gateway = new ForgeDiscordGateway({ config, transport, runner });
 gateway.sessionStore = sessionStore;
 const { UsageTracker } = await import('./usage-tracker.js');
 gateway.usage = new UsageTracker({ stateDir: config.stateDir });
-const { SubscriptionUsage } = await import('./subscription-usage.js');
-gateway.subscriptionUsage = new SubscriptionUsage();
+const { LocalUsage: SubscriptionUsage } = await import('./local-usage.js');
+gateway.subscriptionUsage = new SubscriptionUsage({ budgets: config.tokenBudgets });
 
 // Project-geheugen: korte geschiedenis per project, gaat mee bij een nieuw gesprek.
 const { ProjectMemory } = await import('./project-memory.js');

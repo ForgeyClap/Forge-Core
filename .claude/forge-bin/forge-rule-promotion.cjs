@@ -30,7 +30,13 @@ const fs = require('fs');
 const path = require('path');
 const RC = require('./forge-runcontract.cjs');
 
-const DEFAULT_ROOT = path.resolve(__dirname, '..', '..');
+// WP 2.1 (opt-in .forge layout): without --runs-dir the runs are discovered in EVERY run folder that exists
+// (forge-paths.cjs existingStateDirs; a project without .forge reads exactly .claude/forge-runs as before). The rules
+// file is config and stays in .claude/config/orchestration. Guarded: an older or missing forge-paths.cjs keeps the
+// legacy literals. A plugin copy outside any project has no default root (evaluate() then refuses).
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.existingStateDirs === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const DEFAULT_ROOT = viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
 const DEFAULT_WINDOW = 3;
 const MAX_DEFAULT_LINES = 40;
 /** Run ids the project's own test suites use for fixtures (fx-1, forge-testrun-…, selftest-…, tmp-…, e2e-…). */
@@ -109,8 +115,31 @@ function discoverRuns(runsDir) {
     res.candidates.push({ id, dir, startMs: start ? start.ms : null });
   }
   // newest first; an undatable run sorts last (it is exempt from every warn rule with a `since` anyway)
-  res.candidates.sort((a, b) => (b.startMs === null ? -Infinity : b.startMs) - (a.startMs === null ? -Infinity : a.startMs) || (a.id < b.id ? 1 : -1));
+  res.candidates.sort(newestFirst);
   return res;
+}
+function newestFirst(a, b) { return (b.startMs === null ? -Infinity : b.startMs) - (a.startMs === null ? -Infinity : a.startMs) || (a.id < b.id ? 1 : -1); }
+/** discoverRunsIn(dirs) — WP 2.1: discoverRuns over several run folders (active first; a run id found in an earlier
+ *  folder wins), merged and sorted like one. One folder -> exactly discoverRuns(dir). */
+function discoverRunsIn(dirs) {
+  if (dirs.length === 1) return discoverRuns(dirs[0]);
+  const out = { candidates: [], ignored_test: [], not_real: [], not_completed: [] };
+  const seen = new Set();
+  for (const d of dirs) {
+    const r = discoverRuns(d);
+    const ids = new Set();
+    for (const k of Object.keys(out)) {
+      for (const x of r[k]) {
+        const id = typeof x === 'string' ? x : x.id;
+        if (seen.has(id)) continue;
+        ids.add(id);
+        out[k].push(x);
+      }
+    }
+    for (const id of ids) seen.add(id);
+  }
+  out.candidates.sort(newestFirst);
+  return out;
 }
 
 /** statusOf(result, ruleId) -> {status, reason} for one rule on one check() result. */
@@ -136,9 +165,12 @@ function statusOf(result, ruleId) {
 /** evaluate(opts) -> the full JSON report (see the test for the shape). Throws only when the rules file cannot be read. */
 function evaluate(opts) {
   opts = opts || {};
+  if (!opts.root && !DEFAULT_ROOT) throw new Error('no project root found (this copy is not inside a project) — pass --root <dir>');
   const root = path.resolve(opts.root || DEFAULT_ROOT);
   const rulesPath = path.resolve(opts.rules || path.join(root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
-  const runsDir = path.resolve(opts.runsDir || path.join(root, '.claude', 'forge-runs'));
+  const activeRuns = viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(root, '.claude', 'forge-runs'));
+  const runsDir = path.resolve(opts.runsDir || activeRuns);
+  const runsDirs = opts.runsDir ? [runsDir] : viaForgePaths((P) => { const d = P.existingStateDirs(root, 'runs'); return d.length ? d : [runsDir]; }, () => [runsDir]);
   const N = opts.window || DEFAULT_WINDOW;
 
   const meta = RC.loadRulesMeta(rulesPath);
@@ -149,7 +181,7 @@ function evaluate(opts) {
   const targets = allRules.filter((r) => r.severity === 'warn' && r.since !== undefined);
   const honestyCore = allRules.filter((r) => r.cannot_override === true).map((r) => r.id);
 
-  const disc = discoverRuns(runsDir);
+  const disc = discoverRunsIn(runsDirs);
   const minSince = targets.reduce((m, r) => { const s = RC.sinceMs(r.since); return s !== null && s < m ? s : m; }, Infinity);
   const judged = [];
   const unreadable = [];

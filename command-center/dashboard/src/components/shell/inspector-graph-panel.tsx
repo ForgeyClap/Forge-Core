@@ -7,8 +7,9 @@
  */
 
 import { Machine } from '@/components/primitives';
+import { t } from '@/i18n';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { Chips, Fields, KIND_LABEL, LinkRow, Prose, Section } from './inspector-shared';
+import { Chips, Fields, KIND_LABEL, LinkRow, Prose, Section, Quiet } from './inspector-shared';
 import type { Detail, SelectFn } from './inspector-shared';
 
 export function buildGraphNodeDetail(
@@ -31,32 +32,28 @@ export function buildGraphNodeDetail(
       <>
         <Fields
           rows={[
-            { label: 'Kind', value: <Machine>{node.kind}</Machine> },
-            { label: 'Lane', value: lane ? lane.label : <Machine muted>spine</Machine> },
-            { label: 'Agent', value: node.agent ?? <Machine muted>—</Machine> },
-            { label: 'Duration', value: <Machine muted>{node.duration ?? '—'}</Machine> },
-            { label: 'Model', value: <Machine>{node.model ?? '—'}</Machine> },
+            { label: t('rd.details.field.kind'), value: node.kind },
+            { label: t('rd.details.field.lane'), value: lane ? lane.label : <Quiet>{t('rd.details.spine')}</Quiet> },
+            { label: t('rd.details.field.agent'), value: node.agent ?? <Quiet>—</Quiet> },
+            { label: t('rd.details.field.duration'), value: <Quiet>{node.duration ?? '—'}</Quiet> },
+            { label: t('rd.details.field.model'), value: <Machine>{node.model ?? '—'}</Machine> },
             {
-              label: 'Position',
-              value: (
-                <Machine muted>
-                  col {node.col} · row {node.row}
-                </Machine>
-              ),
+              label: t('rd.details.field.position'),
+              value: <Quiet>{t('rd.details.position', { col: node.col, row: node.row })}</Quiet>,
             },
           ]}
         />
         {node.detail ? (
-          <Section title="What happened here" defaultOpen>
+          <Section title={t('rd.details.section.whatHappened')} defaultOpen>
             <Prose>{node.detail}</Prose>
           </Section>
         ) : null}
         {node.skills && node.skills.length > 0 ? (
-          <Section title="Skills" count={node.skills.length}>
-            <Chips items={node.skills} label="Node skills" />
+          <Section title={t('rd.details.section.skills')} count={node.skills.length}>
+            <Chips items={node.skills} label={t('rd.details.nodeSkills')} />
           </Section>
         ) : null}
-        <Section title="Edges" count={edgesIn.length + edgesOut.length}>
+        <Section title={t('rd.details.section.edges')} count={edgesIn.length + edgesOut.length}>
           <div className="fw-inspector__links">
             {edgesIn.map((edge) => (
               <LinkRow

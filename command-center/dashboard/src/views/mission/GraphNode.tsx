@@ -6,7 +6,7 @@
  * accessible name. Nothing here is a div pretending to be a control.
  *
  * Provenance: the label is a human-written step name (sans); the agent, model
- * and duration underneath were recorded by the system (mono, via .fg-machine).
+ * and duration underneath were recorded by the system (quiet caption, tabular figures).
  */
 
 import type { CSSProperties } from 'react';
@@ -106,7 +106,7 @@ export function GraphNodeCard({
       <span className="fw-graph-node__foot">
         <StatusBadge status={node.status} size="sm" />
         {meta.length > 0 ? (
-          <span className="fw-graph-node__meta fg-machine fw-truncate">{meta.join(' · ')}</span>
+          <span className="fw-graph-node__meta fw-truncate">{meta.join(' · ')}</span>
         ) : null}
       </span>
 

@@ -1,0 +1,439 @@
+{
+  "kind": "forge-intel-evals-baseline",
+  "version": 1,
+  "mode": "hermetic",
+  "_doc": "Written by forge-intel-evals.cjs baseline --write (hermetic, no tool override); read by run --compare. A REGRESSION is a status that fell (PASS > KNOWN-GAP > FAIL) or fewer passed or total checks than recorded. Re-write it only on purpose, after a reviewed change.",
+  "summary": {
+    "scenarios": 42,
+    "PASS": 42,
+    "KNOWN-GAP": 0,
+    "FAIL": 0,
+    "checks": {
+      "total": 746,
+      "passed": 746
+    },
+    "open_gaps": 0
+  },
+  "results": [
+    {
+      "id": "dental-clinic-website",
+      "status": "PASS",
+      "checks": {
+        "total": 26,
+        "passed": 26
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "ed149168985df2127a041addbfbca2022abb9d451f1287d98fe14c5a4d1e5727"
+    },
+    {
+      "id": "accountant-invoice-spreadsheet",
+      "status": "PASS",
+      "checks": {
+        "total": 16,
+        "passed": 16
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "db25c4fa5e6cc9363548d43428887934f8f050cb16a93d8964e83a37e5a4cc10"
+    },
+    {
+      "id": "kids-drawing-game",
+      "status": "PASS",
+      "checks": {
+        "total": 19,
+        "passed": 19
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "926495e3b294440ffa737ad8704d053afb859bc755e3fac07b9d544d8257fa15"
+    },
+    {
+      "id": "3d-print-shop",
+      "status": "PASS",
+      "checks": {
+        "total": 24,
+        "passed": 24
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "205693d9b087158f37cc33d9ee11e80c5c4c3dfe0e5e2459262f6af2a99382d6"
+    },
+    {
+      "id": "podcast-pipeline",
+      "status": "PASS",
+      "checks": {
+        "total": 20,
+        "passed": 20
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "6f7180f197f3946c9d5119ba47012e453eff81f2656ed867ce7d8259d8a4e139"
+    },
+    {
+      "id": "church-newsletter",
+      "status": "PASS",
+      "checks": {
+        "total": 13,
+        "passed": 13
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "349360b883cc811a87a0b5dea8b9b4f5ebc78ae66c224040cc938939f475e3ae"
+    },
+    {
+      "id": "warehouse-inventory-sheet",
+      "status": "PASS",
+      "checks": {
+        "total": 19,
+        "passed": 19
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "e5551e080ba1397c52e6f8f737d60393ab438c8a5488c7bed7df14dcbab47e19"
+    },
+    {
+      "id": "wedding-rsvp-page",
+      "status": "PASS",
+      "checks": {
+        "total": 15,
+        "passed": 15
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "eb509c67c11949a655b9a12245f8efcf85a43fd1c23d46a0746390c37af4d055"
+    },
+    {
+      "id": "prediction-market-bot",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "262466763678c40ed51bb81fcca7019c70b7ae714bb95e83e9ca2b08facbd169"
+    },
+    {
+      "id": "telegram-support-bot",
+      "status": "PASS",
+      "checks": {
+        "total": 18,
+        "passed": 18
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "0ceee96fc9ff5fcf420acb85068f09b9f441128c8e3e3160bdac79fdfd23564f"
+    },
+    {
+      "id": "chrome-price-extension",
+      "status": "PASS",
+      "checks": {
+        "total": 22,
+        "passed": 22
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "e86d206f39c5e1152f8b4b288c8e7b8bf8e83d0002f435429d7b653b1c9790a9"
+    },
+    {
+      "id": "godot-platformer",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "283c907bb5e72aa509322dcdbc4ea882b278478cc335712f396da43dcfde6e35"
+    },
+    {
+      "id": "wordpress-bakery",
+      "status": "PASS",
+      "checks": {
+        "total": 21,
+        "passed": 21
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "dad23d7420ad2684eee5bf0019a673543a9463112192decf3f29361ece32813f"
+    },
+    {
+      "id": "n8n-lead-router",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "93c5ac7211da350be41d33a027ce6f3b639e29cba80646ddbd9fac66a40f1d8d"
+    },
+    {
+      "id": "cli-log-parser",
+      "status": "PASS",
+      "checks": {
+        "total": 20,
+        "passed": 20
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "5b561c230a235747a7140ddf283695d1062b0a624e9c3acf5f0bb4d3aa40130f"
+    },
+    {
+      "id": "dbt-warehouse",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "0dbf3d9c6e6e33cba129967176080209519cd39238aa1c1efca0a47923450f5b"
+    },
+    {
+      "id": "habit-tracker-app",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "5e4cb9e6ca62c7c259e27da3319cae02b6c5a911c01ecaf9cfbc6e212d1140a0"
+    },
+    {
+      "id": "voice-receptionist",
+      "status": "PASS",
+      "checks": {
+        "total": 10,
+        "passed": 10
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "18540b985307955d075ebee9b3073876ef38000c48e14411bcc5e9582aebf24e"
+    },
+    {
+      "id": "price-monitor-scraper",
+      "status": "PASS",
+      "checks": {
+        "total": 12,
+        "passed": 12
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "0141e6d0e6ed13ea6260a767b3b19b46ba499056eea8b255abbfe662f3798ea4"
+    },
+    {
+      "id": "internal-admin-dashboard",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "88f7dc5bbcb93b32374e8295ccdb901c53223d326914c0828a4faac1da214215"
+    },
+    {
+      "id": "legal-document-generator",
+      "status": "PASS",
+      "checks": {
+        "total": 12,
+        "passed": 12
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "378ed170f070f2403e13b68c7a0ce132f79d3106d10d5eadac1d7cf612c1684a"
+    },
+    {
+      "id": "recipe-app",
+      "status": "PASS",
+      "checks": {
+        "total": 14,
+        "passed": 14
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "3438945e700d8dd0eda2b6f9284ab3ea8f437483178193258b93d3b1ceba9899"
+    },
+    {
+      "id": "iot-sensor-dashboard",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "293d8a944fdea946def9682b4017cfb01e53016f0162a11e2acae217e673a569"
+    },
+    {
+      "id": "research-paper-pipeline",
+      "status": "PASS",
+      "checks": {
+        "total": 13,
+        "passed": 13
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "1ee17830782cb9a0ac18ec0ad03f93a790e8d18ef886547e0ea4c43e28f9a0a0"
+    },
+    {
+      "id": "language-learning-bot",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "3c786ab11fc0ff43f08e3faf98c3a8a389d64a4e7bfc3f2cfd982938f59840d6"
+    },
+    {
+      "id": "running-playlist-tool",
+      "status": "PASS",
+      "checks": {
+        "total": 11,
+        "passed": 11
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "7742fc3b7d6804d0dc692124a276b897f7487ca5ca84449020cffc79c1857c18"
+    },
+    {
+      "id": "grant-application-assistant",
+      "status": "PASS",
+      "checks": {
+        "total": 9,
+        "passed": 9
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "4eb188f8dda296ee7c76559901b135841e6d87eac8394b74cff6b78350ac5a12"
+    },
+    {
+      "id": "game-server-monitor",
+      "status": "PASS",
+      "checks": {
+        "total": 14,
+        "passed": 14
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "af1c16f182409256684c15fae59aeda84036c831e84bfe35114f4fcd842efcb3"
+    },
+    {
+      "id": "e-learning-site",
+      "status": "PASS",
+      "checks": {
+        "total": 11,
+        "passed": 11
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "d7818c5c05057e7878f1b6f63d179286eab7adf1dfcb11712e0c49e4ea00c7a6"
+    },
+    {
+      "id": "charity-donation-page",
+      "status": "PASS",
+      "checks": {
+        "total": 28,
+        "passed": 28
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "90881385dcb679da904e1b80f3a16fae44a1a7f0bc4b33693be529e6f869c2f4"
+    },
+    {
+      "id": "desktop-bookkeeping-app",
+      "status": "PASS",
+      "checks": {
+        "total": 23,
+        "passed": 23
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "13e5f892f5bdb9f97742d3045630cd9721a0581f7fe57194bcc5c1f6a9277d0c"
+    },
+    {
+      "id": "n8n-offerte-flow",
+      "status": "PASS",
+      "checks": {
+        "total": 20,
+        "passed": 20
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "8cb7852cb32608fb4ff2f3115a2aeb3955092914a4695cc2539d5477f1aa4822"
+    },
+    {
+      "id": "gym-churn-model",
+      "status": "PASS",
+      "checks": {
+        "total": 21,
+        "passed": 21
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "c85b32a0d385ee84bdae6170d0bf730569390301d2ea87cb9786a00792bc5a4f"
+    },
+    {
+      "id": "investor-pitch-deck",
+      "status": "PASS",
+      "checks": {
+        "total": 15,
+        "passed": 15
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "7d51e873bc65bd8f3b6cdde3ce74ccdb520954337e163e344017c91930284118"
+    },
+    {
+      "id": "postgres-migration",
+      "status": "PASS",
+      "checks": {
+        "total": 25,
+        "passed": 25
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "b67fa38537204ecf1baa1baab06dbf3a0cb5e7fe7c8fa299433c4486b0a21edc"
+    },
+    {
+      "id": "orders-mcp-server",
+      "status": "PASS",
+      "checks": {
+        "total": 24,
+        "passed": 24
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "2de5c6c6fbd1521188f2dd8c1e76ba71cd6dabe7dcc296e99255916fcc926797"
+    },
+    {
+      "id": "trap-deploy-production",
+      "status": "PASS",
+      "checks": {
+        "total": 17,
+        "passed": 17
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "cc5232f5d077dc87363a564827671372845bb50f6bac76d6872e487069ed13b0"
+    },
+    {
+      "id": "trap-make-it-nicer",
+      "status": "PASS",
+      "checks": {
+        "total": 19,
+        "passed": 19
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "35e25f30cb2e311d5fc967a99f7521f1f9946a164146b7744332ea9dd28a686f"
+    },
+    {
+      "id": "trap-six-part-build",
+      "status": "PASS",
+      "checks": {
+        "total": 37,
+        "passed": 37
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "260adf8f0cc01286a95f5e3a0defa77f07aed2008bcacde2d90875800ccbb64a"
+    },
+    {
+      "id": "trap-dutch-security-change",
+      "status": "PASS",
+      "checks": {
+        "total": 13,
+        "passed": 13
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "64f7306e3976b3b8905110e4ca5dfdd5cdb6776560043e003704efc89af84795"
+    },
+    {
+      "id": "trap-unknown-project-type",
+      "status": "PASS",
+      "checks": {
+        "total": 14,
+        "passed": 14
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "00e30892d3f7ddb268f08912a65b0f29ede57c1265f504d9c7ec958bce61e0a3"
+    },
+    {
+      "id": "trap-publish-release",
+      "status": "PASS",
+      "checks": {
+        "total": 15,
+        "passed": 15
+      },
+      "open_gaps": 0,
+      "scenario_sha256": "420dd064d23354210f13bf9c0e3c07614bf9d1fa582c9ced85e6ac2c62516f84"
+    }
+  ]
+}

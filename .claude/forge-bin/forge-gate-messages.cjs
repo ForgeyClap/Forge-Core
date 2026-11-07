@@ -45,6 +45,28 @@ const WORDS = {
     safeNl: 'toon alleen de variabele NAMEN met de speciale helper (node .claude/forge-bin/forge-env-names.cjs .env), nooit met grep -o — die toont nog steeds de waarde',
     safeEn: 'show only the variable NAMES with the dedicated helper (node .claude/forge-bin/forge-env-names.cjs .env), never with grep -o — that still shows the value',
   },
+  // WP 3.3b: the two gates that guard Claude Code's own configuration. The safe variant names the
+  // Forge tool that does the same job with a backup, or asks the owner — never "run it yourself".
+  'plugin-install-command': {
+    nl: 'dit commando installeert of activeert een Claude Code-plugin of marketplace: nieuwe code met eigen hooks, agents en rechten, voor deze gebruiker of dit project',
+    en: 'this command installs or enables a Claude Code plugin or marketplace: new code with its own hooks, agents and permissions, for this user or project',
+    safeNl: 'vraag het eerst aan de eigenaar en noem de plugin, de marketplace en waar die vandaan komt; Forge gaat pas verder als de eigenaar ja zegt tegen DEZE plugin. Bekijken mag altijd (claude plugin list, claude plugin validate)',
+    safeEn: 'ask the owner first and name the plugin, the marketplace and where it comes from; Forge goes on only when the owner says yes to THIS plugin. Looking is always fine (claude plugin list, claude plugin validate)',
+  },
+  'settings-edit-command': {
+    nl: 'dit commando schrijft in de Claude Code-instellingen (.claude/settings.json, settings.local.json of ~/.claude/settings.json) waar de rechten en hooks staan, ook de Forge-poort zelf',
+    en: 'this command writes to the Claude Code settings (.claude/settings.json, settings.local.json or ~/.claude/settings.json) that hold the permissions and hooks, the Forge gate included',
+    safeNl: 'Forge-instellingen wijzig je met /forge config (node .claude/forge-bin/forge-config.cjs set <sleutel> <waarde>); hooks en rechten alleen via forge-sync of forge-settings-merge (die maken eerst een back-up), of na een uitdrukkelijke ja van de eigenaar op DEZE wijziging. Lezen mag altijd',
+    safeEn: 'change Forge settings with /forge config (node .claude/forge-bin/forge-config.cjs set <key> <value>); hooks and permissions only through forge-sync or forge-settings-merge (they make a backup first), or after the owner explicitly says yes to THIS change. Reading is always fine',
+  },
+  // W1 (category tests round 6): global keyboard/mouse input. Shared word for word with the PostToolUse
+  // feedback of forge-toolhook.cjs (forge-global-input.cjs builds its reason from this entry).
+  'global-input-command': {
+    nl: 'dit gebruikt globale toetsenbord- of muisinvoer (SendKeys, SendWait, SendInput, keybd_event, mouse_event, WScript.Shell SendKeys/AppActivate): die gaat naar het venster dat vooraan staat, wat dat ook is; zo typte een test ooit Enter, Esc en b in de terminal van de eigenaar',
+    en: 'this uses global keyboard or mouse input (SendKeys, SendWait, SendInput, keybd_event, mouse_event, WScript.Shell SendKeys/AppActivate): it goes to whatever window is in front; a test once typed Enter, Esc and b into the owner\'s terminal',
+    safeNl: 'stuur de invoer naar het eigen venster van de app (PostMessage/SendMessage naar zijn hwnd) of gebruik de eigen test-hook of self-test-vlag van de app',
+    safeEn: 'post the input to the app\'s own window handle (PostMessage/SendMessage to its hwnd) or use the app\'s own test hook or self-test flag',
+  },
   'gate-hook-self-disable': {
     nl: 'dit commando zet de Forge-poort zelf uit',
     en: 'this command switches the Forge gate itself off',

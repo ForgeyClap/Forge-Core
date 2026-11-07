@@ -1,6 +1,8 @@
 ---
 name: forge-guardian
-description: Scaffold design doctrine for an owner-gated production self-healing guardian (not live). Use only when designing auto-rollback, incident response, canary, circuit breaker automation.
+description: "Use only for auto-rollback, canary or circuit breakers (zelfherstel)."
+# A10 original description (listing budget): "Use only when designing auto-rollback, canary or circuit breakers (zelfherstel): owner-gated design."
+# W2-BUDGET original description (listing budget): "Use only when designing auto-rollback, canary or circuit breakers (zelfherstel)."
 ---
 
 # Forge playbook — Guardian (deploy -> monitor -> reproduce -> self-heal -> redeploy)

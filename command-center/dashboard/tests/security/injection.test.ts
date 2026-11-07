@@ -5,7 +5,7 @@
  * The bridge's central claim is "typed verbs only, no shell". This file tries to
  * break it three ways:
  *
- *  1. STATICALLY. Every `.ts` file under `src/bridge` is read and scanned, with
+ *  1. STATICALLY. Every `.ts` file under `archive/bridge` is read and scanned, with
  *     comments stripped first so a doc block that talks ABOUT `shell: false`
  *     cannot be mistaken for the thing itself. No `shell: true`, no
  *     `windowsVerbatimArguments: true`, no `exec`/`execSync`/`execFile` at all,
@@ -43,16 +43,16 @@ import {
   ALLOWED_PERMISSION_MODES,
   assertArgvIsSafe,
   buildClaudeArgv,
-} from '@/bridge/claude/adapter';
-import type { StartRunRequest } from '@/bridge/claude/adapter';
-import { FORBIDDEN_FLAGS, FORBIDDEN_PERMISSION_MODES, locateClaudeCode } from '@/bridge/claude/locate';
-import type { LocatedClaude } from '@/bridge/claude/locate';
-import { inspectSlug, sanitizeSlug } from '@/bridge/security/paths';
-import { inspectFilename } from '@/bridge/attachments/policy';
-import { createAttachmentPipeline } from '@/bridge/attachments/pipeline';
-import { assertSafeId, makeStreamKey, parseStreamKey } from '@/bridge/storage/store';
-import * as git from '@/bridge/projects/git';
-import { asObject, optString, optStringArray } from '@/bridge/router';
+} from '@archive/bridge/claude/adapter';
+import type { StartRunRequest } from '@archive/bridge/claude/adapter';
+import { FORBIDDEN_FLAGS, FORBIDDEN_PERMISSION_MODES, locateClaudeCode } from '@archive/bridge/claude/locate';
+import type { LocatedClaude } from '@archive/bridge/claude/locate';
+import { inspectSlug, sanitizeSlug } from '@archive/bridge/security/paths';
+import { inspectFilename } from '@archive/bridge/attachments/policy';
+import { createAttachmentPipeline } from '@archive/bridge/attachments/pipeline';
+import { assertSafeId, makeStreamKey, parseStreamKey } from '@archive/bridge/storage/store';
+import * as git from '@archive/bridge/projects/git';
+import { asObject, optString, optStringArray } from '@archive/bridge/router';
 
 /* ========================================================================== */
 /*  The payload corpus                                                         */
@@ -96,7 +96,7 @@ const METACHARACTERS = [';', '&', '|', '`', '$', '>', '<', '\n', '\r', '\u0000',
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
-const BRIDGE_DIR = path.join(REPO_ROOT, 'src', 'bridge');
+const BRIDGE_DIR = path.join(REPO_ROOT, 'archive', 'bridge');
 const SRC_DIR = path.join(REPO_ROOT, 'src');
 
 function walkTypeScript(dir: string): readonly string[] {

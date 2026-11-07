@@ -353,6 +353,21 @@ t('a walk that stops at the depth cap SAYS SO — a possibly-truncated count is 
   assert.strictEqual(rep.ok, false, 'a meter that might be under-reporting is NOT green');
 });
 
+t('a directory tree deeper than the cap that holds NO SKILL.md (a plugin\'s own test fixtures) is not a capped walk: the count is exact, no finding', () => {
+  const fx = buildFixture('cbx-deepfixtures');
+  const deep = path.join(fx.home, '.claude', 'plugins', 'cache', 'mp', 'pl', '1.0.0', 'skills', 'x', 'scripts', 'tests', 'fixtures', 'a', 'b', 'c', 'd');
+  fs.mkdirSync(deep, { recursive: true });
+  fs.writeFileSync(path.join(deep, 'session.jsonl'), '{}\n');
+  const rep = cb.measure(fx.root, { paths: paths(fx) });
+  const pl = post(rep, 'skill_catalog_plugins');
+  assert.strictEqual(pl.skills, 1, 'the six-deep plugin skill is still counted');
+  assert.strictEqual(pl.depth_capped, false, 'nothing countable lies below the cap, so the count is not short');
+  assert.deepStrictEqual(rep.findings.filter((f) => f.kind === 'depth_capped'), []);
+  const walk = cb.walkSkillCatalog(path.join(fx.home, '.claude', 'plugins'), 3);
+  assert.strictEqual(walk.capped, true, 'a SKILL.md really below the cap still makes the walk capped');
+  assert.strictEqual(walk.missed, 1, 'and it says how many SKILL.md it left out');
+});
+
 t('an absent source is an honest ZERO with a note — the post still appears, never silently omitted', () => {
   const fx = buildFixture('cbx-nosource', { skipPluginSkills: true });
   const rep = cb.measure(fx.root, { paths: paths(fx) });
@@ -773,6 +788,25 @@ t('a user-only skill under an ENABLED plugin is excluded from the plugin listing
   assert.strictEqual(pl.user_only_skills, 1);
   assert.strictEqual(pl.user_only_chars, 100);
   assert.strictEqual(pl.skills_on_disk, 7);
+});
+
+// --- WP 1.9: when_to_use is listed next to the description, so it is loaded weight too ---
+t('when_to_use is counted in a skill entry (quoted value without its quotes); a skill without it is unchanged', () => {
+  const fx = buildFixture('cbx-wtu');
+  const skillsDir = path.join(fx.root, '.claude', 'skills');
+  // "with-wtu"(8) + 30 + 45 = 83 chars
+  writeSkillFile(skillsDir, 'with-wtu', 'name: with-wtu\ndescription: "' + 'd'.repeat(30) + '"\nwhen_to_use: "' + 'w'.repeat(45) + '"');
+  // "user-wtu"(8) + 20 + 25 = 53 chars, user-only: reported separately and never loaded, when_to_use included
+  writeSkillFile(skillsDir, 'user-wtu', 'name: user-wtu\ndescription: ' + 'u'.repeat(20) + '\nwhen_to_use: ' + 'v'.repeat(25) + '\ndisable-model-invocation: true');
+  const sc = post(cb.measure(fx.root, { paths: paths(fx) }), 'skill_catalog_project');
+  const e = sc.files.find((f) => f.skill === 'with-wtu');
+  assert.ok(e, 'with-wtu is not listed as loaded: ' + JSON.stringify(sc.files.map((f) => f.skill)));
+  assert.deepStrictEqual([e.chars, e.name_chars, e.description_chars, e.when_to_use_chars], [83, 8, 30, 45]);
+  // the two buildFixture skills (138, no when_to_use) + with-wtu (83) = 221
+  assert.strictEqual(sc.chars, 221, 'loaded chars wrong; got ' + sc.chars);
+  assert.ok(sc.files.filter((f) => f.skill !== 'with-wtu').every((f) => f.when_to_use_chars === 0), 'a skill without when_to_use must count 0 for it');
+  assert.strictEqual(sc.user_only_chars, 53, 'the user-only entry must count its when_to_use too; got ' + sc.user_only_chars);
+  try { fs.rmSync(path.dirname(fx.root), { recursive: true, force: true }); } catch { /* best-effort: this test cleans its own fixture */ }
 });
 
 // --- the real machine ------------------------------------------------------------------------------------

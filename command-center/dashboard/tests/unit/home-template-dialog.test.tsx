@@ -1,24 +1,31 @@
 /**
- * Home "Start something" template cards — build-lastdemos.
+ * Start (HomeView) — redesign, part 2A (DESIGN.md §3.1).
  *
- * Locks in the real flow: all six template cards are no longer disabled,
- * clicking one opens the SAME real `NewProjectDialog` Sidebar's own "New
- * project" button uses (never a duplicate), seeded with that template's name
- * as a starting suggestion, and submitting still drives the real
- * `POST /api/projects` route (gateway-actions.ts's `requestNewProject`) —
- * mirrors `sidebar-new-project.test.tsx`'s fetch-stub precedent.
+ * The old "Start something" template cards were replaced by three suggestions that only FILL the
+ * composer (they never send), a "Start hier" card for beginners and one quiet "Verder met" row for a
+ * returning user. Locks in:
+ *   - one h1, the question, and no stat cards or project counts;
+ *   - a suggestion fills the composer and sends nothing;
+ *   - Send on Start always starts a NEW conversation (an active one is cleared first) through the real
+ *     `useChatSend()` controller, and only then opens the chat;
+ *   - the checklist reads real state (connection, conversations), closes for good, and gives way to
+ *     the "Verder met" row.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
-import { createElement } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createElement, useReducer } from 'react';
+import type { ReactNode } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 import { PrototypeContext } from '@/prototype/state/prototype-store';
 import type { PrototypeAction, PrototypeState, StoreValue } from '@/prototype/state/prototype-store';
+import { ChatSendContext } from '@/prototype/state/chat-send';
+import type { ChatSendController } from '@/prototype/state/chat-send';
 import { EMPTY_DATASET } from '@/prototype/state/store-adapter';
+import type { Conversation } from '@/prototype/types/prototype-types';
 import HomeView from '@/views/home/HomeView';
+import { START_STORAGE_KEY } from '@/views/home/start-checklist';
 
 function buildState(overrides: Partial<PrototypeState> = {}): PrototypeState {
   return {
@@ -50,80 +57,157 @@ function buildState(overrides: Partial<PrototypeState> = {}): PrototypeState {
   };
 }
 
-function installFetchMock(): { bodies: unknown[] } {
-  const bodies: unknown[] = [];
-  const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
-    const url = String(input);
-    if (url.includes('/api/projects') && init?.method === 'POST') {
-      if (typeof init.body === 'string') bodies.push(JSON.parse(init.body));
-      return {
-        ok: true,
-        status: 201,
-        json: async () => ({ ok: true, project: { name: 'Website', path: 'C:\\Users\\YOU\\Documents\\ForgeProjects\\Website' } }),
-      } as Response;
-    }
-    return { ok: true, status: 200, json: async () => ({}) } as Response;
-  });
-  vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
-  return { bodies };
+const CONVERSATION: Conversation = {
+  prototype: true,
+  id: 'c-old',
+  projectId: 'p1',
+  title: 'Website voor de bakker',
+  updatedAt: '2026-11-01T10:00:00.000Z',
+  messageCount: 2,
+  messages: [],
+};
+
+function stubChat(send: ChatSendController['send']): ChatSendController {
+  return {
+    run: { runId: null, status: null, active: false },
+    canSend: true,
+    disabledReason: null,
+    sending: false,
+    stopping: false,
+    send,
+    stop: async () => ({ ok: true, error: null }),
+  };
 }
 
-function renderHome(dispatch: (action: PrototypeAction) => void, state: PrototypeState = buildState()) {
-  const value: StoreValue = { state, dispatch };
-  return render(
+/** A tiny real reducer for the two actions Start dispatches, so a cleared conversation re-renders. */
+function reducer(state: PrototypeState, action: PrototypeAction): PrototypeState {
+  if (action.type === 'conversation/activate') return { ...state, activeConversationId: action.id };
+  return state;
+}
+
+function Harness({ initial, chat, log, children }: { initial: PrototypeState; chat: ChatSendController | null; log: PrototypeAction[]; children?: ReactNode }) {
+  const [state, rawDispatch] = useReducer(reducer, initial);
+  const value: StoreValue = {
+    state,
+    dispatch: (action) => {
+      log.push(action);
+      rawDispatch(action);
+    },
+  };
+  const tree = createElement(PrototypeContext.Provider, { value }, children);
+  return chat ? createElement(ChatSendContext.Provider, { value: chat }, tree) : tree;
+}
+
+function renderStart(initial: PrototypeState = buildState(), chat: ChatSendController | null = null) {
+  const log: PrototypeAction[] = [];
+  const utils = render(
     createElement(
       MemoryRouter,
-      null,
-      createElement(PrototypeContext.Provider, { value }, createElement(HomeView)),
+      { initialEntries: ['/'] },
+      createElement(
+        Harness,
+        { initial, chat, log },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, { path: '/', element: createElement(HomeView) }),
+          createElement(Route, { path: '/chat', element: createElement('p', null, 'CHAT OPEN') }),
+        ),
+      ),
     ),
   );
+  return { ...utils, log };
 }
 
-describe('Home — "Start something" template cards', () => {
+describe('Start (redesign 2A)', () => {
+  beforeEach(() => localStorage.clear());
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.unstubAllGlobals();
   });
 
-  it('renders all six template cards as enabled, not disabled', () => {
-    installFetchMock();
-    renderHome(vi.fn());
-
-    const buttons = screen.getAllByRole('button', { name: /Website|Full-stack app|Automation|Chatbot|Scraper|Research/ });
-    expect(buttons.length).toBe(6);
-    for (const button of buttons) expect(button).not.toBeDisabled();
+  it('shows one question, the composer and three suggestions — no stat cards, no template grid', () => {
+    const { container } = renderStart();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('What do you want to make?');
+    expect(container.querySelector('[data-tour="composer"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Make a website' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Automate emails' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Look something up' })).toBeInTheDocument();
+    expect(container.querySelector('.fw-home__system, .fw-home__templates')).toBeNull();
   });
 
-  it('opens NewProjectDialog seeded with the clicked template\'s name, and creating a real project activates it', async () => {
-    const { bodies } = installFetchMock();
-    const dispatch = vi.fn();
-    renderHome(dispatch);
+  it('a suggestion fills the composer and sends nothing', () => {
+    const send = vi.fn(async () => ({ ok: true, error: null }));
+    renderStart(buildState(), stubChat(send));
+    fireEvent.click(screen.getByRole('button', { name: 'Make a website' }));
+    const field = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(field.value.length).toBeGreaterThan(10);
+    expect(send).not.toHaveBeenCalled();
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: /Website/ }));
+  it('Send with no active conversation starts a new one through the real controller, then opens the chat', async () => {
+    const send = vi.fn(async () => ({ ok: true, error: null }));
+    renderStart(buildState(), stubChat(send));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Maak een menukaart' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect((send.mock.calls[0] as unknown[])[0]).toBe('Maak een menukaart');
+    expect(await screen.findByText('CHAT OPEN')).toBeInTheDocument();
+  });
 
-    const dialog = await screen.findByRole('dialog', { name: 'New project' });
-    const input = within(dialog).getByLabelText('Project name') as HTMLInputElement;
-    expect(input.value).toBe('Website');
-    // Honest description: the template only names the project, nothing more.
-    expect(dialog.textContent).toMatch(/only a suggestion/i);
-    expect(dialog.textContent).toMatch(/no template content or scaffolding is added/i);
-
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
-
-    await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0]).toEqual({ name: 'Website' });
-
-    await waitFor(() =>
-      expect(dispatch).toHaveBeenCalledWith({ type: 'project/activate', id: 'Website' }),
+  it('Send while an older conversation is active clears it first, so the message never lands in it', async () => {
+    const send = vi.fn(async () => ({ ok: true, error: null }));
+    const { log } = renderStart(
+      buildState({ data: { ...EMPTY_DATASET, conversations: [CONVERSATION] }, activeConversationId: 'c-old' }),
+      stubChat(send),
     );
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New project' })).toBeNull());
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Iets nieuws' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    });
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(log).toContainEqual({ type: 'conversation/activate', id: '' });
+    expect(await screen.findByText('CHAT OPEN')).toBeInTheDocument();
   });
 
-  it('the button title states honestly that only the name is suggested', () => {
-    installFetchMock();
-    renderHome(vi.fn());
-    const button = screen.getByRole('button', { name: /Research/ });
-    expect(button.title).toMatch(/suggests/i);
-    expect(button.title).toMatch(/no template content or scaffolding/i);
+  it('a refused send keeps the user on Start (the controller says why in a toast)', async () => {
+    const send = vi.fn(async () => ({ ok: false, error: 'Geen project gekozen' }));
+    const { log } = renderStart(buildState(), stubChat(send));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Hallo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(log.some((action) => action.type === 'toast/push')).toBe(true));
+    expect(screen.queryByText('CHAT OPEN')).toBeNull();
+  });
+
+  it('without the production controller, Send says honestly that nothing was sent', () => {
+    const { log } = renderStart();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Hallo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(log.some((action) => action.type === 'toast/push')).toBe(true);
+    expect(screen.queryByText('CHAT OPEN')).toBeNull();
+  });
+
+  it('the "Start here" card counts real progress, and closing it hides it for good', () => {
+    renderStart(buildState({ data: { ...EMPTY_DATASET, conversations: [CONVERSATION] } }));
+    const card = screen.getByRole('region', { name: 'Start here' });
+    // A conversation exists, so "ask your first question" is done (no longer a button); the proof step is not.
+    expect(card.textContent).toMatch(/\d of 3/);
+    expect(screen.queryByRole('button', { name: /Ask your first question/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /See a delivery proof/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('region', { name: 'Start here' })).toBeNull();
+    expect(JSON.parse(localStorage.getItem(START_STORAGE_KEY) ?? '{}')).toMatchObject({ closed: true });
+  });
+
+  it('a returning user gets one quiet "Continue with" row instead of the card', () => {
+    localStorage.setItem(START_STORAGE_KEY, JSON.stringify({ closed: true }));
+    renderStart(buildState({ data: { ...EMPTY_DATASET, conversations: [CONVERSATION] } }));
+    expect(screen.queryByRole('region', { name: 'Start here' })).toBeNull();
+    const row = screen.getByRole('button', { name: /Website voor de bakker/ });
+    fireEvent.click(row);
+    expect(screen.getByText('CHAT OPEN')).toBeInTheDocument();
   });
 });

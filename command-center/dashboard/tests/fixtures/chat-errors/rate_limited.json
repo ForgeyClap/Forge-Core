@@ -1,0 +1,7 @@
+{
+  "code": "rate_limited",
+  "resume_at": "2026-11-02T14:30:00Z",
+  "details": "Claude AI usage limit reached|1793629800",
+  "expect_title": "Je limiet is bereikt",
+  "expect_action": "Automatisch verdergaan"
+}

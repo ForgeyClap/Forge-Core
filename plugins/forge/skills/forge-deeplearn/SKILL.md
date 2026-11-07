@@ -1,6 +1,7 @@
 ---
 name: forge-deeplearn
-description: Read-only full-codebase priming scanner. Use before a PRD or big refactor, or onboarding into an unfamiliar project — deep learn, prime the codebase, scan the project, risk list.
+description: "Use in an unknown repo or before a PRD or big refactor: read-only scan."
+# W2-BUDGET original description (listing budget): "Use before a PRD or big refactor or in an unknown repo (onbekend project): read-only codebase scan."
 ---
 
 # Deep Learn Mode (WP2 — full-codebase priming scan)

@@ -1,13 +1,13 @@
 ---
-description: Forge — project-aware, memory-aware orchestrator. Classify a task, read project memory, build a task-sized ECC agent team, execute in this folder, log real events to the dashboard, update memory + agent ledger, optionally Codex-review, and deliver an honest report. No mandatory security gates; project isolation always on.
-argument-hint: [task | config [list|get <key>|set <key> <value>|unset <key>|reset|explain <key>] | dashboard | start | use | status | runs | open-report | repair | resume <run_id> | learn | remember <text> | snapshot | paperclip <goal>]
+description: Forge — project-aware, memory-aware orchestrator. Classify a task, read project memory, build a task-sized ECC agent team, execute in this folder, log real events to the dashboard, update memory + agent ledger, optionally Codex-review, deliver an honest report. No mandatory security gates; project isolation always on.
+argument-hint: "[task | config [list|get <key>|set <key> <value>|unset <key>|reset|explain <key>] | dashboard | start | use | init [plan|apply|check] | status | runs | open-report | repair | resume <run_id> | learn | remember <text> | snapshot | paperclip <goal>]"
 ---
 
 # /forge
 
 Input: **$ARGUMENTS**. Obey `CLAUDE.md` (project isolation + honesty + no fake claims). Work only in this project folder.
 
-This file is the **always-loaded core**. The numbered rules below are non-negotiable and short on purpose so they survive compaction. The full, unmodified wording of every rule and step lives in on-demand reference docs under `.claude/docs/forge-reference/` (table at the bottom: read the one that matches the step you are on, before you do it). When the core and a reference doc seem to differ, the core rule wins and the reference gives the detail.
+This file is the **always-loaded core** non-negotiable rules, short so they survive compaction. The full wording of every rule and step lives in on-demand docs under `.claude/docs/forge-reference/` (table at the bottom: read the one for your step before doing it). Where core and a doc seem to differ, the core wins; the doc gives the detail.
 
 ## A. Non-negotiable core (read first, keep after compaction)
 
@@ -20,7 +20,10 @@ This file is the **always-loaded core**. The numbered rules below are non-negoti
 7. **GOAT routing (HARD MUST).** Head Chef triages every package `{route, risk, checks}` (quick sonnet/low · build opus/medium · deep opus/xhigh), the owning Boss is dispatched on that route (Workflow `agent({agentType, label, model, effort})` preferred; every `agent()` routed), Verify Boss verifies, ONE escalation on FAIL (process failure → more effort; capability failure → bigger model; fable only as escalate), then one lesson line in `.claude/agent-memory/head-chef/MEMORY.md`. Source: `.claude/FORGE_MODEL_ROUTING.json`. Log the ACTUAL model + effort. Keep the session model fixed (cache discipline).
 8. **Beginner promise.** Forge runs every command, install and build itself and never hands the user a command to type; it never asks "shall I continue?" between phases. It names only the one thing a person must do (log in, a paid key, an approval). On a failed command: `node .claude/forge-bin/forge-explain-error.cjs "<error>"`, then take the safe next step yourself.
 9. **Settings are owner config.** Read any setting with `node .claude/forge-bin/forge-config.cjs get <key>`; everything is ON by default; never edit `FORGE_CONFIG.json` by hand.
-10. **Look it up before you act.** Before each step below, open the reference doc named for it. Do not work from memory of an earlier, longer version of this file.
+10. **Look it up before you act.** Before each step below, open its reference doc; never work from memory of an earlier, longer version of this file.
+11. **Owner's language.** Every message the owner reads (status, questions, plan line, report) uses owner profile `language.ui` (Dutch when the owner writes Dutch); code and docs follow `language.code_docs`.
+12. **Stop what you started.** Before the final report stop every background process this run started (preview server, watcher, emulator) by its task or exact PID, or name it in the report: a headless session with a server left running never exits.
+13. **Headless: ONE plain command per Bash call.** No `&&`, `;`, pipes into loops or `VAR=...` prefixes: a chained call is refused and its event or file is lost. Never Write/Edit under `.claude/`: draft outside, then `forge-bin/forge-run-file.cjs put` (run files) / `append` (memory).
 
 ## B. Sub-commands (check $ARGUMENTS first)
 Plain-language triggers count too ("use Forge system", "gebruik Forge systeem", "start/open Forge dashboard", "instellingen", "zet … aan/uit", "hoe vraag ik Forge iets"). Exact procedures: `.claude/docs/forge-reference/forge-cmd-subcommands.md`.
@@ -29,6 +32,8 @@ Plain-language triggers count too ("use Forge system", "gebruik Forge systeem", 
 - `help me ask` — show `.claude/skills/forge-prompt-coach/references/HOW-TO-ASK.md`. `interview` — the full one-question-at-a-time intake.
 - `use` — load memory/profile, install Forge into a bare folder yourself, start the dashboard, continue the task.
 - `status` / `runs` / `open-report` — `node .claude/forge-bin/forge-runinfo.cjs …`. `repair` — `node .claude/forge-bin/forge-repair.cjs --json` yourself, act on `next_step`.
+- `stats [--json] [--since <date>] [--runs <n>] [--trend <n>]` — `node .claude/forge-bin/forge-runinfo.cjs stats [args]` (read-only routing statistics of this project's own runs).
+- `init [plan|apply|check]` — set this project up for Forge (install step 2): run `node .claude/forge-bin/forge-init.cjs plan`, then `forge-init.cjs apply --yes` yourself and relay its summary (memory files, settings.json deny rules + hooks, CLAUDE.md pointer block; only this folder; `--layout forge` only when the owner asks). `check`: exit 0 = set up.
 - `remember <text>` — `node .claude/forge-bin/forge-standing.cjs remember "<text>"` (the ONLY path to a new active standing rule). `snapshot` — `node .claude/forge-bin/forge-snapshot.cjs write --reason phase`.
 - `propose-skill` / `approve-skill` — `forge-genesis.cjs` (staged only; owner token to approve).
 - `tournament` / `secondbrain` / `codemodel` / `briefing <run_id>` — read `.claude/docs/forge-reference/tournament-secondbrain-codemodel-briefing.md` first.
@@ -38,6 +43,8 @@ Plain-language triggers count too ("use Forge system", "gebruik Forge systeem", 
 
 ## C. Build flow (otherwise $ARGUMENTS is a task — you are the Lead Agent / Orchestrator)
 Do the setup without stopping for it, post exactly one line `Plan ready — <n> work packages · team: <bosses> · Building now — say STOP to pause.` and continue straight into building (wait only when config `start-gate` asks, the owner said "wait"/"ask first"/"plan only", or a hard gate is in play). An L1 one-file fix may be ONE Boss + ONE verify pass; L2+ always gets plan + subagents + verify.
+**Plan card (WP 3.2).** Before that line run `node .claude/forge-bin/forge-plan-card.cjs --file <mission.json> --request "<raw request>" --run <run_id>`; it is always rendered and logged. Exit 3 = config `plan-approval` needs the owner (`gated`: only packages with a hard-gate item wait; `always`: all; `auto`: none): send the card + the one question in ONE message and build every `ready` package meanwhile. Approved scope is never re-asked (skill `forge-intake` §1b).
+**Anticipation (WP I.2).** Before the card run `node .claude/forge-bin/forge-anticipate.cjs plan --text "<raw request>" --lanes <independent packages> --json` and put its `switches` into the mission JSON; after the card run `apply --run <run_id>`; meta mission: `--scope meta`. Use every SAFE item it lists unasked, post its ONE-line note, queue the gated ones for the end-of-run owner batch, never re-enable what the owner turned off (config `anticipate`).
 
 | # | Step (one line each; detail in the doc named) | Reference doc |
 |---|---|---|
@@ -46,7 +53,7 @@ Do the setup without stopping for it, post exactly one line `Plan ready — <n> 
 | — | MODEL ROUTING (GOAT) · CACHE DISCIPLINE · PERMANENT BOSSES + QA LOOP + NVIDIA ROUTING | `forge-cmd-routing-cache-bosses.md` |
 | — | GOAL INTAKE + PLAN · install/first activation (CLAUDE.md `## Forge Studio` safe-merge, skills, `FORGE_SKILL_REGISTRY.md`) · terminal wrappers · ECC-first (Normal ON, Full Test OFF unless config `ecc-full-test`) | `forge-cmd-intake-install-ecc.md` |
 | 0 | Owner prefs, standing rules, autonomy (precedence.md order); after `run_id`: `forge-config.cjs diff --run <run_id> --mark-seen`, then `forge-echo.cjs emit <run_id>` | `forge-cmd-steps-0-3.md` |
-| 1 | Mission intake: `run_id = forge-YYYY-MM-DD-HHMMSS`, write `run.json` (status `running`), log `run_started`; real-fixtures intake for finance/parser/ocr/data/prediction | `forge-cmd-steps-0-3.md` |
+| 1 | Mission intake: `run_id = forge-YYYY-MM-DD-HHMMSS`, log `run_started`, then `run.json` (status `running`) via `forge-run-file.cjs put`; real-fixtures intake for finance/parser/ocr/data/prediction | `forge-cmd-steps-0-3.md` |
 | 2 | Deep analysis: read `FORGE_PROJECT_PROFILE.md` · `FORGE_MEMORY.md` · `FORGE_TASK_HISTORY.md` · `FORGE_ECC_MODE.json`; log `ecc_inventory`, `project_scanned`, `profile_loaded`, `memory_loaded`, `agent_decision_summary` | `forge-cmd-steps-0-3.md` |
 | 3 | Mission Blueprint (`mission-blueprint.md`, `mission_blueprint_created`) incl. **3a Skill Discovery** (`skill_discovery` → `skill_map_created`; no subagent without a skill/method route) | `forge-cmd-steps-0-3.md` |
 | 4 | Team: load skill `forge-router`; Boss names from the registry; log `role_map_created`, `agent_selected`, `custom_subagent_created` | `forge-cmd-steps-4-6.md` |
@@ -57,11 +64,11 @@ Do the setup without stopping for it, post exactly one line `Plan ready — <n> 
 | 9 | Merge & synthesis (`merge_started` → `merge_completed`) | `forge-cmd-steps-7-14.md` |
 | 10 | Codex review per config `codex-review` (auto/on-request/off); exact state reported, never faked; unlock diagnosis if blocked | `forge-cmd-steps-7-14.md` |
 | 11 | Quality gate (`quality_gate_passed` / `quality_gate_blocked` + reason); optional `/code-review`, `/security-review`, `/verify` | `forge-cmd-steps-7-14.md` |
-| 12 | Memory update (always): `FORGE_MEMORY.md` (current-state summary; history in `FORGE_MEMORY_ARCHIVE_*.md`), `FORGE_TASK_HISTORY.md`, `FORGE_AGENT_LEDGER.md`, `FORGE_DECISIONS.md`, session state; retention per config `cleanup` | `forge-cmd-steps-7-14.md` |
+| 12 | Memory update (always, each via `forge-run-file.cjs append`): `FORGE_MEMORY.md` (current-state summary; history in `FORGE_MEMORY_ARCHIVE_*.md`), `FORGE_TASK_HISTORY.md`, `FORGE_AGENT_LEDGER.md`, `FORGE_DECISIONS.md`, session state; retention per config `cleanup` | `forge-cmd-steps-7-14.md` |
 | 13 | Dashboard + browser proof (PARTIAL with exact reason when unavailable) | `forge-cmd-steps-7-14.md` |
-| 14 | Final report (load skill `forge-report`): RUN-CONTRACT GATE via rule 4, scribe gate via rule 3, then `final-report.md` with strict verdict, a plain "Wat is er veranderd", and the closing `/clear` line in the owner's language | `forge-cmd-steps-7-14.md` |
+| 14 | Final report (load skill `forge-report`): RUN-CONTRACT GATE via rule 4, scribe gate via rule 3, then `final-report.md` (via `forge-run-file.cjs put`) with strict verdict, a plain "Wat is er veranderd", and the closing `/clear` line in the owner's language | `forge-cmd-steps-7-14.md` |
 
-Quality loop (steps 8–11) repeats until the target is met, max iterations, missing info, or owner approval is needed. Prompt format: `.claude/skills/forge-router/PROMPT_TEMPLATE.md`.
+Quality loop (steps 8–11) repeats until target met, max iterations, missing info or owner approval needed. Prompt format: `.claude/skills/forge-router/PROMPT_TEMPLATE.md`.
 
 ## D. Where to look things up (on-demand reference docs)
 | Doc | Read it when |

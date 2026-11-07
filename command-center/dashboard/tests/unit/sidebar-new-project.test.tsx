@@ -98,13 +98,18 @@ describe('Sidebar — "New project"', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders both New project controls (full button + rail icon button) as enabled, not disabled', () => {
+  // Redesign 1C (DESIGN.md §2): "Nieuw project" left the sidebar header. It is one small + beside
+  // "Mijn projecten" (same role and name), inside the projects tour anchor.
+  it('renders one enabled New project control, beside My projects', () => {
     installFetchMock();
     renderSidebar(vi.fn());
 
     const buttons = screen.getAllByRole('button', { name: 'New project' });
-    expect(buttons).toHaveLength(2);
-    for (const button of buttons) expect(button).not.toBeDisabled();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).not.toBeDisabled();
+    const row = buttons[0].closest('li');
+    expect(row?.getAttribute('data-tour')).toBe('projects');
+    expect(row?.querySelector('a[href="/projects"]')).not.toBeNull();
   });
 
   it('opens the dialog and POSTs a real /api/projects request on submit, then activates the created project', async () => {

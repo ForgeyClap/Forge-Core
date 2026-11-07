@@ -232,7 +232,9 @@ t('configOn ignores a wrong-typed value and honours a real boolean', () => {
   assert.strictEqual(reinject.configOn('snapshots', true, { configModule: { get: () => ({ value: false }) } }), false);
 });
 
-const OFF_BUDGET_MS = Number(process.env.FORGE_HOOK_OFF_BUDGET_MS) || 500;
+// F4b (category tests 2026-11-07): a 500 ms default rolled back a fresh install on a busy machine; same rule as
+// forge-toolhook.test.cjs N3 - lenient by default, the tight 500 ms design target only with FORGE_STRICT_TIMING=1.
+const OFF_BUDGET_MS = Number(process.env.FORGE_HOOK_OFF_BUDGET_MS) || (process.env.FORGE_STRICT_TIMING === '1' ? 500 : 2500);
 t('CLI OFF path (FORGE_PROJECT_ROOT fixture, snapshots=false) with a due-marker present: exit 0, empty stdout/stderr, marker kept, best of 3 under ' + OFF_BUDGET_MS + ' ms', () => {
   const fixture = freshRoot('reinj-cli-off-fixture');
   writeConfig(fixture, { snapshots: { value: false } });

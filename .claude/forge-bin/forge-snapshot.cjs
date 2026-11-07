@@ -189,13 +189,35 @@ const TICKET_NEGATORS = new Set([
 const NEGATION_WINDOW = 3;
 
 // ---- root / path resolution (mirrors forge-manifest.cjs::resolveRoot) ----
+// WP 2.1 (opt-in .forge layout): memory files and run folders come from forge-paths.cjs — .forge/memory and
+// .forge/runs only in a project with a .forge folder (or FORGE_STATE_DIR), otherwise exactly the legacy .claude paths,
+// so every pointer string below is byte-identical there. Guarded: an older or missing forge-paths.cjs keeps the
+// legacy literals. FORGE_VERSION.json, config/orchestration/* and forge-dashboard/ are install files: never moved.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.memoryFile === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function viaForgePaths(fn, legacy) { if (forgePaths) { try { return fn(forgePaths); } catch { /* unresolvable root or canon: legacy */ } } return legacy(); }
+const NO_ROOT = 'forge-snapshot: no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) — pass --root or set FORGE_PROJECT_ROOT';
 function resolveRoot(explicit) {
   if (explicit) return path.resolve(explicit);
   if (process.env.FORGE_PROJECT_ROOT) return path.resolve(process.env.FORGE_PROJECT_ROOT);
-  return path.resolve(__dirname, '..', '..');
+  return viaForgePaths((P) => P.scriptRoot(__dirname), () => path.resolve(__dirname, '..', '..'));
 }
 function claudeDir(root) { return path.join(root, '.claude'); }
 function rel(root, p) { return path.relative(root, p).split(path.sep).join('/'); }
+/** memPath(root, name, read?) — a memory file (FORGE_MEMORY.md, FORGE_SNAPSHOT.md, ...): the write path, or with read
+ *  the path to read (the legacy file while the .forge layout has no copy yet). */
+function memPath(root, name, read) { return viaForgePaths((P) => P.memoryFile(root, name, { read: !!read }), () => path.join(claudeDir(root), name)); }
+/** memRel(root, name) — the project-relative pointer of a memory file's read path ('.claude/<name>' in the legacy layout). */
+function memRel(root, name) { return rel(root, memPath(root, name, true)); }
+/** runDirOf(root, runId) — the run's folder in whichever run folder holds it, else the active one. */
+function runDirOf(root, runId) {
+  const dirs = viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => []);
+  for (const d of dirs) if (fs.existsSync(path.join(d, runId))) return path.join(d, runId);
+  return path.join(viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(claudeDir(root), 'forge-runs')), runId);
+}
+/** runRel(root, runId) — the project-relative run folder ('.claude/forge-runs/<id>' in the legacy layout). */
+function runRel(root, runId) { return rel(root, runDirOf(root, runId)); }
+/** runsRel(root) — the project-relative active run folder ('.claude/forge-runs' in the legacy layout). */
+function runsRel(root) { return rel(root, viaForgePaths((P) => P.stateDir(root, 'runs'), () => path.join(claudeDir(root), 'forge-runs'))); }
 function readFileSafe(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
 function readJsonSafe(p) { const t = readFileSafe(p); if (t == null) return null; try { return JSON.parse(t); } catch { return null; } }
 
@@ -243,7 +265,8 @@ function extractFirstSectionBody(existingText) {
 function wrapMission(text) { return MISSION_BEGIN + '\n' + text.trim() + '\n' + MISSION_END; }
 function resolveMission(root, existingText) {
   const marker = extractMissionBlock(existingText);
-  if (marker) return { block: marker, source: 'preserved verbatim from the existing MISSION marker' };
+  // O20: same words, LF line endings — a CRLF block from an old copy made every regenerated snapshot mixed.
+  if (marker) return { block: marker.replace(/\r\n?/g, '\n'), source: 'preserved verbatim from the existing MISSION marker' };
   const migrated = extractFirstSectionBody(existingText);
   if (migrated) {
     return {
@@ -251,7 +274,7 @@ function resolveMission(root, existingText) {
       source: 'migrated verbatim from a pre-existing hand-written snapshot\'s first section (no MISSION marker existed yet) — preserved going forward',
     };
   }
-  const memText = readFileSafe(path.join(claudeDir(root), 'FORGE_MEMORY.md'));
+  const memText = readFileSafe(memPath(root, 'FORGE_MEMORY.md', true));
   const memBlock = firstHeadingBlock(memText);
   if (memBlock) {
     const firstLine = memBlock.body.split(/\r?\n/).find((l) => l.trim() && !/^##\s+/.test(l));
@@ -384,7 +407,7 @@ function runWorkSignal(root, runId, opts) {
 function runWorkEventCount(root, runId) { return runWorkSignal(root, runId).workEvents; }
 /** readRunMeta — a run's own run.json, parsed, or null (missing/unparseable is never an error here). */
 function readRunMeta(root, runId) {
-  return readJsonSafe(path.join(claudeDir(root), 'forge-runs', runId, 'run.json'));
+  return readJsonSafe(path.join(runDirOf(root, runId), 'run.json'));
 }
 /** SYNTHETIC_DECLARATION_FIELDS — the MACHINE-READABLE fields by which a run declares itself to be seed /
  *  demo / fixture data rather than real work. Booleans only: no text matching, no run-id name
@@ -513,7 +536,7 @@ function pickRun(root, explicitRunId, opts) {
     return { runId: null, considered: [], selection: 'unknown — the shared run ranker (forge-doctor.cjs::rankRunCandidates) could not be loaded, so no run was selected rather than guessing one' };
   }
   if (!Array.isArray(ranked) || !ranked.length) {
-    return { runId: null, considered: [], selection: 'no run directories exist yet under .claude/forge-runs/' };
+    return { runId: null, considered: [], selection: 'no run directories exist yet under ' + runsRel(root) + '/' };
   }
   const rows = rankByWorkRecency(root, ranked, opts);
   const considered = [];
@@ -725,7 +748,7 @@ function currentStateFromEvents(root, runId, opts) {
   if (!runId) return { done: [], doneNote: null, inProgress: [], inProgressNote: null, gaps: [], latestCheckFailed: null, recentDecisions: [] };
   opts = opts || {};
   const events = manifestMod.readEventsJsonl(manifestMod.eventsPath(root, runId));
-  const evidenceBase = '.claude/forge-runs/' + runId + '/events.jsonl';
+  const evidenceBase = runRel(root, runId) + '/events.jsonl';
   // W1-CLOCK: the same plausibility horizon the picker uses, so a timestamp the RANKING refused to trust is
   // not then rendered as bare fact three sections further down. Omitting `now` disables the labelling
   // entirely rather than defaulting to a second, different clock.
@@ -811,14 +834,17 @@ function currentStateFromEvents(root, runId, opts) {
 
 // ---- newest doctor.json (real, non-fabricated doctor summary) ----
 function readLatestDoctor(root) {
-  const runsDir = path.join(claudeDir(root), 'forge-runs');
-  let entries; try { entries = fs.readdirSync(runsDir, { withFileTypes: true }); } catch { return null; }
+  // WP 2.1: every run folder that exists (legacy layout: just .claude/forge-runs, as before)
+  const dirs = viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => [path.join(claudeDir(root), 'forge-runs')]);
   let best = null;
-  for (const e of entries) {
-    if (!e.isDirectory()) continue;
-    const p = path.join(runsDir, e.name, 'doctor.json');
-    let st; try { st = fs.statSync(p); } catch { continue; }
-    if (!best || st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs, data: readJsonSafe(p) };
+  for (const runsDir of dirs) {
+    let entries; try { entries = fs.readdirSync(runsDir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const p = path.join(runsDir, e.name, 'doctor.json');
+      let st; try { st = fs.statSync(p); } catch { continue; }
+      if (!best || st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs, data: readJsonSafe(p) };
+    }
   }
   return best;
 }
@@ -894,18 +920,23 @@ const CORE_EXPECTED_SOURCES = [
   '.claude/FORGE_MEMORY.md', '.claude/FORGE_TASK_HISTORY.md', 'tasks/WORK_PACKAGES.md',
   '.claude/FORGE_DECISIONS.md', '.claude/FORGE_VERSION.json',
 ];
+/** coreExpectedSources(root) — CORE_EXPECTED_SOURCES with each memory file at its read path for this project (the
+ *  legacy layout gives exactly the list above; FORGE_VERSION.json is an install file and never moves). */
+function coreExpectedSources(root) {
+  return CORE_EXPECTED_SOURCES.map((p) => (/^\.claude\/FORGE_(MEMORY|TASK_HISTORY|DECISIONS)\.md$/.test(p) ? memRel(root, p.slice('.claude/'.length)) : p));
+}
 
 function gatherEvidence(root, opts) {
   opts = opts || {};
   const pointers = [];
   const add = (p) => { if (p && !pointers.includes(p)) pointers.push(p); };
 
-  const memoryPath = path.join(claudeDir(root), 'FORGE_MEMORY.md');
+  const memoryPath = memPath(root, 'FORGE_MEMORY.md', true);
   const memoryText = readFileSafe(memoryPath);
   const memoryBlock = firstHeadingBlock(memoryText);
   if (memoryBlock) add(rel(root, memoryPath) + ' (' + memoryBlock.heading + ')');
 
-  const taskHistPath = path.join(claudeDir(root), 'FORGE_TASK_HISTORY.md');
+  const taskHistPath = memPath(root, 'FORGE_TASK_HISTORY.md', true);
   const taskHistText = readFileSafe(taskHistPath);
   const taskHistBlock = firstHeadingBlock(taskHistText);
   if (taskHistBlock) add(rel(root, taskHistPath) + ' (' + taskHistBlock.heading + ')');
@@ -915,7 +946,7 @@ function gatherEvidence(root, opts) {
   const wpBlock = lastHeadingBlock(wpText);
   if (wpBlock) add(rel(root, wpPath) + ' (' + wpBlock.heading + ')');
 
-  const decisionsPath = path.join(claudeDir(root), 'FORGE_DECISIONS.md');
+  const decisionsPath = memPath(root, 'FORGE_DECISIONS.md', true);
   const decisionsText = readFileSafe(decisionsPath);
   const decisions = extractDecisions(decisionsText, 5);
   if (decisions.length) add(rel(root, decisionsPath));
@@ -926,7 +957,7 @@ function gatherEvidence(root, opts) {
   const runSelection = pickRun(root, opts.runId, { now: opts.now, futureToleranceMs: opts.futureToleranceMs });
   const runId = runSelection.runId;
   const state = currentStateFromEvents(root, runId, { now: opts.now, futureToleranceMs: opts.futureToleranceMs });
-  if (runId) add('.claude/forge-runs/' + runId + '/events.jsonl');
+  if (runId) add(runRel(root, runId) + '/events.jsonl');
 
   // the source run's OWN recorded `request` (run.json), reused via the existing
   // readRunMeta() this file already has for a different purpose (syntheticDeclaration's quote). Distinct
@@ -936,7 +967,7 @@ function gatherEvidence(root, opts) {
   // section 2 already has its own honest "no mission text found" wording for the run_started case.
   const runMeta = runId ? readRunMeta(root, runId) : null;
   const missionRequest = runMeta && typeof runMeta.request === 'string' && runMeta.request.trim()
-    ? { text: redactDetail(runMeta.request.trim()), pointer: '.claude/forge-runs/' + runId + '/run.json' }
+    ? { text: redactDetail(runMeta.request.trim()), pointer: runRel(root, runId) + '/run.json' }
     : null;
   if (missionRequest) add(missionRequest.pointer);
 
@@ -959,14 +990,14 @@ function gatherEvidence(root, opts) {
   const keyPaths = [];
   const maybeAdd = (p, label) => { if (fs.existsSync(path.join(root, p))) keyPaths.push([p, label]); };
   maybeAdd('CLAUDE.md', 'project rules');
-  maybeAdd('.claude/FORGE_MEMORY.md', 'project memory (status log, newest-first)');
-  maybeAdd('.claude/FORGE_TASK_HISTORY.md', 'task history (newest-first)');
+  maybeAdd(memRel(root, 'FORGE_MEMORY.md'), 'project memory (status log, newest-first)');
+  maybeAdd(memRel(root, 'FORGE_TASK_HISTORY.md'), 'task history (newest-first)');
   maybeAdd('tasks/WORK_PACKAGES.md', 'work-package log (append-only)');
-  if (runId) keyPaths.push(['.claude/forge-runs/' + runId + '/', 'latest run\'s artifacts + events.jsonl']);
+  if (runId) keyPaths.push([runRel(root, runId) + '/', 'latest run\'s artifacts + events.jsonl']);
   maybeAdd('.claude/forge-dashboard/', 'legacy per-project Control Center');
   maybeAdd('command-center/', 'project-specific product (see its own docs if present)');
 
-  const missingCore = CORE_EXPECTED_SOURCES.filter((p) => !fs.existsSync(path.join(root, p)));
+  const missingCore = coreExpectedSources(root).filter((p) => !fs.existsSync(path.join(root, p)));
 
   return {
     memoryBlock, taskHistBlock, wpBlock, decisions, runId, runSelection, state, openItems, versionInfo,
@@ -989,7 +1020,7 @@ function runStartedMission(root, runId) {
   return {
     runId,
     text: String(text).trim(),
-    pointer: '.claude/forge-runs/' + runId + '/events.jsonl [run_started]',
+    pointer: runRel(root, runId) + '/events.jsonl [run_started]',
   };
 }
 const WHY_QUOTE_BUDGET = 420; // per quoted mission, so a long mission can never truncate away the ATTRIBUTION
@@ -1060,7 +1091,7 @@ function deriveWhy(root, ev) {
       : '**The only mission text found belongs to a run that is not section 3\'s source.** `' + other.runId + '` was not selected (' + (other.skipReason || other.workEvents + ' renderable work events') + '), so nothing of it is shown in section 3, but its `run_started` mission reads: ') +
       truncateSection(other.text, other.pointer, WHY_QUOTE_BUDGET) + ' _(evidence: ' + other.pointer + ')_');
   }
-  return { text: lines.join('\n'), pointer: own ? own.pointer : (other ? other.pointer : '.claude/FORGE_MEMORY.md') };
+  return { text: lines.join('\n'), pointer: own ? own.pointer : (other ? other.pointer : memRel(root, 'FORGE_MEMORY.md')) };
 }
 
 function buildSections(root, ev, mission, meta) {
@@ -1071,7 +1102,7 @@ function buildSections(root, ev, mission, meta) {
   const openSource = (ev.openItems && ev.openItems.length && ev.openItems[0].evidence)
     ? String(ev.openItems[0].evidence).split(' (')[0] : null;
   const currentStatePointer = [
-    ev.runId ? ('.claude/forge-runs/' + ev.runId + '/events.jsonl') : '.claude/FORGE_MEMORY.md',
+    ev.runId ? (runRel(root, ev.runId) + '/events.jsonl') : memRel(root, 'FORGE_MEMORY.md'),
     openSource,
   ].filter(Boolean).join(' + ');
   // section 3 has 3 subsections (done/in-progress/open) — a wider budget than a single-topic section (2x
@@ -1174,11 +1205,11 @@ function buildSections(root, ev, mission, meta) {
     // wide enough that it never fires on normal input and therefore never eats an attribution line.
     why: { text: truncateSection(why.text + missionRequestLine(ev), why.pointer, SECTION_CHAR_BUDGET * 2), pointer: why.pointer },
     currentState: currentStateText,
-    keyDecisions: truncateSection(decisionsText, rel(root, path.join(claudeDir(root), 'FORGE_DECISIONS.md'))),
+    keyDecisions: truncateSection(decisionsText, memRel(root, 'FORGE_DECISIONS.md')),
     activeConstraints: truncateSection(constraintsText, 'CLAUDE.md'),
-    keyFilePaths: truncateSection(keyPathsText, rel(root, path.join(claudeDir(root), 'FORGE_MEMORY.md'))),
-    knownGaps: truncateSection(gapsText, ev.runId ? ('.claude/forge-runs/' + ev.runId + '/events.jsonl') : '.claude/FORGE_MEMORY.md'),
-    nextActions: truncateSection(nextActionsText, ev.runId ? ('.claude/forge-runs/' + ev.runId + '/events.jsonl') : 'tasks/WORK_PACKAGES.md'),
+    keyFilePaths: truncateSection(keyPathsText, memRel(root, 'FORGE_MEMORY.md')),
+    knownGaps: truncateSection(gapsText, ev.runId ? (runRel(root, ev.runId) + '/events.jsonl') : memRel(root, 'FORGE_MEMORY.md')),
+    nextActions: truncateSection(nextActionsText, ev.runId ? (runRel(root, ev.runId) + '/events.jsonl') : 'tasks/WORK_PACKAGES.md'),
     versionText, doctorText, gitText,
     evidencePointers: evidencePointersText,
     honesty: honestyText,
@@ -1232,8 +1263,11 @@ function renderMarkdown(mission, sections, meta) {
 function write(opts) {
   opts = opts || {};
   const root = resolveRoot(opts.root);
-  const snapshotPath = path.join(claudeDir(root), 'FORGE_SNAPSHOT.md');
-  const existingText = readFileSafe(snapshotPath);
+  if (!root) throw new Error(NO_ROOT);
+  // WP 2.1: written to the active memory file; the previous text (its MISSION block) is read from the read path, so
+  // a project that just opted into .forge keeps its mission (the legacy file is read once, never deleted here).
+  const snapshotPath = memPath(root, 'FORGE_SNAPSHOT.md');
+  const existingText = readFileSafe(memPath(root, 'FORGE_SNAPSHOT.md', true));
   const reason = REASONS.has(opts.reason) ? opts.reason : 'manual';
   const now = opts.now instanceof Date ? opts.now : new Date();
 
@@ -1257,7 +1291,8 @@ function write(opts) {
 function check(opts) {
   opts = opts || {};
   const root = resolveRoot(opts.root);
-  const snapshotPath = path.join(claudeDir(root), 'FORGE_SNAPSHOT.md');
+  if (!root) throw new Error(NO_ROOT);
+  const snapshotPath = memPath(root, 'FORGE_SNAPSHOT.md', true);
   const maxAgeHours = Number.isFinite(opts.maxAgeHours) ? opts.maxAgeHours : 24;
   let st;
   try { st = fs.statSync(snapshotPath); }
@@ -1316,7 +1351,10 @@ function printUsage() {
   console.error('Usage: node forge-snapshot.cjs write [--run <id>] [--reason precompact-auto|precompact-manual|phase|manual] [--root <path>] [--json]');
   console.error('       node forge-snapshot.cjs check [--max-age-hours <n>] [--root <path>] [--json]');
 }
-if (require.main === module) {
+if (require.main === module && !resolveRoot(parseArgs(process.argv.slice(2)).opts.root)) {
+  console.error(NO_ROOT); // WP 2.1: a plugin copy outside any project — never writes beside its own script
+  process.exitCode = 1;
+} else if (require.main === module) {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
   if (opts.usageError) { console.error('forge-snapshot: ' + opts.usageError); printUsage(); process.exitCode = 2; }
   else if (cmd === 'write') {

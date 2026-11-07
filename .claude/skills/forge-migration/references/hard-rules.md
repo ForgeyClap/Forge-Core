@@ -1,0 +1,11 @@
+# forge-migration — hard rules (full text)
+
+## Hard rules
+- **Characterization tests first.** Before changing any legacy behavior, capture what it *currently* does with characterization / golden-master / approval tests — including the ugly, undocumented, "wrong-but-relied-on" behavior. These pin the existing contract so a migration can prove it preserved it. No behavior change lands before its characterization test exists and passes on the **legacy** code.
+- **Strangler-fig, incremental cutover.** Introduce a seam / facade / routing layer and move **one slice at a time** to the new implementation behind it. The old and new systems run side by side; the facade decides per-request which path serves. Never replace the whole thing at once.
+- **Every step is reversible.** Each slice cuts over behind a feature flag / route toggle with a proven route-back. Each step is independently deployable and independently revertible. If a slice misbehaves in production, you flip it back in seconds — you never have to "un-rewrite".
+- **Parity verified before a slice is trusted.** Old vs new must produce the same result: shadow/diff the new path against the old (GitHub-Scientist-style compare, or replayed inputs) and reconcile every discrepancy **before** the slice takes real traffic. Divergence is investigated, not waved through.
+- **No big-bang rewrite.** No months-long dark rewrite, no "we'll cut over everything on the weekend". If the plan can't be sliced, the first work package is to *find the seams* that make slicing possible.
+- **Data migration is reversible and verified.** Schema/data moves use dual-write or backfill-then-verify with row-count + checksum reconciliation and a rollback path. The old store stays authoritative until parity is proven; **no destructive drop** of the source until the new store is verified and a backup exists.
+- **Live-database schema changes use expand-and-contract.** Renames and type changes on a live database: add the new column, backfill, write both, switch reads, drop the old one later — never a blocking in-place rename on a big table.
+- **Test migrations on a realistic copy first.** A lock that takes milliseconds on a small table can take minutes on a large one. Test the migration on a realistic copy and keep the rollback ready.

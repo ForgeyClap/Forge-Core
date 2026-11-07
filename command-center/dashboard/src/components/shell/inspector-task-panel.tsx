@@ -7,10 +7,12 @@
  */
 
 import { Icon, Machine, Meter, StatusBadge } from '@/components/primitives';
+import { t } from '@/i18n';
 import { selectAgent, selectTask } from '@/prototype/state/prototype-store';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { Fields, KIND_LABEL, LinkRow, Prose, Section, VERDICT_STATUS } from './inspector-shared';
+import { Fields, KIND_LABEL, LinkRow, Prose, Section, VERDICT_STATUS, Quiet } from './inspector-shared';
 import type { Detail, SelectFn } from './inspector-shared';
+import { catalogWord } from './inspector-format';
 
 export function buildTaskDetail(
   state: PrototypeState,
@@ -33,26 +35,26 @@ export function buildTaskDetail(
       <>
         {task.status === 'running' ? (
           <div className="fw-inspector__block">
-            <Meter value={task.progress} label="Progress" tone="accent" showValue />
+            <Meter value={task.progress} label={t('rd.details.progress')} tone="accent" showValue />
           </div>
         ) : null}
         <Fields
           rows={[
-            { label: 'Owner', value: agent ? agent.name : <Machine>{task.agentId}</Machine> },
-            { label: 'Package', value: <Machine>{task.workPackageId}</Machine> },
-            { label: 'Phase', value: <Machine>{task.phase}</Machine> },
-            { label: 'Column', value: <Machine>{task.column}</Machine> },
-            { label: 'Created', value: <Machine muted>{task.createdAt}</Machine> },
-            { label: 'Updated', value: <Machine muted>{task.updatedAt}</Machine> },
-            { label: 'Repairs', value: <Machine>{task.repairAttempts}</Machine> },
+            { label: t('rd.details.field.owner'), value: agent ? agent.name : <Machine>{task.agentId}</Machine> },
+            { label: t('rd.details.field.package'), value: <Machine>{task.workPackageId}</Machine> },
+            { label: t('rd.details.field.phase'), value: catalogWord('rd.tasks.phase', task.phase) },
+            { label: t('rd.details.field.column'), value: catalogWord('rd.tasks.column', task.column) },
+            { label: t('rd.details.field.created'), value: <Quiet>{task.createdAt}</Quiet> },
+            { label: t('rd.details.field.updated'), value: <Quiet>{task.updatedAt}</Quiet> },
+            { label: t('rd.details.field.repairs'), value: task.repairAttempts },
           ]}
         />
-        <Section title="Detail" defaultOpen>
+        <Section title={t('rd.details.section.detail')} defaultOpen>
           <Prose>{task.detail}</Prose>
         </Section>
-        <Section title="Dependencies" count={task.dependencies.length}>
+        <Section title={t('rd.details.section.dependencies')} count={task.dependencies.length}>
           {task.dependencies.length === 0 ? (
-            <p className="fw-inspector__none">Nothing blocks this task.</p>
+            <p className="fw-inspector__none">{t('rd.details.noDependencies')}</p>
           ) : (
             <div className="fw-inspector__links">
               {task.dependencies.map((id) => (
@@ -61,12 +63,12 @@ export function buildTaskDetail(
             </div>
           )}
         </Section>
-        <Section title="Proof" count={task.proofCount}>
+        <Section title={t('rd.details.section.proof')} count={task.proofCount}>
           {proof.length === 0 ? (
             <p className="fw-inspector__none">
               {production
-                ? 'No proof entries have been recorded for this task.'
-                : `${task.proofCount} recorded, none of them in the example ledger.`}
+                ? t('rd.details.noProof')
+                : t('rd.details.proofNotInExample', { count: task.proofCount })}
             </p>
           ) : (
             <div className="fw-inspector__links">
@@ -86,13 +88,13 @@ export function buildTaskDetail(
           )}
         </Section>
         {workPackage ? (
-          <Section title="Work package" count={workPackage.taskIds.length}>
+          <Section title={t('rd.details.section.workPackage')} count={workPackage.taskIds.length}>
             <Prose>{workPackage.goal}</Prose>
             <Fields
               rows={[
-                { label: 'Package', value: <Machine>{workPackage.id}</Machine> },
-                { label: 'Title', value: workPackage.title },
-                { label: 'Phase', value: <Machine>{workPackage.phase}</Machine> },
+                { label: t('rd.details.field.package'), value: <Machine>{workPackage.id}</Machine> },
+                { label: t('rd.details.field.title'), value: workPackage.title },
+                { label: t('rd.details.field.phase'), value: catalogWord('rd.tasks.phase', workPackage.phase) },
               ]}
             />
             <ul className="fw-inspector__list">

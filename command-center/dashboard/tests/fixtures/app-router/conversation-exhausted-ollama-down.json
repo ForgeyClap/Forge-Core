@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "id": "c-exhausted-ollama",
+  "turns": [
+    { "type": "turn", "turn_id": "t1", "request_id": "r1", "role": "user", "text": "Vat de klantmails van vandaag samen.", "created_at": "2026-11-02T15:02:00.000Z" }
+  ],
+  "events": [
+    { "kind": "route_exhausted", "turn_id": "t1", "request_id": "r1", "ts": "2026-11-02T15:02:01.000Z", "data": { "resume_at": null, "first_free": null, "code": "ollama_down", "skipped": [] } },
+    { "kind": "forge_error", "turn_id": "t1", "request_id": "r1", "data": { "type": "forge_error", "source": "router", "code": "ollama_down", "resume_at": null, "model": null, "attempt": null, "max_attempts": null, "details": "router: no account or model in the chain can take this turn" } },
+    { "kind": "execution_not_started", "turn_id": "t1", "request_id": "r1", "data": { "reason": "router_exhausted", "code": "router_exhausted" } }
+  ]
+}

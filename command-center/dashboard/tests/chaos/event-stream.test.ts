@@ -1,7 +1,7 @@
 /**
  * Chaos — the event stream (mission section H).
  *
- * These run against the REAL store (`src/bridge/storage/store.ts`) writing to a
+ * These run against the REAL store (`archive/bridge/storage/store.ts`) writing to a
  * real file system, in a fresh `mkdtemp` directory per test. Nothing here ever
  * touches the repository's own `.forge-workspace` or any user project: every
  * `ForgeStore.open` call is given an explicit `dataDir` under the OS temp dir,
@@ -33,9 +33,9 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { ForgeStore, StoreValidationError } from '../../src/bridge/storage/store.ts';
-import type { StoreOptions } from '../../src/bridge/storage/store.ts';
-import { EVENT_SCHEMA_VERSION } from '../../src/bridge/storage/schema.ts';
+import { ForgeStore, StoreValidationError } from '../../archive/bridge/storage/store.ts';
+import type { StoreOptions } from '../../archive/bridge/storage/store.ts';
+import { EVENT_SCHEMA_VERSION } from '../../archive/bridge/storage/schema.ts';
 import type { EventType, ForgeEvent } from '../../src/shared/protocol.ts';
 
 /* ------------------------------------------------------------------ fixtures */

@@ -18,6 +18,7 @@ import { PrototypeContext } from '@/prototype/state/prototype-store';
 import type { PrototypeState, StoreValue } from '@/prototype/state/prototype-store';
 import { EMPTY_DATASET } from '@/prototype/state/store-adapter';
 import { Composer } from '@/views/chat/Composer';
+import { setUiMode } from '@/state/ui-mode';
 import type { ComposerProps } from '@/views/chat/Composer';
 
 /* ========================================================================== */
@@ -139,7 +140,7 @@ function buildState(overrides: Partial<PrototypeState> = {}): PrototypeState {
 
 function renderComposer(state: PrototypeState, extraProps: Partial<ComposerProps> = {}) {
   const value: StoreValue = { state, dispatch: vi.fn() };
-  return render(
+  const utils = render(
     createElement(
       PrototypeContext.Provider,
       { value },
@@ -153,6 +154,9 @@ function renderComposer(state: PrototypeState, extraProps: Partial<ComposerProps
       }),
     ),
   );
+  // Redesign 2A: the mode control lives in the composer's "+" tray now; open it.
+  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+  return utils;
 }
 
 describe('Composer /-slash command menu (feat-composer-power)', () => {
@@ -174,12 +178,27 @@ describe('Composer /-slash command menu (feat-composer-power)', () => {
     expect(field.value).toBe('');
   });
 
-  it('typing /bypass really sets the mode picker to Bypass', () => {
+  it('WP B3: /bypass is not offered in Eenvoudig, and no Bypass segment exists there', () => {
     renderComposer(buildState({ activeProjectId: 'p1' }));
     const field = screen.getByRole('textbox', { name: /Message Forge/ }) as HTMLTextAreaElement;
     fireEvent.change(field, { target: { value: '/bypass' } });
-    fireEvent.click(screen.getByRole('option', { name: /\/bypass/ }));
-    expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('option', { name: /\/bypass/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Bypass' })).toBeNull();
+  });
+
+  it('WP B3: in Uitgebreid, /bypass on a project without confirmation asks first and only then sets Bypass', () => {
+    setUiMode('uitgebreid');
+    try {
+      renderComposer(buildState({ activeProjectId: 'p1' }));
+      const field = screen.getByRole('textbox', { name: /Message Forge/ }) as HTMLTextAreaElement;
+      fireEvent.change(field, { target: { value: '/bypass' } });
+      fireEvent.click(screen.getByRole('option', { name: /\/bypass/ }));
+      expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'false');
+      fireEvent.click(screen.getByRole('button', { name: 'Yes, full access' }));
+      expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
+    } finally {
+      setUiMode('eenvoudig');
+    }
   });
 
   it('/new is not offered when the Composer instance has no real onNewChat handler wired in', () => {
@@ -228,9 +247,9 @@ describe('Composer /-slash command menu (feat-composer-power)', () => {
     fireEvent.keyDown(field, { key: 'Escape' });
 
     expect(screen.queryByRole('option', { name: /\/plan/ })).toBeNull();
-    // feat-forge-preamble: a fresh project's own untouched default is now Bypass, not Execute —
-    // the real point here is that the mode picker is UNCHANGED by Escape, whatever it started at.
-    expect(screen.getByRole('radio', { name: 'Bypass' })).toHaveAttribute('aria-checked', 'true');
+    // WP B3: a fresh project's untouched default is Accept edits — the real point here is that the
+    // mode picker is UNCHANGED by Escape, whatever it started at.
+    expect(screen.getByRole('radio', { name: 'Accept edits' })).toHaveAttribute('aria-checked', 'true');
     expect(field.value).toBe('/plan');
   });
 });

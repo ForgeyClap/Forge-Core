@@ -77,6 +77,9 @@ function makeRoot(opts) {
   fs.copyFileSync(REAL.rc, path.join(cd, 'forge-bin', 'forge-runcontract.cjs'));
   fs.copyFileSync(REAL.fin, path.join(cd, 'forge-bin', 'forge-finalize.cjs'));
   fs.copyFileSync(REAL.pg, path.join(cd, 'forge-bin', 'forge-proof-gate.cjs'));
+  // queue-3: finalize checks the report's claims against the ledger with its sibling (fail-closed without it)
+  fs.copyFileSync(path.join(__dirname, 'forge-claim-check.cjs'), path.join(cd, 'forge-bin', 'forge-claim-check.cjs'));
+  fs.copyFileSync(path.join(__dirname, 'forge-claim-reports.cjs'), path.join(cd, 'forge-bin', 'forge-claim-reports.cjs'));
   if (opts.rulesText === undefined) fs.copyFileSync(REAL.rules, path.join(cd, 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
   else fs.writeFileSync(path.join(cd, 'config', 'orchestration', 'FORGE_HARD_RULES.json'), opts.rulesText, 'utf8');
   fs.copyFileSync(REAL.registry, path.join(cd, 'config', 'agents', 'agent-registry.json'));
@@ -106,7 +109,7 @@ function greenRun(root, run, opts) {
   opts = opts || {};
   const steps = [];
   steps.push(log(root, run, 'run_started', { agent: 'orchestrator' }));
-  steps.push(batch(root, run, [{ event_type: 'memory_loaded', agent: 'orchestrator' }, { event_type: 'owner_prefs_loaded', agent: 'orchestrator' }, { event_type: 'research_done', agent: 'orchestrator', note: 'looked for an existing implementation first' }]));
+  steps.push(batch(root, run, [{ event_type: 'memory_loaded', agent: 'orchestrator' }, { event_type: 'owner_prefs_loaded', agent: 'orchestrator' }, { event_type: 'research_done', agent: 'orchestrator', note: 'looked for an existing implementation first' }, { event_type: 'skill_map_created', agent: 'orchestrator' }]));
   steps.push(rcCli(root, ['check', '--run', run, '--phase', 'preview', '--log-event']));
   steps.push(batch(root, run, [
     { event_type: 'agent_work_package_created', agent: 'Build Boss', wp_id: 'WP-1', mission: 'build it' },
@@ -207,7 +210,13 @@ try {
     // WP-DEVTREE-TESTS: gated on the dev-tree marker itself, not only on the receipt count — a synced
     // project can hold 14+ receipts of its own (copied run history, its own allowlist) that this table never described.
     const runsDir = path.join(CLAUDE, 'forge-runs');
-    const real = fs.existsSync(runsDir) ? fs.readdirSync(runsDir).filter((d) => fs.existsSync(path.join(runsDir, d, 'run-finalized.json'))) : [];
+    // a receipt of the CURRENT generation (all three bindings present, written by a real finalize after
+    // the legacy cutoff) is a genuine completion proof, not a legacy record; only legacy-shaped receipts belong in this table.
+    const isCurrentGen = (d) => {
+      try { const r = JSON.parse(fs.readFileSync(path.join(runsDir, d, 'run-finalized.json'), 'utf8')); return !!(r && r.evidence_digest && r.code_commit && r.independent_verification); }
+      catch { return false; }
+    };
+    const real = fs.existsSync(runsDir) ? fs.readdirSync(runsDir).filter((d) => fs.existsSync(path.join(runsDir, d, 'run-finalized.json')) && !isCurrentGen(d)) : [];
     if (!D.readDevTreeMarker(path.join(CLAUDE, '..')).valid) console.log('  SKIP F01 real-receipt table (' + real.length + ' receipts here) — not the development tree (' + D.DEV_TREE_MARKER_REL + ' absent or not dev_tree:true); the 14-receipt table describes the dev tree only');
     else if (real.length < 14) console.log('  (skip) fewer than 14 real receipts here (' + real.length + ') — the real-receipt table is only asserted in the development tree');
     else {
@@ -403,6 +412,7 @@ try {
     roots.push(dir);
     fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
     fs.copyFileSync(REAL.doctor, path.join(dir, 'bin', 'forge-doctor.cjs'));
+    fs.cpSync(path.join(path.dirname(REAL.doctor), 'doctor'), path.join(dir, 'bin', 'doctor'), { recursive: true }); // WP A11-2: the doctor's check modules
     if (fs.existsSync(REAL.store)) fs.copyFileSync(REAL.store, path.join(dir, 'bin', 'forge-store.cjs'));
     const Dbare = require(path.join(dir, 'bin', 'forge-doctor.cjs'));
     const rc = Dbare.runContractDoctorCheck(makeRoot());

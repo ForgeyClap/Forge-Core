@@ -2,7 +2,7 @@
  * Forge Workspace — the typed bridge client.
  *
  * This is the browser's one connection to the local bridge. It speaks the exact
- * frame protocol defined in `src/bridge/transport.ts` over a WebSocket to
+ * frame protocol defined in `archive/bridge/transport.ts` over a WebSocket to
  * `ws://127.0.0.1:4517/ws`, and falls back to `POST /api/operation` for a
  * request issued while the socket is down. Nothing here invents data: an event
  * is applied only when its sequence proves it belongs where it is put, and a
@@ -55,10 +55,10 @@ import type {
   RuntimeDeclarations,
 } from '@/shared/protocol';
 import type { DeclarationExplanation } from '@/shared/declarations';
-import type { ServerFrame } from '@/bridge/transport';
-import type { DegradedNote, SequenceGap, StreamGapReport } from '@/bridge/storage/store';
-import { LatencyTracker } from '@/bridge/usage/latency';
-import type { LatencyReport } from '@/bridge/usage/latency';
+import type { ServerFrame } from '@archive/bridge/transport';
+import type { DegradedNote, SequenceGap, StreamGapReport } from '@archive/bridge/storage/store';
+import { LatencyTracker } from '@/shared/latency';
+import type { LatencyReport } from '@/shared/latency';
 
 /* ========================================================================== */
 /*  Connection state — a claim about the socket, carried honestly              */
@@ -1218,7 +1218,7 @@ interface PendingCall {
 }
 
 /**
- * Client -> server frames. Mirrors `ClientFrame` in `src/bridge/transport.ts`;
+ * Client -> server frames. Mirrors `ClientFrame` in `archive/bridge/transport.ts`;
  * declared locally so the browser bundle carries no value import from the bridge
  * transport module (which pulls in Node-only timers).
  */

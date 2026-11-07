@@ -1,0 +1,139 @@
+{
+  "domain": "voice",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-voice/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-voice/references/ship-readiness.md",
+      "section": "Ship-readiness"
+    },
+    {
+      "path": ".claude/skills/forge-voice/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "voice-dutch-first",
+      "claim": "The Dutch-first caller experience is verified (spoken-natural, correct voice) when configured for a Dutch client.",
+      "evidence_required": "A test call recording or transcript in Dutch with the configured voice.",
+      "how_to_run": "Place a test call and quote the transcript.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Dutch-first caller experience verified"
+      }
+    },
+    {
+      "id": "voice-one-question",
+      "claim": "Exactly one question per turn.",
+      "evidence_required": "A transcript where every agent turn asks at most one question.",
+      "how_to_run": "Read the prompt and a test-call transcript.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Exactly one question per turn"
+      }
+    },
+    {
+      "id": "voice-barge-in-latency",
+      "claim": "Barge-in cuts TTS within about 200ms; latency is measured.",
+      "evidence_required": "Measured barge-in and response latency numbers.",
+      "how_to_run": "Run a test call with interruptions and quote the measured times.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "barge-in works and cuts TTS within ~200ms; latency measured, not assumed."
+      }
+    },
+    {
+      "id": "voice-disclosure-consent",
+      "claim": "AI disclosure is present and early, the recording consent basis is recorded and opt-out is honoured immediately.",
+      "evidence_required": "The opening script, the consent basis note and an opt-out test.",
+      "how_to_run": "Read the opening prompt; test an opt-out on a call.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "AI disclosure present + early; recording consent basis recorded; opt-out honoured immediately."
+      }
+    },
+    {
+      "id": "voice-one-email",
+      "claim": "At most one email per call; the notification path is idempotent and lead capture is consent-aware.",
+      "evidence_required": "A test where a retried turn sends zero extra mails.",
+      "how_to_run": "Run the retry test and quote the mail count.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "≤1 email per call; notification path is idempotent"
+      }
+    },
+    {
+      "id": "voice-no-outbound",
+      "claim": "No outbound, SMS or customer traffic was enabled without owner approval.",
+      "evidence_required": "The provider config showing outbound and SMS disabled.",
+      "how_to_run": "Read the telephony provider config and the code for outbound/SMS calls.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No outbound/SMS/customer traffic enabled without owner approval"
+      }
+    },
+    {
+      "id": "voice-fallback",
+      "claim": "Unknown questions get an honest fallback and human handoff, with no invented business facts; secrets in env.",
+      "evidence_required": "A test call asking an unknown question, with the reply.",
+      "how_to_run": "Ask an unknown question on a test call and quote the reply.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Unknown → honest fallback + human handoff; no invented business facts; secrets in env."
+      }
+    },
+    {
+      "id": "voice-test-call",
+      "claim": "A real test call runs end-to-end: answer, one-question flow, action, clean close.",
+      "evidence_required": "The test call log or recording.",
+      "how_to_run": "Place a test call and keep its log.",
+      "severity": "warn",
+      "honesty_note": "Never claim a live call worked unless a real call was placed and observed.",
+      "source": {
+        "path": ".claude/skills/forge-voice/references/ship-readiness.md",
+        "section": "Ship-readiness",
+        "quote": "A real test call runs end-to-end"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "No outbound calls and no SMS without explicit owner approval; at most one email per call, idempotent.",
+      "source": {
+        "path": ".claude/skills/forge-voice/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no outbound calls and no SMS without explicit owner approval; at most one email per call, idempotent."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "voice-dutch-first does not apply when the agent is not configured for a Dutch client.",
+    "The knowledge/answer layer: use the rag card; post-call e-mail/CRM: use the integration card."
+  ],
+  "gaps": []
+}

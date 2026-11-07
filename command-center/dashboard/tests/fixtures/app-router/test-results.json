@@ -1,0 +1,13 @@
+{
+  "ok": {
+    "ok": true,
+    "state": "ready",
+    "reading": {
+      "windows": [{ "type": "five_hour", "pct": null, "resets_at": "2026-11-02T18:00:00.000Z", "status": "allowed" }],
+      "status": "allowed"
+    },
+    "detail": "MOCK-PROFILE:werk"
+  },
+  "logged_out": { "ok": true, "state": "logged_out", "reading": null, "detail": "Not logged in" },
+  "too_soon": { "ok": false, "error": "rate_limited", "retry_after_s": 240 }
+}

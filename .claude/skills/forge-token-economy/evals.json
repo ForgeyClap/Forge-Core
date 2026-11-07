@@ -1,0 +1,169 @@
+{
+  "skill": "forge-token-economy",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "name-matches-folder",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "name: forge-token-economy\n",
+      "why": "frontmatter name must equal the folder name"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load budget: descriptions over 200 chars get truncated in the listing"
+    },
+    {
+      "id": "description-use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "description: \"Use ",
+      "why": "audit finding on never-triggering skills: the description must say WHEN to use it"
+    },
+    {
+      "id": "max-lines",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "n": 500,
+      "why": "project rule: files under 500 lines, detail in references/"
+    },
+    {
+      "id": "learnings-wiring",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "learnings.md",
+      "why": "wp-skill-evals: read own learnings.md before use"
+    },
+    {
+      "id": "learnings-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-token-economy/learnings.md",
+      "why": "the learnings file the skill points to must exist"
+    },
+    {
+      "id": "provenance-block",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "## Provenance",
+      "why": "adopted text keeps its license and source in a provenance block"
+    },
+    {
+      "id": "no-kill-by-name",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "taskkill /IM",
+      "why": "HARD MUST 4: never kill processes by image name"
+    },
+    {
+      "id": "ref-cost",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-token-economy/references/cost-patterns.md",
+      "why": "the calculator reference must exist"
+    },
+    {
+      "id": "caveman-opt-in",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "opt-in only, never the default",
+      "why": "owner TOKEN_EFFICIENCY policy: terse mode is never default"
+    },
+    {
+      "id": "never-terse-qa",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- QA reports;",
+      "why": "owner policy never-list: QA reports"
+    },
+    {
+      "id": "never-terse-full-policy",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "never-list applies **in full**",
+      "why": "SA-W1-A4 rework: the owner policy's never-list is taken over in full, not narrowed"
+    },
+    {
+      "id": "never-terse-builds",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- website builds and n8n builds, from the first message to the handoff;",
+      "why": "owner policy never-list: whole website/n8n builds, not only their handoffs"
+    },
+    {
+      "id": "never-terse-security",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- security and auth work",
+      "why": "owner policy never-list: security/auth work, not only security warnings"
+    },
+    {
+      "id": "never-terse-production",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- production deployment;",
+      "why": "owner policy never-list: production deployment"
+    },
+    {
+      "id": "never-terse-deliverables",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- business and client deliverables;",
+      "why": "owner policy never-list: business/client deliverables"
+    },
+    {
+      "id": "never-terse-rework",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- anything where missing detail could cause rework.",
+      "why": "owner policy never-list: the rework catch-all"
+    },
+    {
+      "id": "never-terse-prompts",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "- prompts the owner will send to Claude",
+      "why": "owner policy never-list: copy-paste prompts"
+    },
+    {
+      "id": "terse-review-not-gate",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "informal self-review only",
+      "why": "terse review lines never replace a QA gate verdict (Review/Verify/Security Boss)"
+    },
+    {
+      "id": "no-narrow-never-list",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "n8n or website handoffs",
+      "why": "regression guard: the old narrow wording allowed terse chat during a whole build"
+    },
+    {
+      "id": "measure-first",
+      "type": "contains",
+      "path": ".claude/skills/forge-token-economy/SKILL.md",
+      "needle": "`/context`",
+      "why": "usage questions go to the native meters, not a scan"
+    },
+    {
+      "id": "no-python",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-token-economy/references/cost-patterns.md",
+      "needle": "```python",
+      "why": "the embedded Python snippet is replaced by a Node function"
+    },
+    {
+      "id": "contextbudget-tool",
+      "type": "file_exists",
+      "path": ".claude/forge-bin/forge-contextbudget.cjs",
+      "why": "the audit tool the skill names must exist"
+    }
+  ]
+}

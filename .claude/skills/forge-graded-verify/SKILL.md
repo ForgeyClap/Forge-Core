@@ -1,6 +1,7 @@
 ---
 name: forge-graded-verify
-description: Advisory graded quality scoring for RAG/research/scraping/prediction output. Use alongside forge-verify for subjective answer quality — rubric, per-criterion score, source grounding.
+description: "Use to grade RAG, research, scraping or prediction answers (beoordeel)."
+# A10 original description (listing budget): "Use to grade RAG, research, scraping or prediction answers beside forge-verify (beoordeel)."
 ---
 
 # forge-graded-verify — advisory rubric-scored verification (scout #7)
@@ -22,3 +23,6 @@ LLM-graded scores are judgment, not ground truth (a judge can mislabel). Frame r
 
 ## Rubrics
 Shipped starters in `.claude/config/rubrics/`: `rag.json` (source-grounding, reasoning soundness, coverage, answer-correctness, completeness), `payments.json` (no-raw-PAN, money-integrity, idempotency, webhook-security, test/live-safety), `ecommerce.json` (real-catalog, inventory-safety, order-idempotency, flow-integrity, connector-safety), `electron.json` (renderer-hardening, ipc-safety, csp/secrets, installer-reality, no-mock-data), `voice.json` (dutch-first-ux, turn-discipline, barge-in/latency, consent/disclosure, action-safety). Add more per-domain rubrics as needed (research, scraping, prediction) with the same shape.
+
+## Gate cards vs rubrics
+Rubrics here are advisory 1-4 quality scores. The binary per-domain checklist is a separate thing: the quality gate card that Verify Boss requests with `node .claude/forge-bin/forge-quality.cjs gate --domain <domain>` and marks PASS / FAIL / NOT_RUN with evidence (cards live in `.claude/config/quality/cards/`, see `forge-quality`). A rubric score never replaces a gate-card check.

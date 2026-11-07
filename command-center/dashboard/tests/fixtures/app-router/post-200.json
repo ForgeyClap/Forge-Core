@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "config": {
+    "version": 1,
+    "revision": 8,
+    "mode": "claude-then-model",
+    "multi_account": { "enabled": false, "acknowledged_at": null },
+    "defaults": {
+      "threshold_pct": 92,
+      "cooldown_min": 10,
+      "strategy": "in-order",
+      "return": "new-conversation",
+      "handover_turns": 12
+    },
+    "entries": [
+      { "id": "main", "kind": "claude-account", "label": "Hoofdaccount", "profile": null, "enabled": true, "threshold_pct": null },
+      {
+        "id": "mijn-vllm-qwen",
+        "kind": "provider-model",
+        "label": "Mijn vLLM · qwen",
+        "provider": "custom-mijn-vllm",
+        "model": "qwen2.5-coder:32b",
+        "enabled": true,
+        "num_ctx": null,
+        "vars": {},
+        "paid_ack": false,
+        "notice_ack": false
+      }
+    ],
+    "updated_at": "2026-11-04T10:00:00.000Z"
+  },
+  "warnings": [
+    {
+      "path": "entries[1].paid_ack",
+      "code": "paid_ack_required",
+      "nl": "Deze eigen API vraagt nu een sleutel en kost per gebruik. Forge slaat dit onderdeel over tot je die kosten bevestigt.",
+      "en": "This own API now needs a key and costs per use. Forge skips this entry until you confirm that cost.",
+      "entry_id": "mijn-vllm-qwen",
+      "provider": "custom-mijn-vllm"
+    }
+  ]
+}

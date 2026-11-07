@@ -20,12 +20,13 @@
  */
 
 import { useMemo } from 'react';
-import { Button, IconButton, Icon, Machine, StatusBadge } from '@/components/primitives';
+import { Button, IconButton, Icon, StatusBadge } from '@/components/primitives';
 import type { Agent } from '@/prototype/types/prototype-types';
 import { GROUP_BY_KEY } from './agent-groups';
 import { computeAgentGraphLayout } from './agent-graph-layout';
 import type { AgentGraphEdge, AgentGraphNode } from './agent-graph-layout';
 import { useAgentNodesViewport } from './useAgentNodesViewport';
+import { useLocale } from '@/i18n/use-locale';
 
 export interface AgentsGraphProps {
   agents: readonly Agent[];
@@ -58,7 +59,9 @@ function AgentNode({
   if (selected) classes.push('is-selected');
   if (node.depth === 0) classes.push('is-root');
 
-  const tooltip = [`${agent.name} — ${group.label}`, `Status: ${agent.status}`].join('\n');
+  const { t } = useLocale();
+  const groupName = t(`rd.agents.group.${group.key}`);
+  const tooltip = [`${agent.name} — ${groupName}`, `Status: ${agent.status}`].join('\n');
 
   return (
     <button
@@ -78,13 +81,11 @@ function AgentNode({
         <span className="fw-agents-graph__node-name fw-truncate">{agent.name}</span>
       </span>
       <span className="fw-agents-graph__node-foot">
-        <Machine muted className="fw-agents-graph__node-role fw-truncate">
-          {group.label}
-        </Machine>
+        <span className="fw-agents-graph__node-role fw-truncate">{groupName}</span>
         <StatusBadge status={agent.status} size="sm" iconOnly />
       </span>
       <span className="fw-visually-hidden">
-        {agent.name}, {group.label}, {agent.role}, status {agent.status}.
+        {agent.name}, {groupName}, {agent.role}, status {agent.status}.
       </span>
     </button>
   );
@@ -127,6 +128,7 @@ function AgentEdges({ edges, byId }: { edges: readonly AgentGraphEdge[]; byId: R
 }
 
 export function AgentsGraph({ agents, selectedId, onSelect }: AgentsGraphProps) {
+  const { t } = useLocale();
   const layout = useMemo(() => computeAgentGraphLayout(agents), [agents]);
   const view = useAgentNodesViewport(layout.width, layout.height);
   const { attachCanvas, handlers, viewport, panning, smooth } = view;
@@ -148,7 +150,7 @@ export function AgentsGraph({ agents, selectedId, onSelect }: AgentsGraphProps) 
         ref={attachCanvas}
         className={canvasClasses.join(' ')}
         role="region"
-        aria-label="Agent reporting graph"
+        aria-label={t('rd.agents.graph.label')}
         aria-describedby="fw-agents-graph-help"
         {...handlers}
       >
@@ -180,13 +182,13 @@ export function AgentsGraph({ agents, selectedId, onSelect }: AgentsGraphProps) 
         </div>
 
         <div className="fw-agents-graph__controls" data-fw-agents-overlay="controls">
-          <IconButton icon="Minus" label="Zoom out" size="sm" disabled={view.atMinZoom} onClick={view.zoomOut} />
-          <span className="fw-agents-graph__zoom fg-machine" aria-live="polite">
+          <IconButton icon="Minus" label={t('rd.mission.zoomOut')} size="sm" disabled={view.atMinZoom} onClick={view.zoomOut} />
+          <span className="fw-agents-graph__zoom" aria-live="polite">
             {view.zoomPercent}%
           </span>
-          <IconButton icon="Plus" label="Zoom in" size="sm" disabled={view.atMaxZoom} onClick={view.zoomIn} />
+          <IconButton icon="Plus" label={t('rd.mission.zoomIn')} size="sm" disabled={view.atMaxZoom} onClick={view.zoomIn} />
           <Button size="sm" icon="Maximize" onClick={view.fit}>
-            Fit view
+            {t('rd.mission.fit')}
           </Button>
         </div>
       </div>

@@ -1,0 +1,117 @@
+{
+  "domain": "mobile",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-mobile/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-mobile/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "mob-release-build",
+      "claim": "The release binary builds, installs and launches on a device or emulator, not just Metro/Expo Go.",
+      "evidence_required": "Build output plus a launch screenshot or log.",
+      "how_to_run": "Run the release build (for example eas build or gradlew assembleRelease), install it, and screenshot the launch.",
+      "severity": "block",
+      "honesty_note": "Metro/Expo Go running is not a shipped app. No Mac/EAS: the iOS build is NOT_RUN.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Release binary builds and installs + launches on a device or emulator"
+      }
+    },
+    {
+      "id": "mob-secure-storage",
+      "claim": "No secrets in the JS bundle or committed; tokens in the OS secure store, not AsyncStorage/SharedPreferences.",
+      "evidence_required": "A search of the bundle for secrets with no hits, and the token storage code.",
+      "how_to_run": "Search the built bundle; search for AsyncStorage/SharedPreferences token writes.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Domain gates",
+        "quote": "tokens in secure store (Keychain/Keystore/SecureStore), not AsyncStorage/SharedPreferences"
+      }
+    },
+    {
+      "id": "mob-permissions",
+      "claim": "Permissions are minimal and justified, with iOS usage strings and a minimal Android manifest.",
+      "evidence_required": "The permission lists with rationale strings.",
+      "how_to_run": "Read Info.plist/app.json and AndroidManifest.xml.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Permissions minimal and justified"
+      }
+    },
+    {
+      "id": "mob-offline",
+      "claim": "Offline paths work where promised: cached reads, queued writes and a no-connection UI.",
+      "evidence_required": "A run in airplane mode showing those three.",
+      "how_to_run": "Turn off the network on the device and exercise the promised offline flow.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Offline paths work where promised"
+      }
+    },
+    {
+      "id": "mob-platform-ux",
+      "claim": "Safe area, keyboard avoidance, orientation and dark mode (if supported) are handled, touch targets are adequate, and long lists are virtualized.",
+      "evidence_required": "Screenshots on a notched device with the keyboard open, and the list components used.",
+      "how_to_run": "Screenshot the key screens; search for ScrollView rendering long lists.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Safe-area/notch, keyboard avoidance, orientation, and dark mode (if supported) handled"
+      }
+    },
+    {
+      "id": "mob-release-clean",
+      "claim": "No test/demo/mock data, debug menu or __DEV__ shortcut in the release build; signing, icon, splash and version are set.",
+      "evidence_required": "A search of the release bundle for mock data and debug menus, and the signing/version config.",
+      "how_to_run": "Search the release bundle; read the signing and version config.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No test/demo/mock data, no debug menu, no __DEV__ shortcut in the release build"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Store-listing assets and forms are owner action.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "store-listing assets and forms are owner action."
+      }
+    },
+    {
+      "gate": "No secrets in the client bundle; tokens in the OS secure store.",
+      "source": {
+        "path": ".claude/skills/forge-mobile/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no secrets in the client bundle; tokens in the OS secure store."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "mob-offline does not apply when offline is honestly declared out of scope (forge-mobile Domain gates).",
+    "Backend/API work: use the api or integration card; money flows: use the payments card."
+  ],
+  "gaps": []
+}

@@ -1,0 +1,29 @@
+{
+  "skill": "forge-projectbrain",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-projectbrain/SKILL.md",
+      "why": "the skill file itself must exist" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200,
+      "why": "every description must stay <=200 chars or the skill picker truncates it" },
+    { "id": "user-invoked", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "disable-model-invocation: true",
+      "why": "CLAUDE.md is always-loaded governance, so generation stays owner-invoked" },
+    { "id": "template-exists", "type": "file_exists", "path": ".claude/skills/forge-projectbrain/template.md",
+      "why": "the annotated template the method points at must exist" },
+    { "id": "safe-merge-rule", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "Never silently overwrite an owner-authored CLAUDE.md that has no Forge markers.",
+      "why": "the safe-merge write is the core safety rule of the generator" },
+    { "id": "pointer-doctrine", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "## Pointer and slimming doctrine (graft, 2026-11-05)",
+      "why": "SA-W1-B4: daymade doctrine grafted into the generator method" },
+    { "id": "import-saves-no-context", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "An import is expanded in full at session start",
+      "why": "daymade: an @import does not slim the always-loaded set" },
+    { "id": "false-pointer-gate", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "open the target and confirm the content is there",
+      "why": "daymade false-pointer gate" },
+    { "id": "line-count-not-kpi", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "Never report a line-count reduction as the result",
+      "why": "daymade: line count is a symptom, never a KPI or a reported result" },
+    { "id": "context-routing-real-only", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "Emit it only for folder files that really\n  exist",
+      "why": "HAM context-routing idea adopted only for files that exist; never a fabricated pointer" },
+    { "id": "provenance-block", "type": "contains", "path": ".claude/skills/forge-projectbrain/SKILL.md", "needle": "| daymade/claude-code-skills |",
+      "why": "provenance table for the graft" },
+    { "id": "body-under-budget", "type": "max_lines", "path": ".claude/skills/forge-projectbrain/SKILL.md", "n": 500,
+      "why": "doctor skill_hygiene body budget" }
+  ]
+}

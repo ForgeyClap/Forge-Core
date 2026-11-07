@@ -74,6 +74,7 @@ const MEMORY_RES = [
   /^\.claude\/FORGE_MEMORY_ARCHIVE_[^/]+\.md$/,
   /^\.claude\/FORGE_(OWNER_PROFILE|PREF_CANDIDATES)\.json$/,
   /^\.claude\/(agent-memory|forge-runs|forge-scribe)\//,
+  /^\.forge\//, // WP 2.1: the opt-in state root holds the same runs, scribe and memory as the legacy folders above
   /^\.claude\/skills\/.+\/learnings\.md$/,
   /^\.claude\/config\/.+\.user\.json$/,
   /^\.claude\/config\/forge-overrides\.json$/,
@@ -83,6 +84,28 @@ const BOOKKEEPING_ANY = new Set(['.claude/forge-sync-receipt.json', '.claude/FOR
 const BOOKKEEPING_ADD = [/^\.claude\/settings\.json\.forge-bak-[^/]+$/, /^\.claude\/settings\.forge-recommended-[^/]+\.json$/, /^\.claude\/forge-sync-report-[^/]+\.md$/];
 
 class AdoptError extends Error { constructor(msg, code) { super(msg); this.exitCode = code || 2; } }
+
+// WP 2.1: forge-paths.cjs is optional here (guarded: a copied tool or an older resolver keeps the legacy behaviour).
+// A project that opted into the .forge/ state root: finalize receipts are read from every runs folder that exists
+// (.forge/runs first, then .claude/forge-runs), .forge/backups is not walked (like .claude/forge-backups), and the two
+// steps that WRITE project memory (the scribe import, the FORGE_MEMORY.md append) are skipped with a reason, because
+// their adoption record format names .claude/ targets only — never a write into the wrong memory location.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.layout === 'function' && typeof fp.existingStateDirs === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function forgeLayout(project) {
+  if (!forgePaths) return false;
+  try { return forgePaths.layout(project) === 'forge'; } catch { return false; }
+}
+function runsDirsOf(project) {
+  const legacy = path.join(project, '.claude', 'forge-runs');
+  if (!forgePaths) return [legacy];
+  try { const d = forgePaths.existingStateDirs(project, 'runs'); return d.length ? d : [legacy]; } catch { return [legacy]; }
+}
+function runDirOf(project, runId) {
+  for (const d of runsDirsOf(project)) if (lstat(path.join(d, runId))) return path.join(d, runId);
+  return path.join(project, '.claude', 'forge-runs', runId);
+}
+const FORGE_LAYOUT_SKIP = 'the project uses the .forge/ state root (WP 2.1); this step only knows the legacy .claude/ location, so it is not adopted automatically — do it by hand';
 
 // ------------------------------------------------------------------ small helpers
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -173,6 +196,7 @@ function fileMap(project) {
       const r = rel ? rel + '/' + e.name : e.name;
       if (WALK_SKIP_DIRS.has(e.name) && e.isDirectory()) continue;
       if (rel === '.claude' && (CLAUDE_NOT_WALKED.has(e.name) || e.name === '.forge-sync.lock')) continue;
+      if (rel === '.forge' && e.name === 'backups') continue; // WP 2.1: the sync's own backups in the .forge/ layout
       // WP-SYNC-R8: .claude/worktrees holds agent scratch checkouts (26H2: 98 folders, ~3.2M files, 29 GB) — never walked,
       // recorded as ONE entry (the same stance as forge-sync's protect manifest). WP-SYNC-R10: that entry now carries every
       // child's name + kind + a hash (worktreesEntry), and the folder name is matched case-folded on Windows/macOS.
@@ -294,15 +318,18 @@ function policyOf(project) {
   return { state: 'ok', exitCode: r.status, ok: !!j.ok, applicable: j.applicable !== false, checked: j.checked, violations: (j.violations || []).map((v) => v.kind + (v.agent ? ':' + v.agent : '')).sort() };
 }
 function receiptsOf(project) {
-  const runs = path.join(claudeDir(project), 'forge-runs');
-  let names = [];
-  try { names = fs.readdirSync(runs, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.isSymbolicLink()).map((e) => e.name).sort(); } catch { names = []; }
   const out = [];
-  for (const n of names) {
-    const f = path.join(runs, n, 'run-finalized.json');
-    const st = lstat(f);
-    if (!st || !st.isFile() || st.isSymbolicLink()) continue;
-    try { out.push({ run_id: n, sha256: sha256(fs.readFileSync(f)) }); } catch { /* unreadable: not recorded */ }
+  const seen = new Set();
+  for (const runs of runsDirsOf(project)) { // WP 2.1: one folder in a legacy project (exactly as before)
+    let names = [];
+    try { names = fs.readdirSync(runs, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.isSymbolicLink()).map((e) => e.name).sort(); } catch { names = []; }
+    for (const n of names) {
+      if (seen.has(n)) continue;
+      const f = path.join(runs, n, 'run-finalized.json');
+      const st = lstat(f);
+      if (!st || !st.isFile() || st.isSymbolicLink()) continue;
+      try { out.push({ run_id: n, sha256: sha256(fs.readFileSync(f)) }); seen.add(n); } catch { /* unreadable: not recorded */ }
+    }
   }
   return out;
 }
@@ -627,6 +654,7 @@ function resumeNotes(project) {
   return names.map((n) => 'tasks/' + n);
 }
 function planScribe(project) {
+  if (forgeLayout(project)) return { actions: [], skipped: [{ step: 'scribe', reason: FORGE_LAYOUT_SKIP }] };
   const items = [];
   for (const rel of resumeNotes(project)) { try { items.push(...openLines(fs.readFileSync(path.join(project, ...rel.split('/')), 'utf8'), rel, 'resume')); } catch { /* unreadable: nothing */ } }
   try { items.push(...openLines(fs.readFileSync(path.join(claudeDir(project), 'FORGE_TASK_HISTORY.md'), 'utf8'), '.claude/FORGE_TASK_HISTORY.md', 'history')); } catch { /* none */ }
@@ -683,7 +711,7 @@ function planLegacy(project, base) {
   const pre = new Map((base.receipts || []).map((x) => [x.run_id, x.sha256]));
   const add = [];
   for (const rc of receiptsOf(project)) {
-    const runDir = path.join(claudeDir(project), 'forge-runs', rc.run_id);
+    const runDir = runDirOf(project, rc.run_id);
     if (!pre.has(rc.run_id)) { skipped.push({ step: 'legacy-receipts', item: rc.run_id, reason: 'not in the pre-sync baseline (written after it) — never allowlisted automatically' }); continue; }
     if (pre.get(rc.run_id) !== rc.sha256) { skipped.push({ step: 'legacy-receipts', item: rc.run_id, reason: 'its bytes changed since the baseline' }); continue; }
     if (listed.has(rc.run_id + '\u0001' + rc.sha256)) continue;
@@ -762,7 +790,8 @@ function adoptPlan(opts) {
   const mf = path.join(claudeDir(project), MEMORY_REL);
   let memText = null;
   try { memText = fs.readFileSync(mf, 'utf8'); } catch { memText = null; }
-  if (memText == null) plan.skipped.push({ step: 'memory', reason: 'no .claude/FORGE_MEMORY.md — nothing is created in memory files' });
+  if (forgeLayout(project)) plan.skipped.push({ step: 'memory', reason: FORGE_LAYOUT_SKIP });
+  else if (memText == null) plan.skipped.push({ step: 'memory', reason: 'no .claude/FORGE_MEMORY.md — nothing is created in memory files' });
   else if (memText.includes(ADOPT_MARK + (facts.batch || 'none') + ' -->')) plan.skipped.push({ step: 'memory', reason: 'FORGE_MEMORY.md already has the adoption entry for this batch' });
   else plan.actions.push({ step: 'memory', rel: MEMORY_REL, kind: 'append', text: memoryEntry(facts, plan, stamp), summary: 'één gedateerd adoptie-item onderaan' });
   plan.stamp = stamp;

@@ -5,72 +5,135 @@
  * not healthy. When everything is whole it renders nothing at all — a connected
  * workspace should not carry a "connected!" chrome.
  *
- * It is never a full-screen blocker: a small floating strip at the top of the
- * viewport, portalled to <body> so the shell's overflow cannot clip it. The
- * three unhealthy states each say something a person can act on:
+ * WP B3 (fix from the B8-1 Electron e2e): the strip is one compact row. It says what is wrong in plain Dutch and
+ * offers one action, "Opnieuw proberen". The technical detail (the address, the next
+ * automatic attempt and — in the browser build only — the developer command that
+ * starts the gateway) sits behind "Technische details", and only in Uitgebreid. The
+ * desktop app never shows that developer command: the app starts its own gateway.
+ *
+ * WP B3-ui fix round (placement): the strip docks in a slot reserved at the top of the
+ * main column (`#fw-main`), just below the top bar. It is measured against `#fw-main`
+ * (position and width), and while it shows, `#fw-main` gets a top padding of exactly the
+ * strip's height (`--fw-conn-slot`, see connection-banner.css), so it covers neither a
+ * top-bar control (search, menu, account) nor the first line of the page. Without a
+ * `#fw-main` (a unit test) it falls back to the old floating position.
  *
  *   CONNECTING    reaching the gateway (first attempt, or reconnecting).
- *   DEGRADED      the socket is up but a stream has a gap being reconciled — the
- *                 strip names what is being replayed rather than hiding it.
- *   DISCONNECTED  no gateway. The strip prints the EXACT command that starts it
- *                 and the address it listens on, plus a live countdown to the
- *                 next automatic retry.
+ *   DEGRADED      the socket is up but a stream has a gap being reconciled.
+ *   DISCONNECTED  no gateway.
  *
  * Everything is greyscale plus a single hairline accent whose weight — never a
- * hue alone — carries the severity, in keeping with the workspace's monochrome
- * status treatment.
+ * hue alone — carries the severity.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/primitives';
-// WP7b: reads the REAL gateway connection (127.0.0.1:4100) instead of the
-// intentionally-unused bridge connection — see `gateway-adapter.ts`'s header
-// and `live-store.ts`'s `getSharedLiveStore()` comment. Same `ConnectionState`
-// shape, zero markup changes below.
+import type { MessageKey } from '@/i18n';
+import { useLocale } from '@/i18n/use-locale';
 import { useGatewayConnection as useConnection } from '@/prototype/state/gateway-adapter';
+import { retryGatewayConnection } from '@/prototype/state/adapter/connection';
+import { isDesktopApp } from '@/prototype/state/gateway-client';
+import { useUiMode } from '@/state/ui-mode';
 
 import './connection-banner.css';
 
 interface BannerCopy {
   readonly icon: string;
   readonly spin: boolean;
-  readonly title: string;
+  readonly titleKey: MessageKey;
 }
 
 function copyFor(status: 'CONNECTING' | 'DEGRADED' | 'DISCONNECTED'): BannerCopy {
   switch (status) {
     case 'CONNECTING':
-      return { icon: 'Loader', spin: true, title: 'Connecting to the Forge gateway' };
+      return { icon: 'Loader', spin: true, titleKey: 'shell.connection.connecting' };
     case 'DEGRADED':
-      return { icon: 'RefreshCw', spin: true, title: 'Live stream degraded — reconciling' };
+      return { icon: 'RefreshCw', spin: true, titleKey: 'shell.connection.degraded' };
     case 'DISCONNECTED':
-      return { icon: 'Unplug', spin: false, title: 'Disconnected from the Forge gateway' };
+      return { icon: 'Unplug', spin: false, titleKey: 'shell.connection.disconnected' };
   }
+}
+
+/** Space between the top bar / the column edges and the docked strip, in px. */
+const DOCK_GAP = 8;
+/** The custom property `#fw-main` reads for its reserved top slot (connection-banner.css). */
+const SLOT_PROPERTY = '--fw-conn-slot';
+
+interface DockBox {
+  readonly top: number;
+  readonly left: number;
+  readonly width: number;
+}
+
+function sameBox(a: DockBox | null, b: DockBox): boolean {
+  return a !== null && a.top === b.top && a.left === b.left && a.width === b.width;
+}
+
+/**
+ * Measures `#fw-main` while the strip shows and reserves a slot of the strip's own height at the
+ * top of it. Returns null when there is no `#fw-main` (then the strip floats as before).
+ */
+function useMainColumnDock(active: boolean, banner: RefObject<HTMLDivElement | null>): DockBox | null {
+  const [box, setBox] = useState<DockBox | null>(null);
+  useLayoutEffect(() => {
+    if (!active) return undefined;
+    const main = document.getElementById('fw-main');
+    if (main === null) return undefined;
+    const root = document.documentElement;
+    const measure = () => {
+      const rect = main.getBoundingClientRect();
+      const next: DockBox = {
+        top: Math.round(rect.top + DOCK_GAP),
+        left: Math.round(rect.left + DOCK_GAP),
+        width: Math.max(0, Math.round(rect.width - 2 * DOCK_GAP)),
+      };
+      setBox((previous) => (sameBox(previous, next) ? previous : next));
+      const height = banner.current?.offsetHeight ?? 0;
+      if (height > 0) root.style.setProperty(SLOT_PROPERTY, `${height + 2 * DOCK_GAP}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(main);
+    if (banner.current !== null) observer?.observe(banner.current);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      root.style.removeProperty(SLOT_PROPERTY);
+      setBox(null);
+    };
+  }, [active, banner]);
+  return box;
 }
 
 export function ConnectionBanner() {
   const connection = useConnection();
   const status = connection.status;
+  const { t } = useLocale();
+  const { isAdvanced } = useUiMode();
+  const desktop = isDesktopApp();
 
   const [copied, setCopied] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const bannerRef = useRef<HTMLDivElement>(null);
+  const dock = useMainColumnDock(status !== 'CONNECTED', bannerRef);
 
+  const startCommand = connection.startCommand;
   const copyCommand = useCallback(() => {
+    if (startCommand === null) return;
     try {
-      void navigator.clipboard?.writeText(connection.startCommand);
+      void navigator.clipboard?.writeText(startCommand);
     } catch {
       // Clipboard access can be denied; the command is still shown to copy by hand.
     }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1_500);
-  }, [connection.startCommand]);
+  }, [startCommand]);
 
-  // A live countdown to the next reconnect attempt. The remaining time lives in
-  // state and is written ONLY from inside the interval callback — the effect
-  // body starts no state and reads no clock during render, so the countdown ticks
-  // without violating the render-purity rules. The absolute target instant is a
-  // closure constant per attempt, so the number is honest rather than drifting.
+  // A live countdown to the next reconnect attempt, written only from the interval callback.
   const attempt = connection.reconnectAttempts;
   const nextRetryInMs = connection.nextRetryInMs;
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
@@ -82,74 +145,90 @@ export function ConnectionBanner() {
     return () => window.clearInterval(id);
   }, [status, nextRetryInMs, attempt]);
 
-  // Before the first interval tick, fall back to the snapshot's own remaining
-  // figure so the countdown never shows a blank; both are pure reads.
   const countdownMs = remainingMs ?? nextRetryInMs;
   const retryLabel =
     nextRetryInMs === null
-      ? 'retrying automatically'
+      ? t('shell.connection.retryAuto')
       : countdownMs !== null && countdownMs <= 0
-        ? 'reconnecting…'
-        : `next attempt in ${Math.ceil((countdownMs ?? 0) / 1000)}s`;
+        ? t('shell.connection.reconnecting')
+        : t('shell.connection.nextAttempt', { seconds: Math.ceil((countdownMs ?? 0) / 1000) });
 
   const reconciling = connection.reconciling;
   const reconcilingLine = useMemo(() => {
     if (reconciling.length === 0) return null;
     const first = reconciling[0];
     const more = reconciling.length - 1;
-    const tail = more > 0 ? ` (+${more} more stream${more === 1 ? '' : 's'})` : '';
-    return `Replaying ${first.from}–${first.to} on ${first.streamKey}${tail}.`;
-  }, [reconciling]);
+    const tail =
+      more > 0 ? t(more === 1 ? 'shell.connection.moreOne' : 'shell.connection.moreMany', { count: more }) : '';
+    return t('shell.connection.replaying', { from: first.from, to: first.to, stream: first.streamKey, tail });
+  }, [reconciling, t]);
 
   // The healthy state has no chrome.
   if (status === 'CONNECTED') return null;
 
-  const { icon, spin, title } = copyFor(status);
+  const { icon, spin, titleKey } = copyFor(status);
+  const disconnected = status === 'DISCONNECTED';
+  const detailText = disconnected
+    ? t(desktop ? 'shell.connection.disconnectedDesktop' : 'shell.connection.disconnectedShort')
+    : reconcilingLine ?? t('shell.connection.working');
+
+  const dockStyle = dock === null ? undefined : { top: dock.top, left: dock.left, width: dock.width };
 
   return createPortal(
-    <div className="fw-conn" data-status={status} role="status" aria-live="polite">
+    <div
+      ref={bannerRef}
+      className="fw-conn"
+      data-status={status}
+      data-open={detailsOpen ? 'true' : 'false'}
+      data-docked={dock === null ? 'false' : 'true'}
+      style={dockStyle}
+      role="status"
+      aria-live="polite"
+    >
       <span className="fw-conn__accent" aria-hidden="true" />
-      <Icon name={icon} size="sm" spin={spin} className="fw-conn__icon" />
+      <div className="fw-conn__row" title={detailText}>
+        <Icon name={icon} size="sm" spin={spin} className="fw-conn__icon" />
+        <p className="fw-conn__title">{t(titleKey)}</p>
+        <p className="fw-conn__detail">{detailText}</p>
+        {disconnected ? (
+          <button type="button" className="fw-conn__retry" onClick={retryGatewayConnection}>
+            <Icon name="RefreshCw" size="xs" />
+            {t('shell.connection.retry')}
+          </button>
+        ) : null}
+        {disconnected && isAdvanced ? (
+          <button
+            type="button"
+            className="fw-conn__more"
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {t('shell.connection.technical')}
+            <Icon name={detailsOpen ? 'ChevronUp' : 'ChevronDown'} size="xs" />
+          </button>
+        ) : null}
+      </div>
 
-      <div className="fw-conn__body">
-        <p className="fw-conn__title">{title}</p>
-
-        {status === 'DISCONNECTED' ? (
-          <>
-            <p className="fw-conn__detail">
-              The workspace can’t reach the local gateway. Start it and it will reconnect on its own.
-            </p>
+      {disconnected && isAdvanced && detailsOpen ? (
+        <div className="fw-conn__details">
+          {desktop || startCommand === null ? null : (
             <div className="fw-conn__command">
               <Icon name="Cable" size="xs" className="fw-conn__command-icon" />
-              <code className="fw-conn__code">{connection.startCommand}</code>
+              <code className="fw-conn__code">{startCommand}</code>
               <button type="button" className="fw-conn__copy" onClick={copyCommand}>
                 <Icon name="Copy" size="xs" />
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('shell.connection.copied') : t('shell.connection.copy')}
               </button>
             </div>
-            {/*
-              The command is relative, so it only resolves from the project root — one directory
-              above `command-center`. Copying it into a terminal that happens to sit inside
-              `command-center` fails with "Cannot find module", and the banner is exactly the moment
-              a stuck reader has the least patience for a second puzzle. The working directory is
-              stated here rather than folded into the copied string: a copy button should hand over
-              something you can paste and run, not a compound `cd … && …` that moves the reader's
-              shell somewhere they did not ask to be.
-            */}
-            <p className="fw-conn__meta">
-              Run from the project root · Listens on{' '}
-              <span className="fw-conn__endpoint">{connection.endpoint}</span>
-              {' · '}
-              {retryLabel}
-            </p>
-          </>
-        ) : (
-          <p className="fw-conn__detail">
-            {connection.detail ?? 'Working on the connection…'}
-            {reconcilingLine ? <span className="fw-conn__reconcile"> {reconcilingLine}</span> : null}
+          )}
+          <p className="fw-conn__meta">
+            {desktop ? t('shell.connection.address') : t('shell.connection.runFrom')}{' '}
+            <span className="fw-conn__endpoint">{connection.endpoint}</span>
+            {' · '}
+            {retryLabel}
           </p>
-        )}
-      </div>
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

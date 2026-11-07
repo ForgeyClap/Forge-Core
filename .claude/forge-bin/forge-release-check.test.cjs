@@ -206,6 +206,34 @@ if (!gitWorks) {
     t('CLI: the full extra near-miss/placeholder set does NOT trigger a violation', res.status === 0, 'status=' + res.status + ' stdout=' + res.stdout);
   }
 
+  // 6c) WP 1.9: the memory archives (FORGE_<NAME>_ARCHIVE_*.md), LESSONS.md and the Boss
+  // lessons-archive files are private project memory without a placeholder: a tracked copy in the dist tree is a
+  // violation, while the curated live placeholders next to them stay allowed (6/6b).
+  {
+    const dir = makeRepo('rc-archives');
+    const archives = ['.claude/FORGE_MEMORY_ARCHIVE_2026-10.md', '.claude/FORGE_MEMORY_ARCHIVE_2026-10-24.md', '.claude/FORGE_TASK_HISTORY_ARCHIVE_2026-10.md',
+      '.claude/FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', '.claude/FORGE_DECISIONS_ARCHIVE_2026-10.md', '.claude/LESSONS.md', '.claude/agent-memory/build-boss/lessons-archive-2026-10-23.md'];
+    for (const a of archives) writeFile(dir, a, '# private archive\n');
+    writeFile(dir, '.claude/FORGE_DECISIONS.md', '# Decisions (placeholder)\n');
+    writeFile(dir, '.claude/forge-bin/forge-memory-consolidate.cjs', '// the tool itself ships\n');
+    writeFile(dir, 'docs/LESSONS.md', '# a public doc of that name outside .claude/ is not project memory\n');
+    commitAll(dir, 'archives tracked by mistake');
+    const res = runCLI(['--dist', dir, '--json']);
+    t('CLI WP 1.9: a dist tree that tracks memory archives / LESSONS.md exits 3', res.status === 3, 'status=' + res.status + ' stdout=' + res.stdout);
+    tFn('CLI WP 1.9: every archive is reported, the placeholder, the tool and docs/LESSONS.md are not', () => {
+      const paths = JSON.parse(res.stdout).violations.map((v) => v.path).sort();
+      assert.deepStrictEqual(paths, archives.slice().sort());
+    });
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort: this block cleans its own fixture */ }
+  }
+  tFn('WP 1.9: in the REAL config the archives are dist_forbidden and never_sync, the live placeholders stay allowed in dist', () => {
+    const ex = RC.loadExclusions(REAL_CONFIG);
+    const forbidden = (p) => ex.dist_forbidden.some((x) => x.re.test(p));
+    for (const p of ['.claude/FORGE_TASK_HISTORY_ARCHIVE_2026-10.md', '.claude/FORGE_AGENT_LEDGER_ARCHIVE_2026-10.md', '.claude/FORGE_DECISIONS_ARCHIVE_2026-10.md', '.claude/FORGE_MEMORY_ARCHIVE_2026-10-24.md', '.claude/LESSONS.md', '.claude/agent-memory/test-boss/lessons-archive-2026-10-23.md']) assert.ok(forbidden(p), 'dist_forbidden must match ' + p);
+    for (const p of ['.claude/FORGE_MEMORY.md', '.claude/FORGE_TASK_HISTORY.md', '.claude/FORGE_AGENT_LEDGER.md', '.claude/FORGE_DECISIONS.md', '.claude/forge-bin/forge-memory-consolidate.cjs', '.claude/skills/forge-scribe/SKILL.md']) assert.ok(!forbidden(p), 'must stay allowed in dist: ' + p);
+    for (const inner of ['FORGE_TASK_HISTORY_ARCHIVE_2026-10.md', 'FORGE_AGENT_LEDGER_ARCHIVE_2026-10.md', 'FORGE_DECISIONS_ARCHIVE_2026-10.md', 'FORGE_MEMORY_ARCHIVE_2026-10-24.md', 'agent-memory/verify-boss/lessons-archive-2026-10-23.md']) assert.ok(RC.isNeverSync(inner, ex), 'never_sync must match ' + inner);
+  });
+
   // 7) W2-01 (Codex): dist_forbidden matches case-insensitively — an uppercase/mixed-case
   // variant of a forbidden path is the SAME folder on Windows and must be caught identically.
   {

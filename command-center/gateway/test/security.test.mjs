@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { hostOk, crossSiteOk, containmentOk, anyContainmentOk, safeIdOk, getExecToken, execTokenOk, EXEC_TOKEN_HEADER } from '../src/security.mjs';
+import { hostOk, crossSiteOk, containmentOk, anyContainmentOk, safeIdOk, getExecToken, execTokenOk, EXEC_TOKEN_HEADER, _setDevOriginsForTests } from '../src/security.mjs';
 
 test('hostOk accepts localhost/127.0.0.1/no-host, rejects an attacker host', () => {
   assert.equal(hostOk({ headers: { host: 'localhost:4100' } }), true);
@@ -15,8 +15,18 @@ test('crossSiteOk rejects a cross-site Sec-Fetch-Site and a foreign Origin', () 
   assert.equal(crossSiteOk({ headers: {} }), true);
   assert.equal(crossSiteOk({ headers: { 'sec-fetch-site': 'same-origin' } }), true);
   assert.equal(crossSiteOk({ headers: { 'sec-fetch-site': 'cross-site' } }), false);
-  assert.equal(crossSiteOk({ headers: { origin: 'http://localhost:5173' } }), true);
   assert.equal(crossSiteOk({ headers: { origin: 'http://evil.com' } }), false);
+});
+
+// FU-STEP2 security fix round: the Vite dev origin used to be allowed unconditionally. It is now allowed only with
+// the explicit dev switch FORGE_DEV_ORIGINS=1 (the test seam stands in for it; dev-origins-switch.test.mjs proves
+// the environment wiring in a real child process).
+test('crossSiteOk allows the Vite dev origin only with the dev switch on', (t) => {
+  t.after(() => _setDevOriginsForTests(null));
+  _setDevOriginsForTests(false);
+  assert.equal(crossSiteOk({ headers: { origin: 'http://localhost:5173' } }), false);
+  _setDevOriginsForTests(true);
+  assert.equal(crossSiteOk({ headers: { origin: 'http://localhost:5173' } }), true);
 });
 
 test('containmentOk allows the base dir and real descendants, rejects escapes', () => {

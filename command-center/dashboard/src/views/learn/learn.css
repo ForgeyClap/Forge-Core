@@ -1,0 +1,399 @@
+/*
+ * Leer Forge (DESIGN.md §3.6, mockup 06-leer-forge). v1.0 tokens only (--fs-*), no raw colour.
+ * Motion: transform and opacity only, zero under reduced motion (the tokens' durations go to 0).
+ */
+
+.fs-learn {
+  inline-size: min(100% - 48px, var(--fs-column-wide));
+  margin: 0 auto;
+  padding: var(--fs-space-5) 0 var(--fs-space-9);
+  font-family: var(--fs-font-body);
+  color: var(--fs-ink);
+}
+
+.fs-learn__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fs-space-4);
+  margin-block-end: var(--fs-space-6);
+}
+
+.fs-learn__title {
+  margin: 0 auto 0 0;
+  font-family: var(--fs-font-display);
+  font-size: 26px;
+  font-weight: 350;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+}
+
+.fs-learn__count {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+}
+
+.fs-learn__grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: var(--fs-space-7);
+  align-items: start;
+}
+
+.fs-learn__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fs-learn__item {
+  inline-size: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fs-space-3);
+  padding: 10px var(--fs-space-3);
+  border: 0;
+  border-radius: var(--fs-radius-sm);
+  background: transparent;
+  color: var(--fs-ink-2);
+  font: inherit;
+  font-size: var(--fs-text-14);
+  text-align: start;
+  cursor: pointer;
+  transition: transform var(--fs-dur-1) var(--fs-ease);
+}
+
+.fs-learn__item:hover {
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
+}
+
+.fs-learn__item:active {
+  transform: scale(0.985);
+}
+
+.fs-learn__item[aria-current='step'] {
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font-weight: 600;
+  box-shadow: var(--fs-shadow-1);
+}
+
+.fs-learn__item:focus-visible,
+.fs-learn__item[aria-current='step']:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+.fs-learn__num {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 24px;
+  block-size: 24px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fs-line-strong);
+  font-size: var(--fs-text-12);
+  font-weight: 700;
+  color: var(--fs-ink-2);
+}
+
+.fs-learn__item[aria-current='step'] .fs-learn__num {
+  border-color: var(--fs-accent);
+  background: var(--fs-accent);
+  color: var(--fs-ink-on-accent);
+}
+
+.fs-learn__item[data-done='true'] .fs-learn__num {
+  border-color: var(--fs-ok);
+  background: var(--fs-ok);
+  color: var(--fs-surface);
+}
+
+.fs-learn__name {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fs-learn__min {
+  font-size: var(--fs-text-13);
+  font-weight: 400;
+  color: var(--fs-ink-3);
+}
+
+/* ------------------------------------------------------------- the card */
+
+.fs-lesson {
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--fs-shadow-1);
+}
+
+.fs-lesson__art {
+  display: grid;
+  place-items: center;
+  min-block-size: 196px;
+  padding: var(--fs-space-7) var(--fs-space-6);
+  background: var(--fs-bg);
+  border-block-end: 1px solid var(--fs-line);
+}
+
+.fs-lesson__body {
+  display: grid;
+  gap: var(--fs-space-4);
+  padding: var(--fs-space-6);
+}
+
+.fs-lesson__title {
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: var(--fs-text-22);
+  font-weight: 400;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+}
+
+.fs-lesson__steps {
+  display: grid;
+  gap: var(--fs-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: fs-how;
+}
+
+.fs-lesson__steps li {
+  display: flex;
+  gap: var(--fs-space-3);
+  align-items: baseline;
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-snug);
+}
+
+.fs-lesson__steps li::before {
+  counter-increment: fs-how;
+  content: counter(fs-how);
+  flex: none;
+  inline-size: 22px;
+  block-size: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--fs-accent-soft);
+  font-size: var(--fs-text-12);
+  font-weight: 700;
+  color: var(--fs-accent-text);
+  transform: translateY(-1px);
+}
+
+.fs-lesson__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fs-space-2);
+  padding-block-start: var(--fs-space-2);
+}
+
+/* Compact, in the ? side pane: no card chrome, the pane is the surface. */
+.fs-lesson--compact {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.fs-lesson--compact .fs-lesson__body {
+  padding: 0;
+}
+
+.fs-lesson--compact .fs-lesson__title {
+  font-size: var(--fs-text-18);
+}
+
+.fs-lesson--compact .fs-lesson__steps li {
+  font-size: var(--fs-text-14);
+}
+
+/* -------------------------------------------- illustrations (aria-hidden) */
+
+.fs-learn-art {
+  position: relative;
+  inline-size: min(100%, 340px);
+  display: grid;
+  gap: var(--fs-space-3);
+  padding: var(--fs-space-4);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-2);
+  transform: rotate(-1.2deg);
+  font-size: var(--fs-text-14);
+  color: var(--fs-ink);
+}
+
+.fs-learn-art--composer {
+  border-radius: var(--fs-radius-struck);
+  min-block-size: 96px;
+}
+
+.fs-learn-art__text {
+  color: var(--fs-ink-3);
+}
+
+.fs-learn-art__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--fs-ink-2);
+}
+
+.fs-learn-art__send {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: 10px 3px 10px 10px;
+  background: var(--fs-accent);
+  color: var(--fs-ink-on-accent);
+}
+
+.fs-learn-art--project {
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+}
+
+.fs-learn-art__tile {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: 10px 4px 10px 10px;
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+}
+
+.fs-learn-art__name {
+  font-weight: 600;
+}
+
+.fs-learn-art--project .fs-learn-art__button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  padding: 6px var(--fs-space-3);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-accent);
+  color: var(--fs-ink-on-accent);
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+}
+
+.fs-learn-art__head {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+}
+
+.fs-learn-art__stamp {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-ok-soft);
+  color: var(--fs-ok);
+}
+
+.fs-learn-art__check {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  color: var(--fs-ok);
+}
+
+.fs-learn-art__bar {
+  display: block;
+  inline-size: 180px;
+  block-size: 8px;
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-sunken);
+}
+
+.fs-learn-art__bar--short {
+  inline-size: 120px;
+}
+
+.fs-learn-art__pin {
+  position: absolute;
+  inset-inline-start: -46px;
+  display: inline-grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fs-accent-line);
+  background: var(--fs-accent-soft);
+  color: var(--fs-accent-text);
+  font-size: var(--fs-text-12);
+  font-weight: 700;
+}
+
+.fs-learn-art__pin--1 {
+  inset-block-start: 22px;
+}
+
+.fs-learn-art__pin--2 {
+  inset-block-start: 66px;
+}
+
+.fs-learn-art__select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fs-space-2);
+  block-size: 36px;
+  padding: 0 10px 0 var(--fs-space-3);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  font-weight: 500;
+}
+
+.fs-learn-art__sub {
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-3);
+}
+
+/* ------------------------------------------------------------ narrow (≤1000 px window) */
+
+@media (max-width: 1100px) {
+  .fs-learn__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--fs-space-5);
+  }
+  .fs-learn__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--fs-space-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-learn__item {
+    transition: none;
+  }
+  .fs-learn__item:active {
+    transform: none;
+  }
+}
+
+/* L8: a real (possibly long) project name on one line in the lesson 2 illustration. */
+.fs-learn-art__name--project {
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

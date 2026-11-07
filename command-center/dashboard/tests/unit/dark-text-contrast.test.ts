@@ -1,80 +1,66 @@
 /**
- * dark-theme small-text contrast, defects D6 + D7.
+ * Text and control contrast for the v1.0 palette (redesign 2026-11-03), light and dark.
  *
- * ui-verify-3 measured the dark `--forge-color-text-faint` (#5A6672) at 2.46-3.58:1 and
- * `--forge-color-text-muted` (#7C8894) at 3.99-4.49:1 on the dark surfaces they are rendered on,
- * at 11-13 px. WCAG 1.4.3 needs 4.5:1 for text that size. This test computes the WCAG ratio for
- * every (token, surface) pair from that audit and fails if any drops below 4.5:1.
- *
- * Both definitions of the dark values are checked, and must agree: the source `brand/tokens.json`
- * and the stylesheet the app actually imports, `brand/forge-tokens.css`.
+ * Started as (dark small-text contrast, defects D6 + D7) on the old dark surface list. The redesign
+ * replaced every surface, so this now checks the same pairs as docs/forge-systeem/redesign/tools/contrast.mjs,
+ * read from the stylesheet the app actually imports (brand/forge-tokens.css), plus the two pairs the old test
+ * existed for: caption text (the old text-muted / text-faint, now --fs-ink-3) on the selected row (accent-soft).
+ * WCAG 2.x: 4.5:1 for text, 3:1 for non-text (focus ring, field edge, status icon).
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const BRAND = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'brand');
+const CSS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'brand', 'forge-tokens.css'), 'utf8')
+  .replace(/\r\n/g, '\n');
 
-/** WCAG 2.x relative luminance of a #RRGGBB colour. */
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+function theme(selector: string): Record<string, string> {
+  const start = CSS.indexOf(`${selector} {\n`);
+  expect(start, `block "${selector}" missing`).toBeGreaterThan(-1);
+  const body = CSS.slice(start, CSS.indexOf('}', start));
+  const out: Record<string, string> = {};
+  for (const m of body.matchAll(/--(fs-[\w-]+):\s*(#[0-9A-Fa-f]{6})\s*;/g)) out[m[1]] = m[2];
+  return out;
 }
 
-function contrast(a: string, b: string): number {
+function luminance(hex: string): number {
+  const c = [1, 3, 5]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+const ratio = (a: string, b: string) => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
-}
-
-/** Dark surfaces each token is rendered on (ui-verify-3 before-wp8e/results.json contrastPairs). */
-const SURFACES: Record<string, string> = {
-  'selected row (#262A2E composite)': '#262A2E',
-  'surface-3 / raised': '#1B2127',
-  'surface-2': '#151A1F',
-  'surface-1': '#101418',
-  bg: '#0B0E11',
-  canvas: '#06080A',
-  sunken: '#000000',
 };
 
-const TOKENS = ['text-faint', 'text-muted'] as const;
-
-function darkFromCss(name: string): string {
-  const css = readFileSync(join(BRAND, 'forge-tokens.css'), 'utf8');
-  const start = css.indexOf(':root, [data-theme="dark"] {');
-  expect(start, 'dark block missing in forge-tokens.css').toBeGreaterThan(-1);
-  const block = css.slice(start, css.indexOf('}', start));
-  const match = block.match(new RegExp(`--forge-color-${name}:\\s*(#[0-9A-Fa-f]{6});`));
-  expect(match, `--forge-color-${name} missing in the dark block`).not.toBeNull();
-  return (match as RegExpMatchArray)[1].toUpperCase();
+type Pair = [fg: string, bg: string, min: number, what: string];
+const BG = ['fs-bg', 'fs-bg-side', 'fs-surface', 'fs-surface-2', 'fs-sunken'];
+const PAIRS: Pair[] = [];
+for (const fg of ['fs-ink', 'fs-ink-2', 'fs-ink-3']) for (const bg of BG) PAIRS.push([fg, bg, 4.5, 'text']);
+for (const bg of ['fs-bg', 'fs-surface', 'fs-bg-side', 'fs-accent-soft']) PAIRS.push(['fs-accent-text', bg, 4.5, 'link']);
+for (const bg of ['fs-accent', 'fs-accent-hover', 'fs-accent-active']) PAIRS.push(['fs-ink-on-accent', bg, 4.5, 'primary label']);
+for (const fg of ['fs-ink', 'fs-ink-2', 'fs-ink-3']) PAIRS.push([fg, 'fs-accent-soft', 4.5, 'text on selected row']);
+for (const s of ['ok', 'warn', 'danger', 'info']) {
+  PAIRS.push([`fs-${s}`, `fs-${s}-soft`, 4.5, `${s} badge text`]);
+  PAIRS.push([`fs-${s}`, 'fs-surface', 4.5, `${s} text on surface`]);
+  PAIRS.push([`fs-${s}`, 'fs-bg', 3, `${s} icon (1.4.11)`]);
 }
+for (const bg of ['fs-bg', 'fs-surface', 'fs-bg-side']) PAIRS.push(['fs-accent', bg, 3, 'focus ring (1.4.11)']);
+for (const bg of ['fs-surface', 'fs-bg']) PAIRS.push(['fs-line-strong', bg, 3, 'field edge (1.4.11)']);
 
-function darkFromJson(name: string): string {
-  const source = JSON.parse(readFileSync(join(BRAND, 'tokens.json'), 'utf8'));
-  let value: string = source.modes.dark.color[name];
-  const alias = /^\{palette\.([a-z]+)\.([0-9]+)\}$/.exec(value);
-  if (alias) value = source.palette[alias[1]][alias[2]];
-  return value.toUpperCase();
-}
+const THEMES = { light: ':root, [data-theme="light"]', dark: '[data-theme="dark"]' };
 
-describe('dark theme small text reaches WCAG AA 4.5:1 (D6, D7)', () => {
-  it('finds both token sources', () => {
-    expect(existsSync(join(BRAND, 'forge-tokens.css'))).toBe(true);
-    expect(existsSync(join(BRAND, 'tokens.json'))).toBe(true);
-  });
-
-  for (const token of TOKENS) {
-    it(`${token}: tokens.json and forge-tokens.css define the same dark value`, () => {
-      expect(darkFromCss(token)).toBe(darkFromJson(token));
-    });
-
-    for (const [surface, bg] of Object.entries(SURFACES)) {
-      it(`${token} on ${surface} ${bg} >= 4.5:1`, () => {
-        const fg = darkFromCss(token);
-        const ratio = contrast(fg, bg);
-        expect(ratio, `${token} ${fg} on ${bg} = ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+describe('v1.0 palette contrast (WCAG 2.x), light and dark', () => {
+  for (const [name, selector] of Object.entries(THEMES)) {
+    for (const [fg, bg, min, what] of PAIRS) {
+      it(`${name}: ${fg} on ${bg} >= ${min}:1 (${what})`, () => {
+        const t = theme(selector);
+        expect(t[fg], `${fg} missing in ${name}`).toMatch(/^#/);
+        expect(t[bg], `${bg} missing in ${name}`).toMatch(/^#/);
+        const r = ratio(t[fg], t[bg]);
+        expect(r, `${fg} ${t[fg]} on ${bg} ${t[bg]} = ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(min);
       });
     }
   }

@@ -1,0 +1,150 @@
+{
+  "skill": "forge-devops",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-devops/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-devops/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "use-when",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/SKILL.md",
+      "needle": "Use for Docker, CI/CD, GitHub Actions",
+      "why": "description carries a when-trigger"
+    },
+    {
+      "id": "one-rollout-path",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/SKILL.md",
+      "needle": "**One rollout path:**",
+      "why": "SA-W1-C1: checklist, thresholds, canary watch and runbook form one path"
+    },
+    {
+      "id": "thresholds-file",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-devops/references/rollout-thresholds.md",
+      "why": "SA-W1-C1 graft (addyosmani shipping-and-launch): thresholds, error budget, flags"
+    },
+    {
+      "id": "no-data-is-hold",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/rollout-thresholds.md",
+      "needle": "returns **no data** is a hold",
+      "why": "a renamed metric must not look like a perfect canary"
+    },
+    {
+      "id": "error-budget-gate",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/rollout-thresholds.md",
+      "needle": "## Error-budget release gate",
+      "why": "SA-W1-C1 graft: error budget as the release gate"
+    },
+    {
+      "id": "flag-owner-expiry",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/rollout-thresholds.md",
+      "needle": "**owner and an expiry date**",
+      "why": "SA-W1-C1 graft: flag lifecycle"
+    },
+    {
+      "id": "canary-read-only",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/canary-watch.md",
+      "needle": "A **read-only** check",
+      "why": "SA-W1-C1 graft (ECC canary-watch): the watch only reports, never rolls back"
+    },
+    {
+      "id": "canary-no-hooks",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-devops/references/canary-watch.md",
+      "needle": "PostToolUse",
+      "why": "the ECC hook-on-push idea is excluded"
+    },
+    {
+      "id": "tf-response-contract",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/terraform.md",
+      "needle": "## Response contract",
+      "why": "SA-W1-C1 graft (antonbabenko terraform-skill, Apache-2.0)"
+    },
+    {
+      "id": "tf-safe-destroy",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/terraform.md",
+      "needle": "Never `-auto-approve` a destroy",
+      "why": "plan -destroy first, never auto-approve"
+    },
+    {
+      "id": "tf-reviewed-plan",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/terraform.md",
+      "needle": "applies **that reviewed plan file**",
+      "why": "no fresh plan inside the apply job"
+    },
+    {
+      "id": "ci-speed-tree",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/github-actions.md",
+      "needle": "## When CI is slow",
+      "why": "SA-W1-C1 graft: CI optimization order"
+    },
+    {
+      "id": "ci-watch-not-poll",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/github-actions.md",
+      "needle": "**Watch, do not poll:**",
+      "why": "SA-W1-C1 graft (OpenHands github-actions)"
+    },
+    {
+      "id": "docker-pitfalls",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/docker.md",
+      "needle": "## Pitfalls (symptom",
+      "why": "SA-W1-C1 graft (hermes docker-management)"
+    },
+    {
+      "id": "docker-no-kill-by-name",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/references/docker.md",
+      "needle": "never by image name",
+      "why": "HARD rule: stop only an exact PID you own"
+    },
+    {
+      "id": "exact-pid-rule",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/SKILL.md",
+      "needle": "stopped by exact PID only",
+      "why": "HARD rule on the skill surface"
+    },
+    {
+      "id": "provenance",
+      "type": "contains",
+      "path": ".claude/skills/forge-devops/SKILL.md",
+      "needle": "9c1e92d962a5407c227e5566416e962a2f057240",
+      "why": "pinned SHA of terraform-skill in the provenance block"
+    },
+    {
+      "id": "no-unpinned-latest",
+      "type": "not_contains",
+      "path": ".claude/skills/forge-devops/references/rollout-thresholds.md",
+      "needle": "@latest",
+      "why": "no unpinned runner lines"
+    }
+  ]
+}

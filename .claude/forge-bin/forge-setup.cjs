@@ -1261,9 +1261,30 @@ const REQUIRED_DIRS = [
   path.join('.claude', 'forge-runs'),
 ];
 
+// WP 2.1: the runs folder self-heal creates is the ACTIVE one (forge-paths stateDir: .claude/forge-runs in a legacy
+// project, .forge/runs once <root>/.forge/ exists). forge-paths.cjs is optional: without it the list is unchanged.
+// A legacy project never gets a .forge path here, so self-heal can never flip a project's layout.
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+const LEGACY_RUNS_REL = path.join('.claude', 'forge-runs');
+function requiredDirs(projectDir) {
+  if (!forgePaths) return REQUIRED_DIRS;
+  let runsRel = LEGACY_RUNS_REL;
+  try {
+    const rel = path.relative(path.resolve(projectDir), forgePaths.stateDir(projectDir, 'runs'));
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) runsRel = rel; // FORGE_STATE_DIR outside the project: not created here
+    else if (rel) runsRel = null;
+  } catch { runsRel = LEGACY_RUNS_REL; }
+  return REQUIRED_DIRS.map((rel) => (rel === LEGACY_RUNS_REL ? runsRel : rel)).filter(Boolean);
+}
+function defaultProjectDir() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
+
 function selfHeal(projectDir) {
   const changed = [];
-  for (const rel of REQUIRED_DIRS) {
+  for (const rel of requiredDirs(projectDir)) {
     const dir = path.join(projectDir, rel);
     if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); changed.push('created dir: ' + rel); }
   }
@@ -1353,7 +1374,8 @@ if (require.main === module) {
     const argv = process.argv.slice(2);
     const cmd = argv[0];
     const opts = parseArgs(argv.slice(1));
-    const projectDir = opts.project ? path.resolve(opts.project) : path.resolve(__dirname, '..', '..');
+    const projectDir = opts.project ? path.resolve(opts.project) : defaultProjectDir();
+    if (!projectDir) { console.error('forge-setup: no project root found (no .claude, .forge or .git above the current folder) — pass --project <dir>'); process.exitCode = 2; return; }
 
     switch (cmd) {
       case 'status': {

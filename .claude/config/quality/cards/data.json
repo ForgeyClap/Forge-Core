@@ -1,0 +1,191 @@
+{
+  "domain": "data",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-data/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-data/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-data/references/ship-readiness.md",
+      "section": "Ship-readiness"
+    },
+    {
+      "path": ".claude/skills/forge-data/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "data-schema-contracts",
+      "claim": "Schema contracts are declared and enforced at each boundary.",
+      "evidence_required": "The schema/contract definitions and a run where a contract violation is rejected.",
+      "how_to_run": "Read the contracts; run the pipeline tests and quote a rejected bad record.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Schema contracts declared + enforced at each boundary"
+      }
+    },
+    {
+      "id": "data-idempotent-rerun",
+      "claim": "A rerun produces no duplicates.",
+      "evidence_required": "Two consecutive runs with identical row counts and no duplicates on the unique key.",
+      "how_to_run": "Run the pipeline twice against the target (or DuckDB) and quote both row counts and a duplicate-key query.",
+      "severity": "block",
+      "honesty_note": "Scaffolded but not run against a real or DuckDB target: NOT_RUN; never claim idempotency that was not executed.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "a rerun proven to produce no duplicates (idempotency evidence)"
+      }
+    },
+    {
+      "id": "data-incremental",
+      "claim": "An incremental key and watermark are in place.",
+      "evidence_required": "The model/load config naming the key and watermark, plus a run that loads only new rows.",
+      "how_to_run": "Read the incremental config; run an incremental load and quote the processed row count.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "incremental key + watermark in place"
+      }
+    },
+    {
+      "id": "data-dq-tests",
+      "claim": "Data-quality tests (not-null, unique, accepted-values, relationships) pass with real output.",
+      "evidence_required": "The dq test run output with the actual counts.",
+      "how_to_run": "Run the dq tests (for example dbt test) and quote the summary and exit code.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "dq tests (not-null/unique/accepted-values/relationships) pass with real output"
+      }
+    },
+    {
+      "id": "data-freshness-volume",
+      "claim": "A freshness check and a volume/row-count check are present.",
+      "evidence_required": "The freshness and volume check definitions and one run of them.",
+      "how_to_run": "Run the freshness check (for example dbt source freshness) and quote it.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "freshness + volume/row-count check present"
+      }
+    },
+    {
+      "id": "data-lineage",
+      "claim": "Lineage/DAG is documented with no orphan models.",
+      "evidence_required": "The lineage document or generated DAG, with every model connected.",
+      "how_to_run": "Generate or read the DAG and check for orphan models.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "lineage/DAG documented with no orphan models"
+      }
+    },
+    {
+      "id": "data-pii",
+      "claim": "PII is classified, masked or scoped, and absent from logs and git.",
+      "evidence_required": "The PII classification, the masking in the models, and a search of logs and git with no PII hits.",
+      "how_to_run": "Read the classification; search the repo and sample logs for PII fields.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "PII classified, masked/scoped, and absent from logs and git"
+      }
+    },
+    {
+      "id": "data-reproducible",
+      "claim": "Runs are reproducible with pinned deps, versioned SQL and env-only credentials.",
+      "evidence_required": "The lockfile/pins, SQL in git and a connection profile that reads from env.",
+      "how_to_run": "Read the lockfile and profiles.yml/connection config; git ls-files for the SQL.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "run reproducible with pinned deps + versioned SQL + env-only credentials"
+      }
+    },
+    {
+      "id": "data-layers",
+      "claim": "Raw, staging and mart layers are separated.",
+      "evidence_required": "The project layout or schema list showing the three layers.",
+      "how_to_run": "Read the model folders or warehouse schemas.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Domain gates",
+        "quote": "raw / staging / mart layers separated"
+      }
+    },
+    {
+      "id": "data-dead-letter",
+      "claim": "Records that fail validation go to a dead-letter store.",
+      "evidence_required": "A run where an invalid record lands in the dead-letter table/file instead of vanishing.",
+      "how_to_run": "Feed one invalid record through the pipeline and query the dead-letter store.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Dead-letter for validation failures."
+      }
+    },
+    {
+      "id": "data-backfill",
+      "claim": "The backfill scope is stated and bounded.",
+      "evidence_required": "The backfill plan with its date or key range.",
+      "how_to_run": "Read the backfill note or command.",
+      "severity": "warn",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-data/references/ship-readiness.md",
+        "section": "Ship-readiness",
+        "quote": "backfill scope stated and bounded"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "Warehouse/profile credentials in env, never in profiles.yml or git.",
+      "source": {
+        "path": ".claude/skills/forge-data/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "warehouse/profile credentials in env, never in profiles.yml or git."
+      }
+    },
+    {
+      "gate": "Correctness-critical domains (data/ETL) prove real fixtures were used, or carry an explicit logged waiver.",
+      "source": {
+        "path": ".claude/config/orchestration/FORGE_HARD_RULES.json",
+        "rule_id": "correctness-critical-fixtures",
+        "quote": "must prove real fixtures were used, or carry an explicit logged waiver"
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "The work is model training or serving rather than the ETL/feature pipeline: use the mlops card."
+  ],
+  "gaps": [
+    "forge-data has no separate \"Domain gates\" list items: its gate is one sentence; the card splits it into one check per clause."
+  ]
+}

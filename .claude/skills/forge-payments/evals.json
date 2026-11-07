@@ -1,0 +1,53 @@
+{
+  "skill": "forge-payments",
+  "assertions": [
+    {
+      "id": "skillmd-exists",
+      "type": "file_exists",
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "why": "the skill file itself must exist"
+    },
+    {
+      "id": "description-budget",
+      "type": "frontmatter_field",
+      "field": "description",
+      "max_length": 200,
+      "why": "skill-load-budget rule: every description stays <=200 chars"
+    },
+    {
+      "id": "size-budget",
+      "type": "max_lines",
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "n": 500,
+      "why": "SKILL.md stays under 500 lines; detail lives in references/"
+    },
+    {
+      "id": "webhooks-link",
+      "type": "contains",
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "needle": "forge-integration/references/webhooks.md",
+      "why": "links the shared webhook section (link only)"
+    },
+    {
+      "id": "stays-stricter",
+      "type": "contains",
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "needle": "stay stricter where they differ",
+      "why": "payment rules keep priority over the shared section"
+    },
+    {
+      "id": "no-live-charge",
+      "type": "contains",
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "needle": "no live charge and no live-key touch without explicit owner approval",
+      "why": "owner gate stays"
+    },
+    {
+      "id": "provenance",
+      "type": "contains",
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "needle": "## Provenance",
+      "why": "provenance block present"
+    }
+  ]
+}

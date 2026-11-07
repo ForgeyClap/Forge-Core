@@ -1,7 +1,7 @@
 /*
  * Forge Workspace — global application stylesheet.
  *
- * Load order is load-bearing. Tokens first (they define every --forge-* custom
+ * Load order is load-bearing. Tokens first (they define every --fs-* custom
  * property), then the shared brand base layer, then the rules below, which only
  * ever refine what those two established. Component and view stylesheets are
  * imported by their own modules and land after this file.
@@ -9,7 +9,8 @@
  * Path note: this file lives at src/styles/app.css, so ../../brand/ resolves to
  * <project-root>/brand/. Verified against the real tree.
  *
- * Nothing in here invents a colour. Every value is a var(--forge-*) token.
+ * Nothing in here invents a colour. Every value is a var(--fs-*) token (brand v1.0); the old alias
+ * names and their bridge were removed in redesign.
  */
 
 @import '../../brand/forge-tokens.css';
@@ -31,8 +32,8 @@
 
 html {
   block-size: 100%;
-  background: var(--forge-color-canvas);
-  accent-color: var(--forge-color-accent);
+  background: var(--fs-bg);
+  accent-color: var(--fs-accent);
 }
 
 body {
@@ -41,12 +42,11 @@ body {
   /* The app shell owns scrolling. Nothing scrolls the document itself. */
   overflow: hidden;
   overscroll-behavior: none;
-  background: var(--forge-color-bg);
-  color: var(--forge-color-text);
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-base);
-  line-height: var(--forge-leading-normal);
-  letter-spacing: var(--forge-tracking-tight);
+  background: var(--fs-bg);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -73,9 +73,8 @@ h5,
 h6 {
   margin: 0;
   font-size: inherit;
-  font-weight: var(--forge-weight-semibold);
-  line-height: var(--forge-leading-snug);
-  letter-spacing: var(--forge-tracking-tight);
+  font-weight: 600;
+  line-height: var(--fs-leading-snug);
 }
 
 p,
@@ -126,14 +125,14 @@ table {
 
 /* =========================================================================
    2. Focus
-   One ring, everywhere, drawn with the focus-ring token so it reads against
-   both the dark canvas and the light canvas. Keyboard only — pointer focus
-   stays silent.
+   One ring, everywhere: a 2 px canvas gap plus a 2 px Pauw ring (--fs-focus),
+   at least 3:1 on every background in both themes. Keyboard only — pointer
+   focus stays silent. A component that sets its own box-shadow restates it.
    ========================================================================= */
 
 :focus-visible {
   outline: none;
-  box-shadow: var(--forge-shadow-focus-ring);
+  box-shadow: var(--fs-focus);
 }
 
 :focus:not(:focus-visible) {
@@ -148,7 +147,7 @@ table {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--forge-color-scrollbar) transparent;
+  scrollbar-color: color-mix(in srgb, var(--fs-line-strong) 45%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -162,44 +161,35 @@ table {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--forge-color-scrollbar);
+  background: color-mix(in srgb, var(--fs-line-strong) 45%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
-  border-radius: var(--forge-radius-full);
+  border-radius: var(--fs-radius-pill);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--forge-color-scrollbar-hover);
+  background: var(--fs-line-strong);
   background-clip: padding-box;
 }
 
 /* =========================================================================
-   4. Theme transition
-   Only background-color and border-color, only at the fast step. Long enough
-   to stop a theme flip from snapping, short enough that a hover still feels
-   immediate. Never transform, never opacity, never longer than motion-base.
+   4. Theme change
+   No global colour transition (brand v1.0: only transform and opacity move).
+   A theme flip or a hover recolours at once; motion is kept for what answers
+   the user (a press, a nudge, a card fading in).
    ========================================================================= */
-
-*,
-*::before,
-*::after {
-  transition-property: background-color, border-color;
-  transition-duration: var(--forge-motion-fast);
-  transition-timing-function: var(--forge-motion-ease-standard);
-}
 
 /* =========================================================================
    5. Reduced motion
-   Global, unconditional, and it wins.
+   Global, unconditional, and it wins. The --fs-dur-* tokens are already 0 under
+   this query (forge-tokens.css); this switches every animation off as well.
    ========================================================================= */
 
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-delay: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
   }
@@ -210,36 +200,38 @@ table {
    The shell writes data-density="comfortable" | "compact" on <html>. Every
    component reads these --fw-* properties instead of hard-coding a height or a
    gutter, so density is one switch rather than a hundred media queries.
+   The heights stay at the pre-v1.0 values until the views are redesigned
+   (waves 2 and 3); the gaps follow the v1.0 4-based space scale.
    ========================================================================= */
 
 :root {
   /* Heights — all snapped to the control scale. */
-  --fw-control-h: var(--forge-control-md); /* 30px — default control */
-  --fw-control-h-sm: var(--forge-control-sm); /* 26px — small control */
-  --fw-row-h: var(--forge-control-lg); /* 36px — list / tree row */
-  --fw-header-h: var(--forge-layout-header); /* 52px — view header strip */
+  --fw-control-h: 30px; /* default control */
+  --fw-control-h-sm: 26px; /* small control */
+  --fw-row-h: 36px; /* list / tree row */
+  --fw-header-h: 52px; /* view header strip */
 
   /* Spacing rhythm. */
-  --fw-gutter: var(--forge-space-4);
-  --fw-gutter-tight: var(--forge-space-3);
-  --fw-gap: var(--forge-space-3);
-  --fw-gap-tight: var(--forge-space-2);
-  --fw-panel-pad: var(--forge-space-4);
-  --fw-section-gap: var(--forge-space-6);
+  --fw-gutter: var(--fs-space-4);
+  --fw-gutter-tight: var(--fs-space-3);
+  --fw-gap: var(--fs-space-3);
+  --fw-gap-tight: var(--fs-space-2);
+  --fw-panel-pad: var(--fs-space-4);
+  --fw-section-gap: var(--fs-space-6);
 }
 
 :root[data-density='compact'] {
-  --fw-control-h: var(--forge-control-sm); /* 26px */
-  --fw-control-h-sm: var(--forge-control-xs); /* 22px */
-  --fw-row-h: var(--forge-control-md); /* 30px */
-  --fw-header-h: var(--forge-control-xl); /* 42px */
+  --fw-control-h: 26px;
+  --fw-control-h-sm: 22px;
+  --fw-row-h: 30px;
+  --fw-header-h: 42px;
 
-  --fw-gutter: var(--forge-space-3);
-  --fw-gutter-tight: var(--forge-space-2);
-  --fw-gap: var(--forge-space-2);
-  --fw-gap-tight: var(--forge-space-1);
-  --fw-panel-pad: var(--forge-space-3);
-  --fw-section-gap: var(--forge-space-4);
+  --fw-gutter: var(--fs-space-3);
+  --fw-gutter-tight: var(--fs-space-2);
+  --fw-gap: var(--fs-space-2);
+  --fw-gap-tight: var(--fs-space-1);
+  --fw-panel-pad: var(--fs-space-3);
+  --fw-section-gap: var(--fs-space-4);
 }
 
 /* =========================================================================
@@ -282,18 +274,18 @@ table {
   flex: none;
   border: 0;
   margin: 0;
-  background: var(--forge-color-line-subtle);
-  block-size: var(--forge-border-hair);
+  background: var(--fs-line);
+  block-size: 1px;
   inline-size: 100%;
 }
 
 .fw-divider--vertical {
-  inline-size: var(--forge-border-hair);
+  inline-size: 1px;
   block-size: auto;
   align-self: stretch;
-  min-block-size: var(--forge-space-4);
+  min-block-size: var(--fs-space-4);
 }
 
 .fw-divider--strong {
-  background: var(--forge-color-line);
+  background: color-mix(in srgb, var(--fs-line-strong) 35%, var(--fs-line));
 }

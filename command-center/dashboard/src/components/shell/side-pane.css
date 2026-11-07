@@ -1,0 +1,119 @@
+/*
+ * SidePane — 340 px, raised surface (DESIGN.md §2, §3.2). Docked beside main at 1181 px and wider; an
+ * overlay with a scrim below that (app-shell.css). Tokens only; transform/opacity motion only.
+ */
+
+.fw-pane {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+  border-inline-start: 1px solid var(--fs-line);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  animation: fw-pane-in var(--fs-dur-2) var(--fs-ease) both;
+}
+
+@keyframes fw-pane-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.fw-pane__head {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-2);
+  min-block-size: 56px;
+  padding-inline: var(--fs-space-5) var(--fs-space-3);
+}
+
+.fw-pane__title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--fs-font-display);
+  font-size: var(--fs-text-18);
+  font-weight: 400;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+}
+
+.fw-pane__tabs {
+  padding-inline: var(--fs-space-4);
+  border-block-end: 1px solid var(--fs-line);
+}
+
+.fw-pane__panel,
+.fw-pane__body {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: auto;
+}
+
+.fw-pane__body {
+  padding: var(--fs-space-2) var(--fs-space-5) var(--fs-space-6);
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-body);
+}
+
+/* Inside the pane the Inspector and Dock lose their own frame: the pane is the frame. */
+.fw-pane__panel .fw-inspector,
+.fw-pane__panel .fw-dock {
+  block-size: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fw-pane__fallback {
+  display: grid;
+  gap: var(--fs-space-3);
+}
+
+.fw-pane__fallback p {
+  margin: 0;
+  color: var(--fs-ink-2);
+}
+
+.fw-pane__link {
+  justify-self: start;
+  border-radius: var(--fs-radius-xs);
+  color: var(--fs-accent-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fw-pane__keys {
+  display: grid;
+  gap: var(--fs-space-1);
+  margin: 0;
+}
+
+.fw-pane__key-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--fs-space-3);
+  min-block-size: var(--fs-control-md);
+  border-block-end: 1px solid var(--fs-line);
+}
+
+.fw-pane__key-row dd {
+  margin: 0;
+  color: var(--fs-ink-2);
+  font-size: var(--fs-text-14);
+}
+
+.fw-pane__link:focus-visible {
+  outline: none;
+  box-shadow: var(--fs-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fw-pane {
+    animation: none;
+  }
+}

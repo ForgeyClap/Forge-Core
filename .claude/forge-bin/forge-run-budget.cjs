@@ -79,6 +79,16 @@
 const fs = require('fs');
 const path = require('path');
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+
 /** Where the cap lives, relative to a project's .claude/ directory. */
 const CONFIG_REL = path.join('config', 'orchestration', 'FORGE_RUN_BUDGET.json');
 
@@ -160,7 +170,10 @@ function ownerBudget(o) {
  */
 function loadConfig(opts) {
   const o = opts || {};
-  const file = o.configFile || path.join(o.root || path.join(__dirname, '..', '..'), '.claude', CONFIG_REL);
+  // WP 2.1: no root given -> this copy's project (forge-paths scriptRoot); a copy outside any project reads the
+  // config it ships with (config/ beside the script folder), never a guessed project
+  const defRoot = o.root ? null : (forgePaths ? forgePaths.scriptRoot(__dirname) : path.join(__dirname, '..', '..'));
+  const file = o.configFile || (o.root || defRoot ? path.join(o.root || defRoot, '.claude', CONFIG_REL) : path.join(__dirname, '..', CONFIG_REL));
   let raw;
   try { raw = fs.readFileSync(file, 'utf8'); }
   catch (e) { return { config: DEFAULTS, source: 'builtin-fallback', degraded: true, reason: 'config file unreadable (' + file + '): ' + e.code, file }; }
@@ -358,16 +371,25 @@ function countsAsStop(v) {
 function resolveRunDir(raw, opts) {
   const o = opts || {};
   const root = path.resolve(o.root || process.cwd());
-  const forgeRunsRoot = path.join(root, '.claude', 'forge-runs');
+  // WP 2.1: the runs folder of this project's layout (legacy: exactly <root>/.claude/forge-runs as before). In the
+  // forge layout a run that only exists in the legacy folder is still found there, and a path-shaped --run may
+  // point into either folder; anything outside both is refused exactly as before.
+  const legacyRuns = path.join(root, '.claude', 'forge-runs');
+  const activeRuns = statePath(root, 'runs');
+  const bases = activeRuns === legacyRuns ? [legacyRuns] : [activeRuns, legacyRuns];
   if (!raw || !String(raw).trim()) return { ok: false, reason: '--run is required' };
   const hasSep = /[\\/]/.test(raw);
-  const candidate = hasSep ? path.resolve(root, raw) : path.join(forgeRunsRoot, raw);
-  const rel = path.relative(forgeRunsRoot, candidate);
+  const idBase = bases.find((b) => fs.existsSync(path.join(b, raw))) || bases[0];
+  const candidate = hasSep ? path.resolve(root, raw) : path.join(idBase, raw);
+  const relOf = (b) => path.relative(b, candidate);
+  const forgeRunsRoot = bases.find((b) => { const r = relOf(b); return !(r.startsWith('..') || path.isAbsolute(r)); }) || bases[0];
+  const label = path.relative(root, forgeRunsRoot).split(path.sep).join('/');
+  const rel = relOf(forgeRunsRoot);
   if (rel === '' || rel === '.') {
-    return { ok: false, reason: '--run "' + raw + '" resolves to .claude/forge-runs itself, not a run directory inside it' };
+    return { ok: false, reason: '--run "' + raw + '" resolves to ' + label + ' itself, not a run directory inside it' };
   }
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    return { ok: false, reason: '--run "' + raw + '" resolves outside .claude/forge-runs (' + candidate + ') — refusing to create anything there' };
+    return { ok: false, reason: '--run "' + raw + '" resolves outside ' + label + ' (' + candidate + ') — refusing to create anything there' };
   }
   return { ok: true, dir: candidate };
 }

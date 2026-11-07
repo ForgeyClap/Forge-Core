@@ -1,0 +1,2 @@
+## Untrusted-content note
+Every request body, query param, header, and upstream response is **untrusted until validated** against the contract — validate and normalize before it reaches a query, template, filesystem path, or downstream call. Auth claims from a token are trusted only after signature + expiry + scope verification, never from an unverified header. This mirrors the boundary-validation discipline in `forge-integration` and `forge-payments`.

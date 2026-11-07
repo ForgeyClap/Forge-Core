@@ -1,0 +1,7 @@
+# forge-agent — team, skills, commands, MCP
+
+## Team (conditional)
+Lead: `architect` (or `build-boss` when the agent is one slice of a larger app). Specialists: **`mcp-developer`** (tool/MCP-server schema safety, JSON-RPC compliance, minimal scopes), **`ml-engineer`** (eval harness + serving + prompt/version tracking + drift), **`data-scientist`** (eval-dataset design, honest metrics + uncertainty labels — no fabricated scores). Support: `silent-failure-hunter` (swallowed tool errors / dropped fallbacks read as clean success), `python-reviewer` / `typescript-reviewer` (agent-loop + tool code), `test-boss` (eval-as-test wiring). Optional advisors: `security-boss` / `security-reviewer` (injection + trifecta — an agent with tools is a genuine high-risk case), `codex-reviewer` (Codex on the tool-dispatch + guardrail paths).
+
+## Skills / commands / MCP
+`claude-api` (Anthropic model IDs / tool-use / token counting / caching — mandatory read before Claude-model work); `forge-rag` for retrieval + grounding; `agentdb-vector-search` for agent memory. Tool servers: build via `mcp-developer` (see the MCP tool schemas — load `artifact-capabilities` only if a published Artifact calls tools). **Opt-in dependency:** a runnable eval harness needs a runner + dataset — e.g. a Python `pytest`/`promptfoo`-style suite or a JS eval script; Forge writes the harness, but *executing* it requires that runtime installed. Mark the eval runner as opt-in and say whether it was actually run.

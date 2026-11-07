@@ -196,7 +196,10 @@ function runCapture(argv) {
   const read = readEnvelopeFile(opts.from);
   if (!read.ok) { console.error('forge-cost capture: ' + read.error); process.exitCode = 1; return; }
 
-  const root = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : path.resolve(__dirname, '..', '..');
+  // WP 2.1: forge-paths scriptRoot (an installed copy keeps its own project; a plugin copy discovers it, null = none)
+  const fp = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.scriptRoot === 'function' && typeof m.stateDir === 'function' ? m : null; } catch { return null; } })();
+  const root = process.env.FORGE_PROJECT_ROOT ? path.resolve(process.env.FORGE_PROJECT_ROOT) : (fp ? fp.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..'));
+  if (!root) { console.error('forge-cost capture: no project root found (no .claude, .forge or .git above the current folder; set FORGE_PROJECT_ROOT)'); process.exitCode = 1; return; }
   const logged = logCostCapture(opts.run, root, read.usage, opts.agent);
   if (!logged.ok) { console.error('forge-cost capture: ' + logged.reason); process.exitCode = 1; return; }
 

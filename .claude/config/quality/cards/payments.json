@@ -1,0 +1,172 @@
+{
+  "domain": "payments",
+  "version": 1,
+  "source": [
+    {
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "section": "Domain gates"
+    },
+    {
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "section": "Hard rules"
+    },
+    {
+      "path": ".claude/skills/forge-payments/SKILL.md",
+      "section": "Safety, approval and honesty"
+    }
+  ],
+  "checks": [
+    {
+      "id": "pay-no-pan",
+      "claim": "No raw PAN/CVV in code, logs, DB or memory.",
+      "evidence_required": "A grep of the diff for card-shaped literals and cardNumber/cvv/pan with no hits.",
+      "how_to_run": "git diff | grep -Ei \"cardNumber|cvv|\\bpan\\b|[0-9]{13,19}\" and quote the result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "No raw PAN/CVV in code, logs, DB, or memory"
+      }
+    },
+    {
+      "id": "pay-minor-units",
+      "claim": "Money is integer minor units plus currency everywhere, with no float money math.",
+      "evidence_required": "A search for float math on amounts with no hits, and the amount types.",
+      "how_to_run": "Search the diff for parseFloat/toFixed/Number on amount fields.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Money is integer minor units + currency everywhere; no float money math."
+      }
+    },
+    {
+      "id": "pay-idempotency-key",
+      "claim": "Every charge and refund call sends an Idempotency-Key, and keys are persisted.",
+      "evidence_required": "The call sites with the key and the persistence store.",
+      "how_to_run": "Read every charge/refund call; run the retry test.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Every charge/refund call sends an Idempotency-Key; keys are persisted."
+      }
+    },
+    {
+      "id": "pay-webhooks",
+      "claim": "Every webhook verifies the signature on the raw body, dedupes on event.id, returns 2xx before heavy work and is safe under duplicate or out-of-order delivery.",
+      "evidence_required": "A replayed event deduped and a forged signature rejected.",
+      "how_to_run": "Run the webhook tests (or replay with the processor CLI in sandbox) and quote both outcomes.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Every webhook verifies the signature on the raw body, dedupes on event.id"
+      }
+    },
+    {
+      "id": "pay-state-transitions",
+      "claim": "Auth, capture, void, full and partial refund each have a clear failure path with timeout and bounded retry.",
+      "evidence_required": "Tests per transition including a timeout case.",
+      "how_to_run": "Run the transition tests and quote them.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Auth / capture / void / full + partial refund each handled explicitly with a clear failure path"
+      }
+    },
+    {
+      "id": "pay-disputes",
+      "claim": "Refunds, disputes and chargebacks are handled explicitly.",
+      "evidence_required": "The handlers for dispute and chargeback events.",
+      "how_to_run": "Read the webhook event handlers.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Refunds, disputes, and chargebacks handled explicitly."
+      }
+    },
+    {
+      "id": "pay-sca",
+      "claim": "SCA / 3D Secure is supported where the market or regulator requires it.",
+      "evidence_required": "A sandbox 3DS challenge run.",
+      "how_to_run": "Run the 3DS test card in sandbox and quote the result.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "SCA / 3D Secure supported where the market/regulator requires it (EU/EEA cards)."
+      }
+    },
+    {
+      "id": "pay-script-integrity",
+      "claim": "Payment-page script integrity: processor confirmation of self-protection, or script management plus tamper detection; the path used is recorded.",
+      "evidence_required": "The recorded path (a or b) with its evidence.",
+      "how_to_run": "Read the checkout page setup and the recorded choice.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Payment-page script integrity (SAQ A r1 / reqs 6.4.3 + 11.6.1)"
+      }
+    },
+    {
+      "id": "pay-test-live",
+      "claim": "Test mode is separated from live.",
+      "evidence_required": "Separate test and live keys/config, with test keys in the dev environment.",
+      "how_to_run": "Read the env handling for key selection.",
+      "severity": "block",
+      "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Hard rules",
+        "quote": "Test vs live separation."
+      }
+    },
+    {
+      "id": "pay-sandbox",
+      "claim": "Sandbox and test-card scenarios ran: success, decline, 3DS challenge, duplicate webhook.",
+      "evidence_required": "The sandbox test output for all four scenarios.",
+      "how_to_run": "Run the sandbox suite and quote the four results.",
+      "severity": "block",
+      "honesty_note": "Never claim PCI compliance or a working live charge that was not verified in the sandbox.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Domain gates",
+        "quote": "Sandbox + test-card scenarios exercised (success, decline, 3DS challenge, duplicate webhook)"
+      }
+    }
+  ],
+  "hard_gates": [
+    {
+      "gate": "No live charge and no live-key touch without explicit owner approval.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "no live charge and no live-key touch without explicit owner approval."
+      }
+    },
+    {
+      "gate": "Gateway and webhook signing secrets in env only.",
+      "source": {
+        "path": ".claude/skills/forge-payments/SKILL.md",
+        "section": "Safety, approval and honesty",
+        "quote": "gateway and webhook signing secrets in env only."
+      }
+    }
+  ],
+  "not_applicable_when": [
+    "pay-sca does not apply when no market or regulator in scope requires SCA."
+  ],
+  "gaps": []
+}

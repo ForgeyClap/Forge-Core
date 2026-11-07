@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
-import { Button, Icon, IconButton, Machine } from '@/components/primitives';
+import { Button, Icon, IconButton } from '@/components/primitives';
 
 export interface MenuOption {
   readonly id: string;
@@ -50,13 +50,18 @@ export interface MenuButtonProps {
    * one-shot `role="menuitem"` action — this menu is a single-select group, not a list of actions.
    */
   readonly selectedId?: string;
+  /** The panel's own heading; defaults to `title`. An empty string shows no heading. */
+  readonly heading?: string;
+  /** Extra class on the trigger (the composer's project chip is styled as a pill). */
+  readonly triggerClassName?: string;
 }
 
 /**
  * A trigger plus a small popover menu. Local to the composer on purpose — it is
  * not general enough to belong in the primitive layer.
  */
-export function MenuButton({ icon, label, title, options, footer, onPick, onOpen, triggerLabel, selectedId }: MenuButtonProps) {
+export function MenuButton({ icon, label, title, options, footer, onPick, onOpen, triggerLabel, selectedId, heading, triggerClassName }: MenuButtonProps) {
+  const panelHeading = heading ?? title;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -114,7 +119,7 @@ export function MenuButton({ icon, label, title, options, footer, onPick, onOpen
           size="sm"
           icon={icon}
           iconRight="ChevronDown"
-          className="fw-chat-menu__trigger fw-chat-composer__labelled-trigger"
+          className={`fw-chat-menu__trigger fw-chat-composer__labelled-trigger${triggerClassName ? ` ${triggerClassName}` : ''}`}
           aria-haspopup="menu"
           aria-expanded={open}
           title={title}
@@ -136,7 +141,7 @@ export function MenuButton({ icon, label, title, options, footer, onPick, onOpen
       )}
       {open ? (
         <div className="fw-chat-menu__panel" role="menu" aria-label={label}>
-          <p className="fg-eyebrow fw-chat-menu__title">{title}</p>
+          {panelHeading !== '' ? <p className="fw-chat-menu__title">{panelHeading}</p> : null}
           {options.map((option) => {
             const selected = selectedId !== undefined && option.id === selectedId;
             return (
@@ -154,7 +159,7 @@ export function MenuButton({ icon, label, title, options, footer, onPick, onOpen
               >
                 <Icon name={option.icon} size="sm" />
                 <span className="fw-chat-menu__item-text">
-                  <Machine
+                  <span
                     className={
                       option.detail
                         ? 'fw-chat-menu__item-label'
@@ -162,14 +167,14 @@ export function MenuButton({ icon, label, title, options, footer, onPick, onOpen
                     }
                   >
                     {option.label}
-                  </Machine>
+                  </span>
                   {option.detail ? <span className="fw-chat-menu__item-detail">{option.detail}</span> : null}
                 </span>
                 {selected ? <Icon name="Check" size="xs" className="fw-chat-menu__item-check" /> : null}
               </button>
             );
           })}
-          <p className="fw-chat-menu__note">{footer}</p>
+          {footer !== '' ? <p className="fw-chat-menu__note">{footer}</p> : null}
         </div>
       ) : null}
     </div>

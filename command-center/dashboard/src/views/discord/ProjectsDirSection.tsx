@@ -26,7 +26,12 @@ import {
   useGatewayProjectsDir,
 } from '@/prototype/state/gateway-discord-projects-dir';
 import type { ProjectsDirSource } from '@/prototype/state/gateway-discord-projects-dir';
+import type { Locale, Translate } from '@/i18n';
 import './projects-dir.css';
+import { useLocale } from '@/i18n/use-locale';
+import { formatNumber } from '@/i18n/format';
+
+type C = Translate;
 
 /* ------------------------------------------------------------------ atoms */
 
@@ -42,21 +47,28 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-function describeSource(source: ProjectsDirSource): string {
-  if (source === 'setting') return 'Chosen by you.';
-  if (source === 'default') return 'The default location — nothing chosen yet.';
-  return 'Not reported by the gateway.';
+function describeSource(source: ProjectsDirSource, t: C): string {
+  if (source === 'setting') return t('rd.discord.dir.sourceSetting');
+  if (source === 'default') return t('rd.discord.dir.sourceDefault');
+  return t('rd.discord.notReported');
+}
+
+/** The source word itself (shown in the machine face): Dutch words for the two known values. */
+function sourceValue(source: ProjectsDirSource, t: C): string {
+  if (source === 'setting') return t('rd.discord.dir.sourceValueSetting');
+  if (source === 'default') return t('rd.discord.dir.sourceValueDefault');
+  return source ?? '—';
 }
 
 /** `truncated` (Codex run B F-04): the gateway's scan stopped at its budget before finishing the
  *  directory — `count` is then a LOWER BOUND ("at least this many"), shown as "N+" rather than a
  *  number that reads as exact when it might not be. */
-function describeCount(exists: boolean, count: number | null, truncated: boolean): string {
-  if (!exists) return 'This folder does not exist yet.';
-  if (count === null) return 'Could not read this folder right now.';
-  if (truncated) return `${count}+ project folders found (there may be more — this folder is very large).`;
-  if (count === 0) return 'No project folders in here yet.';
-  return count === 1 ? '1 project folder found.' : `${count} project folders found.`;
+function describeCount(exists: boolean, count: number | null, truncated: boolean, t: C, locale: Locale): string {
+  if (!exists) return t('rd.discord.dir.notExists');
+  if (count === null) return t('rd.discord.dir.unreadable');
+  if (truncated) return t('rd.discord.dir.truncated', { count: formatNumber(count, locale) });
+  if (count === 0) return t('rd.discord.dir.none');
+  return t(count === 1 ? 'rd.discord.dir.countOne' : 'rd.discord.dir.countMany', { count: formatNumber(count, locale) });
 }
 
 /** Joins a browsed directory with a chosen subfolder name. Deliberately a forward slash — Node's
@@ -77,6 +89,7 @@ function FolderBrowser({
   saving: boolean;
   onPick: (dir: string, create: boolean) => void;
 }) {
+  const { t } = useLocale();
   const [current, setCurrent] = useState<string | null>(null);
   const [parent, setParent] = useState<string | null>(null);
   const [folders, setFolders] = useState<readonly string[]>([]);
@@ -96,7 +109,7 @@ function FolderBrowser({
     const result = await requestBrowseFolder(dir);
     setLoading(false);
     if (!result.ok) {
-      setBrowseError(result.error ?? 'Could not read that folder.');
+      setBrowseError(result.error ?? t('rd.discord.dir.readError'));
       return;
     }
     setCurrent(result.path);
@@ -114,7 +127,7 @@ function FolderBrowser({
       const result = await requestBrowseFolder(startDir ?? undefined);
       if (cancelled) return;
       if (!result.ok) {
-        setBrowseError(result.error ?? 'Could not read that folder.');
+        setBrowseError(result.error ?? t('rd.discord.dir.readError'));
         setLoading(false);
         return;
       }
@@ -152,14 +165,14 @@ function FolderBrowser({
         {parent !== null ? (
           <button type="button" className="fw-projdir__item" onClick={() => void load(parent)}>
             <Icon name="ArrowUp" size="xs" />
-            <span className="fw-projdir__item-name">.. (up one level)</span>
+            <span className="fw-projdir__item-name">{t('rd.discord.dir.up')}</span>
           </button>
         ) : null}
         {loading ? (
-          <p className="fw-projdir__hint">Reading folders…</p>
+          <p className="fw-projdir__hint">{t('rd.discord.dir.reading')}</p>
         ) : folders.length === 0 ? (
           parent === null ? (
-            <EmptyState compact icon="FolderSearch" title="No subfolders here" />
+            <EmptyState compact icon="FolderSearch" title={t('rd.discord.dir.noSubfolders')} />
           ) : null
         ) : (
           folders.map((name) => (
@@ -177,20 +190,20 @@ function FolderBrowser({
       </div>
 
       {!loading && foldersTruncated ? (
-        <p className="fw-projdir__hint">This folder is very large — showing only part of the list.</p>
+        <p className="fw-projdir__hint">{t('rd.discord.dir.partial')}</p>
       ) : null}
 
       <div className="fw-projdir__actions">
         <Button variant="primary" disabled={saving || current === null} onClick={() => current !== null && onPick(current, false)}>
-          {saving ? 'Saving…' : 'Use this folder'}
+          {saving ? t('rd.discord.dir.saving') : t('rd.discord.dir.useFolder')}
         </Button>
       </div>
 
       <div className="fw-projdir__advanced">
         <Field
-          label="Or type a path"
+          label={t('rd.discord.dir.typed')}
           htmlFor="fw-projdir-typed-path"
-          hint="For advanced use — the folder can be created for you if it does not exist yet."
+          hint={t('rd.discord.dir.typedHint')}
         >
           <input
             id="fw-projdir-typed-path"
@@ -200,14 +213,14 @@ function FolderBrowser({
             spellCheck={false}
             value={typedPath}
             onChange={(event) => setTypedPath(event.target.value)}
-            placeholder={current ?? 'C:\\Users\\you\\Documents\\ForgeProjects'}
+            placeholder={current ?? t('rd.discord.dir.typedPlaceholder')}
           />
         </Field>
         <div className="fw-projdir__create-toggle">
           <Switch
             checked={createIfMissing}
             onChange={setCreateIfMissing}
-            label="Create this folder if it doesn't exist yet"
+            label={t('rd.discord.dir.create')}
             size="sm"
           />
         </div>
@@ -217,7 +230,7 @@ function FolderBrowser({
             disabled={saving || typedPath.trim().length === 0}
             onClick={() => onPick(typedPath.trim(), createIfMissing)}
           >
-            {saving ? 'Saving…' : 'Use this path'}
+            {saving ? t('rd.discord.dir.saving') : t('rd.discord.dir.usePath')}
           </Button>
         </div>
       </div>
@@ -229,6 +242,7 @@ function FolderBrowser({
 
 export default function ProjectsDirSection() {
   const { data, error, loading, refresh } = useGatewayProjectsDir();
+  const { t, locale } = useLocale();
   const [browserOpen, setBrowserOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -242,17 +256,17 @@ export default function ProjectsDirSection() {
     const result = await requestSetProjectsDir(dir, create);
     setSaving(false);
     if (!result.ok) {
-      setSaveError(result.error ?? 'The gateway could not save this folder.');
+      setSaveError(result.error ?? t('rd.discord.dir.saveFailed'));
       return;
     }
     setBrowserOpen(false);
     refresh();
     if (result.restarted) {
-      setSaveNote('Saved — the bot restarted and channels are being made for each project folder.');
+      setSaveNote(t('rd.discord.dir.restarted'));
     } else if (result.restartError !== null) {
-      setSaveNote(`Saved, but the bot could not restart automatically: ${result.restartError}`);
+      setSaveNote(t('rd.discord.dir.restartFailed', { error: result.restartError }));
     } else {
-      setSaveNote('Saved. This folder will be used the next time the bot starts.');
+      setSaveNote(t('rd.discord.dir.savedLater'));
     }
   }
 
@@ -264,27 +278,27 @@ export default function ProjectsDirSection() {
 
   return (
     <Panel
-      title="Projects folder"
-      subtitle="Every subfolder in this location automatically becomes a Discord project channel. The bot also keeps a short history file (FORGE_GESCHIEDENIS.txt) in each of those project folders, so it remembers earlier conversations."
+      title={t('rd.discord.dir.title')}
+      subtitle={t('rd.discord.dir.subtitle')}
     >
       {error !== null ? (
         <p className="fw-discord__transport-error" role="alert">
           <Icon name="Unplug" size="sm" />
-          <span>Could not reach the gateway: {error}</span>
+          <span>{t('rd.discord.unreachable', { error })}</span>
         </p>
       ) : null}
 
       {loading ? (
-        <EmptyState compact icon="Loader" title="Reading the projects folder…" />
+        <EmptyState compact icon="Loader" title={t('rd.discord.dir.loading')} />
       ) : (
         <div className="fw-discord__rows">
-          <Row label="Discord looks in" hint={describeCount(data.exists, data.projectCount, data.projectCountTruncated)}>
+          <Row label={t('rd.discord.dir.looksIn')} hint={describeCount(data.exists, data.projectCount, data.projectCountTruncated, t, locale)}>
             <Machine muted className="fw-discord__row-path">
               {data.dir || '—'}
             </Machine>
           </Row>
-          <Row label="Source" hint={describeSource(data.source)}>
-            <Machine muted>{data.source ?? '—'}</Machine>
+          <Row label={t('rd.discord.dir.source')} hint={describeSource(data.source, t)}>
+            <Machine muted>{sourceValue(data.source, t)}</Machine>
           </Row>
         </div>
       )}
@@ -293,19 +307,19 @@ export default function ProjectsDirSection() {
 
       <div className="fw-projdir__actions">
         <Button variant="ghost" icon="FolderOpen" disabled={saving} onClick={openBrowser}>
-          {saving ? 'Saving…' : 'Change folder'}
+          {saving ? t('rd.discord.dir.saving') : t('rd.discord.dir.change')}
         </Button>
       </div>
 
       <Modal
         open={browserOpen}
         onClose={() => setBrowserOpen(false)}
-        title="Choose a projects folder"
-        description="Pick an existing folder, or type a path for advanced use."
+        title={t('rd.discord.dir.modalTitle')}
+        description={t('rd.discord.dir.modalDetail')}
         size="md"
         footer={
           <Button variant="ghost" disabled={saving} onClick={() => setBrowserOpen(false)}>
-            Cancel
+            {t('rd.discord.dir.cancel')}
           </Button>
         }
       >

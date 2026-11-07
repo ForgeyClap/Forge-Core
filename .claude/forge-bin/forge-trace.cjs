@@ -69,14 +69,28 @@ const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
 const VERIFIED_EVENT_TYPES = new Set(['check_passed', 'quality_gate_passed', 'retest_completed']);
 const INTAKE_NOTE_RE = /intake/i;
 
+// WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
+// folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
+const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
+function statePath(root, key, read) {
+  const legacy = path.join(root, '.claude', 'forge-' + key);
+  if (!forgePaths) return legacy;
+  try { return forgePaths.layout(root) !== 'forge' ? legacy : (read ? forgePaths.resolveExisting(root, key) : forgePaths.stateDir(root, key)); }
+  catch (e) { if (process.env.FORGE_STATE_DIR || fs.existsSync(path.join(root, '.forge'))) throw e; return legacy; }
+}
+
+/** resolveRoot(explicit?) -> explicit > FORGE_PROJECT_ROOT > this copy's project (forge-paths scriptRoot; null for a
+ *  plugin copy outside any project). */
 function resolveRoot(explicit) {
   if (explicit) return path.resolve(explicit);
   if (process.env.FORGE_PROJECT_ROOT) return path.resolve(process.env.FORGE_PROJECT_ROOT);
-  return path.resolve(__dirname, '..', '..');
+  return forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 }
 function isValidRunId(id) { return typeof id === 'string' && RUN_ID_RE.test(id); }
 function eventsPath(root, runId) {
-  const base = path.join(root, '.claude', 'forge-runs');
+  // the active runs folder, or the legacy one when this run only exists there (WP 2.1, one run never spans two)
+  const active = statePath(root, 'runs'), legacy = path.join(root, '.claude', 'forge-runs');
+  const base = active !== legacy && !fs.existsSync(path.join(active, runId)) && fs.existsSync(path.join(legacy, runId)) ? legacy : active;
   const p = path.join(base, runId, 'events.jsonl');
   const resolved = path.resolve(p), resolvedBase = path.resolve(base);
   if (resolved !== resolvedBase && !resolved.startsWith(resolvedBase + path.sep)) throw new Error('forge-trace: path escapes forge-runs — refused');
@@ -200,6 +214,7 @@ function trace(input, opts) {
   const runId = input.run_id;
   if (!isValidRunId(runId)) throw new Error('forge-trace: trace requires a valid run_id');
   const root = resolveRoot(opts.root);
+  if (!root) throw new Error('forge-trace: no project root found (no .claude, .forge or .git above the current folder; pass opts.root or set FORGE_PROJECT_ROOT)');
   const events = readEventsJsonl(eventsPath(root, runId));
   const projected = projectTrace(events);
   return Object.assign({ ok: true, run_id: runId }, projected);

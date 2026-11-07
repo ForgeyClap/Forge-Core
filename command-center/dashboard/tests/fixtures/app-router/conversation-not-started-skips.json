@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "id": "c-not-started",
+  "turns": [
+    { "type": "turn", "turn_id": "t1", "request_id": "r1", "role": "user", "text": "Maak de knop op de startpagina groter.", "created_at": "2026-11-04T10:00:00.000Z" },
+    {
+      "type": "turn",
+      "turn_id": "t1",
+      "request_id": "r1",
+      "role": "assistant",
+      "text": "",
+      "created_at": "2026-11-04T10:00:03.000Z",
+      "error": "rate limit reached",
+      "route": {
+        "target_id": "main", "kind": "claude-account", "label": "Hoofdaccount", "model": null, "capability": "full",
+        "reason": "first", "switched": false, "from_target_id": null, "from_label": null,
+        "from_window": null, "from_pct": null, "from_resume_at": null,
+        "attempt": 1, "retried": false, "outcome": "rate_limited", "handover": null
+      }
+    },
+    { "type": "turn", "turn_id": "t2", "request_id": "r2", "role": "user", "text": "Kun je de tekst op de knop korter maken?", "created_at": "2026-11-04T10:05:00.000Z" }
+  ],
+  "events": [
+    { "kind": "route_selected", "turn_id": "t1", "request_id": "r1", "data": { "target_id": "main", "label": "Hoofdaccount", "kind": "claude-account", "capability": "full", "reason": "first", "attempt": 1, "skipped": [] } },
+    { "kind": "forge_error", "turn_id": "t1", "request_id": "r1", "data": { "type": "forge_error", "source": "stream", "code": "rate_limited", "resume_at": "2026-11-04T12:00:00.000Z" } },
+    {
+      "kind": "execution_not_started", "turn_id": "t1", "request_id": "r1-r2",
+      "data": {
+        "reason": "the turn could not start", "attempt": 2,
+        "skipped": [
+          { "target_id": "mijn-vllm-qwen", "label": "Mijn vLLM · qwen2.5-coder", "provider": "custom-mijn-vllm", "reason": "provider_unavailable" },
+          { "target_id": "groq-eigen", "label": "Groq eigen · llama-3.3-70b", "provider": "custom-groq", "reason": "paid_ack_required" }
+        ]
+      }
+    },
+    {
+      "kind": "execution_not_started", "turn_id": "t2", "request_id": "r2",
+      "data": {
+        "reason": "the turn could not start", "code": "not_started",
+        "skipped": [
+          { "target_id": "mijn-vllm-qwen", "label": "Mijn vLLM · qwen2.5-coder", "provider": "custom-mijn-vllm", "reason": "provider_unavailable" }
+        ]
+      }
+    }
+  ]
+}

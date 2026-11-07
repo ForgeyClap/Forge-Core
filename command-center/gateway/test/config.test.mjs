@@ -722,3 +722,18 @@ test('POST /api/config value validation: missing value on "set", and a non-strin
     assert.equal(fs.existsSync(sentinelPath), false, 'nothing here should ever reach a spawn');
   });
 });
+
+// Test Boss finding B8-2, RED on f9c631a: the dev gateway runs on electron.exe with
+// ELECTRON_RUN_AS_NODE=1; without forwarding it every process.execPath child became a full Electron.
+test('filteredEnv() forwards ELECTRON_RUN_AS_NODE when the gateway itself runs as node under Electron (dev layout)', () => {
+  const before = process.env.ELECTRON_RUN_AS_NODE;
+  try {
+    process.env.ELECTRON_RUN_AS_NODE = '1';
+    assert.equal(filteredEnv().ELECTRON_RUN_AS_NODE, '1', 'forwarded when set');
+    assert.equal(filteredEnv({ credentialFree: true }).ELECTRON_RUN_AS_NODE, '1', 'it is not credential-shaped');
+    delete process.env.ELECTRON_RUN_AS_NODE;
+    assert.equal(filteredEnv().ELECTRON_RUN_AS_NODE, undefined, 'a real node gateway forwards nothing');
+  } finally {
+    if (before === undefined) delete process.env.ELECTRON_RUN_AS_NODE; else process.env.ELECTRON_RUN_AS_NODE = before;
+  }
+});

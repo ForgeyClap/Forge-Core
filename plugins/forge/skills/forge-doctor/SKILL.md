@@ -1,6 +1,7 @@
 ---
 name: forge-doctor
-description: Runs Forge's self-test + secret-leak scan across source, tests, and dashboard. Use before shipping or when asked to test everything, check it executes, or find leaks.
+description: "User-invoked only: /forge-doctor. Runs Forge's multi-minute self-test (every suite) plus the secret-leak scan; kept manual because one run costs minutes of CPU."
+disable-model-invocation: true
 ---
 
 # forge-doctor — self-test + leak scan

@@ -10,8 +10,9 @@
  */
 
 import { ExampleTag, Machine } from '@/components/primitives';
+import { t } from '@/i18n';
 import type { PrototypeState, Selection } from '@/prototype/state/prototype-store';
-import { Console, Fields, KIND_LABEL, LinkRow, Prose, Section, VERDICT_STATUS } from './inspector-shared';
+import { Console, Fields, KIND_LABEL, LinkRow, Prose, Section, VERDICT_STATUS, Quiet } from './inspector-shared';
 import type { Detail, SelectFn } from './inspector-shared';
 
 export function buildGateDetail(
@@ -30,12 +31,12 @@ export function buildGateDetail(
       <>
         <Fields
           rows={[
-            { label: 'Duration', value: <Machine muted>{gate.duration}</Machine> },
-            { label: 'Last run', value: <Machine muted>{gate.lastRun}</Machine> },
-            { label: 'Evidence', value: <Machine>{gate.evidenceCount}</Machine> },
+            { label: t('rd.details.field.duration'), value: <Quiet>{gate.duration}</Quiet> },
+            { label: t('rd.details.field.lastRun'), value: <Quiet>{gate.lastRun}</Quiet> },
+            { label: t('rd.details.field.evidence'), value: gate.evidenceCount },
           ]}
         />
-        <Section title="Recorded output" defaultOpen count={<ExampleTag />}>
+        <Section title={t('rd.details.section.output')} defaultOpen count={<ExampleTag />}>
           <Console text={gate.output} />
         </Section>
       </>
@@ -61,31 +62,29 @@ export function buildProofDetail(
     status: VERDICT_STATUS[entry.verdict],
     subtitle: (
       <Machine muted>
-        {entry.id} · {entry.verdict}
+        {entry.id} · {t(`rd.tests.verdict.${entry.verdict}`)}
       </Machine>
     ),
     body: (
       <>
         <Fields
           rows={[
-            { label: 'Agent', value: entry.agent },
-            { label: 'Task', value: <Machine>{entry.taskId}</Machine> },
-            { label: 'Recorded', value: <Machine muted>{entry.timestamp}</Machine> },
-            { label: 'Artifact', value: <Machine>{entry.artifact ?? 'none'}</Machine> },
+            { label: t('rd.details.field.agent'), value: entry.agent },
+            { label: t('rd.details.field.task'), value: <Machine>{entry.taskId}</Machine> },
+            { label: t('rd.details.field.recorded'), value: <Quiet>{entry.timestamp}</Quiet> },
+            { label: t('rd.details.field.artifact'), value: <Machine>{entry.artifact ?? t('rd.details.none')}</Machine> },
           ]}
         />
-        <Section title="Verdict reason" defaultOpen>
+        <Section title={t('rd.details.section.reason')} defaultOpen>
           <Prose>{entry.reason}</Prose>
         </Section>
-        <Section title="Command" count={<ExampleTag />}>
+        <Section title={t('rd.details.section.command')} count={<ExampleTag />}>
           <Console text={`$ ${entry.command}`} />
           <p className="fw-inspector__hint">
-            {production
-              ? 'Recorded as text from the run that reported it. It is never executed from this panel.'
-              : 'Recorded as text in the example ledger. It was never executed here.'}
+            {production ? t('rd.details.commandLive') : t('rd.details.commandExample')}
           </p>
         </Section>
-        <Section title="Linked">
+        <Section title={t('rd.details.section.linked')}>
           <div className="fw-inspector__links">
             <LinkRow
               icon="ListChecks"

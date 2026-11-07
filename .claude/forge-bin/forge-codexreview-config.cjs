@@ -45,13 +45,29 @@
  *     parse/re-quote it; `commandToDisplayString()` renders that array as a human-readable string for
  *     prose/logs only — it is never itself executed.
  *
+ * WP A5 (owner: no Codex account): the shipped config carries `review.enabled: false`, so Codex is
+ * OFF by default. isEnabled() is the one reader (fail-closed). The user file may additionally set
+ * `review.enabled` (strict boolean). `run` still executes on an explicit request but prints a NOTICE first.
+ * Rework (Review Boss, same day): the /forge step-10 decision reads BOTH switches through flowDecision()/
+ * decideFlow() (CLI `decide`): the /forge config key `codex-review` (schema default now `off`) AND isEnabled().
+ *
  * Every consumer (the codex-reviewer agent, the forge-code-review skill, this file's own test) reads
  * effectiveConfig()/buildCommand() — or, for a human/agent without Node in hand, reads BOTH json files
- * and applies the exact same "user may only override review.model/review.reasoning_effort, validated"
+ * and applies the exact same "user may only override review.model/review.reasoning_effort (validated) and
+ * review.enabled (strict boolean)"
  * rule described here — instead of restating a model name from memory or hand-building a command string.
  */
 const fs = require('fs');
 const path = require('path');
+// WP 2.1: the default project root comes from forge-paths scriptRoot when it is there (optional require): an installed
+// copy keeps exactly the old own-folder answer; a plugin copy finds the project from CLAUDE_PROJECT_DIR / the cwd and
+// never the plugin's parent folder (null = no project found, the CLI then asks for --root).
+let forgePaths = null;
+try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.scriptRoot === 'function') forgePaths = fp; } catch { forgePaths = null; }
+function defaultRoot() {
+  if (!forgePaths) return path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  try { return forgePaths.scriptRoot(__dirname); } catch { return null; }
+}
 const { spawnSync } = require('child_process');
 
 function configDirOf(root) { return path.join(root, '.claude', 'config', 'orchestration'); }
@@ -145,11 +161,17 @@ function mergeReviewSection(shippedReview, userReview, warnings) {
   const base = Object.assign({}, (shippedReview && typeof shippedReview === 'object') ? shippedReview : {});
   if (!userReview || typeof userReview !== 'object') return base;
 
-  const ignoredKeys = Object.keys(userReview).filter((k) => k !== 'model' && k !== 'reasoning_effort');
+  const ignoredKeys = Object.keys(userReview).filter((k) => k !== 'model' && k !== 'reasoning_effort' && k !== 'enabled');
   if (ignoredKeys.length) {
     warnings.push('codex-review.user.json: ignored review.' + ignoredKeys.join(', review.') +
-      ' — only review.model and review.reasoning_effort may ever be overridden there; every other review ' +
+      ' — only review.model, review.reasoning_effort and review.enabled may ever be overridden there; every other review ' +
       'field (sandbox, engine, min_cli_version, ...) always comes from the shipped codex-review.json');
+  }
+  // 2026-11-01 (WP A5, Codex off by default): an account that has Codex may switch the review ON in its own
+  // user file. Only a strict boolean counts — turning a read-only review on or off loosens nothing else.
+  if (Object.prototype.hasOwnProperty.call(userReview, 'enabled')) {
+    if (typeof userReview.enabled === 'boolean') base.enabled = userReview.enabled;
+    else warnings.push('codex-review.user.json: ignored review.enabled ' + JSON.stringify(userReview.enabled) + ' — only true or false is accepted');
   }
   if (Object.prototype.hasOwnProperty.call(userReview, 'model')) {
     const clean = sanitizeModel(userReview.model, warnings);
@@ -169,7 +191,7 @@ function mergeReviewSection(shippedReview, userReview, warnings) {
 function lockedSection(shippedSection, userSection, sectionName, warnings) {
   if (userSection && typeof userSection === 'object' && Object.keys(userSection).length) {
     warnings.push('codex-review.user.json: ignored the entire "' + sectionName + '" section (' + Object.keys(userSection).join(', ') +
-      ') — only review.model/review.reasoning_effort can be overridden from the user file; the shipped value is kept');
+      ') — only review.model, review.reasoning_effort and review.enabled (strict boolean) can be overridden from the user file; the shipped value is kept');
   }
   return Object.assign({}, (shippedSection && typeof shippedSection === 'object') ? shippedSection : {});
 }
@@ -282,6 +304,56 @@ function effortLabel(effective) { return validatedEffort(effective && effective.
  *  by the user override) — the single place "is there an active pin at all?" is decided. R5 fix: same
  *  validatedModel() as modelLabel()/buildCommand(), never the raw value. */
 function isPinned(effective) { return !!validatedModel(effective && effective.review && effective.review.model); }
+
+/** isEnabled(effective) -> true only when the effective `review.enabled` is the boolean `true`. Fail-closed:
+ *  a missing, null or non-boolean value means DISABLED. Owner 2026-11-01 (WP A5): Codex is off by default
+ *  (no account), so the default Forge flow must not plan a Codex code-review; the shipped codex-review.json
+ *  carries `review.enabled: false` and an account with Codex turns it on in its own codex-review.user.json. */
+function isEnabled(effective) { return !!(effective && effective.review && effective.review.enabled === true); }
+
+const DISABLED_NOTICE = 'Codex review is disabled by default (owner 2026-11-01). The default flow uses the ECC ' +
+  'code-reviewer/security-reviewer FALLBACK instead; set {"review":{"enabled":true}} in codex-review.user.json ' +
+  'to turn it on for this account. Running it anyway because it was asked for explicitly.';
+
+const CONFIG_KEY_VALUES = ['auto', 'on-request', 'off'];
+const DISABLED_REASON = 'disabled by owner 2026-11-01 (no Codex account; review.enabled is not true)';
+
+/** flowDecision(configValue, effective, opts) -> the /forge step-10 decision (WP A5 rework).
+ *  Codex is dispatched only when BOTH switches allow it: the /forge config key `codex-review` is not `off`
+ *  AND isEnabled(effective) is true. Each switch alone keeps Codex off; an unknown config value counts as
+ *  `off` (fail-closed). When Codex is not dispatched the state is NOT INVOKED, the review runs as the labelled
+ *  ECC FALLBACK, and no unlock diagnosis runs (nothing failed: it was switched off). `on-request` dispatches
+ *  only when opts.requested is true; `auto` limits the dispatch to important code (the Lead judges scope). */
+function flowDecision(configValue, effective, opts) {
+  const value = CONFIG_KEY_VALUES.includes(configValue) ? configValue : 'off';
+  const enabled = isEnabled(effective);
+  const label = (effective && effective.fallback && typeof effective.fallback.label === 'string')
+    ? effective.fallback.label : 'FALLBACK (non-independent) review — Codex did not run because: <reason>';
+  const skip = (reason) => ({ dispatch: false, state: 'NOT INVOKED', reason, config_value: value, enabled,
+    fallback: label.replace('<reason>', reason), unlock_diagnosis: false });
+  if (value === 'off') return skip(enabled ? 'config codex-review=off' : 'config codex-review=off; ' + DISABLED_REASON);
+  if (!enabled) return skip(DISABLED_REASON);
+  if (value === 'on-request' && !(opts && opts.requested === true)) return skip('config codex-review=on-request and the owner did not ask');
+  return { dispatch: true, state: 'PLANNED', reason: null, config_value: value, enabled, fallback: null,
+    scope: value === 'auto' ? 'important code only' : 'owner request', unlock_diagnosis: 'only if the dispatched run cannot start' };
+}
+
+/** decideFlow(opts) -> flowDecision() fed by the REAL readers: forge-config.cjs safeGet('codex-review') (schema
+ *  default + global/project files, never throws; degraded falls back to the key's safe value `off`) and
+ *  effectiveConfig(root). opts: {root, requested, configOpts} — configOpts goes to forge-config (projectRoot,
+ *  configHome, schemaPath) so a test can point it at a fixture or a mutant schema. */
+function decideFlow(opts) {
+  const o = opts || {};
+  const root = o.root || defaultRoot();
+  let value = 'off', source = 'fail-closed';
+  try {
+    const cfg = require(path.join(__dirname, 'forge-config.cjs'));
+    const r = cfg.safeGet('codex-review', Object.assign({ projectRoot: root, fallback: 'off' }, o.configOpts || {}));
+    value = r.value; source = r.source;
+  } catch (e) { source = 'fail-closed (' + String(e && e.message || e).slice(0, 120) + ')'; }
+  const eff = root ? effectiveConfig(root) : null;
+  return Object.assign(flowDecision(value, eff, { requested: o.requested === true }), { config_source: source });
+}
 
 // Windows-native-Codex fix (2026-09-26 independent review): the npm shim's OWN `codex.js` is a thin
 // wrapper that `spawn`s the real `codex.exe` with `stdio: 'inherit'` — a spawnSync TIMEOUT against
@@ -446,8 +518,8 @@ function runCodex(effective, opts) {
 
 module.exports = {
   shippedPathOf, userPathOf, effectiveConfig, buildCommand, commandToDisplayString, modelLabel, effortLabel, isPinned,
-  resolveCodexBin, runCodex, resolveCodexTimeoutMs,
-  MODEL_PATTERN, ALLOWED_EFFORTS, DEFAULT_CODEX_TIMEOUT_MS,
+  isEnabled, flowDecision, decideFlow, resolveCodexBin, runCodex, resolveCodexTimeoutMs,
+  MODEL_PATTERN, ALLOWED_EFFORTS, DEFAULT_CODEX_TIMEOUT_MS, DISABLED_NOTICE, DISABLED_REASON,
 };
 
 /** parseRunArgs(rest) -> CLI options for the `run` subcommand.
@@ -478,7 +550,7 @@ function printShow(root) {
   const advCmd = buildCommand(eff, { adversarial: true });
   console.log(JSON.stringify({
     effective: eff,
-    model: modelLabel(eff), effort: effortLabel(eff), pinned: isPinned(eff),
+    enabled: isEnabled(eff), model: modelLabel(eff), effort: effortLabel(eff), pinned: isPinned(eff),
     command: cmd, command_display: commandToDisplayString(cmd),
     adversarial_command: advCmd, adversarial_command_display: commandToDisplayString(advCmd),
   }, null, 2));
@@ -486,10 +558,12 @@ function printShow(root) {
 
 function runRunCommand(rest) {
   const opts = parseRunArgs(rest);
-  const root = opts.root ? path.resolve(opts.root) : path.resolve(__dirname, '..', '..');
+  const root = opts.root ? path.resolve(opts.root) : defaultRoot();
+  if (!root) { console.error('forge-codexreview-config: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); process.exit(2); }
   const eff = effectiveConfig(root);
   if (!eff) { console.error('forge-codexreview-config: no readable codex-review.json under ' + shippedPathOf(root)); process.exit(2); }
   for (const w of eff._warnings) console.error('forge-codexreview-config: ' + w);
+  if (!isEnabled(eff)) console.error('forge-codexreview-config: NOTICE — ' + DISABLED_NOTICE);
   if (!opts.dryRun && !(typeof opts.prompt === 'string' && opts.prompt.trim())) {
     console.error('forge-codexreview-config: "run" needs --prompt "<the review prompt or focus>" (or --dry-run to only show the command) — codex is never started with the placeholder text.');
     process.exitCode = 2;
@@ -553,7 +627,18 @@ if (require.main === module) {
   const argv2 = process.argv.slice(2);
   if (argv2[0] === 'run') {
     runRunCommand(argv2.slice(1));
+  } else if (argv2[0] === 'decide') {
+    // `decide [--root <dir>] [--requested] [--json]`: the /forge step-10 decision, read-only, exit 0.
+    const ri = argv2.indexOf('--root');
+    const root = ri > 0 && argv2[ri + 1] ? path.resolve(argv2[ri + 1]) : defaultRoot();
+    if (!root) { console.error('forge-codexreview-config: no project root found — pass --root <dir>'); process.exit(2); }
+    const d = decideFlow({ root, requested: argv2.includes('--requested') });
+    if (argv2.includes('--json')) console.log(JSON.stringify(d));
+    else console.log(d.dispatch ? 'Codex review: PLANNED (' + d.scope + '; codex-review=' + d.config_value + ')'
+      : 'Codex review: NOT INVOKED — ' + d.reason + '. Use: ' + d.fallback);
   } else {
-    printShow(path.resolve(__dirname, '..', '..'));
+    const root = defaultRoot();
+    if (!root) { console.error('forge-codexreview-config: no project root found (no .claude, .forge or .git above the current folder)'); process.exit(2); }
+    printShow(root);
   }
 }

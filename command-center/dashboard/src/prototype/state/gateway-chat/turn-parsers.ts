@@ -16,6 +16,9 @@ import type { ChatMessage, MessageAuthor, MessageStep, StatusKey } from '@/proto
 
 import { pickArray, pickBool, pickNumber, pickRecord, pickString } from '@/prototype/state/gateway-client';
 
+import { parseRouteSkips } from './route-skips';
+import type { ChatRouteSkip } from './route-skips';
+
 /** refactor-chat-split: shared with `conversations.ts`'s own detail poll AND
  *  `send-controller.ts`'s own pending-turn-resolution poll — kept here (the base module both
  *  already depend on) rather than duplicated in either. */
@@ -347,6 +350,81 @@ function parseTurnSteps(turn: Record<string, unknown>, messageId: string): reado
   return out;
 }
 
+/**
+ * App router (APP-ROUTER-DESIGN.md §4.7, part P4): the optional `route` field the router writes onto an
+ * assistant turn record — which account or own model answered, whether that was a switch and why. Absent
+ * (null) when the router is off, for a user turn, a fixture message, or a turn recorded before the router
+ * existed. Read defensively: an unknown `kind`/`capability`/`outcome` reads as null, never as a guess.
+ */
+export type ChatRouteKind = 'claude-account' | 'codex-account' | 'provider-model';
+export type ChatRouteCapability = 'full' | 'answers-only' | 'read-answer';
+export type ChatRouteOutcome = 'ok' | 'rate_limited' | 'logged_out' | 'down' | 'error' | 'stopped';
+
+export interface ChatMessageRoute {
+  readonly targetId: string;
+  readonly kind: ChatRouteKind | null;
+  readonly label: string;
+  readonly model: string | null;
+  readonly capability: ChatRouteCapability | null;
+  readonly reason: string | null;
+  readonly switched: boolean;
+  readonly fromTargetId: string | null;
+  readonly fromLabel: string | null;
+  readonly fromWindow: string | null;
+  readonly fromPct: number | null;
+  readonly fromResumeAt: string | null;
+  readonly attempt: number;
+  readonly retried: boolean;
+  readonly outcome: ChatRouteOutcome | null;
+  readonly handover: { readonly turns: number; readonly chars: number | null; readonly truncated: boolean } | null;
+  /** Steps skipped while choosing this route (C1, `data.skipped` of a live route event); [] when not said. */
+  readonly skipped: readonly ChatRouteSkip[];
+}
+
+const ROUTE_KINDS: ReadonlySet<string> = new Set<ChatRouteKind>(['claude-account', 'codex-account', 'provider-model']);
+const ROUTE_CAPABILITIES: ReadonlySet<string> = new Set<ChatRouteCapability>(['full', 'answers-only', 'read-answer']);
+const ROUTE_OUTCOMES: ReadonlySet<string> = new Set<ChatRouteOutcome>(['ok', 'rate_limited', 'logged_out', 'down', 'error', 'stopped']);
+
+/** One `route` record (a turn's, or a live `route_switched`/`route_selected` event's data). */
+export function parseChatRoute(raw: Record<string, unknown> | null): ChatMessageRoute | null {
+  if (raw === null) return null;
+  const targetId = pickString(raw, ['target_id']);
+  if (targetId === null) return null;
+  const kind = pickString(raw, ['kind']);
+  const capability = pickString(raw, ['capability']);
+  const outcome = pickString(raw, ['outcome']);
+  const handover = pickRecord(raw, ['handover']);
+  const handoverTurns = handover ? pickNumber(handover, ['turns']) : null;
+  return {
+    targetId,
+    kind: kind !== null && ROUTE_KINDS.has(kind) ? (kind as ChatRouteKind) : null,
+    label: pickString(raw, ['label']) ?? targetId,
+    model: pickString(raw, ['model']),
+    capability: capability !== null && ROUTE_CAPABILITIES.has(capability) ? (capability as ChatRouteCapability) : null,
+    reason: pickString(raw, ['reason']),
+    switched: pickBool(raw, ['switched']) ?? false,
+    fromTargetId: pickString(raw, ['from_target_id']),
+    fromLabel: pickString(raw, ['from_label']),
+    fromWindow: pickString(raw, ['from_window']),
+    fromPct: pickNumber(raw, ['from_pct']),
+    fromResumeAt: pickString(raw, ['from_resume_at']),
+    attempt: pickNumber(raw, ['attempt']) ?? 1,
+    retried: pickBool(raw, ['retried']) ?? false,
+    outcome: outcome !== null && ROUTE_OUTCOMES.has(outcome) ? (outcome as ChatRouteOutcome) : null,
+    handover:
+      handover !== null && handoverTurns !== null
+        ? { turns: handoverTurns, chars: pickNumber(handover, ['chars']), truncated: pickBool(handover, ['truncated']) ?? false }
+        : null,
+    skipped: parseRouteSkips(raw),
+  };
+}
+
+/** Reads the extra `route` field `toGatewayMessage` attaches; null for every message without one. */
+export function readChatMessageRoute(message: ChatMessage): ChatMessageRoute | null {
+  const raw = message as unknown as Partial<{ route: ChatMessageRoute | null }>;
+  return raw.route && typeof raw.route === 'object' && typeof raw.route.targetId === 'string' ? raw.route : null;
+}
+
 /** Exported for `gateway-usage.ts`'s own parser test — a real fixture shaped
  *  exactly like a `GET /api/conversations/:id` turn record, straight through
  *  the actual production mapping (never a hand-rolled `ChatMessage` stand-in
@@ -355,7 +433,10 @@ export function toGatewayMessage(turn: Record<string, unknown>, index: number): 
   const role = pickString(turn, ['role']);
   const author: MessageAuthor = role === 'user' ? 'user' : 'forge';
   const id = pickString(turn, ['turn_id']) ?? `turn-${index}`;
+  // App router: only an assistant turn carries `route` (a failed attempt 1 is an event, see live-activity.ts).
+  const route = role === 'assistant' ? parseChatRoute(pickRecord(turn, ['route'])) : null;
   const record: Omit<ChatMessage, 'prototype'> & ChatMessageUsage & {
+    readonly route: ChatMessageRoute | null;
     readonly mode: string | null;
     readonly effort: string | null;
     readonly requestedModel: string | null;
@@ -408,6 +489,7 @@ export function toGatewayMessage(turn: Record<string, unknown>, index: number): 
     // feat-live-stream: real per-turn Bash commands, mirroring fileEdits' own convention exactly.
     shellCommands: parseShellCommands(turn),
     steps: parseTurnSteps(turn, id),
+    route,
   };
   return record as unknown as ChatMessage;
 }

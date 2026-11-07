@@ -1,15 +1,14 @@
 /*
- * Forge base layer - shared primitives for the dashboard, the chat and the
- * registry home view. Hand-written; safe to edit.
+ * Forge Systeem base layer (brand v1.0) - shared primitives for the dashboard, the chat and the
+ * registry home view. Hand-written; safe to edit. Uses only --fs-* tokens.
  *
  * Load order matters:   forge-tokens.css  ->  forge-base.css  ->  your view's CSS
  *
- * House rule that runs through this file:
- *   .fg-machine (mono)  = what the system recorded - run ids, event types,
- *                         agent names, ports, token counts, ledger lines.
- *   default    (sans)   = what a person wrote - chat, reports, descriptions.
- * If you can't tell which one a piece of text is, it probably shouldn't be in
- * the UI yet.
+ * House rules:
+ *   - One accent (Pauw): the main action, selection, focus and the "working" dot. Never decoration.
+ *   - Mono (.fg-machine) is for machine text only: addresses, commands, file paths, run ids. Never labels.
+ *   - No ALL CAPS. Labels are sentence case.
+ *   - Motion: transform and opacity only.
  */
 
 /* ------------------------------------------------------------------ reset */
@@ -26,23 +25,22 @@ html {
 
 body {
   margin: 0;
-  background: var(--forge-color-bg);
-  color: var(--forge-color-text);
-  font-family: var(--forge-font-sans);
-  font-size: var(--forge-text-base);
-  line-height: var(--forge-leading-normal);
-  letter-spacing: var(--forge-tracking-tight);
+  background: var(--fs-bg);
+  color: var(--fs-ink);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-body);
   -webkit-font-smoothing: antialiased;
 }
 
 ::selection {
-  background: var(--forge-color-selection);
+  background: var(--fs-accent-soft);
+  color: var(--fs-ink);
 }
 
 :focus-visible {
-  outline: var(--forge-border-thick) solid var(--forge-color-focus);
-  outline-offset: 2px;
-  border-radius: var(--forge-radius-xs);
+  outline: none;
+  box-shadow: var(--fs-focus);
 }
 
 :focus:not(:focus-visible) {
@@ -53,101 +51,77 @@ body {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
     scroll-behavior: auto !important;
   }
 }
 
-/* -------------------------------------------------------------- scrollbar */
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--forge-color-line-strong) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--forge-color-line-strong);
-  border: 3px solid transparent;
-  background-clip: padding-box;
-  border-radius: var(--forge-radius-full);
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--forge-color-text-faint);
-  background-clip: padding-box;
-}
-
 /* ------------------------------------------------------------- typography */
 
+.fg-display {
+  font-family: var(--fs-font-display);
+  font-weight: 350;
+  letter-spacing: var(--fs-track-display);
+  line-height: var(--fs-leading-tight);
+}
+
 .fg-machine {
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-sm);
-  letter-spacing: var(--forge-tracking-normal);
+  font-family: var(--fs-font-mono);
+  font-size: var(--fs-text-13);
+  letter-spacing: 0;
   font-variant-ligatures: none;
 }
 
+/* A section label: sentence case, small, semibold. (It was a mono caps eyebrow before v1.0.) */
 .fg-eyebrow {
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--forge-color-text-muted);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fs-ink-3);
 }
 
 .fg-prose {
-  font-size: var(--forge-text-md);
-  line-height: var(--forge-leading-relaxed);
-  max-width: var(--forge-reading, var(--forge-layout-reading));
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-body);
+  max-width: var(--fs-column);
 }
 
 .fg-muted {
-  color: var(--forge-color-text-muted);
+  color: var(--fs-ink-3);
 }
 
 /* ----------------------------------------------------------------- status */
 
-/*
- * Two axes, deliberately kept apart:
- *   .fg-status-* = live state, saturated signal colour
- *   .fg-group-*  = which agent group owns it, muted tempering colour
- * A node can carry both without the colours arguing.
- */
+/* Status is a dot plus a word, never a colour alone. Only the "working" dot moves. */
 
 .fg-dot {
   display: inline-block;
   inline-size: 8px;
   block-size: 8px;
-  border-radius: var(--forge-radius-full);
-  background: var(--forge-status-internal);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-ink-3);
   flex: none;
 }
 
 .fg-status-running .fg-dot,
-.fg-dot.is-running { background: var(--forge-status-running); }
+.fg-dot.is-running { background: var(--fs-accent); }
 .fg-status-completed .fg-dot,
-.fg-dot.is-completed { background: var(--forge-status-completed); }
+.fg-dot.is-completed { background: var(--fs-ok); }
 .fg-status-waiting .fg-dot,
-.fg-dot.is-waiting { background: var(--forge-status-waiting); }
+.fg-dot.is-waiting { background: var(--fs-warn); }
 .fg-status-previewing .fg-dot,
-.fg-dot.is-previewing { background: var(--forge-status-previewing); }
+.fg-dot.is-previewing { background: var(--fs-info); }
 .fg-status-failed .fg-dot,
-.fg-dot.is-failed { background: var(--forge-status-failed); }
+.fg-dot.is-failed { background: var(--fs-danger); }
 
 .fg-dot.is-running {
-  box-shadow: var(--forge-shadow-glow-running);
-  animation: fg-pulse 1.8s var(--forge-motion-ease-standard) infinite;
+  animation: fg-breathe 1.6s var(--fs-ease) infinite;
 }
 
-@keyframes fg-pulse {
-  50% { opacity: 0.45; }
+@keyframes fg-breathe {
+  50% { opacity: 0.4; }
 }
 
 /* ----------------------------------------------------------------- badges */
@@ -155,68 +129,40 @@ body {
 .fg-badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--forge-space-1);
-  padding: 2px var(--forge-space-2);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-sm);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text-secondary);
-  font-family: var(--forge-font-mono);
-  font-size: var(--forge-text-2xs);
-  font-weight: var(--forge-weight-medium);
-  letter-spacing: var(--forge-tracking-wide);
-  text-transform: uppercase;
+  gap: 6px;
+  padding: 2px var(--fs-space-2);
+  border-radius: var(--fs-radius-pill);
+  background: var(--fs-sunken);
+  color: var(--fs-ink-2);
+  font-family: var(--fs-font-body);
+  font-size: var(--fs-text-12);
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.fg-badge.is-running {
-  background: var(--forge-status-running-soft);
-  border-color: var(--forge-status-running-line);
-  color: var(--forge-status-running);
-}
-
-.fg-badge.is-completed {
-  background: var(--forge-status-completed-soft);
-  border-color: var(--forge-status-completed-line);
-  color: var(--forge-status-completed);
-}
-
-.fg-badge.is-waiting {
-  background: var(--forge-status-waiting-soft);
-  border-color: var(--forge-status-waiting-line);
-  color: var(--forge-status-waiting);
-}
-
-.fg-badge.is-previewing {
-  background: var(--forge-status-previewing-soft);
-  border-color: var(--forge-status-previewing-line);
-  color: var(--forge-status-previewing);
-}
-
-.fg-badge.is-failed {
-  background: var(--forge-status-failed-soft);
-  border-color: var(--forge-status-failed-line);
-  color: var(--forge-status-failed);
-}
+.fg-badge.is-running { background: var(--fs-accent-soft); color: var(--fs-accent-text); }
+.fg-badge.is-completed { background: var(--fs-ok-soft); color: var(--fs-ok); }
+.fg-badge.is-waiting { background: var(--fs-warn-soft); color: var(--fs-warn); }
+.fg-badge.is-previewing { background: var(--fs-info-soft); color: var(--fs-info); }
+.fg-badge.is-failed { background: var(--fs-danger-soft); color: var(--fs-danger); }
 
 /* -------------------------------------------------------------- surfaces */
 
 .fg-card {
-  background: var(--forge-color-surface-1);
-  border: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  border-radius: var(--forge-radius-lg);
-  box-shadow: var(--forge-shadow-sm);
+  background: var(--fs-surface);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-md);
+  box-shadow: var(--fs-shadow-1);
 }
 
 .fg-card.is-raised {
-  background: var(--forge-color-raised);
-  box-shadow: var(--forge-shadow-md);
+  box-shadow: var(--fs-shadow-2);
 }
 
 .fg-rule {
   border: 0;
-  border-top: var(--forge-border-hair) solid var(--forge-color-line-subtle);
-  margin: var(--forge-space-4) 0;
+  border-top: 1px solid var(--fs-line);
+  margin: var(--fs-space-4) 0;
 }
 
 /* --------------------------------------------------------------- controls */
@@ -225,24 +171,32 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--forge-space-2);
-  padding: var(--forge-space-2) var(--forge-space-4);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-2);
-  color: var(--forge-color-text);
+  gap: var(--fs-space-2);
+  min-block-size: var(--fs-control-md);
+  padding: 0 var(--fs-space-4);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
   font-family: inherit;
-  font-size: var(--forge-text-base);
-  font-weight: var(--forge-weight-medium);
-  line-height: var(--forge-leading-none);
+  font-size: var(--fs-text-14);
+  font-weight: 600;
+  line-height: 1;
   cursor: pointer;
-  transition: background var(--forge-motion-fast) var(--forge-motion-ease-standard),
-    border-color var(--forge-motion-fast) var(--forge-motion-ease-standard);
+  transition: transform var(--fs-dur-1) var(--fs-ease-spring);
 }
 
 .fg-btn:hover {
-  background: var(--forge-color-surface-3);
-  border-color: var(--forge-color-line-strong);
+  background: var(--fs-surface-2);
+  border-color: var(--fs-ink-3);
+}
+
+.fg-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+
+.fg-btn:focus-visible {
+  box-shadow: var(--fs-focus);
 }
 
 .fg-btn:disabled {
@@ -251,47 +205,57 @@ body {
 }
 
 .fg-btn.is-primary {
-  background: var(--forge-color-accent);
-  border-color: var(--forge-color-accent);
-  color: var(--forge-color-text-on-accent);
-  font-weight: var(--forge-weight-semibold);
+  background: var(--fs-accent);
+  border-color: var(--fs-accent);
+  color: var(--fs-ink-on-accent);
+  box-shadow: var(--fs-shadow-1);
 }
 
 .fg-btn.is-primary:hover {
-  background: var(--forge-color-accent-hover);
-  border-color: var(--forge-color-accent-hover);
+  background: var(--fs-accent-hover);
+  border-color: var(--fs-accent-hover);
+}
+
+.fg-btn.is-primary:active:not(:disabled) {
+  background: var(--fs-accent-active);
+  border-color: var(--fs-accent-active);
+}
+
+.fg-btn.is-primary:focus-visible {
+  box-shadow: var(--fs-shadow-1), var(--fs-focus);
 }
 
 .fg-btn.is-quiet {
   background: transparent;
   border-color: transparent;
-  color: var(--forge-color-text-secondary);
+  color: var(--fs-ink-2);
 }
 
 .fg-btn.is-quiet:hover {
-  background: var(--forge-color-surface-2);
-  border-color: transparent;
-  color: var(--forge-color-text);
+  background: var(--fs-sunken);
+  color: var(--fs-ink);
 }
 
 .fg-input {
   inline-size: 100%;
-  padding: var(--forge-space-2) var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-md);
-  background: var(--forge-color-surface-1);
-  color: var(--forge-color-text);
+  min-block-size: var(--fs-control-md);
+  padding: var(--fs-space-2) var(--fs-space-3);
+  border: 1px solid var(--fs-line-strong);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
   font-family: inherit;
-  font-size: var(--forge-text-base);
-  line-height: var(--forge-leading-snug);
+  font-size: var(--fs-text-14);
+  line-height: var(--fs-leading-snug);
 }
 
 .fg-input::placeholder {
-  color: var(--forge-color-text-faint);
+  color: var(--fs-ink-3);
 }
 
-.fg-input:focus {
-  border-color: var(--forge-color-accent);
+.fg-input:focus-visible {
+  border-color: var(--fs-accent);
+  box-shadow: var(--fs-focus);
 }
 
 /* ------------------------------------------------------------------- chat */
@@ -299,46 +263,46 @@ body {
 .fg-thread {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-6);
-  max-width: var(--forge-layout-reading);
+  gap: var(--fs-space-7);
+  max-width: var(--fs-column);
   margin-inline: auto;
-  padding: var(--forge-space-6) var(--forge-space-4);
+  padding: var(--fs-space-6) var(--fs-space-4);
 }
 
 .fg-msg {
   display: flex;
   flex-direction: column;
-  gap: var(--forge-space-2);
+  gap: var(--fs-space-4);
 }
 
+/* Your own message sits in an Inleg (sunken) bubble. */
 .fg-msg-you {
   align-self: flex-end;
   max-inline-size: 85%;
-  padding: var(--forge-space-3) var(--forge-space-4);
-  border-radius: var(--forge-radius-xl) var(--forge-radius-xl) var(--forge-radius-sm)
-    var(--forge-radius-xl);
-  background: var(--forge-color-surface-3);
+  padding: var(--fs-space-3) var(--fs-space-4);
+  border-radius: var(--fs-radius-lg);
+  background: var(--fs-sunken);
 }
 
-/* Forge answers on the canvas itself - no bubble. The agent isn't a person
-   sitting across from you, it's the room you're standing in. */
+/* Forge answers on the canvas itself, editorial, no bubble. */
 .fg-msg-forge {
-  font-size: var(--forge-text-md);
-  line-height: var(--forge-leading-relaxed);
+  font-size: var(--fs-text-15);
+  line-height: var(--fs-leading-body);
 }
 
+/* The composer carries the struck corner: this is where Forge works for you. */
 .fg-composer {
   position: sticky;
   bottom: 0;
-  max-inline-size: var(--forge-layout-composer);
+  max-inline-size: var(--fs-column);
   margin-inline: auto;
-  padding: var(--forge-space-3);
-  border: var(--forge-border-hair) solid var(--forge-color-line);
-  border-radius: var(--forge-radius-xl);
-  background: var(--forge-color-surface-1);
-  box-shadow: var(--forge-shadow-lg);
+  padding: var(--fs-space-3);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-struck);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-2);
 }
 
 .fg-composer:focus-within {
-  border-color: var(--forge-color-accent);
+  border-color: var(--fs-accent-line);
 }

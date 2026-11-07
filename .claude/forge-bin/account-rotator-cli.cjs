@@ -23,10 +23,11 @@ const core = require('./account-rotator-core.cjs');
 const vault = require('./account-rotator-vault.cjs');
 const R = require('./account-rotator.cjs');
 const tok = require('./account-rotator-token.cjs');
+const flagsLib = require('./account-rotator-flags.cjs');
 
 const SCRIPT = path.join(__dirname, 'account-rotator.cjs');
 const OFF_CMD = 'Uit / off: /forge config set account-rotator uit';
-const VALUE_FLAGS = ['--account', '--shell', '--interval', '--threshold', '--cooldown-min', '--mode', '--start-nonce'];
+const VALUE_FLAGS = ['--account', '--shell', '--interval', '--threshold', '--cooldown-min', '--mode', '--start-nonce', '--reason'];
 const LAUNCH_HINT = 'node .claude/forge-bin/account-rotator.cjs launch --auto -- <claude args>';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -81,7 +82,8 @@ function accountLines(P, T, now, activeName) {
     const rec = mode === 'token' ? tok.tokenReading(s, st.tokenReadings, st.readings) : st.readings[s.name];
     const r = core.effectiveReading(rec, now);
     const j = core.judge(r, T);
-    const verdict = j.usable === true ? 'bruikbaar/usable' : j.usable === false ? 'vol/full' : 'onbekend/unknown';
+    const ob = flagsLib.orgBlockOf(st.slotFlags, s.name);
+    const verdict = ob ? flagsLib.orgBlockText(ob) : j.untested ? flagsLib.UNTESTED_LABEL + ' (schatting, geen live meting / estimate, no live reading)' : j.usable === true ? 'bruikbaar/usable' : j.usable === false ? 'vol/full' : 'onbekend/unknown';
     const email = s.oauthAccount ? core.maskEmail(s.oauthAccount.emailAddress) : '(alleen token / token only)';
     const flags = [];
     if (st.slotFlags[s.name] && st.slotFlags[s.name].needsRelogin) flags.push('NIEUWE LOGIN NODIG / NEEDS RELOGIN');
@@ -118,7 +120,12 @@ async function cmdEnroll(P, args, deps) {
     const sameAccount = existing && existing.oauthAccount && existing.oauthAccount.accountUuid === acct.accountUuid;
     vault.writeSlot(P, Object.assign({}, existing && !existing.broken ? existing : {}, { name, credentials: { claudeAiOauth: live.creds.claudeAiOauth }, oauthAccount: acct, enrolledAt: new Date(deps.now()).toISOString() },
       sameAccount ? {} : { token: existing && !existing.broken ? existing.token : null, tokenBinding: existing && existing.token ? { status: 'unverified', reason: 'login re-enrolled for a different account', at: new Date(deps.now()).toISOString() } : null }), { keepPrev: true });
-    await vault.updateState(P, (s) => { if (s.slotFlags[name]) delete s.slotFlags[name]; if (!sameAccount) delete s.readings[name]; if (s.pendingVerify) s.pendingVerify = null; });
+    await vault.updateState(P, (s) => { // a new login lifts needsRelogin; an organization block stays for the SAME account
+      const ob = sameAccount && s.slotFlags[name] && s.slotFlags[name].orgBlocked;
+      if (ob) s.slotFlags[name] = { orgBlocked: ob }; else delete s.slotFlags[name];
+      if (!sameAccount) delete s.readings[name];
+      if (s.pendingVerify) s.pendingVerify = null;
+    });
     // AR-V07: the owner logged in and enrolled — the live files are now consistent with THIS slot, which supersedes an
     // open/unresolved transaction (also one that only knew two other slots)
     const sup = require('./account-rotator-txn.cjs').supersede(P, 'superseded by enroll ' + name + ' (owner logged in)');
@@ -282,7 +289,7 @@ async function cmdStop(P, argv, deps) {
 }
 
 // ---- main -------------------------------------------------------------------------------------------------------
-const HELP = 'account-rotator: enroll <name> | enroll-token <name> [--confirm-same-account] | list | status | check | launch [--account <name>|--auto] -- <claude args> (the default way to switch: a NEW session) | switch <name>|--auto [--force] (file mode only: --mode file or /forge config set account-rotator.mode file — experimental) | watch [--once] [--dry-run] | start | stop [--force] | env <name> [--shell powershell|posix] [--i-know] | remove <name> | disable | enable';
+const HELP = 'account-rotator: enroll <name> | enroll-token <name> [--confirm-same-account] | list | status | check | launch [--account <name>|--auto] -- <claude args> (the default way to switch: a NEW session) | switch <name>|--auto [--force] (file mode only: --mode file or /forge config set account-rotator.mode file — experimental) | watch [--once] [--dry-run] | start | stop [--force] | env <name> [--shell powershell|posix] [--i-know] | mark-blocked <name> --reason "<text>" | unblock <name> (state only) | remove <name> | disable | enable';
 async function main(argv, depsIn) {
   const deps = Object.assign({ now: () => Date.now(), out: (s) => console.log(vault.scrub(s)), err: (s) => console.error(vault.scrub(s)) }, depsIn || {});
   if (!deps.readStdin && !process.stdin.isTTY) {
@@ -341,6 +348,8 @@ async function main(argv, depsIn) {
     case 'start': return cmdStart(P, S, C, argv, deps);
     case 'stop': return cmdStop(P, argv, deps);
     case 'launch': return tok.cmdLaunch(P, S, argv, deps, H);
+    case 'mark-blocked': return flagsLib.cmdMarkBlocked(P, args, deps, H);
+    case 'unblock': return flagsLib.cmdUnblock(P, args, deps, H);
     case 'env': return tok.cmdEnv(P, args, deps, H);
     case 'token-for-shell': return tok.cmdTokenForShell(P, args, deps, H);
     case 'remove': {

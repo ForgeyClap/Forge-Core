@@ -1,0 +1,158 @@
+{
+  "type": "copy-and-content",
+  "version": 1,
+  "title": "Copy and content",
+  "covers": "Any text a person reads: page copy, UI strings, buttons, error messages, e-mails, product texts, captions and alt text.",
+  "domains": ["website", "ecommerce", "cms", "fullstack", "mobile", "extension", "bots"],
+  "selected_by": {
+    "en": ["newsletter", "blog", "blog post", "article", "show notes", "copywriting", "web copy", "page copy", "marketing copy", "product description", "product text", "website text", "page text", "press release", "social media post", "caption"],
+    "nl": ["nieuwsbrief", "blog", "blogpost", "artikel", "tekst", "-tekst", "shownotes", "show notes", "productbeschrijving", "persbericht", "copywriting", "social media post", "bijschrift"]
+  },
+  "stakeholders": [
+    {
+      "id": "reader",
+      "who": "The person the text is written for (a customer, a user, a beginner)",
+      "cares_about": ["understanding it on the first read", "knowing what to do next", "words in their own language"],
+      "would_notice": ["jargon, internal names or codes they do not know", "a page that switches language halfway", "an error that says 'Error 500' and nothing else", "a button that says 'Submit' when the action is 'Book'"]
+    },
+    {
+      "id": "client",
+      "who": "The business or brand whose voice the text is",
+      "cares_about": ["true claims about their business", "their tone of voice", "nothing embarrassing in public"],
+      "would_notice": ["an invented testimonial, statistic or award", "a wrong price or service name", "placeholder text that went live", "a tone that does not sound like them"]
+    },
+    {
+      "id": "editor",
+      "who": "A professional copy editor or proofreader",
+      "cares_about": ["correct spelling and grammar", "one name for one thing", "one style for numbers, dates and capitals"],
+      "would_notice": ["typos and doubled words", "Title Case in one heading and sentence case in the next", "two names for the same product", "generic machine-sounding filler"]
+    }
+  ],
+  "first_ten_seconds": [
+    "Read only the headline and the first sentence: is it clear what this is and who it is for?",
+    "Is every word in the reader's language, with no stray English or Dutch, code or placeholder?",
+    "Would the client sign this text as their own voice, with every claim true?"
+  ],
+  "checks": [
+    {
+      "id": "no-placeholder-copy",
+      "stakeholder": "client",
+      "claim": "No placeholder, test or template text anywhere a person can read it, including alt text, e-mail subjects, meta descriptions and error messages.",
+      "how_to_inspect": "Search the source and the built output for lorem, placeholder, todo, tbd, xxx, example and test; read every string in the UI strings file or templates.",
+      "evidence_required": "The search command with zero hits, or the hits and their fixes.",
+      "severity": "block",
+      "owner_data": true,
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/ship-readiness/SKILL.md", "section": "Universal", "quote": "No unfinished placeholder content/copy." }
+    },
+    {
+      "id": "claims-true",
+      "stakeholder": "client",
+      "claim": "Every factual claim (prices, numbers, names, testimonials, awards, guarantees) comes from the client or a cited source; nothing is invented to sound good.",
+      "how_to_inspect": "Mark every claim in the text and attach its source; a claim without a source is removed or sent to the owner as a question.",
+      "evidence_required": "A claim list with a source per claim.",
+      "severity": "block",
+      "owner_data": true,
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-rag/SKILL.md", "section": "Hard rules", "quote": "No hallucinated business facts (names, prices, contacts, claims)." }
+    },
+    {
+      "id": "one-language",
+      "stakeholder": "reader",
+      "claim": "One language per surface, matching the audience: no Dutch page with English buttons, validation messages or cookie banner, and the reverse.",
+      "how_to_inspect": "Read the surface from start to end and mark every word in another language, including buttons, alt text, validation messages and banners.",
+      "evidence_required": "The marked list, empty or with each item fixed.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A page that switches language mid-flow reads as unfinished to any native reader." }
+    },
+    {
+      "id": "spelling-grammar",
+      "stakeholder": "editor",
+      "claim": "Spelling and grammar are correct in the target language.",
+      "how_to_inspect": "Run a spell checker for the target language over all strings, then read every headline and button aloud.",
+      "evidence_required": "The checker run and the list of fixes.",
+      "severity": "block",
+      "provenance": "professional_practice",
+      "source": { "rationale": "A typo in a headline costs more trust than any design choice; editors and customers both see it first." }
+    },
+    {
+      "id": "reader-not-system",
+      "stakeholder": "reader",
+      "claim": "Text is written for the reader: no internal ids, file paths, codes, stack traces or team jargon in anything a user or owner reads.",
+      "how_to_inspect": "Read each message as a beginner would and mark every word they would have to look up.",
+      "evidence_required": "The list of strings that were rewritten.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": "docs/audit/intelligence-evidence.md", "section": "2. Sloppy / quality complaints, by deliverable type", "quote": "Status text written for the system, not for a beginner owner." }
+    },
+    {
+      "id": "errors-say-next-step",
+      "stakeholder": "reader",
+      "claim": "Every error, empty and success message says what happened and what the reader can do next, in plain words.",
+      "how_to_inspect": "Trigger each message (wrong input, no results, success) and read it cold.",
+      "evidence_required": "A screenshot or the text of each message.",
+      "severity": "block",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-website/SKILL.md", "section": "Hard rules", "quote": "clear error + success states" }
+    },
+    {
+      "id": "cta-specific",
+      "stakeholder": "reader",
+      "claim": "Buttons and links name the action and its result ('Book a table', 'Download the price list'), not 'Submit', 'Click here' or 'Read more'.",
+      "how_to_inspect": "List every button and link text; rewrite any that only makes sense with the layout around it.",
+      "evidence_required": "The before and after list.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": ".claude/skills/forge-website/SKILL.md", "section": "Domain gates", "quote": "CTA clarity" }
+    },
+    {
+      "id": "consistent-terms",
+      "stakeholder": "editor",
+      "claim": "One name for one thing, and one style for capitals, headings and punctuation across every surface.",
+      "how_to_inspect": "Make a short term list (product, plan and action names) and search for every variant of each term.",
+      "evidence_required": "The term list and the variants that were fixed.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "When one product has two names, readers assume there are two products." }
+    },
+    {
+      "id": "units-and-formats",
+      "stakeholder": "reader",
+      "claim": "Numbers, prices, units, dates and times use one format for the locale (for example EUR 12,50 and 24-hour time in Dutch text).",
+      "how_to_inspect": "Search for currency signs, dates and times and compare their formats across all surfaces.",
+      "evidence_required": "The formats found and the fixes.",
+      "severity": "warn",
+      "provenance": "cited",
+      "source": { "path": "docs/claude-md/intelligence-bar.md", "section": "The four rules", "quote": "naming, units" }
+    },
+    {
+      "id": "no-filler",
+      "stakeholder": "editor",
+      "claim": "No generic filler or machine-sounding phrasing: inflated adjectives, 'in today's fast-paced world', stacks of dashes, three-part lists everywhere.",
+      "how_to_inspect": "Read the text aloud and cut every sentence that would fit any other business unchanged.",
+      "evidence_required": "The sentences cut or rewritten.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Readers recognise generic machine phrasing and then trust the text, and the brand, less." }
+    },
+    {
+      "id": "tone-fits",
+      "stakeholder": "client",
+      "claim": "The tone matches the client and the audience, and the form of address (Dutch 'u' or 'je') is chosen once and kept everywhere.",
+      "how_to_inspect": "Check the form of address and the tone on every surface against the brief.",
+      "evidence_required": "The chosen form and the places that were changed.",
+      "severity": "warn",
+      "provenance": "professional_practice",
+      "source": { "rationale": "Switching between formal and informal address is one of the first things a native client notices." }
+    }
+  ],
+  "common_sloppy_defects": [
+    { "defect": "Mixed languages", "symptom": "a Dutch page with an English 'Submit' button or English form errors" },
+    { "defect": "Invented social proof", "symptom": "testimonials, ratings or '500+ happy customers' that no one supplied" },
+    { "defect": "System-speak", "symptom": "'Error: ENOENT', 'status=failed' or an internal id shown to a customer" },
+    { "defect": "Vague buttons", "symptom": "'Submit', 'Click here' and 'Learn more' where the action has a real name" },
+    { "defect": "Inconsistent capitals", "symptom": "Title Case headings next to sentence-case headings on the same page" },
+    { "defect": "Filler copy", "symptom": "sentences such as 'We are passionate about delivering excellence' that fit any company" }
+  ]
+}

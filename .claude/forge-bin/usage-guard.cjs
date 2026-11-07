@@ -59,7 +59,8 @@
  * the other guard state files: {"level":"nvidia-preferred"|"normal"|"unknown","week":<n|null>,
  * "nvidia_shift_at":<n>,"pause_at":<n>,"updated_at":"<iso>"} — always written (even when usage data is
  * missing/unreadable, as level "unknown") so a reader never sees a stale flag. `status` additionally
- * prints a one-line `pressure: ...` summary. Real week% only — never fabricated.
+ * prints a one-line `pressure: ...` summary. Real week% only — never fabricated. Since A1 a successful
+ * `status` also writes its percents + lastCheckAt into the state (persistStatusReading; ok-mode, same account only).
  *
  * SETTINGS: every threshold resolves as CLI flag > the owner's `/forge config` value
  * (forge-config.cjs, soft-required; absent = the schema's own defaults) > the hard default in GUARD_DEFAULTS
@@ -110,6 +111,8 @@ const guardState = require('./usage-guard-state.cjs');
 // same file-size reason; see that file's own header for why state.json's ownerOverride cache is no longer
 // trusted on its own for the pause/don't-pause decision.
 const guardOverride = require('./usage-guard-override.cjs');
+// What `status` may write back into the state (A1) — pure rules, see that file's own header.
+const guardStatus = require('./usage-guard-status.cjs');
 
 // TEST-DENY-NETWORK seam: a NARROW, explicit, environment-selected
 // interception seam for tests that spawn a REAL watcher process (`start`/`watch`). Without this, a test
@@ -554,7 +557,7 @@ function readState() {
  *  minimum. On a failed re-check this throws an Error with `.code === 'EFENCED'` (never lets the rename
  *  happen) — callers that pass `fence` MUST treat that as a refusal exactly like a lock-timeout, never a
  *  hard failure to propagate as a fatal error. */
-function writeStateTo(file, s, fence) {
+function writeStateTo(file, s, fence, opts) {
   const next = Object.assign({}, s);
   if (!next.account) {
     try {
@@ -562,7 +565,9 @@ function writeStateTo(file, s, fence) {
       if (prev && prev.account) next.account = prev.account;
     } catch { /* no previous state — nothing to carry */ }
   }
-  next.heartbeatAt = new Date().toISOString();
+  // opts.keepHeartbeat (A1): a writer that is NOT the watcher (`status`) keeps the stored heartbeat, so a
+  // watcher that stopped ticking never looks alive just because someone ran `status`.
+  if (!(opts && opts.keepHeartbeat)) next.heartbeatAt = new Date().toISOString();
   // ATOMIC WRITE (Codex adversarial review #6): this used to truncate-and-rewrite the live
   // file in place. Three processes share it — the watcher, the CLI and the PreToolUse hook — so a reader
   // landing mid-write got a truncated file and, because every reader treats unparseable JSON as "no
@@ -586,7 +591,26 @@ function writeStateTo(file, s, fence) {
   }
   return next;
 }
-function writeState(s, fence) { return writeStateTo(STATE_FILE, s, fence); }
+function writeState(s, fence, opts) { return writeStateTo(STATE_FILE, s, fence, opts); }
+/** persistStatusReading(u, ident, deps) -> {written, reason?} — `status` writes its REAL reading back into the state
+ *  (A1, 2026-11-04: before this only the pressure file was refreshed and the state stayed 22 days old). Rules live in
+ *  usage-guard-status.cjs (ok-mode, same account, real numbers only); under the one state lock, fenced like every
+ *  other writer, heartbeat kept. Never throws: a refusal or write error is returned, never fatal for `status`. */
+async function persistStatusReading(u, ident, deps) {
+  const D = Object.assign({ readState, writeState }, deps || {});
+  try {
+    const r = await withStateLock((fence) => {
+      const next = guardStatus.statusPersistTransform(D.readState(), u, ident, new Date().toISOString(), detectAccountSwitch);
+      if (!next) return { written: false, reason: 'not an ok-mode state of this account, or no real %' };
+      if (fence && !fence()) return { written: false, reason: 'fenced' };
+      try { D.writeState(next, fence, { keepHeartbeat: true }); } catch (e) { if (e && e.code === 'EFENCED') return { written: false, reason: 'fenced' }; throw e; }
+      return { written: true };
+    });
+    return r.ok ? r.value : { written: false, reason: r.reason };
+  } catch (e) {
+    return { written: false, reason: 'write failed: ' + ((e && e.code) || 'error') };
+  }
+}
 
 // ---- NVIDIA-shift soft threshold — pure, advisory-only classification (never fabricates a %) ----
 function computePressureLevel(weekPct, nvidiaShiftAt) {
@@ -2551,6 +2575,9 @@ if (require.main === module) {
       if (pressure.level === 'nvidia-preferred') console.log('pressure: nvidia-preferred (week ' + u.week.pct + '% >= ' + NVIDIA_SHIFT_AT + '%)');
       else if (pressure.level === 'unknown') console.log('pressure: unknown (week usage data missing/unreadable)');
       else console.log('pressure: normal (week ' + u.week.pct + '% < ' + NVIDIA_SHIFT_AT + '%)');
+      // A1: the same real reading also goes into the state, so the lane budget is not left on an old check.
+      const saved = await persistStatusReading(u, ident);
+      console.log('state: ' + (saved.written ? 'percentages + lastCheckAt bijgewerkt / updated' : 'niet bijgewerkt / not updated (' + saved.reason + ')'));
     }
     return; // clean exit (process.exit after pending fetch handles triggers a libuv assertion on Windows)
   }
@@ -2860,7 +2887,7 @@ module.exports = {
   GUARD_BOUNDS_FALLBACK,
   readGuardSwitch, watchStep, readToken, credentialsPresent, noCredentialsLine,
   guardNetworkAllowed, readState, fetchUsage, pc, allAgents,
-  withStateLock, withLockedState, stateLockPath,
+  withStateLock, withLockedState, stateLockPath, persistStatusReading,
   verifyForcedWatchGrant, __setOwnerGrantRootForTests,
   runOverrideOn, runOverrideOff,
 };

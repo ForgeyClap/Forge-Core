@@ -1,0 +1,182 @@
+/*
+ * "Geen Claude?" — the own-model panel in the onboarding connect step. Dashboard tokens and the
+ * B6 status colours (--fs-ok/-warn/-fail from the .fs-onb root) only. It sits under the connect copy as
+ * one bordered block with the temper band on its top edge: the step's single next action. Motion: none
+ * beyond the shared control transitions.
+ */
+
+.fs-own {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-3);
+  padding: var(--fs-space-5);
+  border: 1px solid var(--fs-line);
+  border-radius: var(--fs-radius-sm);
+  background: var(--fs-surface);
+  box-shadow: var(--fs-shadow-1);
+  overflow: hidden;
+}
+
+
+.fs-own__title {
+  margin: 0;
+  font-size: var(--fs-text-15);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fs-ink);
+}
+
+.fs-onb__connect .fs-own__lead,
+.fs-own__lead {
+  margin: calc(var(--fs-space-1) * -1) 0 0;
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  line-height: 1.5;
+}
+
+.fs-own__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-inline-size: 420px;
+}
+
+.fs-own__label {
+  font-size: var(--fs-text-13);
+  font-weight: 600;
+  color: var(--fs-ink);
+}
+
+.fs-own__control {
+  block-size: 36px;
+  padding: 0 12px;
+  border-radius: var(--fs-radius-xs);
+  border: 1px solid var(--fs-line-strong);
+  background: var(--fs-surface);
+  color: var(--fs-ink);
+  font: inherit;
+  font-size: var(--fs-text-13);
+}
+
+.fs-own__control--mono {
+  font-family: var(--fs-font-mono);
+}
+
+.fs-own__control:hover:not(:disabled) {
+  border-color: var(--fs-ink-3);
+}
+
+.fs-own__control:focus-visible {
+  outline: none;
+  border-color: var(--fs-ink-3);
+  box-shadow: var(--fs-focus);
+}
+
+.fs-onb__connect .fs-own__hint,
+.fs-own__hint {
+  margin: 0;
+  font-size: var(--fs-text-12);
+  color: var(--fs-ink-3);
+  line-height: 1.5;
+}
+
+.fs-own__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fs-space-3);
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink);
+  cursor: pointer;
+}
+
+.fs-own__check input {
+  inline-size: 18px;
+  block-size: 18px;
+  margin: 1px 0 0;
+  flex: none;
+  accent-color: var(--fs-accent);
+  cursor: pointer;
+}
+
+.fs-own__check input:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 2px;
+}
+
+/* The honest lines: quiet, but never hidden behind a click. */
+.fs-own__facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fs-space-1);
+  margin: 0;
+  padding: var(--fs-space-3) var(--fs-space-4) var(--fs-space-3) var(--fs-space-6);
+  border-radius: var(--fs-radius-xs);
+  background: var(--fs-sunken);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+  line-height: 1.5;
+}
+
+.fs-own__facts li::marker {
+  color: var(--fs-warn);
+}
+
+.fs-own__act {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+}
+
+.fs-onb__connect .fs-own__status,
+.fs-own__status {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--fs-space-2);
+  margin: 0;
+  font-size: var(--fs-text-13);
+  font-weight: 500;
+  color: var(--fs-ink-2);
+  line-height: 1.5;
+}
+
+.fs-own__status > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.fs-own__status:has(> span:empty:only-child) {
+  display: none;
+}
+
+.fs-own__status[data-tone='ok'] {
+  color: var(--fs-ok);
+}
+
+.fs-own__status[data-tone='bad'] {
+  color: var(--fs-danger);
+}
+
+.fs-own__status[data-tone='busy'] > span {
+  color: var(--fs-ink-3);
+}
+
+/* The "or your own server" line under the service list in the key step. */
+.fs-own__alt {
+  display: flex;
+  align-items: center;
+  gap: var(--fs-space-3);
+  flex-wrap: wrap;
+  padding-top: var(--fs-space-3);
+  border-top: 1px dashed var(--fs-line);
+  font-size: var(--fs-text-13);
+  color: var(--fs-ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-own__control {
+    transition: none;
+  }
+}

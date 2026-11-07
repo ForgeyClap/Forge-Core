@@ -13,11 +13,11 @@
  *                                     impossible. A surviving mutant here is
  *                                     a transition or a gate check the tests
  *                                     never actually exercised.
- *   - src/bridge/security/paths.ts    the path guard every filesystem write
+ *   - archive/bridge/security/paths.ts    the path guard every filesystem write
  *                                     crosses. A surviving mutant here is a
  *                                     potential traversal/escape the security
  *                                     suite did not actually catch.
- *   - src/bridge/usage/aggregator.ts  the accuracy-labelling arithmetic (EXACT
+ *   - archive/bridge/usage/aggregator.ts  the accuracy-labelling arithmetic (EXACT
  *                                     / DERIVED / ESTIMATED / UNAVAILABLE). A
  *                                     surviving mutant here is a place the UI
  *                                     could show a number with a confidence it
@@ -61,8 +61,8 @@ export default {
 
   mutate: [
     'src/shared/state-machines.ts',
-    'src/bridge/security/paths.ts',
-    'src/bridge/usage/aggregator.ts',
+    'archive/bridge/security/paths.ts',
+    'archive/bridge/usage/aggregator.ts',
   ],
 
   // Nothing here is needed to run the relevant tests; skipping the copy keeps

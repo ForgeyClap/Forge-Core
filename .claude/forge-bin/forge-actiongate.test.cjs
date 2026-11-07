@@ -313,9 +313,10 @@ t('testCommandGate() is only consulted for match.kind "command" (a regex gate is
   assert.strictEqual(gate.testCommandGate(cmdGate, 'pkill node'), true);
 });
 
-t('the config really declares five command gates and they are all class irreversible', () => {
+t('the config really declares eight command gates (five + the WP 3.3b plugin/settings pair + W1 global-input) and they are all class irreversible', () => {
   const cmdGates = gate.loadGates().gates.filter((g) => g.match.kind === 'command');
-  assert.deepStrictEqual(cmdGates.map((g) => g.id).sort(), ['destructive-delete', 'git-destructive', 'kill-by-name', 'opaque-exec', 'secret-print']);
+  assert.deepStrictEqual(cmdGates.map((g) => g.id).sort(), ['destructive-delete', 'git-destructive', 'global-input-command', 'kill-by-name', 'opaque-exec',
+    'plugin-install-command', 'secret-print', 'settings-edit-command']);
   for (const g of cmdGates) assert.strictEqual(g.class, 'irreversible');
 });
 
@@ -2024,7 +2025,9 @@ for (const cmd of R6_MUST_FIRE) {
 
 // The exact text of arm 3, so the counterfactual below can splice it out. If the config is reworded this
 // assertion fails first and loudly, rather than the counterfactual silently proving nothing.
-const R6_ARM = '|\\brm\\b(?=[^\\n]*\\s-{1,2}(?:re|rec|recu|recur|recurs|recurse)\\b)';
+// WP 3.3c: every rest-of-line arm now starts with the exact first-anchor guard `(?=A)(?<!A[^\n]*?)A`
+// (linear time, same verdict — section 2c-linear below); the texts here are the guarded arms.
+const R6_ARM = '|(?=\\brm\\b)(?<!\\brm\\b[^\\n]*?)\\brm\\b(?=[^\\n]*\\s-{1,2}(?:re|rec|recu|recur|recurs|recurse)\\b)';
 t('arm 3 is present in the shipped pattern exactly as this section documents it', () => {
   assert.ok(DD_GATE.match.pattern.includes(R6_ARM),
     'arm 3 was reworded — re-derive the counterfactual below before trusting it');
@@ -2032,7 +2035,7 @@ t('arm 3 is present in the shipped pattern exactly as this section documents it'
 // WP16 / security-boss H1 appended a SEVENTH arm (a bare recursive flag on `rm`). It overlaps arm 3
 // (`-Recurse` carries an r), so the round-5 counterfactual and the round-6 price are re-derived against the
 // pattern OF THEIR DAY: arm 3 AND the H1 arm spliced out = round 5; only the H1 arm spliced out = round 6.
-const H1_ARM = '|(?<!\\b(?:s3|git|gsutil)\\s)\\brm\\b(?=[^\\n]*\\s(?:-(?!-)[A-Za-z]*r[A-Za-z]*\\b|--recursive\\b))';
+const H1_ARM = '|(?=(?<!\\b(?:s3|git|gsutil)\\s)\\brm\\b)(?<!(?<!\\b(?:s3|git|gsutil)\\s)\\brm\\b[^\\n]*?)(?<!\\b(?:s3|git|gsutil)\\s)\\brm\\b(?=[^\\n]*\\s(?:-(?!-)[A-Za-z]*r[A-Za-z]*\\b|--recursive\\b))';
 const ddWith = (pattern) => ({ match: { kind: 'command', pattern, flags: DD_GATE.match.flags,
   pattern_line: DD_GATE.match.pattern_line, except: DD_GATE.match.except } });
 const withoutArm3 = () => ddWith(DD_GATE.match.pattern.replace(R6_ARM, '').replace(H1_ARM, ''));
@@ -2209,8 +2212,9 @@ const GD_GATE = GD_CONFIG.gates.find((g) => g.id === 'git-destructive');
 // executable-basename fragment, D01/DATA-GIT-SPELLINGS), so splitting on a `|` that is followed by that exact
 // prefix is precise — a naive split on `|` would also cut every alternation INSIDE an arm (the executable
 // fragment's own `|`s, `(?:\s|$)`, etc).
+// WP 3.3c: a guarded (linear) arm starts with `(?=` in front of that same prefix, so the split accepts both heads.
 const GD_ARM_HEAD = '(?:\\bgit\\.exe\\b|';
-const GD_ARMS = GD_GATE.match.pattern.split(new RegExp('\\|(?=' + GD_ARM_HEAD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')'));
+const GD_ARMS = GD_GATE.match.pattern.split(new RegExp('\\|(?=(?:\\(\\?=)?' + GD_ARM_HEAD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')'));
 const WP16_ARM = (a) => /restore\\b|switch\\b/.test(a) || a.includes('\\s--\\s+\\S') || a.includes('\\s\\.[');
 const D01_ARM = (a) => a.includes('worktree\\s+remove\\b') || a.includes('clean\\.requireForce');
 const LEAD_MEASURED = ['git checkout .', 'git checkout -- src/app.js', 'git restore src/app.js'];
@@ -2509,7 +2513,9 @@ const DECLARED_BLIND_SPOTS = [
   { cmd: 'n8n update:workflow --active=true', topic: '_gate_coverage.prod-activate' },
   { cmd: 'gh secret set API_KEY', topic: '_gate_coverage.credential-attach' },
   { cmd: 'aws iam delete-access-key --access-key-id AKIA', topic: '_gate_coverage.credential-rotate' },
-  { cmd: 'stuur de mail naar de klant', topic: '_gate_coverage.outbound-sms' },
+  // WP 3.3: 'stuur de mail naar de klant' is CAUGHT now (Dutch outbound phrases), so — exactly as this
+  // test's own failure message asks — the declaration and this list moved together to a Dutch form that is still unseen.
+  { cmd: 'laat de klant het weten', topic: '_gate_coverage.outbound-sms' },
   { cmd: 'echo x > ../other/file', topic: '_gate_coverage.write-outside-root' },
 ];
 
@@ -2757,7 +2763,8 @@ t('a missing config file throws (never silently returns "no gates")', () => {
 t('a command gate with neither match.pattern nor match.pattern_line throws (a gate that can never fire)', () => {
   const bad = path.join(freshDir('actiongate-badcfg'), 'hard-gates.json');
   fs.writeFileSync(bad, JSON.stringify({ gates: [{ id: 'x', class: 'irreversible', reason: 'r', match: { kind: 'command' } }] }));
-  assert.throws(() => gate.loadGates(bad), /neither match.pattern nor match.pattern_line/);
+  // WP 3.3b: the message now also names match.line_all_of (a third way a command gate can fire)
+  assert.throws(() => gate.loadGates(bad), /neither match\.pattern, match\.pattern_line nor match\.line_all_of/);
 });
 t('any match.except that is not the exact-segment form throws rather than being silently ignored', () => {
   // A silently-ignored valve turns a config typo into a permanent over-warn; a silently-MISREAD one is a
@@ -3139,6 +3146,817 @@ else {
   });
 }
 try { fs.rmSync(GFP4_TMP, { recursive: true, force: true }); } catch { /* best effort temp cleanup */ }
+
+// ---------------------------------------------------------------------------
+// 8) WP 3.3 — owner phrases in Dutch and English for the TEXT gates, plus the new text gate
+// data-delete. MEASURED RED BEFORE THIS EXISTED: every phrase in WP33_POS classified gate:false (0 of 128), among
+// them the 3.2 report's own list — 'publish to the marketplace', 'send the newsletter', 'delete the folder',
+// 'verwijder de map', 'verstuur de nieuwsbrief', 'publiceer'. src: real = harvested verbatim from the repo
+// (mission sample, plan, _not_caught), report32 = the 3.2 report, router = the 3.3 brief, constructed = written
+// for this table. The held-out sets were written AFTER the arms and are kept here as regression data.
+// ---------------------------------------------------------------------------
+console.log('\n8) WP 3.3 — owner phrases (nl + en) for the text gates, data-delete, negative controls');
+
+const WP33_POS = [
+  // deploy
+  ['publish to the marketplace', 'deploy', 'report32'], ['publiceer', 'deploy', 'report32'],
+  ['publish the plugin entry to the marketplace', 'deploy', 'real'], ['Any git push, tag push, marketplace publish, remote CI (Wave 4).', 'deploy', 'real'],
+  ['zet dit live', 'deploy', 'real'], ['zet het live', 'deploy', 'router'], ['ga live', 'deploy', 'router'], ['we gaan vandaag live', 'deploy', 'constructed'],
+  ['zet de nieuwe site live', 'deploy', 'constructed'], ['zet de website online', 'deploy', 'constructed'], ['de app live zetten', 'deploy', 'constructed'],
+  ['publiceer de nieuwe versie', 'deploy', 'constructed'], ['publiceren naar de marketplace', 'deploy', 'constructed'], ['zet het naar productie', 'deploy', 'constructed'],
+  ['push de wijzigingen naar productie', 'deploy', 'constructed'], ['rol de update uit naar alle klanten', 'deploy', 'constructed'],
+  ['zet de plugin op de marketplace', 'deploy', 'constructed'], ['dien de app in bij de App Store', 'deploy', 'constructed'], ['maak de repo openbaar', 'deploy', 'constructed'],
+  ['release the plugin to the marketplace', 'deploy', 'router'], ['publish the extension to the Chrome Web Store', 'deploy', 'constructed'],
+  ['release it to the public', 'deploy', 'constructed'], ['make it live', 'deploy', 'constructed'], ['push the new homepage live', 'deploy', 'constructed'],
+  ['take the site live tonight', 'deploy', 'constructed'], ['submit the app to the App Store', 'deploy', 'constructed'], ['make the repository public', 'deploy', 'constructed'],
+  ['publish a new version', 'deploy', 'constructed'], ['publish the release', 'deploy', 'constructed'],
+  // outbound
+  ['send the newsletter', 'outbound-sms', 'report32'], ['verstuur de nieuwsbrief', 'outbound-sms', 'report32'], ['stuur de mail naar de klant', 'outbound-sms', 'real'],
+  ['send out the October newsletter', 'outbound-sms', 'constructed'], ['mail the newsletter to all subscribers', 'outbound-sms', 'constructed'],
+  ['send a DM to the influencers', 'outbound-sms', 'constructed'], ['DM the leads', 'outbound-sms', 'constructed'], ['message the customers about the delay', 'outbound-sms', 'constructed'],
+  ['text the clients', 'outbound-sms', 'constructed'], ['send the invoice to the client', 'outbound-sms', 'constructed'], ['send an e-mail to the lead', 'outbound-sms', 'constructed'],
+  ['send the campaign to our subscribers', 'outbound-sms', 'constructed'], ['post the announcement on LinkedIn', 'outbound-sms', 'router'], ['tweet the launch', 'outbound-sms', 'router'],
+  ['share it on social media', 'outbound-sms', 'constructed'], ['mail de klant', 'outbound-sms', 'constructed'], ['bel alle leads', 'outbound-sms', 'constructed'],
+  ['stuur de offerte naar de opdrachtgever', 'outbound-sms', 'constructed'], ['de klant een mail sturen', 'outbound-sms', 'constructed'],
+  ['verstuur de mailing aan alle abonnees', 'outbound-sms', 'constructed'], ['zet de aankondiging op Instagram', 'outbound-sms', 'constructed'],
+  ['plaats het bericht op LinkedIn', 'outbound-sms', 'constructed'], ['stuur een sms naar de klanten', 'outbound-sms', 'constructed'], ['e-mail de leads', 'outbound-sms', 'constructed'],
+  ['de nieuwsbrief vandaag versturen', 'outbound-sms', 'constructed'],
+  // data-delete
+  ['delete the folder', 'data-delete', 'report32'], ['verwijder de map', 'data-delete', 'report32'], ['delete the old backups', 'data-delete', 'constructed'],
+  ['wipe the database', 'data-delete', 'constructed'], ['drop the users table', 'data-delete', 'constructed'], ['purge all data', 'data-delete', 'constructed'],
+  ['delete the feature branch', 'data-delete', 'constructed'], ['delete branch feature-x', 'data-delete', 'constructed'],
+  ['remove all files in the uploads folder', 'data-delete', 'constructed'], ['delete the whole repository', 'data-delete', 'constructed'],
+  ['truncate the orders table', 'data-delete', 'constructed'], ['empty the S3 bucket', 'data-delete', 'constructed'], ['remove the dist folder', 'data-delete', 'constructed'],
+  ['wis de database', 'data-delete', 'router'], ['verwijder de oude backups', 'data-delete', 'constructed'], ['gooi de map weg', 'data-delete', 'constructed'],
+  ['maak de database leeg', 'data-delete', 'constructed'], ['de branch verwijderen', 'data-delete', 'constructed'], ['alle bestanden wissen', 'data-delete', 'constructed'],
+  ['verwijder alle bestanden in de map', 'data-delete', 'constructed'], ['verwijder de feature-branch', 'data-delete', 'constructed'], ['verwijder de logbestanden', 'data-delete', 'constructed'],
+  // spend
+  ['reken de klant af', 'spend', 'real'], ['pay the invoice', 'spend', 'router'], ['pay for the Vercel Pro subscription', 'spend', 'constructed'], ['buy a domain', 'spend', 'constructed'],
+  ['buy more API credits', 'spend', 'constructed'], ['order a new laptop', 'spend', 'constructed'], ['upgrade to the paid plan', 'spend', 'constructed'],
+  ["charge the user's card", 'spend', 'constructed'], ['refund the customer', 'spend', 'constructed'], ['betaal de factuur', 'spend', 'router'],
+  ['koop een domeinnaam', 'spend', 'router'], ['bestel een nieuwe laptop', 'spend', 'router'], ['plaats de bestelling', 'spend', 'constructed'],
+  ['schaf een licentie aan', 'spend', 'constructed'], ['sluit een abonnement af', 'spend', 'constructed'], ['maak €500 over naar de leverancier', 'spend', 'constructed'],
+  ['plaats een weddenschap op Ajax', 'spend', 'constructed'],
+  // dns
+  ['point the domain at Vercel', 'dns-change', 'constructed'], ['transfer the domain to Cloudflare', 'dns-change', 'constructed'], ['add an A record for the apex', 'dns-change', 'constructed'],
+  ['update the MX records', 'dns-change', 'constructed'], ['switch the nameservers', 'dns-change', 'constructed'], ['koppel het domein aan Vercel', 'dns-change', 'router'],
+  ['wijzig de DNS-records', 'dns-change', 'router'], ['pas de DNS aan', 'dns-change', 'constructed'], ['verhuis de domeinnaam naar TransIP', 'dns-change', 'constructed'],
+  ['zet de naamservers om', 'dns-change', 'router'],
+  // prod-activate
+  ['enable production mode', 'prod-activate', 'constructed'], ['turn on live mode in Stripe', 'prod-activate', 'constructed'],
+  ['switch the payment provider to live keys', 'prod-activate', 'constructed'], ['promote the canary to production', 'prod-activate', 'constructed'],
+  ['activeer de productieomgeving', 'prod-activate', 'router'], ['zet productie aan', 'prod-activate', 'constructed'], ['schakel de live-modus in', 'prod-activate', 'constructed'],
+  ['neem de nieuwe versie in productie', 'prod-activate', 'constructed'],
+  // credential-attach
+  ['share the password with the client', 'credential-attach', 'router'], ['paste the API key in the chat', 'credential-attach', 'constructed'],
+  ['commit the .env file', 'credential-attach', 'constructed'], ['send the api key to the customer', 'credential-attach', 'constructed'],
+  ['post the token in the Slack channel', 'credential-attach', 'constructed'], ['email the credentials to the team', 'credential-attach', 'constructed'],
+  ['deel het wachtwoord met de klant', 'credential-attach', 'router'], ['geef me de inloggegevens', 'credential-attach', 'constructed'],
+  ['plak de token in de chat', 'credential-attach', 'constructed'], ['lever je wachtwoord in', 'credential-attach', 'router'],
+  ['de API-sleutel doorsturen naar de klant', 'credential-attach', 'constructed'],
+  // git-push
+  ['push the tag pre-modernization-2026-10-24', 'git-push', 'real'], ['push the branch to origin', 'git-push', 'constructed'], ['push it to GitHub', 'git-push', 'constructed'],
+  ['push naar main', 'git-push', 'constructed'], ['push de branch naar origin', 'git-push', 'constructed'], ['zet het op GitHub', 'git-push', 'constructed'],
+  // one phrase per arm the no-dead-arm check found unexercised on its first run (each fires that arm)
+  ['de wijzigingen naar productie pushen', 'deploy', 'constructed'], ['we gaan vandaag naar productie', 'deploy', 'constructed'],
+  ['de branch naar origin pushen', 'git-push', 'constructed'], ['wire the money to the supplier', 'spend', 'constructed'],
+  ['de factuur vandaag betalen', 'spend', 'constructed'], ['een domeinnaam kopen', 'spend', 'constructed'], ['stort het geld terug naar de klant', 'spend', 'constructed'],
+  ['incasseer de maandbedragen', 'spend', 'constructed'], ['apply the DNS changes', 'dns-change', 'constructed'],
+  ['de domeinnaam overzetten naar Cloudflare', 'dns-change', 'constructed'], ['de productieomgeving aanzetten', 'prod-activate', 'constructed'],
+  ['stuur het wachtwoord naar de klant', 'credential-attach', 'constructed'], ['de offerte naar de klant sturen', 'outbound-sms', 'constructed'],
+  ['clear out the old backups', 'data-delete', 'constructed'], ['reset the staging database', 'data-delete', 'constructed'],
+];
+const WP33_HELDOUT_POS = [
+  ['zet de webshop vandaag nog live', 'deploy'], ['publish the app to the Play Store', 'deploy'], ['release version 2 to all users', 'deploy'], ['push the landing page live', 'deploy'],
+  ['ga morgen live met de nieuwe site', 'deploy'], ['publiceer het blogartikel', 'deploy'], ['upload the extension to the Chrome Web Store', 'deploy'], ['zet de app in de Play Store', 'deploy'],
+  ['zet de nieuwe versie online', 'deploy'], ['publish our plugin on the marketplace', 'deploy'], ['submit the extension for store review', 'deploy'], ['de site gaat vrijdag live', 'deploy'],
+  ['release the update to customers', 'deploy'],
+  ['send the follow-up email to all leads', 'outbound-sms'], ['stuur alle klanten een herinnering', 'outbound-sms'], ['mail all customers about the price change', 'outbound-sms'],
+  ['verstuur de uitnodigingen naar alle leden', 'outbound-sms'], ['post it on Instagram', 'outbound-sms'], ['DM all our followers', 'outbound-sms'], ['sms alle klanten', 'outbound-sms'],
+  ['bel de leverancier', 'outbound-sms'], ['send the quote to the prospect', 'outbound-sms'], ['stuur de factuur naar de klant', 'outbound-sms'],
+  ['mail onze abonnees de nieuwsbrief', 'outbound-sms'], ['tweet about the new release', 'outbound-sms'], ['message all leads today', 'outbound-sms'],
+  ['remove the backups folder', 'data-delete'], ['delete all the old branches', 'data-delete'], ['wipe all user data', 'data-delete'], ['drop the staging database', 'data-delete'],
+  ['verwijder alle oude branches', 'data-delete'], ['wis alle gegevens', 'data-delete'], ['gooi alle bestanden weg', 'data-delete'], ['maak de uploads-map leeg', 'data-delete'],
+  ['delete the repo', 'data-delete'], ['purge the old snapshots', 'data-delete'], ['delete the production database', 'data-delete'], ['wipe the backups', 'data-delete'],
+  ['verwijder de testdatabase', 'data-delete'], ['gooi de oude branches weg', 'data-delete'], ['remove the project folder', 'data-delete'],
+  ['pay the hosting bill', 'spend'], ['buy the premium license', 'spend'], ['betaal de leverancier', 'spend'], ['koop extra opslag', 'spend'], ['bestel 3 nieuwe monitoren', 'spend'],
+  ['upgrade us to the pro plan', 'spend'], ['refund the order', 'spend'], ['maak het geld over', 'spend'], ['buy a new domain name', 'spend'], ['betaal het abonnement', 'spend'],
+  ['koop 5 licenties', 'spend'],
+  ['point the subdomain to the new server', 'dns-change'], ['change the CNAME record', 'dns-change'], ['pas het domein aan', 'dns-change'], ['wijzig de naamservers', 'dns-change'],
+  ['transfer the domain to Namecheap', 'dns-change'], ['wijzig de DNS', 'dns-change'],
+  ['switch Stripe to live mode', 'prod-activate'], ['zet de live-betalingen aan', 'prod-activate'], ['activeer productie', 'prod-activate'], ['activeer de live-modus', 'prod-activate'],
+  ['paste your password here', 'credential-attach'], ['share the SSH key with the contractor', 'credential-attach'], ['geef de klant het wachtwoord', 'credential-attach'],
+  ['commit the secrets file', 'credential-attach'], ['share my api key with the freelancer', 'credential-attach'],
+  ['push the hotfix to the remote', 'git-push'], ['push dit naar GitHub', 'git-push'], ['push alle tags', 'git-push'], ['push the release branch to origin', 'git-push'],
+  ['push naar de remote', 'git-push'],
+];
+// Must stay silent on EVERY gate (the brief's four, real plan lines, and ordinary dev language that shares the words).
+const WP33_NEG = [
+  'remove the unused variable', 'delete line 12 of the test', 'send the request to the local gateway', 'publish the plugin template to dist/ (local build)',
+  'remove the item from the cart', 'delete the selected row', 'remove the duplicate import', 'add a delete button for files', 'implement soft-delete for records',
+  'use soft-delete records instead of hard deletes',
+  'allow admins to delete users', 'remove everything after the dash', 'drop the folder onto the upload area', 'remove the table from the page', 'remove the branch condition',
+  'release the lock after writing', 'publish the event to the message bus', 'the site went live last week', 'make the live chat widget responsive', 'add the live-reload script',
+  'send a notification to the user when the build fails', 'send the token to the server in the Authorization header', 'log the token count',
+  'add a password field to the signup form', 'store the password hash with bcrypt', 'commit the API key placeholder to .env.example',
+  'point the domain model at the new aggregate', 'order the list by date', 'pay attention to the error handling', 'get buy-in from the team',
+  'post the results in the Discord channel', 'push the data to the main thread', 'push the item to the array',
+  'remove haiku fact', 'delete doc', 'remove fragment', 'zero are safe to delete', // real plan lines (FORGE_MODERNIZATION_PLAN.md 2.3 / rotator table / 2.5)
+  'verwijder het bestand uit de map', 'verwijder de ongebruikte variabele', 'wis de cache', 'stuur het verzoek naar de lokale gateway', 'de site staat live',
+  'ga naar de live-omgeving om te kijken', 'de nieuwsbrief-template ontwerpen', 'de betaal flow testen', 'de betaalpagina bouwen', 'voeg een bestel-knop toe',
+  'verwijder de sitemap-regel uit de config', 'zet de live chat aan op de site',
+  'node .claude/forge-bin/forge-config.cjs set plan-approval gated', 'npm run build && npm test',
+  // held-out negatives
+  'remove the console.log statements', 'delete the cached value from the map', 'drop the support for Node 16', 'remove the folder icon from the toolbar',
+  'publish the metrics to Prometheus', 'release the mouse button', 'send the payload to the webhook endpoint', 'post the form data to the API', 'make the button live-update',
+  'the branch was deleted after the merge', 'push the commit message length limit to 72', 'order the results by date', 'pay off the technical debt',
+  'point the cursor at the button', 'verwijder de lege regels', 'wis het invoerveld', 'zet de server lokaal op', 'stuur de logs naar de console', 'voeg een betaal-icoon toe',
+  'maak de koop-knop rood', 'deel het scherm', 'publish the docs locally with mkdocs serve', 'clear the form fields', 'empty the input', 'reset the counter',
+  'drop the first element of the array', 'delete the temporary variable', 'remove the user from the list', 'remove the data attribute',
+  'send the user a confirmation screen', 'make the dashboard live', 'take the live preview screenshot', 'zet de live preview aan', 'koop-flow testen in de sandbox',
+  'de gebruiker kan zijn account verwijderen', 'add a share button for the token page', 'remove the trailing slash from the folder path', 'delete the draft before saving',
+  'send the logs to stdout', 'post the JSON body to the local server', 'make the clock live', 'buy time by caching the response', 'order the imports alphabetically',
+  'pay close attention to edge cases', 'drop the trailing newline', 'clear the selection', 'verwijder de witregel', 'stuur de output naar het logbestand',
+  'zet de debug-modus aan', 'koop-pagina stylen', 'deel de code met de reviewer', 'point the import at the new module', 'push the element onto the stack',
+  'release the database connection', 'remove the database connection string from the log',
+];
+// Negation is NOT understood — by design, these keep firing (fail-closed). A "never do X" line belongs in a plan
+// card's wont_do, which forge-plan-card.cjs never classifies.
+const WP33_NEGATION = [
+  ['never push to origin', 'git-push'], ["No push, tag push or marketplace publish without the owner's explicit yes", 'deploy'], ['do not deploy', 'deploy'],
+  ['zet het nog niet live', 'deploy'], ['verwijder de map niet', 'data-delete'],
+];
+// The measured price, pinned so a fix shows up as a deliberate change: misses stay silent, over-warns keep firing.
+const WP33_KNOWN_MISS = ['de nieuwe dashboard uit forge core, verwijder die ook maar wel veilig', 'lanceer de site', 'laat de klant het weten', 'regel de betaling met de leverancier'];
+const WP33_KNOWN_OVERWARN = [
+  ['send an email to the user on signup', 'outbound-sms'], ['stuur een bericht naar de gebruiker als het mislukt', 'outbound-sms'],
+  ['publiceer de plugin-template naar dist/ (lokale build)', 'deploy'], ['de klant kan een domein kopen in de webshop', 'spend'],
+  ['publish the build artifacts to the dist folder', 'deploy'], // pre-existing: the ORIGINAL deploy pattern's `publish the build`
+];
+
+for (const [text, id, src] of WP33_POS) {
+  t('WP33 [' + src + '] "' + text + '" fires ' + id, () => {
+    const m = gate.classify(text).matched;
+    assert.ok(m.includes(id), 'expected ' + id + ', matched ' + JSON.stringify(m));
+  });
+}
+t('WP33 held-out positives: all ' + WP33_HELDOUT_POS.length + ' fire their gate', () => {
+  const missed = WP33_HELDOUT_POS.filter(([s, id]) => !gate.classify(s).matched.includes(id)).map(([s, id]) => s + ' -> ' + id);
+  assert.deepStrictEqual(missed, []);
+});
+t('WP33 negative controls: all ' + WP33_NEG.length + ' stay silent on EVERY gate', () => {
+  const fired = WP33_NEG.map((s) => [s, gate.classify(s).matched]).filter(([, m]) => m.length).map(([s, m]) => s + ' -> ' + JSON.stringify(m));
+  assert.deepStrictEqual(fired, []);
+});
+t('WP33 negation is fail-closed: "never/do not/niet" phrasings still fire (the plan card\'s wont_do is the place for them)', () => {
+  for (const [s, id] of WP33_NEGATION) assert.ok(gate.classify(s).matched.includes(id), s + ' should still fire ' + id);
+});
+t('WP33 measured price pinned: ' + WP33_KNOWN_MISS.length + ' known misses stay silent, ' + WP33_KNOWN_OVERWARN.length + ' known over-warns keep firing', () => {
+  for (const s of WP33_KNOWN_MISS) assert.deepStrictEqual(gate.classify(s).matched, [], 'known miss now fires — update _not_caught and this list: ' + s);
+  for (const [s, id] of WP33_KNOWN_OVERWARN) assert.ok(gate.classify(s).matched.includes(id), 'known over-warn no longer fires — good news, update the list: ' + s);
+});
+
+const WP33_REAL = gate.loadGates();
+const WP33_PHRASED = WP33_REAL.gates.filter((g) => g.match.phrases);
+t('WP33 phrases live only on regex (text) gates, never on a hook-enforced command gate', () => {
+  assert.ok(WP33_PHRASED.length >= 8, 'expected phrases on the 7 widened text gates + data-delete, got ' + WP33_PHRASED.length);
+  for (const g of WP33_PHRASED) assert.strictEqual(g.match.kind, 'regex', g.id);
+  const inspectMod = require('./forge-gate-inspect.cjs');
+  const commandIds = inspectMod.commandGateIds(gate);
+  assert.ok(!commandIds.has('data-delete'), 'the hook must never treat data-delete as a command gate');
+  assert.deepStrictEqual([...commandIds].sort(), ['destructive-delete', 'git-destructive', 'global-input-command', 'kill-by-name', 'opaque-exec',
+    'plugin-install-command', 'secret-print', 'settings-edit-command']);
+  for (const id of ['plugin-install', 'settings-edit']) assert.ok(!commandIds.has(id), 'the hook must never treat the text gate ' + id + ' as a command gate');
+});
+t('WP33 no dead arm: every phrase arm (and data-delete\'s pattern) matches at least one phrase of this section or of its own config examples', () => {
+  // WP 3.3b: the plugin-install / settings-edit arms are exercised by WP33B_POS (section 9, defined below via a hoisted
+  // function so this check — which runs here — already sees it)
+  const corpus = WP33_POS.map((r) => r[0]).concat(WP33_HELDOUT_POS.map((r) => r[0]), WP33_NEGATION.map((r) => r[0]), wp33bPositives().map((r) => r[0]));
+  const dead = [];
+  for (const g of WP33_PHRASED) {
+    const own = corpus.concat(g.examples.match);
+    for (const a of gate.textGateArms(g)) {
+      if (a.arm === 'pattern' && g.id !== 'data-delete') continue; // the pre-existing patterns are proven by sections 2/2b/2d
+      if (!own.some((s) => a.re.test(s))) dead.push(g.id + ' ' + a.arm);
+    }
+  }
+  assert.deepStrictEqual(dead, []);
+});
+t('WP33 matchedTextArm names the arm that fired, and null when nothing matched', () => {
+  const dd = WP33_REAL.gates.find((g) => g.id === 'data-delete');
+  assert.strictEqual(gate.matchedTextArm(dd, 'delete the folder'), 'pattern');
+  assert.match(String(gate.matchedTextArm(dd, 'verwijder de map')), /^nl\[\d+\]$/);
+  assert.strictEqual(gate.matchedTextArm(dd, 'remove the unused variable'), null);
+  assert.strictEqual(gate.matchedTextArm(dd, ''), null);
+});
+
+// counterfactual + mutation checks on throwaway configs (the real file is never written)
+const WP33_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-wp33-'));
+let wp33Seq = 0;
+function wp33Config(mutate) {
+  const cfg = JSON.parse(JSON.stringify(WP33_REAL));
+  mutate(cfg);
+  const p = path.join(WP33_DIR, 'hard-gates-' + (++wp33Seq) + '.json');
+  fs.writeFileSync(p, JSON.stringify(cfg));
+  return p;
+}
+const wp33Arm = (cfg, id, lang, i) => cfg.gates.find((g) => g.id === id).match.phrases[lang][i];
+t('WP33 COUNTERFACTUAL: with the phrases and data-delete removed, the tuning positives go silent again (the arms do the work)', () => {
+  const p = wp33Config((cfg) => { cfg.gates = cfg.gates.filter((g) => g.id !== 'data-delete'); for (const g of cfg.gates) delete g.match.phrases; });
+  const still = WP33_POS.filter(([s, id]) => gate.classify(s, { configPath: p }).matched.includes(id));
+  assert.ok(still.length <= 6, still.length + ' of ' + WP33_POS.length + ' fire without the phrases (measured 0 on 2026-10-24): ' + still.map((r) => r[0]).join(' | '));
+});
+t('WP33 MUTATION: dropping data-delete\'s (?<![\\w-]) lookbehind makes "use soft-delete records instead of hard deletes" fire', () => {
+  // (not "implement soft-delete for records": there the stop word "for" already keeps it silent, so that probe
+  // would pass with or without the lookbehind — measured on the first run of this test)
+  const s = 'use soft-delete records instead of hard deletes';
+  assert.deepStrictEqual(gate.classify(s).matched, []);
+  const p = wp33Config((cfg) => { const g = cfg.gates.find((x) => x.id === 'data-delete'); assert.ok(g.match.pattern.startsWith('(?<![\\w-])')); g.match.pattern = g.match.pattern.slice('(?<![\\w-])'.length); });
+  assert.ok(gate.classify(s, { configPath: p }).matched.includes('data-delete'), 'the lookbehind is what keeps soft-delete silent');
+});
+t('WP33 MUTATION: dropping "icons?" from data-delete\'s head-noun list makes "remove the folder icon from the toolbar" fire', () => {
+  const s = 'remove the folder icon from the toolbar';
+  const p = wp33Config((cfg) => { const g = cfg.gates.find((x) => x.id === 'data-delete'); assert.ok(g.match.pattern.includes('|icons?|')); g.match.pattern = g.match.pattern.replace('|icons?|', '|'); });
+  assert.deepStrictEqual(gate.classify(s).matched, []);
+  assert.ok(gate.classify(s, { configPath: p }).matched.includes('data-delete'));
+});
+t('WP33 MUTATION: dropping the Dutch end-of-phrase lookahead makes "zet de live chat aan op de site" fire deploy', () => {
+  const s = 'zet de live chat aan op de site';
+  const p = wp33Config((cfg) => { const src = wp33Arm(cfg, 'deploy', 'nl', 0); const cut = src.indexOf('(?=\\s*(?:$|'); assert.ok(cut > 0, src); cfg.gates.find((g) => g.id === 'deploy').match.phrases.nl[0] = src.slice(0, cut); });
+  assert.deepStrictEqual(gate.classify(s).matched, []);
+  assert.ok(gate.classify(s, { configPath: p }).matched.includes('deploy'));
+});
+t('WP33 config refusals: phrases on a command gate, a non-object, a bad language key, an empty list or a regex that does not compile all throw', () => {
+  const bad = (match, n) => { const p = path.join(WP33_DIR, 'bad-' + n + '.json'); fs.writeFileSync(p, JSON.stringify({ gates: [{ id: 'x', class: 'irreversible', reason: 'r', match }] })); return p; };
+  assert.throws(() => gate.loadGates(bad({ kind: 'command', pattern: 'rm', phrases: { en: ['delete'] } }, 1)), /only allowed on a "regex"/);
+  assert.throws(() => gate.loadGates(bad({ kind: 'regex', pattern: 'x', phrases: ['delete'] }, 2)), /must be an object/);
+  assert.throws(() => gate.loadGates(bad({ kind: 'regex', pattern: 'x', phrases: { english: ['delete'] } }, 3)), /two-letter language key/);
+  assert.throws(() => gate.loadGates(bad({ kind: 'regex', pattern: 'x', phrases: { en: [] } }, 4)), /non-empty array/);
+  assert.throws(() => gate.loadGates(bad({ kind: 'regex', pattern: 'x', phrases: { en: ['(unclosed'] } }, 5)), /does not compile/);
+  assert.doesNotThrow(() => gate.loadGates(bad({ kind: 'regex', pattern: 'x', phrases: { _doc: 'notes are allowed', nl: ['verwijder'] } }, 6)));
+});
+t('WP33 arms are compiled once and reused, and a "g" flag cannot make test() stateful', () => {
+  const p = path.join(WP33_DIR, 'gflag.json');
+  fs.writeFileSync(p, JSON.stringify({ gates: [{ id: 'x', class: 'irreversible', reason: 'r', match: { kind: 'regex', pattern: 'zzz', flags: 'gi', phrases: { nl: ['verwijder\\s+de\\s+map'] } } }] }));
+  for (let i = 0; i < 4; i++) assert.strictEqual(gate.classify('verwijder de map', { configPath: p }).gate, true, 'call ' + i);
+  const g = gate.loadGates(p).gates[0];
+  assert.strictEqual(gate.textGateArms(g), gate.textGateArms(g), 'the same compiled array is returned');
+});
+t('WP33 CLI: classify "verwijder de map" exits 3 naming data-delete; the local-build control exits 0', () => {
+  const a = runCLI(['classify', 'verwijder de map']);
+  assert.strictEqual(a.status, 3, a.stdout + a.stderr);
+  assert.ok(a.stdout.includes('data-delete'), a.stdout);
+  assert.strictEqual(runCLI(['classify', 'publish the plugin template to dist/ (local build)']).status, 0);
+});
+t('WP33 the sanctioned rollback command line triggers no gate at all (classifier verdict)', () => {
+  for (const c of ['node .claude/forge-bin/forge-rollback.cjs apply --run forge-2026-10-24-demo --yes',
+    'node .claude/forge-bin/forge-rollback.cjs apply --run forge-2026-10-24-demo --yes --force-dirty',
+    'node .claude/forge-bin/forge-rollback.cjs undo --backup _scratch/rollback-backup-demo-20261024T120000000Z --yes']) {
+    assert.deepStrictEqual(gate.classify(c).matched, [], c);
+  }
+});
+t('WP33 classify() stays fast on a large adversarial line (the hook runs every text arm on every command)', () => {
+  const big = 'delete ' + 'the '.repeat(20000) + 'folder ' + ('stuur ' + 'x '.repeat(5) + 'naar ').repeat(2000) + 'klant';
+  gate.classify(big);
+  const t0 = process.hrtime.bigint();
+  gate.classify(big);
+  timingAssert('classify(' + big.length + ' chars)', Number(process.hrtime.bigint() - t0) / 1e6, 50, 1500);
+});
+// The REAL spawned hook: a command that only MENTIONS the new phrases is allowed (exit 0); the live-hook control blocks.
+const WP33_HOME = path.join(WP33_DIR, 'home');
+fs.mkdirSync(WP33_HOME, { recursive: true });
+const wp33Hook = (command) => spawnSync(process.execPath, [path.join(__dirname, 'forge-gate-hook.cjs')], {
+  input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } }), encoding: 'utf8',
+  env: Object.assign({}, process.env, { FORGE_CONFIG_HOME: WP33_HOME, FORGE_GATE_RUN_EVENT: 'off' }), timeout: 15000,
+});
+for (const c of ['git commit -m "verwijder de map en publiceer de site"', 'echo delete the folder and send the newsletter',
+  'node .claude/forge-bin/forge-rollback.cjs apply --run forge-2026-10-24-demo --yes']) {
+  t('WP33 spawned hook ALLOWS (exit 0) a command that only mentions text-gate phrases: ' + c, () => {
+    const r = wp33Hook(c);
+    assert.strictEqual(r.status, 0, 'exit ' + r.status + ', stderr: ' + r.stderr);
+  });
+}
+t('WP33 spawned hook control: rm -rf ./src still BLOCKS (exit 2) — the harness is live, not vacuous', () => {
+  const r = wp33Hook('rm -rf ./src');
+  assert.strictEqual(r.status, 2, 'exit ' + r.status + ', stderr: ' + r.stderr);
+});
+try { fs.rmSync(WP33_DIR, { recursive: true, force: true }); } catch { /* best effort temp cleanup */ }
+
+// ---------------------------------------------------------------------------
+// 9) WP 3.3b — four new gates (plugin-install, settings-edit as text gates; plugin-install-command,
+// settings-edit-command as hook-enforced command gates) and data-delete taught to tell an INSTRUCTION from a FEATURE
+// DESCRIPTION. MEASURED BEFORE THIS EXISTED: 35 of the 41 WP33B_DESCRIBE sentences fired data-delete; on a held-out set
+// written after the cues were tuned (WP33B_HELDOUT_*), 17 of 23 descriptions fired before and 1 of 23 after, and the
+// instructions of both sets fired exactly as before. src: brief = the 3.3b brief, real = owner wording from the scribe
+// inbox (read only) or the plan, constructed = written for this table.
+// ---------------------------------------------------------------------------
+console.log('\n9) WP 3.3b — plugin/settings gates and the feature-description filter of data-delete');
+
+/** wp33bPositives() — a function declaration, so section 8's no-dead-arm check (which runs earlier) can see it. */
+function wp33bPositives() {
+  return [
+    ['claude plugin install codex@openai-codex', 'plugin-install', 'brief'], ['/plugin install frontend-design@claude-plugins-official', 'plugin-install', 'brief'],
+    ['claude plugin marketplace add anthropics/claude-plugins-official', 'plugin-install', 'brief'], ['claude plugin enable forge@forge', 'plugin-install', 'brief'],
+    ['install the Forge plugin', 'plugin-install', 'constructed'], ['enable the official frontend-design plugin', 'plugin-install', 'constructed'],
+    ['add the codex plugin', 'plugin-install', 'constructed'], ['install codex@openai-codex', 'plugin-install', 'constructed'],
+    ['enable frontend-design@claude-plugins-official', 'plugin-install', 'constructed'],
+    ['install the frontend-design plugin from the official marketplace', 'plugin-install', 'constructed'], ['enable the plugin in Claude Code', 'plugin-install', 'constructed'],
+    ['add the claude-plugins-official marketplace', 'plugin-install', 'constructed'], ['register the forge marketplace', 'plugin-install', 'constructed'],
+    ['run `claude plugin marketplace add` and `install --scope project` in a temp project', 'plugin-install', 'real'],
+    ['installeer de codex plugin', 'plugin-install', 'constructed'], ['zet de Forge-plugin aan', 'plugin-install', 'constructed'],
+    ['schakel de officiële plugin in', 'plugin-install', 'constructed'], ['de Forge plugin installeren', 'plugin-install', 'constructed'],
+    ['de codex-plugin aanzetten', 'plugin-install', 'constructed'], ['voeg de forge marketplace toe', 'plugin-install', 'constructed'],
+    ['de claude-plugins-official marketplace toevoegen', 'plugin-install', 'constructed'],
+    ['edit .claude/settings.json to allow every Bash command', 'settings-edit', 'constructed'], ['update ~/.claude/settings.json', 'settings-edit', 'constructed'],
+    ['add a PreToolUse hook to .claude/settings.local.json', 'settings-edit', 'constructed'], ['add a hook to settings.json', 'settings-edit', 'constructed'],
+    ['update settings.json to register the new hook', 'settings-edit', 'constructed'], ['for the hooks, edit settings.json', 'settings-edit', 'constructed'],
+    ['add Bash(npm *) to permissions.allow', 'settings-edit', 'constructed'], ['set defaultMode to bypassPermissions', 'settings-edit', 'constructed'],
+    ['enable bypassPermissions', 'settings-edit', 'constructed'], ['claude config set -g allowedTools Bash', 'settings-edit', 'brief'],
+    ['pas .claude/settings.local.json aan', 'settings-edit', 'constructed'], ['wijzig de claude-instellingen', 'settings-edit', 'constructed'],
+    ['pas de settings.json aan voor de hooks', 'settings-edit', 'constructed'], ['de .claude/settings.json aanpassen', 'settings-edit', 'constructed'],
+    ['voeg Bash(*) toe aan permissions.allow', 'settings-edit', 'constructed'], ['voeg een hook toe aan settings.json', 'settings-edit', 'constructed'],
+    ['zet bypassPermissions aan', 'settings-edit', 'constructed'],
+  ];
+}
+const WP33B_POS = wp33bPositives();
+// Must stay silent on BOTH new text gates: everyday plugin talk from other ecosystems, Forge's own plugin build, UI
+// settings pages, other tools' settings.json, Forge's own config tool, and reading.
+const WP33B_NEG = [
+  'install the eslint plugin', 'add the prettier plugin to the config', 'install the tailwind plugin', 'enable the WordPress SEO plugin',
+  'the plugin build writes dist/forge-plugin', 'plugin packaging and plugin evals', 'claude plugin list', 'claude plugin validate dist/forge-plugin',
+  'users can install the Forge plugin from the marketplace', 'add the plugin entry to the marketplace', 'connect the Etsy marketplace', 'add the Etsy marketplace listing',
+  'how to install the Forge plugin', 'installeer de eslint plugin', 'de plugin-build draaien',
+  'read .claude/settings.json and explain the hooks', 'please add a dark-mode toggle to the settings page', 'update the user settings page',
+  'forge-sync merges the hooks into settings.json with a backup', 'update settings.json with the new API URL', 'update .vscode/settings.json to format on save',
+  'node .claude/forge-bin/forge-config.cjs set plan-approval gated', '/forge config set gate-hook on', 'settings.json has no _doc keys',
+  'the plugin cannot ship permissions.deny; those rules stay in the project settings', 'pas de instellingenpagina aan', 'de appsettings.json aanpassen',
+  'claude config list', 'explain what bypassPermissions does',
+];
+// data-delete, both directions (the tuning set). Every row of WP33B_DESCRIBE fired data-delete before WP 3.3b except
+// the six marked "was silent", which are kept as controls.
+const WP33B_DESCRIBE = [
+  ['add a delete account button', 'brief'], ['the app can delete files', 'brief'], ['users can delete their files', 'constructed'],
+  ['the user can remove folders from the dashboard', 'constructed'], ['admins can wipe the database from the settings page', 'constructed'],
+  ['add a button to delete files', 'constructed'], ['add an option to remove old backups automatically', 'constructed'], ['build an endpoint to delete records', 'constructed'],
+  ['implement a function to delete the folder', 'constructed'], ['allow users to delete their projects', 'constructed'], ['let users delete uploaded files', 'constructed'],
+  ['the tool should delete temp files after the upload', 'constructed (was silent)'], ['it should remove the cache folder after each build', 'constructed (was silent)'],
+  ['the cleanup job will purge old records every night', 'constructed'], ['give users the ability to delete their data', 'constructed'], ['a way to empty the trash folder', 'constructed'],
+  ['the script must delete the build folder before copying', 'constructed (was silent)'], ['make it possible to delete branches from the UI', 'constructed (was silent)'],
+  ['start the headless run from an empty temp folder', 'real'], ['add a "Delete all data" button to the account page', 'constructed'],
+  ['the card catches "publish to the marketplace" or "delete the folder"', 'real'], ['the bot can drop the table when an admin asks', 'constructed'],
+  ['how to delete the old backups', 'constructed'], ['how do I delete the folder', 'constructed'], ['customers should be able to remove files from their order', 'constructed'],
+  ['when users delete files the trash keeps them for 30 days', 'constructed'], ['remove the ability to delete files', 'constructed'], ['write a cron job to purge old records', 'constructed'],
+  ['what happens if I delete the folder', 'constructed'],
+  ['de app kan bestanden verwijderen', 'constructed'], ['de gebruiker kan de map verwijderen', 'constructed'], ['voeg een knop toe om de bestanden te verwijderen', 'constructed'],
+  ['maak een functie om oude backups te verwijderen', 'constructed'], ['de beheerder mag de database leegmaken via het dashboard', 'constructed'],
+  ['een optie om de map te legen', 'constructed'], ['ik wil dat de gebruiker de map kan verwijderen', 'constructed'], ['bouw een endpoint waarmee je de records kunt verwijderen', 'constructed'],
+  ['de mogelijkheid om alle bestanden te wissen', 'constructed'], ['hoe verwijder ik de map', 'constructed'], ['hoe kan ik de oude backups verwijderen', 'constructed'],
+  ['klanten kunnen de bestanden zelf wissen', 'constructed'], ['de tool moet de tijdelijke map na het uploaden leegmaken', 'constructed (was silent)'],
+];
+const WP33B_INSTRUCT = [
+  'delete the folder', 'please delete the old backups', 'can you delete the old backups', 'could you wipe the database', 'you can delete the dist folder now',
+  'go ahead and remove the project folder', 'we need to delete the feature branch', "let's wipe the staging database", 'I want you to delete all the files in uploads',
+  'drop the users table', 'remove all files in the uploads folder', 'also delete the backups', 'then remove the folder', 'make sure to delete the old backups',
+  "don't forget to empty the S3 bucket", 'you should delete the old branches', 'we should drop the staging database', 'just nuke the db', 'now empty the trash folder',
+  'Empty the S3 bucket', 'click the button to delete the files', 'use the API to delete the old records', 'run the script to delete the old backups',
+  'find a way to wipe the database', 'let me delete the folder', 'the app can delete files; delete the old backups folder now', 'if the build passes, delete the old backups',
+  'run "DROP TABLE leads" on staging',
+  'verwijder de map', 'kun je de map verwijderen', 'kan je de oude backups wissen', 'wil je de database leegmaken', 'je mag de dist map verwijderen', 'we moeten de branch verwijderen',
+  'gooi de map weg', 'maak de database leeg', 'de branch verwijderen', 'verwijder alle bestanden in de map', 'vergeet niet de oude backups te verwijderen',
+  'klik op de knop om de bestanden te verwijderen',
+];
+// Held-out: written AFTER the cues were tuned and never tuned on. The measured result is pinned as-is, misses included.
+const WP33B_HELDOUT_DESCRIBE = [
+  'visitors can remove files from their upload list', 'the admin panel should let moderators delete the spam records', 'an API endpoint that wipes the test database between runs',
+  'the backup script will purge snapshots older than 30 days', 'provide a way to delete branches that were merged', 'editors are able to drop tables they created',
+  'we need a toggle to empty the trash folder automatically', 'the cron job deletes old backups every Sunday', 'teachers can delete the class folder at the end of the year',
+  'add a confirmation step before users delete their data', 'how should the app remove the uploads folder after export', 'in the settings page, owners can delete the whole project',
+  'it must never delete the backups folder', "the 'Remove all files' link",
+  'bezoekers kunnen hun bestanden uit de lijst verwijderen', 'een script dat de oude backups elke nacht kan opruimen', 'leerlingen mogen de map niet verwijderen',
+  'de webshop moet de oude gegevens na een jaar wissen', 'maak een optie waarmee beheerders de database kunnen legen', 'het systeem gaat de tijdelijke bestanden automatisch verwijderen',
+  'een functie om alle gegevens te wissen na opzegging', 'hoe moet ik de oude branches opruimen',
+];
+const WP33B_HELDOUT_INSTRUCT = [
+  'please remove the uploads folder', 'can you purge the staging database', 'go ahead and drop the leads table', 'you may delete the old feature branches',
+  'first delete the dist folder, then rebuild', 'erase the backups', 'time to nuke the test database', 'kindly delete all records older than a year',
+  "I'd like you to empty the uploads bucket", 'remove the whole repo from my disk', "let's purge the old snapshots", 'use the CLI to wipe the database', 'delete the backups folder now',
+  'wis alle oude backups', 'verwijder de uploads-map', 'kun je de staging database leegmaken', 'gooi alle oude branches weg', 'maak de map leeg', 'mag je de dist map verwijderen',
+  'ik wil dat je de database wist en de map verwijdert, verwijder de map', 'graag de oude backups verwijderen',
+];
+// The measured price, pinned so a later fix shows up as a deliberate change.
+const WP33B_PRICE = {
+  heldOutDescriptionStillFires: ['the extension lets you wipe the browser history'], // "you" is deliberately not a description subject
+  coordinationSilences: ['users can delete their files and then delete the backups folder now'],
+  planCellFires: ['| delete files |'], // the plan's rollback column: a planned action, fires on purpose
+  olderPatternMisses: ['wipe all the old backups before Friday', 'remove every file in the tmp folder'], // silent before AND after (the base pattern)
+};
+const dd = (s, opts) => gate.classify(s, opts).matched.includes('data-delete');
+
+for (const [text, id, src] of WP33B_POS) {
+  t('WP33B [' + src + '] "' + text + '" fires ' + id, () => {
+    const m = gate.classify(text).matched;
+    assert.ok(m.includes(id), 'expected ' + id + ', matched ' + JSON.stringify(m));
+  });
+}
+t('WP33B negatives: all ' + WP33B_NEG.length + ' stay silent on plugin-install and settings-edit', () => {
+  const fired = WP33B_NEG.map((s) => [s, gate.classify(s).matched.filter((x) => x === 'plugin-install' || x === 'settings-edit')]).filter(([, m]) => m.length);
+  assert.deepStrictEqual(fired.map(([s, m]) => s + ' -> ' + JSON.stringify(m)), []);
+});
+t('WP33B data-delete: all ' + WP33B_DESCRIBE.length + ' feature descriptions are silent', () => {
+  assert.deepStrictEqual(WP33B_DESCRIBE.filter(([s]) => dd(s)).map(([s]) => s), []);
+});
+t('WP33B data-delete: all ' + WP33B_INSTRUCT.length + ' instructions and requests still fire', () => {
+  assert.deepStrictEqual(WP33B_INSTRUCT.filter((s) => !dd(s)), []);
+});
+t('WP33B held-out (never tuned on): ' + WP33B_HELDOUT_DESCRIBE.length + ' descriptions silent, ' + WP33B_HELDOUT_INSTRUCT.length + ' instructions fire', () => {
+  assert.deepStrictEqual(WP33B_HELDOUT_DESCRIBE.filter((s) => dd(s)), []);
+  assert.deepStrictEqual(WP33B_HELDOUT_INSTRUCT.filter((s) => !dd(s)), []);
+});
+t('WP33B measured price pinned (misses stay silent, over-warns keep firing — a fix must update this list)', () => {
+  for (const s of WP33B_PRICE.heldOutDescriptionStillFires) assert.ok(dd(s), 'now silent — good news, move it to WP33B_HELDOUT_DESCRIBE: ' + s);
+  for (const s of WP33B_PRICE.coordinationSilences) assert.ok(!dd(s), 'now fires — update _not_caught and this list: ' + s);
+  for (const s of WP33B_PRICE.planCellFires) assert.ok(dd(s), 'the plan cell stopped firing: ' + s);
+  for (const s of WP33B_PRICE.olderPatternMisses) assert.ok(!dd(s), 'an older miss now fires — good news, update this list: ' + s);
+});
+t('WP33B every pre-existing data-delete example and WP33 positive still fires (no true positive lost)', () => {
+  const g = gate.loadGates().gates.find((x) => x.id === 'data-delete');
+  const rows = g.examples.match.concat(WP33_POS.filter((r) => r[1] === 'data-delete').map((r) => r[0]),
+    WP33_HELDOUT_POS.filter((r) => r[1] === 'data-delete').map((r) => r[0]), WP33_NEGATION.filter((r) => r[1] === 'data-delete').map((r) => r[0]));
+  assert.ok(rows.length >= 40, 'only ' + rows.length + ' rows');
+  assert.deepStrictEqual(rows.filter((s) => !dd(s)), []);
+});
+t('WP33B the description filter is opt-in: only data-delete, plugin-install and settings-edit carry descriptions:"skip"', () => {
+  const users = gate.loadGates().gates.filter((g) => g.match.descriptions !== undefined).map((g) => g.id).sort();
+  assert.deepStrictEqual(users, ['data-delete', 'plugin-install', 'settings-edit']);
+});
+
+// quoted mentions and the exec-verb exception (code, not config)
+t('WP33B quotedMention: a quoted phrase is a mention, unless an execution verb stands right before the quote', () => {
+  const span = (s, sub) => { const i = s.indexOf(sub); return [i, i + sub.length]; };
+  const s1 = 'the card catches "delete the folder"';
+  assert.strictEqual(gate.quotedMention(s1, ...span(s1, 'delete the folder')), true);
+  const s2 = 'run "DROP TABLE leads" on staging';
+  assert.strictEqual(gate.quotedMention(s2, ...span(s2, 'DROP TABLE leads')), false, 'run before the quote: an instruction');
+  const s3 = 'see “delete the folder” in the report';
+  assert.strictEqual(gate.quotedMention(s3, ...span(s3, 'delete the folder')), true, 'curly quotes');
+  const s4 = "the owner's 'delete the folder' example";
+  assert.strictEqual(gate.quotedMention(s4, ...span(s4, 'delete the folder')), true, 'an apostrophe is not the opening quote');
+  const s5 = '"a" and delete the folder "b"';
+  assert.strictEqual(gate.quotedMention(s5, ...span(s5, 'delete the folder')), false, 'between two quoted phrases is outside both (parity)');
+  assert.ok(dd('plan: `delete the folder` after the run'), 'a backticked phrase is a planned command, never a mention');
+  assert.ok(dd('remove the "dist" folder'), 'a match that starts outside the quotes is not inside a mention');
+});
+t('WP33B fail closed: more than DESCRIPTION_MAX_OCCURRENCES description-shaped occurrences fire; fewer stay silent', () => {
+  const unit = 'users can delete the folder | ';
+  assert.strictEqual(dd(unit.repeat(gate.DESCRIPTION_MAX_OCCURRENCES)), false);
+  assert.strictEqual(dd(unit.repeat(gate.DESCRIPTION_MAX_OCCURRENCES + 1)), true);
+});
+t('WP33B instructionTextArm vs matchedTextArm: the raw arm still matches a description, the verdict skips it', () => {
+  const g = gate.loadGates().gates.find((x) => x.id === 'data-delete');
+  assert.strictEqual(gate.matchedTextArm(g, 'the app can delete files'), 'pattern');
+  assert.strictEqual(gate.instructionTextArm(g, 'the app can delete files'), null);
+  assert.strictEqual(gate.instructionTextArm(g, 'the app can delete files; delete the old backups folder now'), 'pattern');
+});
+
+// counterfactual + mutation checks on throwaway configs (the real file is never written)
+const WP33B_REAL = gate.loadGates();
+const WP33B_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-wp33b-'));
+let wp33bSeq = 0;
+function wp33bConfig(mutate) {
+  const cfg = JSON.parse(JSON.stringify(WP33B_REAL));
+  mutate(cfg);
+  const p = path.join(WP33B_DIR, 'hard-gates-' + (++wp33bSeq) + '.json');
+  fs.writeFileSync(p, JSON.stringify(cfg));
+  return p;
+}
+const cueIdx = (list, needle) => { const i = list.findIndex((s) => s.includes(needle)); assert.ok(i >= 0, 'cue moved: ' + needle); return i; };
+t('WP33B COUNTERFACTUAL: without descriptions:"skip" on data-delete, at least 30 of the descriptions fire again (measured 35)', () => {
+  const p = wp33bConfig((cfg) => { delete cfg.gates.find((g) => g.id === 'data-delete').match.descriptions; });
+  const firing = WP33B_DESCRIBE.filter(([s]) => dd(s, { configPath: p })).length;
+  assert.ok(firing >= 30, 'only ' + firing + ' fire without the filter — the filter is not doing the work this suite claims');
+});
+t('WP33B MUTATION: dropping the English subject+modal cue makes "the app can delete files" fire', () => {
+  const s = 'the app can delete files';
+  const p = wp33bConfig((cfg) => { const l = cfg.description_cues.before.en; l.splice(cueIdx(l, '(?:(?:can|could|should|must'), 1); });
+  assert.ok(!dd(s) && dd(s, { configPath: p }));
+});
+t('WP33B MUTATION: dropping the feature-noun cue makes "add a button to delete files" fire', () => {
+  const s = 'add a button to delete files';
+  const p = wp33bConfig((cfg) => { const l = cfg.description_cues.before.en; l.splice(cueIdx(l, '^(?!.*\\b(?:run|runs'), 1); });
+  assert.ok(!dd(s) && dd(s, { configPath: p }));
+});
+t('WP33B MUTATION: dropping the article cue makes "start the headless run from an empty temp folder" fire', () => {
+  const s = 'start the headless run from an empty temp folder';
+  const p = wp33bConfig((cfg) => { const l = cfg.description_cues.before.en; l.splice(cueIdx(l, '(?:a|an|the|this|that|these|those'), 1); });
+  assert.ok(!dd(s) && dd(s, { configPath: p }));
+});
+t('WP33B MUTATION: dropping the Dutch verb-final through-cue makes "de app kan bestanden verwijderen" fire', () => {
+  const s = 'de app kan bestanden verwijderen';
+  const p = wp33bConfig((cfg) => { const l = cfg.description_cues.through.nl; l.splice(cueIdx(l, '{0,6}?\\s+(?:kan|kunnen'), 1); });
+  assert.ok(!dd(s) && dd(s, { configPath: p }));
+});
+t('WP33B MUTATION: without line_all_of the inline node write split at its own ";" goes silent (the split hides it)', () => {
+  const s = "node -e \"const fs=require('fs'); fs.writeFileSync('.claude/settings.json', '{}')\"";
+  const p = wp33bConfig((cfg) => { delete cfg.gates.find((g) => g.id === 'settings-edit-command').match.line_all_of; });
+  assert.ok(gate.classify(s).matched.includes('settings-edit-command'));
+  assert.ok(!gate.classify(s, { configPath: p }).matched.includes('settings-edit-command'));
+});
+t('WP33B MUTATION: dropping the marketplace-add arm silences "claude plugin marketplace add x/y" on the command gate', () => {
+  const s = 'claude plugin marketplace add anthropics/claude-plugins-official';
+  const p = wp33bConfig((cfg) => { const m = cfg.gates.find((g) => g.id === 'plugin-install-command').match; assert.ok(m.pattern.includes('|marketplace\\s+add)')); m.pattern = m.pattern.replace('|marketplace\\s+add)', ')'); });
+  assert.ok(gate.classify(s).matched.includes('plugin-install-command'));
+  assert.ok(!gate.classify(s, { configPath: p }).matched.includes('plugin-install-command'));
+});
+t('WP33B MUTATION: dropping the <placeholder> lookbehind makes a layout line "<project>/.claude/settings.json hooks" fire', () => {
+  const s = '<project>/.claude/settings.json   hooks (or none when plugin supplies them) + permissions.deny';
+  const p = wp33bConfig((cfg) => { const m = cfg.gates.find((g) => g.id === 'settings-edit-command').match; assert.ok(m.pattern.includes('(?<!<[\\w.-]{1,40})')); m.pattern = m.pattern.replace('(?<!<[\\w.-]{1,40})', ''); });
+  assert.ok(!gate.classify(s).matched.includes('settings-edit-command'));
+  assert.ok(gate.classify(s, { configPath: p }).matched.includes('settings-edit-command'));
+});
+t('WP33B MUTATION: dropping the (?<![=-]) guard makes a read-only arrow function fire as if it were a redirect', () => {
+  const s = "node -e \"const p = () => '.claude/settings.json'; console.log(p())\"";
+  const p = wp33bConfig((cfg) => { const m = cfg.gates.find((g) => g.id === 'settings-edit-command').match; assert.ok(m.pattern.startsWith('(?<![=-])')); m.pattern = m.pattern.slice('(?<![=-])'.length); });
+  assert.ok(!gate.classify(s).matched.includes('settings-edit-command'));
+  assert.ok(gate.classify(s, { configPath: p }).matched.includes('settings-edit-command'));
+});
+t('WP33B lineAllOfFires: all regexes must match, the first outside quoted data', () => {
+  const g = gate.loadGates().gates.find((x) => x.id === 'settings-edit-command');
+  const QUOTES = require('./forge-gate-quotes.cjs');
+  const run = (s) => gate.lineAllOfFires(g.match, s, QUOTES.scanQuotes(s));
+  assert.strictEqual(run("python -c \"open('.claude/settings.json', 'w').write('{}')\""), true);
+  assert.strictEqual(run("node -e \"fs.writeFileSync(require('path').join(home, '.claude', 'settings.json'), x)\""), true, 'path.join pieces');
+  assert.strictEqual(run('echo "node -e fs.writeFileSync(.claude/settings.json)"'), false, 'the interpreter word is only quoted data');
+  assert.strictEqual(run("node -e \"console.log(require('./.claude/settings.json'))\""), false, 'no write call');
+  assert.strictEqual(run("node -e \"fs.writeFileSync('_scratch/settings.json', x)\""), false, 'not the Claude settings path');
+});
+t('WP33B config refusals: descriptions on a command gate or with a bad value, a missing/malformed description_cues block, and a bad line_all_of all throw', () => {
+  const bad = (data, n) => { const p = path.join(WP33B_DIR, 'bad-' + n + '.json'); fs.writeFileSync(p, JSON.stringify(data)); return p; };
+  const cues = { before: { en: ['x$'] }, through: { nl: ['y$'] } };
+  const text = (extra) => Object.assign({ id: 't', class: 'irreversible', reason: 'r', match: Object.assign({ kind: 'regex', pattern: 'delete' }, extra) });
+  assert.throws(() => gate.loadGates(bad({ description_cues: cues, gates: [{ id: 'c', class: 'irreversible', reason: 'r', match: { kind: 'command', pattern: 'rm', descriptions: 'skip' } }] }, 1)), /only allowed on a "regex"/);
+  assert.throws(() => gate.loadGates(bad({ description_cues: cues, gates: [text({ descriptions: 'yes' })] }, 2)), /must be "skip"/);
+  assert.throws(() => gate.loadGates(bad({ gates: [text({ descriptions: 'skip' })] }, 3)), /no description_cues block/);
+  assert.throws(() => gate.loadGates(bad({ description_cues: { before: ['x'] , through: { nl: ['y'] } }, gates: [text({ descriptions: 'skip' })] }, 4)), /must be an object/);
+  assert.throws(() => gate.loadGates(bad({ description_cues: { before: { en: ['(unclosed'] }, through: { nl: ['y'] } }, gates: [text({ descriptions: 'skip' })] }, 5)), /does not compile/);
+  assert.throws(() => gate.loadGates(bad({ gates: [text({ line_all_of: ['a', 'b'] })] }, 6)), /only allowed on a "command" gate/);
+  assert.throws(() => gate.loadGates(bad({ gates: [{ id: 'c', class: 'irreversible', reason: 'r', match: { kind: 'command', line_all_of: ['node'] } }] }, 7)), /at least 2 regex sources/);
+  assert.throws(() => gate.loadGates(bad({ gates: [{ id: 'c', class: 'irreversible', reason: 'r', match: { kind: 'command', line_all_of: ['node', '(unclosed'] } }] }, 8)), /does not compile/);
+  assert.doesNotThrow(() => gate.loadGates(bad({ gates: [{ id: 'c', class: 'irreversible', reason: 'r', match: { kind: 'command', line_all_of: ['node', 'x'] } }] }, 9)));
+});
+t('WP33B the shared description_cues block is documented and every cue fires on at least one row of this section (no dead cue)', () => {
+  const dc = WP33B_REAL.description_cues;
+  assert.ok(typeof dc._doc === 'string' && dc._doc.length >= 400, 'description_cues._doc must explain the mechanism');
+  const corpus = WP33B_DESCRIBE.map((r) => r[0]).concat(WP33B_HELDOUT_DESCRIBE, WP33B_NEG);
+  const dead = [];
+  for (const part of ['before', 'through']) {
+    for (const [lang, list] of Object.entries(dc[part])) {
+      if (lang.startsWith('_')) continue;
+      list.forEach((src, i) => {
+        const re = new RegExp(src, 'i');
+        // a cue is tested on clause text before (or through) the match, so probe every prefix of every row
+        const live = corpus.some((s) => { for (let k = 1; k <= s.length; k++) if (re.test(s.slice(0, k))) return true; return false; });
+        if (!live) dead.push(part + '.' + lang + '[' + i + ']');
+      });
+    }
+  }
+  assert.deepStrictEqual(dead, []);
+});
+
+// the command gates: Forge's own tools, reading, and the claude CLI's harmless subcommands stay silent
+t('WP33B Forge\'s own tool command lines and settings READS trigger neither new command gate', () => {
+  for (const c of ['node .claude/forge-bin/forge-config.cjs set gate-hook off --once "ja"', 'node .claude/forge-bin/forge-config.cjs set plan-approval gated',
+    'node .claude/forge-bin/forge-sync.cjs install ../client-site --dry-run', 'node .claude/forge-bin/forge-plugin-build.cjs --check',
+    'node .claude/forge-bin/forge-settings-merge.cjs apply --target .claude/settings.json --source _scratch/template/settings.json --backup-dir _scratch/bak',
+    'node .claude/forge-bin/forge-settings-merge.cjs unmerge --target .claude/settings.json --source x/settings.json --remove-deny',
+    'cat .claude/settings.json', 'type .claude\\settings.json', 'Get-Content .claude/settings.json | ConvertFrom-Json', 'jq .permissions .claude/settings.local.json',
+    'git diff -- .claude/settings.json', 'git add .claude/settings.json', 'claude plugin list', 'claude plugin validate dist/forge-plugin', 'claude plugin eval evals/plugin',
+    'claude config list', 'claude config get theme']) {
+    const m = gate.classify(c).matched;
+    assert.ok(!m.includes('plugin-install-command') && !m.includes('settings-edit-command'), c + ' -> ' + JSON.stringify(m));
+  }
+});
+t('WP33B CLI: classify "the app can delete files" exits 0; "claude plugin install x@y" exits 3 naming plugin-install-command', () => {
+  assert.strictEqual(runCLI(['classify', 'the app can delete files']).status, 0);
+  const r = runCLI(['classify', 'claude plugin install x@y']);
+  assert.strictEqual(r.status, 3, r.stdout + r.stderr);
+  assert.ok(r.stdout.includes('plugin-install-command'), r.stdout);
+});
+t('WP33B stays linear on adversarial lines (measured 2.5 s before the CLI patterns were made adjacent-only)', () => {
+  for (const big of ['claude '.repeat(30000), 'users can delete the folder '.repeat(5000), '"delete the folder" '.repeat(10000),
+    'echo x > .claude/settings.json; '.repeat(5000), 'node '.repeat(20000) + 'writeFileSync .claude/settings.json', 'edit settings.json for the hooks '.repeat(3000)]) {
+    gate.classify(big);
+    const t0 = process.hrtime.bigint();
+    gate.classify(big);
+    timingAssert('classify(' + big.slice(0, 20).trim() + '… ' + big.length + ' chars)', Number(process.hrtime.bigint() - t0) / 1e6, 150, 1500);
+  }
+});
+t('WP33B replay: no intel-evals scenario request or title fires data-delete, plugin-install or settings-edit (all are build requests)', () => {
+  const sc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'intelligence', 'eval-scenarios.json'), 'utf8')).scenarios;
+  assert.ok(sc.length >= 30);
+  const fired = [];
+  for (const s of sc) for (const text of [s.request, s.title]) {
+    const m = gate.classify(text).matched.filter((x) => ['data-delete', 'plugin-install', 'settings-edit'].includes(x));
+    if (m.length) fired.push(s.id + ' -> ' + JSON.stringify(m));
+  }
+  assert.deepStrictEqual(fired, []);
+});
+try { fs.rmSync(WP33B_DIR, { recursive: true, force: true }); } catch { /* best effort temp cleanup */ }
+
+// ---------------------------------------------------------------------------
+// 2c-linear) WP 3.3c — LINEAR TIME on repeated verbs, with the SAME verdicts.
+//
+// Measured before this package (lane 3.3b, re-measured here): one 120k-character command of a repeated verb took
+// `cat ` 9.4 s, `rm ` 4.6 s, `taskkill ` 1.2 s, `git show ` 4.2 s and `grep | ` (5k -> 20k chars) 0.3 s -> 18.7 s. The
+// cause: an arm `A(?=[^\n]*X)` rescans the rest of the line from EVERY occurrence of its verb A, so k verbs cost
+// k x line. The fix, in hard-gates.json, is an exact guard in front of each such arm:
+//   (?=A)(?<!A[^\n]*?)A   only the FIRST A of a line runs the rest. Exact for positive rest-of-line lookaheads (and
+//                         secret-print's "no git earlier on the line"): the first A sees the most of the line.
+//   (?=A)(?<!A(?:(?!G)[^\n])*?)A + lazy lookaheads   when the arm also has a NEGATIVE lookahead (?![^\n]*G): the
+//                         first A after the last G wins (kill-by-name's taskkill /fi ... not pid eq).
+//   A(?<!A(?:(?!G)[^\n])+?) at the anchor END, for git arms whose global options can themselves contain G.
+// The single-arm pattern_lines (destructive-delete, secret-print) get the same guard plus deterministic first-pipe /
+// first-xargs steps; kill-by-name's three-arm pattern_line gets ONLY the deterministic steps (a guard there could
+// hide an arm behind another arm's skipped quoted span), which keeps every match's start and end identical and turns
+// cubic into quadratic. Still quadratic, measured and listed below: kill-by-name's pattern_line on `gps `, `kill `,
+// `grep ` and opaque-exec's pattern_line on dense `|` and repeated `certutil ` — the hook's watchdog bounds them.
+// ---------------------------------------------------------------------------
+console.log('\n2c-linear) WP 3.3c — rest-of-line arms run in linear time and give the same verdicts as before');
+const crypto = require('crypto');
+const LIN_GATES = gate.loadGates().gates;
+const LG = (id) => LIN_GATES.find((g) => g.id === id);
+// The pre-3.3c texts, rebuilt from their shared fragments; the sha256 prefixes below were taken from the shipped
+// hard-gates.json at commit ee9bfff, so this is provably the old config, not a paraphrase of it.
+const LIN_REF = (() => {
+  const R = String.raw;
+  const SECRET = R`(?:\.env\b(?!\.(?:example|sample|template)\b)|\.pem\b|\.key\b|\bid_rsa|\bid_ed25519|[\w.-]*credentials[\w.-]*\.json\b|\bsecrets(?:[\\/]|(?=[\s"';|&)<>]|$))|\bservice-account[\w.-]*\.json\b|\.p12\b|\.pfx\b|\.npmrc\b|\.pypirc\b|\.netrc\b|\.git-credentials\b|\.docker[\\/]config\.json\b|\.aws[\\/]credentials\b|\bforge-accounts(?:[\\/]|(?=[\s"';|&)<>]|$)))`;
+  const GIT = R`(?:\bgit\.exe\b|\bgit\b|"git\.exe"|'git\.exe'|"git"|'git')`;
+  const OPTS = R`(?:\s+-{1,2}[A-Za-z][A-Za-z0-9-]*(?:=(?:"[^"\n]*"|'[^'\n]*'|\S+))?(?:\s*(?:"[^"\n]*"|'[^'\n]*'|[^-\s]\S*))?)*`;
+  const READ = R`(?:cat|type|gc|Get-Content|more|less|head|tail|bat|grep|egrep|fgrep|rg|Select-String|sls|findstr)`;
+  const T = R`(?=[^\n]*` + SECRET + ')';
+  return {
+    'kill-by-name': {
+      pattern: [R`\btaskkill\b(?=[^\n]*(?:[\s/-]im\b|\bimagename\b))`, R`\b(?:Stop-Process|spps)\b(?=[^\n]*\s-{1,2}(?:n|na|nam|name|processname)\b)`,
+        R`\bkill\b(?=[^\n]*\s-{1,2}(?:Name|ProcessName)\b)`, R`\b(?:pkill|killall)\b`,
+        R`\bwmic\b(?=[^\n]*\bprocess\b)(?=[^\n]*\bname\s*=)(?=[^\n]*\b(?:delete|terminate)\b)`,
+        R`\btaskkill\b(?=[^\n]*[\s/-]fi\b)(?![^\n]*[\s/-]fi\s+["']?\s*pid\s+eq\b)`,
+        R`\bStop-Process\b(?=[^\n]*-{1,2}InputObject\b)(?=[^\n]*\(\s*Get-Process\b(?:(?!\)|-{1,2}Id\b).)*\))`].join('|'),
+      pattern_line: [R`(?:\bGet-Process\b|\bgps\b|\bps\s+(?=[A-Za-z]))(?![^\n;&]*\s-{1,2}(?:Id|InputObject)\b)[^\n;&]*\|[^\n;&]*(?:\bStop-Process\b|\bspps\b|\bkill\b|\.Kill\s*\(\s*\))`,
+        R`\bkill\b[^\n]*(?:\$\(|` + '`' + R`)\s*(?:pgrep|pidof)\b`, R`\b(?:pgrep|pidof|grep)\b[^\n]*\|[^\n]*\bxargs\b[^\n]*\bkill\b`].join('|'),
+    },
+    'destructive-delete': {
+      pattern: [R`\b(?:rm|del|erase|rd|rmdir)\b(?=[^\n]*\s(?:-(?!-)[A-Za-z]*r[A-Za-z]*\b|--recursive\b))(?=[^\n]*\s(?:-(?!-)[A-Za-z]*f[A-Za-z]*\b|--force\b))`,
+        R`\b(?:Remove-Item|ri|del|erase|rd|rmdir)\b(?=[^\n]*\s-{1,2}(?:r|re|rec|recu|recur|recurs|recurse|recursive)\b)`,
+        R`\brm\b(?=[^\n]*\s-{1,2}(?:re|rec|recu|recur|recurs|recurse)\b)`, R`\b(?:rmdir|rd)\b(?=[^\n]*\s/s\b)`, R`\b(?:del|erase)\b(?=[^\n]*\s/s\b)`,
+        R`^\s*(?:(?:sudo|npx)\s+|(?:pnpm|yarn)\s+dlx\s+|-{1,2}[A-Za-z][A-Za-z0-9-]*\s+)*rimraf\b`,
+        R`(?<!\b(?:s3|git|gsutil)\s)\brm\b(?=[^\n]*\s(?:-(?!-)[A-Za-z]*r[A-Za-z]*\b|--recursive\b))`].join('|'),
+      pattern_line: R`\b(?:Get-ChildItem|gci|ls|dir)\b[^|\n]*\s-{1,2}(?:r|re|rec|recu|recur|recurs|recurse)\b[^|\n]*\|[^\n]*(?:\b(?:Remove-Item|ri|rm|del|erase|rd|rmdir)\b|\.Delete\s*\(\s*\))`,
+    },
+    'git-destructive': {
+      pattern: [R`\s+reset\b(?=[^\n]*\s--hard\b)`, R`\s+clean\b(?=[^\n]*\s-{1,2}[A-Za-z]*f)`,
+        R`\s+checkout\b(?=[^\n]*\s(?:-(?!-)[A-Za-z]*f[A-Za-z]*\b|--force\b))`, R`\s+checkout\b(?=[^\n]*\s--\s+\S)`,
+        R`\s+checkout\b(?=[^\n]*\s\.[\\/]?(?:\s|$))`, R`\s+restore\b(?=\s+\S)(?![^\n]*\s--staged\b)`,
+        R`\s+restore\b(?=[^\n]*\s(?:--worktree\b|-[A-Za-z0-9]*W[A-Za-z0-9]*\b))`, R`\s+switch\b(?=[^\n]*\s(?:-f|--force|--discard-changes)(?=\s|$))`,
+        R`\s+stash\s+(?:drop|clear)\b`, R`\s+worktree\s+remove\b(?=[^\n]*\s(?:-f\b|--force\b))`].map((s) => GIT + OPTS + s)
+        .concat([GIT + R`(?=[^\n]*\s-{1,2}c\s+(?:"clean\.requireForce=(?:false|no|0)"|'clean\.requireForce=(?:false|no|0)'|clean\.requireForce=(?:false|no|0)\b))` + OPTS + R`\s+clean\b(?![^\n]*\s-{1,2}n\b)(?![^\n]*--dry-run\b)`]).join('|'),
+    },
+    'opaque-exec': {
+      pattern: R`^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:(?:sudo|time|nohup|exec|command|builtin|env|&)\s+)*(?:iex|Invoke-Expression|eval)(?=[\s;&|)]|$)|\b(?:pwsh|powershell)(?:\.exe)?\b(?=[^\n]*\s-(?:e|ec|en|enc|encoded|encodedcommand)\b)`,
+    },
+    'secret-print': {
+      pattern: [R`\b(?:cat|type|gc|Get-Content|more|less|head|tail|bat)\b(?<!\bgit\b[^\n]*)` + T, R`\b(?:grep|egrep|fgrep|rg)\b` + T, R`\b(?:Select-String|sls|findstr)\b` + T,
+        GIT + OPTS + R`\s+show\b(?![^\n]*\s(?:-s|--(?:name-only|name-status|stat|numstat|shortstat|summary|raw|no-patch))\b)` + T,
+        GIT + OPTS + R`\s+(?:log|whatchanged)\b(?=[^\n]*\s(?:-p|--patch|-u|-L\S*|--full-diff)(?=\s|$))` + T,
+        GIT + OPTS + R`\s+diff\b(?![^\n]*\s--(?:stat|name-only|name-status|numstat|shortstat|summary|quiet|dirstat|raw)\b)` + T,
+        GIT + OPTS + R`\s+(?:blame|annotate)\b` + T, GIT + OPTS + R`\s+cat-file\b(?=[^\n]*\s-{1,2}(?:p|textconv|filters)\b)` + T,
+        R`\bfind\b` + T + R`(?=[^\n]*\s-exec(?:dir)?\s+(?:\S*[\\/])?` + READ + R`\b)`].join('|'),
+      pattern_line: R`\bfind\b[^\n]*` + SECRET + R`[^\n]*\|[^\n]*\bxargs\b[^\n]*\b` + READ + R`\b`,
+    },
+  };
+})();
+const LIN_REF_SHA = {
+  'kill-by-name': { pattern: 'aca71b3184e5e124', pattern_line: 'b4c58279b963d712' },
+  'destructive-delete': { pattern: 'f27d596bf550080d', pattern_line: '74dd0ee02c0fbcb5' },
+  'git-destructive': { pattern: '8a2a874a5da20f0e' }, 'opaque-exec': { pattern: 'fcae19958dbdcbc2' },
+  'secret-print': { pattern: '364887e5d47be5ce', pattern_line: '8c6e5e9789061bb9' },
+};
+const linRefGate = (id) => { const g = LG(id); return { id: g.id, class: g.class, reason: g.reason, match: Object.assign({}, g.match, LIN_REF[id]) }; };
+t('the pre-3.3c reference texts are byte-exact (sha256 pinned from hard-gates.json at ee9bfff) and every one was really rewritten', () => {
+  for (const id of Object.keys(LIN_REF)) for (const k of Object.keys(LIN_REF[id])) {
+    assert.strictEqual(crypto.createHash('sha256').update(LIN_REF[id][k]).digest('hex').slice(0, 16), LIN_REF_SHA[id][k], 'reference drifted: ' + id + ' ' + k);
+    assert.notStrictEqual(LG(id).match[k], LIN_REF[id][k], 'not rewritten (then this section proves nothing): ' + id + ' ' + k);
+    new RegExp(LG(id).match[k], LG(id).match.flags || 'i'); // the shipped text compiles
+  }
+});
+// A seeded corpus (no Math.random: a failure must be reproducible). Generic token soups across every changed gate, and
+// git-shaped commands with global options, nested `git -x git ...` garbage and repeated anchors on one line.
+function linCorpus(seed, count, gitShaped) {
+  let s = seed >>> 0;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const VOC = ['rm', 'del', 'erase', 'rd', 'rmdir', 'Remove-Item', 'ri', 'rimraf', 'taskkill', 'Stop-Process', 'spps', 'kill', 'pkill', 'wmic',
+    'process', 'name=x', 'delete', 'terminate', 'cat', 'type', 'gc', 'more', 'head', 'bat', 'git', 'show', 'log', 'diff', 'blame', 'reset', 'clean',
+    'checkout', 'restore', 'find', 'grep', 'rg', 'Select-String', 'findstr', 'pwsh', 'powershell.exe', 'xargs', 'pgrep', 'Get-Process', 'gps', 'ls',
+    'dir', 'gci', '-rf', '-r', '-f', '--recursive', '--force', '-Recurse', '-re', '/s', '/IM', '/fi', '"pid eq 3"', 'pid', 'eq', 'IMAGENAME', '-Name',
+    '-n', '-InputObject', '(Get-Process', 'node)', '-Id', '-e', '-enc', '-exec', '--hard', '--', '.', '--staged', '-s', '-p', '-C', 'x.pem', '.env',
+    'id_rsa', 'secrets/', 'a.txt', './src', 'node_modules', 's3', 'gsutil', '|', ';', '&&', '"', "'", '$(', '`', '\n', 'x', 'echo', '.Delete()', '.Kill()'];
+  const HEADS = ['git', 'git.exe', '"git"', "'git'"];
+  const GOPTS = ['-C repo', '-c clean.requireForce=false', '--git-dir=/r', '-x', '-x git', '-n', '--staged', '-s', '--hard', '-y clean', '-p'];
+  const SUBS = ['reset', 'clean', 'checkout', 'restore', 'switch', 'stash drop', 'worktree remove', 'show', 'diff', 'log', 'blame', 'cat-file', 'status'];
+  const GARGS = ['--hard', '-f', '-fd', '--force', '--', '.', 'src/a.js', '--staged', '--worktree', '-W', '-n', '--dry-run', '-s', '--stat', '-p', '.env',
+    'x.pem', 'HEAD', '--discard-changes', 'x', 'git', 'clean'];
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    if (!gitShaped) {
+      const parts = [];
+      for (let k = 1 + Math.floor(rnd() * 16); k > 0; k--) parts.push(pick(VOC));
+      out.push(parts.join(rnd() < 0.85 ? ' ' : ''));
+      continue;
+    }
+    const segs = [];
+    for (let j = 1 + Math.floor(rnd() * 3); j > 0; j--) {
+      const w = [pick(HEADS)];
+      for (let k = Math.floor(rnd() * 3); k > 0; k--) w.push(pick(GOPTS));
+      w.push(pick(SUBS));
+      for (let k = Math.floor(rnd() * 5); k > 0; k--) w.push(pick(GARGS));
+      segs.push(w.join(' '));
+    }
+    out.push(segs.join(rnd() < 0.8 ? ' ' : ' | '));
+  }
+  return out;
+}
+function linSpans(src, text) { return [...text.matchAll(new RegExp(src, 'gi'))].map((m) => m.index + ':' + m[0].length).join(','); }
+t('DIFFERENTIAL: 1500 generic + 1500 git-shaped commands give the SAME verdicts as the pre-3.3c patterns (classify, raw, pattern_line spans)', () => {
+  const diffs = [];
+  let fires = 0;
+  for (const text of linCorpus(20261024, 1500, false).concat(linCorpus(33, 1500, true))) {
+    for (const id of Object.keys(LIN_REF)) {
+      const now = LG(id), ref = linRefGate(id);
+      const a = gate.testCommandGate(ref, text), b = gate.testCommandGate(now, text);
+      if (a) fires++;
+      if (a !== b || gate.testCommandGateRaw(ref, text) !== gate.testCommandGateRaw(now, text)) diffs.push(id + ' ' + JSON.stringify(text));
+      if (LIN_REF[id].pattern_line && linSpans(LIN_REF[id].pattern_line, text) !== linSpans(now.match.pattern_line, text)) diffs.push(id + ' span ' + JSON.stringify(text));
+    }
+  }
+  assert.deepStrictEqual(diffs.slice(0, 5), [], diffs.length + ' verdict differences');
+  assert.ok(fires > 500, 'the corpus barely fires (' + fires + ') — it would prove nothing');
+});
+t('DIFFERENTIAL (hand-picked edge cases): repeated anchors, a negative after an earlier anchor, nested git options', () => {
+  const cases = ['rm x rm -rf y', 'del a del /s b', 'taskkill /fi "pid eq 1" taskkill /fi "imagename eq node.exe"',
+    'taskkill /fi "imagename eq x" /fi "pid eq 1"', 'taskkill taskkill /IM x', 'wmic process x wmic name=a delete', 'cat a cat .env',
+    'git cat a .env', 'cat a git .env', 'git show HEAD git show --stat .env', 'git show --stat x git show .env', 'git -s show a git show .env',
+    'git restore a git restore', 'git restore --staged a git restore b', 'git -c clean.requireForce=false -x git -y clean clean',
+    'git clean -n git -c clean.requireForce=false clean', 'git -c clean.requireForce=false clean -n git clean', 'ls -r ls | rm', 'ls x | ls -r | rm',
+    'ls -r | ls -r | x', 'gci -r a | gci b | ri', 'find . find .env | xargs cat', 'find .env | x | xargs cat | xargs grep', 's3 rm x rm -r y',
+    'git rm a rm -r b', 'Stop-Process -InputObject (Get-Process -Id 1) Stop-Process -InputObject (Get-Process x)', '"gps grep" | "kill"; grep x | xargs kill',
+    '"kill $(pgrep" x; pgrep y | xargs kill', 'gps | gps -Id 3 | Stop-Process', 'gps -Id 3 | gps | kill'];
+  const diffs = [];
+  for (const text of cases) for (const id of Object.keys(LIN_REF)) {
+    if (gate.testCommandGate(linRefGate(id), text) !== gate.testCommandGate(LG(id), text)) diffs.push(id + ' ' + text);
+    if (LIN_REF[id].pattern_line && linSpans(LIN_REF[id].pattern_line, text) !== linSpans(LG(id).match.pattern_line, text)) diffs.push(id + ' span ' + text);
+  }
+  assert.deepStrictEqual(diffs, []);
+});
+// The repeated-verb shapes this package made linear. classify() runs every gate, so a shape here is linear only when
+// NO gate is super-linear on it. The bound: 4x the input may cost at most 8x the time plus 60 ms of noise (quadratic
+// costs 16x), and 120k characters stay under the hard cap.
+const LIN_SHAPES = ['cat ', 'type ', 'gc ', 'Get-Content ', 'more ', 'head ', 'tail ', 'bat ', 'rg ', 'Select-String ', 'findstr ', 'find ', 'find x | ',
+  'rm ', 'del ', 'erase ', 'rd ', 'rmdir ', 'Remove-Item ', 'ri ', 'ls -r ', 'ls -r x ', 'taskkill ', 'taskkill /fi pid eq 1 ', 'Stop-Process ', 'spps ',
+  'wmic ', 'pwsh ', 'powershell ', 'git ', 'git reset ', 'git clean ', 'git checkout ', 'git restore ', 'git restore --staged ', 'git switch ',
+  'git worktree remove ', 'git show ', 'git show -s ', 'git diff ', 'git log -p ', 'git blame ', 'git cat-file '];
+function linMs(text, runs) {
+  let best = Infinity;
+  for (let i = 0; i < runs; i++) { const t0 = process.hrtime.bigint(); gate.classify(text); best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6); }
+  return best;
+}
+const linRep = (v, n) => v.repeat(Math.ceil(n / v.length)).slice(0, n);
+for (const shape of LIN_SHAPES) {
+  t('LINEAR: classify() on a repeated ' + JSON.stringify(shape) + ' grows linearly (30k -> 120k chars)', () => {
+    const t1 = linMs(linRep(shape, 30000), 2);
+    const t4 = linMs(linRep(shape, 120000), 3);
+    assert.ok(t4 <= 8 * t1 + 60, '4x the input cost ' + (t4 / Math.max(t1, 0.01)).toFixed(1) + 'x the time (' + t1.toFixed(0) + 'ms -> ' + t4.toFixed(0) + 'ms): super-linear again');
+    timingAssert('classify(' + JSON.stringify(shape) + ' x 120k chars)', t4, 150, 1500);
+  });
+}
+t('COUNTERFACTUAL (mutation): the cat arm WITHOUT its first-anchor guard is quadratic again — the linear check is not vacuous', () => {
+  const g = LG('secret-print');
+  const guard = '(?=\\b(?:cat|type|gc|Get-Content|more|less|head|tail|bat)\\b)(?<!\\b(?:cat|type|gc|Get-Content|more|less|head|tail|bat)\\b[^\\n]*?)';
+  assert.ok(g.match.pattern.startsWith(guard), 'the cat arm no longer starts with its guard — re-derive this counterfactual');
+  const unguarded = { id: g.id, class: g.class, match: Object.assign({}, g.match, { pattern: g.match.pattern.slice(guard.length) }) };
+  const time = (gg, n) => { const s = linRep('cat ', n); let best = Infinity; for (let i = 0; i < 2; i++) { const t0 = process.hrtime.bigint(); gate.testCommandGate(gg, s); best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6); } return best; };
+  const u1 = time(unguarded, 8000), u4 = time(unguarded, 32000), s1 = time(g, 8000), s4 = time(g, 32000);
+  assert.ok(u4 > 8 * u1 + 60 || u4 > 4 * (s4 + 60), 'the unguarded arm is not measurably super-linear (' + u1.toFixed(0) + 'ms -> ' + u4.toFixed(0) + 'ms) — the check could not catch a revert');
+  assert.ok(s4 <= 8 * s1 + 60, 'the shipped arm (' + s1.toFixed(0) + 'ms -> ' + s4.toFixed(0) + 'ms)');
+  assert.strictEqual(gate.testCommandGate(unguarded, 'cat .env'), true);
+});
+t('KNOWN RESIDUAL (reported, not linear): kill-by-name and opaque-exec pattern_lines on gps/kill/grep/dense pipes/certutil stay under 1.5 s at 20k chars', () => {
+  const notes = [];
+  for (const shape of ['gps ', 'kill ', 'grep ', 'grep | ', '|', 'certutil ']) {
+    const ms = linMs(linRep(shape, 20000), 1);
+    notes.push(JSON.stringify(shape) + ' ' + ms.toFixed(0) + 'ms');
+    assert.ok(ms < 1500, JSON.stringify(shape) + ' took ' + ms.toFixed(0) + 'ms at 20k chars (was cubic before 3.3c for grep |)');
+  }
+  console.log('    note: residual quadratic shapes at 20k chars: ' + notes.join(', '));
+});
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');

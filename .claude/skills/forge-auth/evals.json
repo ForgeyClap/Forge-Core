@@ -1,0 +1,35 @@
+{
+  "skill": "forge-auth",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-auth/SKILL.md",
+      "why": "the skill file itself must exist for forge-auth to be usable at all" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 140,
+      "why": "the project skill listing budget is nearly full; the description stays <= 140 chars" },
+    { "id": "when-to-use-section", "type": "contains", "path": ".claude/skills/forge-auth/SKILL.md", "needle": "## When to use",
+      "why": "trigger conditions (login, sessions, JWT, OAuth, roles) must stay documented" },
+    { "id": "hard-rules-section", "type": "contains", "path": ".claude/skills/forge-auth/SKILL.md", "needle": "## Hard rules",
+      "why": "server-side enforcement and token-handling rules are the core of this playbook" },
+    { "id": "reference-section", "type": "contains", "path": ".claude/skills/forge-auth/SKILL.md", "needle": "## Pick the reference",
+      "why": "the pointer to the per-topic references must stay" },
+    { "id": "ship-readiness-section", "type": "contains", "path": ".claude/skills/forge-auth/SKILL.md", "needle": "## Ship-readiness",
+      "why": "every forge playbook ends with its unique ship-readiness checklist" },
+    { "id": "license-file", "type": "file_exists", "path": ".claude/skills/forge-auth/LICENSE",
+      "why": "adapted MIT text requires the upstream notices to ship with the skill" }
+  ],
+  "activation": {
+    "should_trigger": [
+      "bouw een loginsysteem met sessies en wachtwoord reset",
+      "implement OAuth with PKCE for a single page app",
+      "how do I verify a JWT safely on the server",
+      "add role based access control so admins can see all tenants",
+      "zet Clerk in mijn Next.js app voor inloggen",
+      "refresh tokens roteren met reuse detection"
+    ],
+    "near_miss": [
+      "write a migration that adds an index to the orders table",
+      "create a pull request template",
+      "set up Stripe webhooks for refunds",
+      "make the landing page hero section responsive"
+    ]
+  }
+}

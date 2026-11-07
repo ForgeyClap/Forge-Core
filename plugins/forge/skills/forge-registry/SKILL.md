@@ -1,6 +1,7 @@
 ---
 name: forge-registry
-description: Builds the global, opt-in, read-only Forge Project Registry across all projects. Use when the owner wants a bird's-eye view of status, last run, tickets, and ports.
+description: "User-invoked only: /forge-registry. Builds the opt-in, read-only registry of all Forge projects (status, last run, tickets, ports); manual because it reads other projects."
+disable-model-invocation: true
 ---
 
 # forge-registry — global project registry (opt-in, read-only)

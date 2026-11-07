@@ -1,0 +1,6 @@
+{
+  "code": "ollama_down",
+  "details": "connect ECONNREFUSED 127.0.0.1:11434",
+  "expect_title": "Ollama staat uit",
+  "expect_action": "Ollama starten"
+}
