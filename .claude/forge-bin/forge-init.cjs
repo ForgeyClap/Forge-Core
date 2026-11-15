@@ -237,7 +237,7 @@ function settingsStep(root, source) {
   const risks = guards.scanJsonRisks(stripBom(t.raw));
   if (risks.duplicateKeys.length || risks.unsafeNumbers.length) return refuse('has duplicate keys or numbers a rewrite would change');
   const m = settingsMerge.mergeForgeSettings(json, source);
-  const n = m.added.length + m.adjusted.length + m.upgraded.length + m.deny_added.length;
+  const n = m.added.length + m.adjusted.length + m.upgraded.length + m.moved.length + m.deny_added.length;
   return Object.assign(base, { action: n ? 'merge' : 'none', hooks_added: m.added_detail.length, deny_added: m.deny_added.length, upgraded: m.upgraded.length, adjusted: m.adjusted.length });
 }
 function claudeMdStep(root, layout) {
@@ -404,7 +404,10 @@ function applyInit(opts) {
 }
 function checkInit(opts) {
   const plan = planInit(opts);
-  return Object.assign(plan, { initialised: plan.ok && plan.changes === 0 && plan.refusedSteps === 0 });
+  // FB-INSTALL-2-F14: without the Forge hooks (project scripts or the plugin) no gate hook runs, so it is not set up;
+  // the h_none / h_partial note already says what to do. It counts as one more item to do.
+  const hooksMissing = !!plan.ok && !!plan.hooks && (plan.hooks.mode === 'none' || plan.hooks.mode === 'partial');
+  return Object.assign(plan, { initialised: plan.ok && plan.changes === 0 && plan.refusedSteps === 0 && !hooksMissing, hooks_missing: hooksMissing });
 }
 
 // ---- output + CLI ------------------------------------------------------------------------------------------------
@@ -421,7 +424,7 @@ function render(plan, cmd, lang) {
     L.push('  ' + (ACTION_LABEL[act] || [act, act])[lang === 'nl' ? 1 : 0].padEnd(14) + rel(plan.root, s.file) + (s.id === 'claude_md' ? ' (pointer block)' : '') + detailOf(s, plan) + (s.backup ? ' [backup ' + s.backup + ']' : ''));
   }
   for (const n of plan.notes) L.push('  ' + say(lang, n, n === 'h_partial' ? plan.hooks.missing.length : (plan.leftovers || []).join(', ')));
-  if (cmd === 'check') L.push(say(lang, plan.initialised ? 'ok' : 'not', plan.root, plan.changes + plan.refusedSteps));
+  if (cmd === 'check') L.push(say(lang, plan.initialised ? 'ok' : 'not', plan.root, plan.changes + plan.refusedSteps + (plan.hooks_missing ? 1 : 0)));
   else if (plan.dryRun) L.push(plan.changes ? say(lang, 'dry') : say(lang, 'same'));
   else if (plan.refusedSteps) L.push(say(lang, 'failed', plan.root, plan.refusedSteps));
   else L.push(plan.changes ? say(lang, 'done', plan.root, plan.changes) : say(lang, 'same'));

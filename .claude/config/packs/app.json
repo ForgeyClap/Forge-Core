@@ -1,0 +1,58 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "app",
+  "_doc": "The app pack (owner request R-0239, contract): 4 app-* SPECIALIST agents (never Bosses; the 12 permanent Bosses are unchanged) for full-stack apps (SaaS, CRUD, CRM, boards, money tools), built from the roles the owner projects really used (architect, backend, state and persistence reviewer, export and import reviewer, feature logic reviewer). forge-router sends full-stack app work to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Lanes open the presets app-all and process first (checked by forge-lane-skills.cjs --require app-all,process).",
+  "projectTypes": [
+    "fullstack",
+    "saas",
+    "webapp"
+  ],
+  "signals": [
+    "full-stack",
+    "fullstack",
+    "SaaS",
+    "web app",
+    "backend",
+    "CRUD",
+    "CRM",
+    "login",
+    "database",
+    "REST API",
+    "dashboard with data"
+  ],
+  "playbook": "forge-fullstack",
+  "agents": [
+    "app-architect",
+    "app-backend-engineer",
+    "app-data-reviewer",
+    "app-domain-reviewer"
+  ],
+  "skills": [
+    "forge-brainstorm",
+    "forge-fullstack",
+    "forge-api",
+    "forge-database",
+    "forge-auth",
+    "forge-testing",
+    "forge-debug",
+    "ponytail",
+    "test-driven-development",
+    "forge-code-review",
+    "forge-craft",
+    "forge-verify",
+    "forge-graded-verify"
+  ],
+  "presets": {
+    "app-all": [
+      "forge-fullstack",
+      "forge-api",
+      "forge-database",
+      "forge-auth"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

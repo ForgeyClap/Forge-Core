@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Bisection script to find which test creates unwanted files/state
 # Usage: ./find-polluter.sh <file_or_dir_to_check> <test_pattern>
-# Example: ./find-polluter.sh '.git' 'src/**/*.test.ts'
+# Example: ./find-polluter.sh 'packages/core/.git' 'src/**/*.test.ts'
 
 set -e
 
 if [ $# -ne 2 ]; then
   echo "Usage: $0 <file_to_check> <test_pattern>"
-  echo "Example: $0 '.git' 'src/**/*.test.ts'"
+  echo "Example: $0 'packages/core/.git' 'src/**/*.test.ts'"
   exit 1
 fi
 
@@ -35,6 +35,7 @@ echo "Found $TOTAL test files"
 echo ""
 
 COUNT=0
+SKIPPED=0
 for TEST_FILE in $TEST_FILES; do
   COUNT=$((COUNT + 1))
 
@@ -42,6 +43,7 @@ for TEST_FILE in $TEST_FILES; do
   if [ -e "$POLLUTION_CHECK" ]; then
     echo "⚠️  Pollution already exists before test $COUNT/$TOTAL"
     echo "   Skipping: $TEST_FILE"
+    SKIPPED=$((SKIPPED + 1))
     continue
   fi
 
@@ -68,5 +70,11 @@ for TEST_FILE in $TEST_FILES; do
 done
 
 echo ""
+# Forge change (audit SK-3-F2): a skipped test was never checked, so "clean" would be a false all-clear.
+if [ "$SKIPPED" -gt 0 ]; then
+  echo "❓ Inconclusive: $SKIPPED of $TOTAL tests were skipped because $POLLUTION_CHECK already existed."
+  echo "   Remove it, then run this script again."
+  exit 2
+fi
 echo "✅ No polluter found - all tests clean!"
 exit 0

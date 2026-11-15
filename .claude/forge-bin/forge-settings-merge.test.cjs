@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-settings-merge.test.cjs — real tests for the general .claude/settings.json MERGE tool (wp22,
 // 2026-09-24; hardened wp-f2, 2026-09-24 Codex re-check out-p2.md/out-p6.md). This is the LOAD-BEARING safety
 // suite: it proves a foreign hook, a foreign allow rule and an unknown top-level key all survive byte-for-byte
@@ -188,6 +192,19 @@ t('SCHEMA-ACCEPTANCE: fullyValidShape also rejects a hook entry whose inner hook
   assert.strictEqual(mod.fullyValidShape({ hooks: { PreToolUse: [{ matcher: 'x', hooks: [{ type: 'command', command: 'y', timeout: 5 }] }] } }), true);
 });
 
+t('FB-INSTALL-2-F12: a well-formed prompt, agent or http hook is a valid settings.json, and the merge leaves it untouched', () => {
+  const existing = { hooks: { Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is the task done?', timeout: 30 }] }],
+    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'agent', prompt: 'check it' }, { type: 'http', url: 'http://127.0.0.1:9/h' }] }] } };
+  assert.strictEqual(guards.deepValidateHooksShape(existing), true);
+  assert.strictEqual(mod.fullyValidShape(existing), true);
+  assert.strictEqual(guards.deepValidateHooksShape({ hooks: { Stop: [{ hooks: [{ type: 'prompt' }] }] } }), false, 'a prompt hook needs its prompt');
+  assert.strictEqual(guards.deepValidateHooksShape({ hooks: { Stop: [{ hooks: [{ type: '' }] }] } }), false, 'an empty type is still refused');
+  const source = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-snapshot-marker.cjs"' }] }] } };
+  const r = mod.mergeForgeSettings(existing, source);
+  assert.deepStrictEqual(r.settings.hooks.Stop[0].hooks, [existing.hooks.Stop[0].hooks[0], source.hooks.Stop[0].hooks[0]], 'prompt hook kept, Forge hook added beside it');
+  assert.deepStrictEqual(r.settings.hooks.PreToolUse, existing.hooks.PreToolUse);
+});
+
 // ---------------------------------------------------------------------------
 console.log('\n5) applySettingsMerge() — file-level orchestration (real filesystem)');
 
@@ -262,6 +279,20 @@ t('invalid existing JSON -> refused, file untouched, a UNIQUE settings.forge-rec
   assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'a malformed existing file must never be overwritten');
   assert.strictEqual(recommendedFiles(dir).length, 1);
   assert.strictEqual(r.recommended, path.join(dir, recommendedFiles(dir)[0]));
+});
+
+t('FB-INSTALL-1-F8: repeated refusals with the same source reuse ONE recommended copy (no pile-up)', () => {
+  const dir = freshDir('settings-merge-reuse');
+  const source = path.join(dir, 'source.json');
+  const target = path.join(dir, 'settings.json');
+  writeJson(source, realSourceFixture());
+  fs.writeFileSync(target, '{ "hooks": {', 'utf8');
+  const paths = [1, 2, 3].map(() => mod.applySettingsMerge({ target, source }).recommended);
+  assert.strictEqual(recommendedFiles(dir).length, 1, recommendedFiles(dir).join(', '));
+  assert.ok(paths.every((p) => p === paths[0] && fs.existsSync(p)), JSON.stringify(paths));
+  writeJson(source, Object.assign(realSourceFixture(), { extra: 1 }));
+  mod.applySettingsMerge({ target, source });
+  assert.strictEqual(recommendedFiles(dir).length, 2, 'a different source still gets its own copy');
 });
 
 t('unexpected shape (hooks not an object) -> refused, file untouched, recommended file written', () => {
@@ -526,6 +557,7 @@ t('two same-second refusals never collide: two DISTINCT recommended files exist,
   fs.writeFileSync(target, 'not json 1', 'utf8');
   const r1 = mod.applySettingsMerge({ target, source, now: new Date('2026-01-01T00:00:00.000Z') });
   fs.writeFileSync(target, 'not json 2', 'utf8');
+  writeJson(source, Object.assign(realSourceFixture(), { second: true })); // a different source: an identical one reuses its copy (FB-INSTALL-1-F8)
   const r2 = mod.applySettingsMerge({ target, source, now: new Date('2026-01-01T00:00:00.000Z') });
   assert.notStrictEqual(r1.recommended, r2.recommended, 'each refusal must get its OWN unique recovery file');
   assert.strictEqual(recommendedFiles(dir).length, 2);
@@ -683,6 +715,30 @@ t('DUPLICATE-HOOKS reporting: a PRE-EXISTING duplicate matcher is detected and r
   assert.strictEqual(duplicate_matchers.length, 1);
   assert.strictEqual(duplicate_matchers[0].event, 'PreToolUse');
   assert.strictEqual(duplicate_matchers[0].count, 2);
+});
+
+t('FB-INSTALL-1-F3: a Forge hook whose matcher changed in the template moves to the new matcher, it is not kept twice', () => {
+  const gate = 'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-gate-hook.cjs"';
+  const existing = { hooks: { PreToolUse: [
+    { matcher: 'Bash', hooks: [{ type: 'command', command: gate }, { type: 'command', command: 'my-own-check' }] },
+  ] } };
+  const source = { hooks: { PreToolUse: [{ matcher: 'Bash|PowerShell', hooks: [{ type: 'command', command: gate }] }] } };
+  const r = mod.mergeForgeSettings(existing, source);
+  const where = r.settings.hooks.PreToolUse.filter((e) => e.hooks.some((h) => h.command === gate)).map((e) => e.matcher);
+  assert.deepStrictEqual(where, ['Bash|PowerShell'], 'the gate hook runs under exactly one matcher');
+  assert.deepStrictEqual(r.settings.hooks.PreToolUse[0], { matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-check' }] }, 'the user hook stays');
+  assert.deepStrictEqual(r.moved, [{ event: 'PreToolUse', from: 'Bash', to: ['Bash|PowerShell'], command: gate }]);
+  // An already-affected project (hook under both matchers) is repaired too, and that counts as a change.
+  const both = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: gate }] }, { matcher: 'Bash|PowerShell', hooks: [{ type: 'command', command: gate }] }] } };
+  const r2 = mod.mergeForgeSettings(both, source);
+  assert.deepStrictEqual(r2.settings.hooks.PreToolUse, [{ matcher: 'Bash|PowerShell', hooks: [{ type: 'command', command: gate }] }]);
+  assert.strictEqual(r2.moved.length, 1);
+  const dir = freshDir('settings-merge-moved');
+  const src = path.join(dir, 'source.json'); writeJson(src, source);
+  const target = path.join(dir, 'settings.json'); writeJson(target, both);
+  assert.strictEqual(mod.checkSettingsMerge({ target, source: src }).ok, false, 'check reports a pending move as not up to date');
+  assert.strictEqual(mod.applySettingsMerge({ target, source: src }).status, 'merged');
+  assert.strictEqual(mod.mergeForgeSettings(r2.settings, source).moved.length, 0, 'idempotent');
 });
 
 t('the CLI/apply result surfaces duplicate_matchers on a noop merge (say what it found)', () => {

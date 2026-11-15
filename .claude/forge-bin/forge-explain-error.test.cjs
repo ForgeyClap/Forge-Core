@@ -114,6 +114,28 @@ for (const [family, text] of REQUIRED_FAMILY_CASES) {
   });
 }
 
+// FB-QUALITY-F7: a line number, a stack location or a plain HTTP 404 is not an auth, rate-limit or missing-program error.
+for (const [text, notFamily] of [
+  ['SyntaxError: Unexpected token at app.js line 401', 'auth_invalid'],
+  ['TypeError: x is not a function\n    at server.js:429:12', 'usage_limit'],
+  ['HTTP 404: Not Found', 'command_not_found'],
+  // follow-up: a tsc/babel code-frame line number at the start of a line is not a status code either
+  ['src/app.ts:401:3 - error TS2304: Cannot find name \'bar\'.\n\n  401 | bar()\n      | ~~~', 'auth_invalid'],
+  ['  429 | )\nSyntaxError: Unexpected token', 'usage_limit'],
+]) {
+  t('"' + text.split('\n')[0].slice(0, 50) + '" is not read as ' + notFamily, () => {
+    assert.notStrictEqual(EE.explainError(text).family, notFamily);
+  });
+}
+for (const [family, text] of [
+  ['auth_invalid', 'request failed with status 401'],
+  ['auth_invalid', 'HTTP/1.1 401'],
+  ['usage_limit', 'HTTP 429'],
+  ['command_not_found', 'sh: 1: claude: not found'],
+]) {
+  t('family [' + family + '] still recognises "' + text + '"', () => assert.strictEqual(EE.explainError(text).family, family));
+}
+
 t('every family id used above is a real, declared family (no typo in the test itself)', () => {
   const known = new Set(EE.FAMILIES.map((f) => f.id));
   for (const [family] of REQUIRED_FAMILY_CASES) assert.ok(known.has(family), family + ' is not in FAMILIES');
@@ -163,9 +185,10 @@ t('a key=value secret pair keeps the field name but masks the value', () => {
 
 // `\b` never matched inside "client_secret" ("_" and "s" are both \w, so there is
 // no boundary between them) — the redactor silently let the value through. Exact reported input: `401
-// client_secret=abc123` (also exercises the auth_invalid family via the "401" text).
+// client_secret=abc123`; since the round-2 follow-up a bare leading 401 is no longer an auth signal (it is often a
+// code-frame line number), so the fixture carries the status word: `401 Unauthorized client_secret=abc123`.
 t('F10: "client_secret=abc123" is redacted (the "_" no longer breaks the key match)', () => {
-  const r = EE.explainError('401 client_secret=abc123');
+  const r = EE.explainError('401 Unauthorized client_secret=abc123');
   assert.strictEqual(r.recognized, true);
   assert.strictEqual(r.family, 'auth_invalid');
   assert.ok(!r.redactedInput.includes('abc123'), r.redactedInput);
@@ -173,7 +196,7 @@ t('F10: "client_secret=abc123" is redacted (the "_" no longer breaks the key mat
 });
 
 t('F10: --json output also carries the fixed redaction (no raw secret in the CLI JSON payload)', () => {
-  const r = runCLI(['401 client_secret=abc123', '--json']);
+  const r = runCLI(['401 Unauthorized client_secret=abc123', '--json']);
   assert.strictEqual(r.status, 0, 'stdout=' + r.stdout + ' stderr=' + r.stderr);
   const parsed = JSON.parse(r.stdout);
   assert.ok(!parsed.redactedInput.includes('abc123'), parsed.redactedInput);

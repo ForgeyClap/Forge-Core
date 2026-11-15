@@ -20,7 +20,15 @@
  *     FORGE_DECISIONS.md, FORGE_SKILL_REGISTRY.md, or agent-memory/<boss>/MEMORY.md (<boss> = [a-z0-9-]+). A missing
  *     file is created; old and new text are joined by exactly one newline; the file is written LF. Anything else, or an
  *     empty draft, is refused. Exit 0 = appended, 1 = refused (plain reason).
- * Module API: { putRunFile, checkName, appendMemoryFile, checkMemoryFile }
+ *     SD-MEM: FORGE_MEMORY.md is newest-first (its own header says so and forge-snapshot reads the top),
+ *     so a draft that starts with a `## Status YYYY-MM-DD` heading is inserted ABOVE the file's first `## ` heading,
+ *     followed by one blank line. Any other draft, and every other memory file, is appended at the end as before.
+ *     CORE-1-F2: a FORGE_MEMORY.md draft headed `## YYYY-MM-DD …` becomes `## Status YYYY-MM-DD …` (so it
+ *     goes on top and the snapshot sees it). A second append of the same entry is refused (exit 1): a draft whose first
+ *     `## ` heading the file already has (with or without "Status"), or a headingless draft whose every line is already
+ *     a line of the file (a byte-identical ledger row).
+ * Module API: { putRunFile, checkName, appendMemoryFile, checkMemoryFile, statusBlocks, latestStatusBlock,
+ *   compareStatusKeys, missionIsStale }
  * Root: the project that holds this copy (…/<project>/.claude/forge-bin), or FORGE_PROJECT_ROOT for tests.
  */
 const fs = require('fs');
@@ -47,13 +55,22 @@ function checkName(name) {
   return null;
 }
 
+// FB-CONTRACT-2-F10: the run folder follows the forge-paths layout like log-event.cjs and forge-run-state.cjs (.forge/runs
+// once the project opted in); a run that only exists in the legacy folder, or a copy without forge-paths, keeps the legacy path.
+function runDirOf(root, run) {
+  const legacy = path.join(root, '.claude', 'forge-runs', run);
+  let active = legacy;
+  try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.layout === 'function' && fp.layout(root) === 'forge') active = path.join(fp.stateDir(root, 'runs'), run); } catch { /* legacy */ }
+  return active !== legacy && !fs.existsSync(active) && fs.existsSync(legacy) ? legacy : active;
+}
+
 /** putRunFile({run, name, content}, {root}) -> {ok, path} | {ok:false, reason} */
 function putRunFile(args, opts) {
   const root = (opts && opts.root) || PROJECT_ROOT;
   const { run, name, content } = args || {};
   if (typeof run !== 'string' || !RUN_ID_RE.test(run)) return { ok: false, reason: 'run id "' + run + '" is not a valid run id' };
-  const runDir = path.join(root, '.claude', 'forge-runs', run);
-  if (!fs.existsSync(runDir) || !fs.statSync(runDir).isDirectory()) return { ok: false, reason: 'no run folder .claude/forge-runs/' + run + ' (log run_started first)' };
+  const runDir = runDirOf(root, run);
+  if (!fs.existsSync(runDir) || !fs.statSync(runDir).isDirectory()) return { ok: false, reason: 'no run folder ' + path.relative(root, runDir).split(path.sep).join('/') + ' (log run_started first)' };
   const bad = checkName(name);
   if (bad) return { ok: false, reason: bad };
   const dst = path.resolve(runDir, name);
@@ -80,6 +97,57 @@ function checkMemoryFile(name) {
   return '"' + name + '" is not a memory file (allowed: ' + MEMORY_FILES.join(', ') + ', agent-memory/<boss>/MEMORY.md)';
 }
 
+// ---- status blocks (SD-MEM) ----
+// A status heading is `## Status YYYY-MM-DD[ ~HH:MM] …`. Its key is "YYYY-MM-DD" or "YYYY-MM-DD HH:MM". Blocks are
+// compared by date; the time only decides between two blocks of the same date that both carry one.
+const STATUS_HEADING_RE = /^## Status (\d{4}-\d{2}-\d{2})(?:[ \t]+~?(\d{1,2}):(\d{2}))?.*$/gm;
+const MISSION_STALE_DAYS = 7;
+const DAY_MS = 86400000;
+
+/** statusBlocks(text) -> [{heading, key, start, end}] in document order; end = the next `## ` heading or the end. */
+function statusBlocks(text) {
+  if (typeof text !== 'string' || !text) return [];
+  const heads = [...text.matchAll(/^## .*$/gm)].map((m) => m.index);
+  const out = [];
+  for (const m of text.matchAll(STATUS_HEADING_RE)) {
+    const next = heads.find((i) => i > m.index);
+    const key = m[1] + (m[2] ? ' ' + m[2].padStart(2, '0') + ':' + m[3] : '');
+    out.push({ heading: m[0].replace(/\s+$/, ''), key, start: m.index, end: next === undefined ? text.length : next });
+  }
+  return out;
+}
+/** compareStatusKeys(a, b) -> <0 when a is older, >0 when newer, 0 when the order cannot be told. */
+function compareStatusKeys(a, b) {
+  const da = String(a).slice(0, 10), db = String(b).slice(0, 10);
+  if (da !== db) return da < db ? -1 : 1;
+  const ta = String(a).slice(11), tb = String(b).slice(11);
+  return ta && tb && ta !== tb ? (ta < tb ? -1 : 1) : 0;
+}
+/** latestStatusBlock(text) -> {heading, key, start, end} | null: the newest by date and time, whatever its position
+ *  (on a tie the topmost wins, the file's own newest-first convention). Total: never throws. */
+function latestStatusBlock(text) {
+  let best = null;
+  for (const b of statusBlocks(text)) if (!best || compareStatusKeys(b.key, best.key) > 0) best = b;
+  return best;
+}
+const dayOf = (iso) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(iso || '')); return m ? m[1] : null; };
+/** missionIsStale(block, newestWorkRunId, newestWorkIso) -> boolean. True when the newest run id the block names is
+ *  from an older day than the newest run with real work, or when the newest date it names is more than 7 days before
+ *  that work. A block that names no run id and no date, or an unknown newest work, is never called stale (kept). */
+function missionIsStale(block, newestWorkRunId, newestWorkIso) {
+  if (typeof block !== 'string' || !block) return false;
+  const workRunDay = dayOf(String(newestWorkRunId || '').replace(/^forge-/, ''));
+  const workDay = dayOf(newestWorkIso) || workRunDay;
+  if (!workDay) return false;
+  const runDays = [...block.matchAll(/\bforge-(\d{4}-\d{2}-\d{2})/g)].map((m) => m[1]).sort();
+  const newestRun = runDays[runDays.length - 1];
+  if (newestRun && workRunDay && newestRun < workRunDay) return true;
+  const days = [...block.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((m) => m[1]).filter((d) => !Number.isNaN(Date.parse(d))).sort();
+  const newestDay = days[days.length - 1];
+  if (!newestDay) return false;
+  return Date.parse(workDay) - Date.parse(newestDay) > MISSION_STALE_DAYS * DAY_MS;
+}
+
 /** appendMemoryFile({file, content}, {root}) -> {ok, path} | {ok:false, reason}. Joins with one newline, writes LF. */
 function appendMemoryFile(args, opts) {
   const root = (opts && opts.root) || PROJECT_ROOT;
@@ -92,8 +160,25 @@ function appendMemoryFile(args, opts) {
   let old = '';
   try { old = fs.readFileSync(dst, 'utf8').replace(/\r\n?/g, '\n'); }
   catch (e) { if (e.code !== 'ENOENT') return { ok: false, reason: 'cannot read ' + file + ' (' + e.code + ')' }; }
-  const joined = (old && !old.endsWith('\n') ? old + '\n' : old) + add.replace(/^\n+/, '');
-  const text = joined.endsWith('\n') ? joined : joined + '\n';
+  let draft = add.replace(/^\n+/, '');
+  // CORE-1-F2: a close-out headed `## 2026-11-09 — …` is a status block too; without "Status" it landed at the bottom.
+  if (file === 'FORGE_MEMORY.md') draft = draft.replace(/^## (\d{4}-\d{2}-\d{2})/, '## Status $1');
+  // CORE-1-F2: the same close-out was appended twice in three files. Refuse a heading (with or without "Status") the
+  // file already has, and a headingless draft whose every line is already a line of the file.
+  const head = (/^## .*$/m.exec(draft) || [''])[0].trim();
+  const lines = new Set(old.split('\n').map((l) => l.trim()));
+  const known = (l) => !l.trim() || lines.has(l.trim());
+  if (head ? [head, head.replace(/^## Status /, '## ')].some((h) => lines.has(h)) : draft.split('\n').every(known)) {
+    return { ok: false, reason: file + ' already has ' + (head ? 'the heading "' + head + '"' : 'this text') + ' (a second append of the same entry)' };
+  }
+  const firstHeading = file === 'FORGE_MEMORY.md' && /^## Status \d{4}-\d{2}-\d{2}/.test(draft) ? old.search(/^## /m) : -1;
+  let text;
+  if (firstHeading >= 0) {
+    text = old.slice(0, firstHeading) + draft.replace(/\n*$/, '\n') + '\n' + old.slice(firstHeading);
+  } else {
+    const joined = (old && !old.endsWith('\n') ? old + '\n' : old) + draft;
+    text = joined.endsWith('\n') ? joined : joined + '\n';
+  }
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   const tmp = dst + '.tmp-' + process.pid;
   fs.writeFileSync(tmp, text);
@@ -125,5 +210,5 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { putRunFile, checkName, appendMemoryFile, checkMemoryFile };
+module.exports = { putRunFile, checkName, appendMemoryFile, checkMemoryFile, statusBlocks, latestStatusBlock, compareStatusKeys, missionIsStale };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

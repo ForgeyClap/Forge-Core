@@ -20,7 +20,7 @@
  *   detect(files, n, opts)     -> classify(...) after actually running each file n times
  *   listSuites(opts)           -> forge-bin/*.test.cjs paths (opts.dir override)
  *
- * CLI (exit: 0 = all stable · 1 = flaky suite(s) found · 2 = usage/no suites):
+ * CLI (exit: 0 = all stable and passing · 1 = flaky, or always failing/timing out · 2 = usage/missing file/no suites):
  *   node forge-flaky.cjs [--runs N] [--timeout-ms MS] [--exclude <substr>] [file ...] [--json]
  *   Default: N=3, all forge-bin/*.test.cjs. Named files override the default set.
  */
@@ -46,14 +46,14 @@ function runSuiteN(file, n, opts = {}) {
 }
 
 function classify(resultsByFile) {
-  const flaky = [], stable = [];
+  const flaky = [], stable = [], stable_outcomes = {};
   for (const file of Object.keys(resultsByFile)) {
     const outs = resultsByFile[file] || [];
     const uniq = new Set(outs);
     if (uniq.size > 1) flaky.push({ file, outcomes: outs });
-    else stable.push(file);
+    else { stable.push(file); stable_outcomes[file] = outs[0] || 'none'; }
   }
-  return { flaky, stable, checkedFiles: Object.keys(resultsByFile).length };
+  return { flaky, stable, stable_outcomes, checkedFiles: Object.keys(resultsByFile).length };
 }
 
 function detect(files, n, opts = {}) {
@@ -80,7 +80,8 @@ if (require.main === module) {
     console.log('  Runs each test suite N times (default 3) and reports any suite whose pass/fail outcome is not');
     console.log('  identical across every run. Default suite set: every forge-bin/*.test.cjs; pass one or more');
     console.log('  file paths to check only those instead.');
-    console.log('  Exit codes: 0 = every checked suite was stable · 1 = a flaky suite was found · 2 = usage error / no suites to check.');
+    console.log('  Exit codes: 0 = every checked suite was stable and passing · 1 = a flaky suite, or one that failed or timed out');
+    console.log('  on every run · 2 = usage error (--runs below 2, a missing file) / no suites to check.');
     process.exit(0);
   }
   const json = args.includes('--json');
@@ -89,16 +90,26 @@ if (require.main === module) {
   const timeoutMs = parseInt(flag('--timeout-ms', String(DEFAULT_TIMEOUT_MS)), 10);
   const exclude = flag('--exclude', null);
   const named = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--runs' && args[i - 1] !== '--timeout-ms' && args[i - 1] !== '--exclude');
+  // FB-VERIFY-1-F11: fewer than 2 runs (or a typo) compares nothing, and a missing file "fails" identically
+  // every run: both used to print "all suites deterministic" with exit 0.
+  if (!Number.isInteger(runs) || runs < 2) { console.error('forge-flaky: --runs must be a whole number of at least 2'); process.exit(2); }
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) { console.error('forge-flaky: --timeout-ms must be a positive whole number'); process.exit(2); }
   let files = named.length ? named.map((f) => path.resolve(f)) : listSuites();
+  const missing = files.filter((f) => !fs.existsSync(f));
+  if (missing.length) { console.error('forge-flaky: test suite not found: ' + missing.join(', ')); process.exit(2); }
   if (exclude) files = files.filter((f) => !f.includes(exclude));
   if (!files.length) { console.error('forge-flaky: no test suites to check'); process.exit(2); }
   if (!json) console.log('forge-flaky · running ' + files.length + ' suite(s) x ' + runs + ' each (stability check)…');
   const res = detect(files, runs, { timeoutMs });
+  // a suite that is stable but never passed (always fail / always timeout) is a red suite, not a clean one
+  const stablyRed = res.stable.filter((f) => res.stable_outcomes[f] !== 'pass');
+  res.stably_red = stablyRed;
   if (json) { console.log(JSON.stringify(res, null, 2)); }
   else {
-    console.log('checked ' + res.checkedFiles + ' · stable ' + res.stable.length + ' · FLAKY ' + res.flaky.length);
+    console.log('checked ' + res.checkedFiles + ' · stable ' + res.stable.length + ' · FLAKY ' + res.flaky.length + ' · always red ' + stablyRed.length);
     res.flaky.forEach((f) => console.log('  ⚠ FLAKY ' + path.basename(f.file) + ' → [' + f.outcomes.join(', ') + ']'));
-    if (!res.flaky.length) console.log('  ✓ all suites deterministic across ' + runs + ' runs');
+    res.stable.forEach((f) => console.log('  ' + (stablyRed.includes(f) ? '✗ ' : '· ') + path.basename(f) + ' → ' + res.stable_outcomes[f] + ' x' + runs));
+    if (!res.flaky.length && !stablyRed.length) console.log('  ✓ all suites deterministic and passing across ' + runs + ' runs');
   }
-  process.exit(res.flaky.length ? 1 : 0);
+  process.exit(res.flaky.length || stablyRed.length ? 1 : 0);
 }

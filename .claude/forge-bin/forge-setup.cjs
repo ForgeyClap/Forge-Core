@@ -205,7 +205,10 @@ function verifyAndReinforceIgnored(projectDir, relPath) {
 // `id_ed25519*` covers the conventional Ed25519 private-key filename — the SAME name settings.json's Read-deny
 // list already recognizes; this is the ONE shared credential-name list (see isSecretShapedName below, and
 // forge.md's checkpoint paragraph, which names these same patterns in prose).
-const CHECKPOINT_SECRET_LINES = ['.env.*', '*.pem', '*.key', 'id_rsa*', 'id_ed25519*', 'credentials*.json', 'secrets/'];
+// FB-INSTALL-1-F4: .credentials.json, id_dsa/id_ecdsa and .p12/.pfx added so this list covers what forge-adopt-post-sync
+// isSecretLike and forge-plugin-build FORBIDDEN_DEST also treat as secret; isSecretShapedName matches case-insensitively.
+const CHECKPOINT_SECRET_LINES = ['.env.*', '*.pem', '*.key', 'id_rsa*', 'id_ed25519*', 'id_dsa*', 'id_ecdsa*', '*.p12', '*.pfx',
+  'credentials*.json', '.credentials.json', 'secrets/'];
 
 // ---- glob matching for gitignore-style patterns --------------------------
 // A real gitignore pattern's wildcard can sit ANYWHERE (`*.key`, `.env.*.local`, `credentials*.json`), not
@@ -245,7 +248,7 @@ function patternMatchesName(pattern, name) {
 
 /** fallbackDefeatingNegations(lines, patterns) -> [{pattern, negation, atLine, via:'fallback'}] — the pure-JS
  *  detector, used only when git cannot be asked (gitDefeatingNegations returns null: not a repo, or git
- *  unavailable). Wildcard-aware via patternMatchesName rather than the old trailing-`*`-only prefix
+ *  unavailable). Wildcard-aware via patternMatchesName (V13) rather than the old trailing-`*`-only prefix
  *  check. `!.env.example` (KEEP_NEGATION_LINE) is the one deliberate, wanted exception and is never reported
  *  as defeating anything. Best-effort: it does not fully replicate git's own last-match-wins evaluation
  *  across multiple gitignore FILES (nested directories, `core.excludesFile`), only the single lines array
@@ -344,7 +347,7 @@ function findDefeatingNegations(projectDir, lines, patterns) {
  *  `reinforced` lists every pattern that had to be re-appended at the end because an existing negation
  *  elsewhere was defeating it (SECRET-CHECKPOINT) — a non-empty `reinforced` is worth surfacing to the owner
  *  even though `ok` stays true (the file itself is fixed by the time this returns). `negation_check_via`
- *  says honestly whether that detection asked git itself or fell back to the pure-JS matcher. */
+ *  says honestly whether that detection asked git itself or fell back to the pure-JS matcher (V13). */
 function protectSecrets(projectDir) {
   const invalidDir = validateProjectDir(projectDir);
   if (invalidDir) return { ok: false, reason: invalidDir.reason, path: null, created: false, appended: [], patterns: [], reinforced: [], negation_check_via: null };
@@ -359,7 +362,7 @@ function protectSecrets(projectDir) {
   for (const line of patterns) if (!present.has(line)) { add(line); present.add(line); }
   const ls = linesNow();
   if (ls.lastIndexOf(KEEP_NEGATION_LINE) < ls.lastIndexOf('.env.*')) add(KEEP_NEGATION_LINE);
-  // gitDefeatingNegations reads the REAL file from disk, so every baseline line ensured above must
+  // V13: gitDefeatingNegations reads the REAL file from disk, so every baseline line ensured above must
   // already be written before it is asked — idempotent (the same bytes may be written again below).
   if (!existedBefore || appended.length > 0) fs.writeFileSync(gitignorePath, content, 'utf8');
   const check = findDefeatingNegations(projectDir, linesNow(), patterns);
@@ -379,7 +382,7 @@ function protectSecrets(projectDir) {
 // paragraph names the same patterns in prose so the two can never quietly drift apart.
 const SECRET_NAME_PATTERNS = [...new Set(REQUIRED_GITIGNORE_LINES.concat(CHECKPOINT_SECRET_LINES))];
 function isSecretShapedName(relPath) {
-  const p = String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  const p = String(relPath || '').replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase(); // Windows disks: case-insensitive
   if (!p || p === '.env.example' || p.endsWith('/.env.example')) return false;
   const base = p.split('/').pop();
   const segs = p.split('/').slice(0, -1);
@@ -740,6 +743,16 @@ function detectLineEnding(raw) {
   return crlfCount > 0 && crlfCount >= lfOnlyCount ? '\r\n' : '\n';
 }
 
+// A bare value that holds #, whitespace, a quote or a backslash is cut off or changed by .env parsers (util.parseEnv,
+// dotenv: '#' starts a comment). Such a value is wrapped in the first quote char it does not contain (double quotes
+// only when it has no literal \n, which they expand). shortcut: a value holding all three quote chars stays lossy.
+function envValue(v) {
+  const s = String(v);
+  if (!/[#\s"'`\\]/.test(s)) return s;
+  const q = ["'", '"', '`'].find((c) => !s.includes(c) && !(c === '"' && s.includes('\\n'))) || '"';
+  return q + s + q;
+}
+
 // Append-or-update: only lines matching a key in `updates` are rewritten in place; every other line
 // (comments, unrelated keys, blank lines) is preserved byte-for-byte (including its original CRLF-vs-LF
 // line-ending style). New keys are appended at the end.
@@ -762,12 +775,12 @@ function upsertEnvFile(envFilePath, updates) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
     if (m && Object.prototype.hasOwnProperty.call(updates, m[1])) {
       remaining.delete(m[1]);
-      return m[1] + '=' + updates[m[1]];
+      return m[1] + '=' + envValue(updates[m[1]]);
     }
     return line;
   });
   while (out.length && out[out.length - 1] === '') out.pop();
-  for (const k of remaining) out.push(k + '=' + updates[k]);
+  for (const k of remaining) out.push(k + '=' + envValue(updates[k]));
   const BOM_CHAR = String.fromCharCode(0xFEFF);
   return (hadBom ? BOM_CHAR : '') + out.join(eol) + eol;
 }

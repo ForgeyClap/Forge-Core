@@ -148,7 +148,7 @@ Skipping the relevant reference is a governance violation — the detail is bind
      default, plus the "stay current" rule so every project uses the upgraded system.
 ─────────────────────────────────────────────────────────────────────────── -->
 
-## Owner-memory · autonomy · evidence-gates · cross-project learning (GLOBAL DEFAULT)
+## v8 — Owner-memory · autonomy · evidence-gates · cross-project learning (GLOBAL DEFAULT)
 
 This layer is the **default for every project** the moment its local Forge install is present (the tools ship with the template). When `/forge` / `gebruik Forge` runs in a project that has `.claude/forge-bin/`, the Lead Agent MUST apply the following **before** and **during** the mission. When the tools are absent (lightweight-only project), apply them as behavioural intent and offer the install (see "Stay current"). Everything here **reinforces** the honesty core and project isolation — it never weakens them.
 
@@ -188,7 +188,7 @@ Whenever `/forge` / `gebruik Forge` runs in a project, the Lead Agent checks the
      dormant/opt-in/owner-gated, so the zero-dep default is never broken.
 ─────────────────────────────────────────────────────────────────────────── -->
 
-## MCP client keystone + moonshots (all DORMANT/OPT-IN/OWNER-GATED)
+## v8.1 — MCP client keystone + moonshots (all DORMANT/OPT-IN/OWNER-GATED)
 
 Additive to v8. Everything here is **off by default** — the zero-dependency Forge default is never broken, and nothing external runs or self-acts without an explicit owner opt-in / approval.
 
@@ -217,7 +217,7 @@ New v8.1 subcommands (project-local, after install): `/forge propose-skill` / `/
      routing — plus making the existing smart-subagents doctrine explicit.
 ─────────────────────────────────────────────────────────────────────────── -->
 
-## AUTONOMOUS WP-DISPATCH · VERIFY-BINDING · USAGE-PRESSURE ROUTING
+## v10 — AUTONOMOUS WP-DISPATCH · VERIFY-BINDING · USAGE-PRESSURE ROUTING
 
 **1. Autonomous WP-dispatch — no "use subagents" ask needed.** Every large/multi-part owner prompt is AUTOMATICALLY split by the Lead into work packages `wp0..wpN` (each with `taak 1..n`) in the owner's canonical shape (`wp0 (taak 1, taak 2, taak 3) · wp1 (…) · wp2 (…)`), per the existing **WP/FASE EXECUTIE-STANDAARD** add-on (`references/masterprompt-quality.md`). The owner never has to say "use subagents" or a count — the Lead computes team size itself: smallest relevant team (existing default), capped by usage-pressure routing (§3 below) and harness concurrency. Scout/read-only WPs run parallel; write-WPs get **one writer per hotspot** (the existing orchestration-safety HARD MUST is unchanged). Intake questions (Step 0a in `forge-router`) fire only when the mission genuinely needs a real owner choice; otherwise `continue-within-mission` autonomy (v8 §2) applies — this add-on inherits that gate, it does not restate it.
 

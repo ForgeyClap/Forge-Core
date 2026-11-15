@@ -11,12 +11,17 @@ license: MIT
   Pinned commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b (tag v7.0.1, also main on 2026-11-02)
   Upstream path: skills/requesting-code-review/
   License: MIT (c) 2025 Jesse Vincent -- full text in LICENSE next to this file
-  Forge vendor note: frontmatter license: MIT key and this provenance block added; everything else verbatim.
+  Forge vendor note: frontmatter description shortened for the skill-listing budget (the earlier text is in the "original description" comment line(s) in the frontmatter); frontmatter license: MIT key and this provenance block added; a marked "Forge addendum" blockquote under the H1 (audit SK-7-F7: the reviewer is Review Boss or Verify Boss on its GOAT route, not a general-purpose subagent); everything else verbatim.
   Previous pin: 5bf4e78011075bcfc0dc295f0724994cd123ee71; upgraded 2026-11-02 (WP Q3-SKILLS).
   Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by skill-boss, 2026-11-02 -- clean; every upstream file git-blob-hash-verified against the pinned commit's tree before copying.
 -->
 
 # Requesting Code Review
+
+> **Forge addendum (not upstream):** in Forge the reviewer is a Boss, never a `general-purpose`
+> subagent: Review Boss (deep route, opus/xhigh) for the review itself, or Verify Boss (verifier route,
+> sonnet/medium) for a done-claim, dispatched with the route's model and effort from
+> `.claude/FORGE_MODEL_ROUTING.json`. Fill the same template; the method is `forge-code-review`.
 
 Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history.
 

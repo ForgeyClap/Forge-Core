@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-sweep.test.cjs — hermetic tests for forge-sweep.cjs (+ core/extract/aggregate). No network: yt-dlp is a
 // node stub (FORGE_SWEEP_YTDLP), extraction uses a chat() stub (FORGE_SWEEP_EXTRACT_STUB) or the real provider in
 // its no-key mock mode (NVIDIA_SKIP_ENV_FILES=1, key removed). All waits are scaled to 0 (FORGE_SWEEP_SLEEP_SCALE=0)
@@ -410,6 +414,20 @@ t('real provider without a key (mock mode) is refused as a hard failure, never c
   assert.strictEqual(run(['aggregate', '--dir', d4]).code, 0);
   const k = JSON.parse(fs.readFileSync(path.join(d4, 'beginner-knowledge.json'), 'utf8'));
   assert.strictEqual(k.provenance.videos_used, 0, 'mock records are excluded from the knowledge base by default');
+});
+t('a mock extraction never counts as done for a later real run; a real record is not redone by a mock run (FB-MISC-1-F7)', () => {
+  const dm = path.join(ROOT, '.claude', 'forge-research', 'mock-then-real');
+  fs.mkdirSync(path.join(dm, 'transcripts'), { recursive: true });
+  fs.writeFileSync(path.join(dm, 'transcripts', 'okVideo0002.txt'), '[00:01] hi\n');
+  fs.writeFileSync(path.join(dm, 'sweep-ledger.jsonl'), JSON.stringify({ ts: '2026-09-24T00:00:00.000Z', stage: 'transcripts', id: 'okVideo0002', outcome: 'ok', chars: 10 }) + '\n');
+  assert.strictEqual(run(['extract', '--engine', 'mock', '--dir', dm]).code, 0);
+  const real = run(['extract', '--dir', dm], { FORGE_SWEEP_EXTRACT_STUB: EX_STUB });
+  assert.strictEqual(real.code, 0, real.out);
+  assert.ok(/already done=0 · to extract=1/.test(real.out), real.out);
+  assert.notStrictEqual(JSON.parse(fs.readFileSync(path.join(dm, 'extracted', 'okVideo0002.json'), 'utf8')).engine, 'mock');
+  const mockAgain = run(['extract', '--engine', 'mock', '--dir', dm]);
+  assert.ok(/already done=1 · to extract=0/.test(mockAgain.out), mockAgain.out);
+  assert.notStrictEqual(JSON.parse(fs.readFileSync(path.join(dm, 'extracted', 'okVideo0002.json'), 'utf8')).engine, 'mock');
 });
 t('PORTABLE: the provider reads the owner config of the test, never the one of the install (an install-shaped config with nvidia=off is honoured only when pointed at)', () => {
   // in a synced project whose owner set nvidia=off (26h2) the mock-mode test above saw a policy refusal instead.

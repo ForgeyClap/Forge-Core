@@ -21,6 +21,7 @@ t('eolStyle tells lf, crlf, mixed and none apart', () => {
 });
 t('a CRLF rewrite of an LF file is drift; a real LF edit and an untouched file are not', () => {
   assert.strictEqual(g('init', '-q').status, 0);
+  assert.strictEqual(g('config', 'core.autocrlf', 'false').status, 0); // the tool reads the repo's own config
   fs.writeFileSync(path.join(TMP, 'a.cjs'), 'one\ntwo\n');
   fs.writeFileSync(path.join(TMP, 'b.md'), 'x\ny\n');
   fs.writeFileSync(path.join(TMP, 'c.md'), 'keep\n');
@@ -30,6 +31,20 @@ t('a CRLF rewrite of an LF file is drift; a real LF edit and an untouched file a
   const r = E.eolDrift(TMP);
   assert.strictEqual(r.applicable, true);
   assert.deepStrictEqual(r.drift, [{ file: 'a.cjs', before: 'lf', after: 'crlf' }]);
+});
+t('FB-INSTALL-1-F7: with core.autocrlf=true a CRLF work tree over an LF blob is normal, a one-line edit is no drift', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-eol-autocrlf-'));
+  const ga = (...a) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t'].concat(a), { cwd: repo, encoding: 'utf8' });
+  try {
+    assert.strictEqual(ga('init', '-q').status, 0);
+    assert.strictEqual(ga('config', 'core.autocrlf', 'true').status, 0);
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'one\r\ntwo\r\n');
+    ga('add', '.'); assert.strictEqual(ga('commit', '-q', '-m', 'base').status, 0);
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'one\r\nTWO\r\n'); // real one-line edit, CRLF as git checks it out
+    const r = E.eolDrift(repo);
+    assert.strictEqual(r.applicable, true);
+    assert.deepStrictEqual(r.drift, []);
+  } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
 t('outside a git work tree it is n/a, never a pass that looked', () => {
   const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-eol-plain-'));

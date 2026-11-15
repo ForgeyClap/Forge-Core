@@ -221,7 +221,7 @@
   }
 }
 
-/* Round-2 fix: with the heading hidden, the intro was squeezed beside the buttons. The
+/* Round-2 fix (r1): with the heading hidden, the intro was squeezed beside the buttons. The
    buttons now sit on their own line first, the intro full width under them. */
 .fs-checkup--noheading .fs-checkup__head {
   grid-template-columns: minmax(0, 1fr);

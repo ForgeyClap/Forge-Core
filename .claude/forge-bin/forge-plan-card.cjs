@@ -155,7 +155,8 @@ function normalizeMission(raw) {
   return { mission: problems.length ? null : mission, problems, warnings };
 }
 /** cardHash(mission) -> sha256 of the canonical content minus the owner's approval; no switches = the pre-switches hash. */
-function cardHash(mission) { const { approval, ...content } = mission; if (content.switches == null) delete content.switches; return sha(canon(content)); }
+// answering the card's one question is not a change to the card, so the question is hashed as unanswered (FB-SCRIBE-1-F8)
+function cardHash(mission) { const { approval, ...content } = mission; if (content.switches == null) delete content.switches; if (content.question && typeof content.question === 'object') content.question = Object.assign({}, content.question, { answer: null }); return sha(canon(content)); }
 
 // ---- hard-gate items (forge-actiongate is the single source of truth) ----
 function classifyGate(input, root) {

@@ -28,10 +28,12 @@
  */
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { putEntity, CLAUDE_DIR } = require('./forge-store.cjs');
+const { putEntity } = require('./forge-store.cjs');
 
+// FB-MISC-2-F8: log-event.cjs is found next to this tool, never under the store root (FORGE_STORE_ROOT moves only
+// the store, so --run used to resolve a log-event.cjs that does not exist there).
 function logEvent(runId, eventType, extra) {
-  const logEventPath = path.join(CLAUDE_DIR, 'forge-dashboard', 'log-event.cjs');
+  const logEventPath = path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs');
   return spawnSync(process.execPath, [logEventPath, runId, eventType, JSON.stringify(extra || {})], { encoding: 'utf8' });
 }
 
@@ -51,7 +53,10 @@ function storeArtifact(id, obj, opts) {
       title: (obj && obj.title) || envelope.title || '',
     };
     const g = logEvent(opts.run, 'artifact_stored', extra);
-    if (g.status !== 0) console.error('forge-artifact: log-event (artifact_stored) warning: ' + (g.stderr || '').trim());
+    const logged = g.status === 0;
+    if (!logged) console.error('forge-artifact: artifact_stored event NOT logged for run ' + opts.run + ': ' + ((g.stderr || '').trim() || (g.error && g.error.message) || 'exit ' + g.status));
+    // the caller can tell whether the run ledger got the event; not part of the stored envelope
+    Object.defineProperty(envelope, 'event_logged', { value: logged, enumerable: false });
   }
   return envelope;
 }
@@ -78,14 +83,22 @@ if (require.main === module) {
     try { obj = JSON.parse(json); } catch (e) { console.error('forge-artifact: invalid JSON: ' + e.message); process.exitCode = 1; return; }
 
     let run = null;
-    for (let i = 3; i < argv.length; i++) if (argv[i] === '--run') run = argv[++i];
+    for (let i = 3; i < argv.length; i++) {
+      if (argv[i] !== '--run') continue;
+      run = argv[++i];
+      if (!run || run.startsWith('--')) { console.error('forge-artifact: --run needs a run id'); process.exitCode = 1; return; }
+    }
 
     let result;
     try { result = storeArtifact(id, obj, { run }); }
     catch (e) { console.error('forge-artifact: store failed: ' + e.message); process.exitCode = 1; return; }
 
+    if (run && !result.event_logged) {
+      console.log('artifact stored: ' + id + '.json (run event NOT logged)');
+      process.exitCode = 1;
+      return;
+    }
     console.log('artifact stored: ' + id + '.json' + (run ? (' (run ' + run + ')') : ''));
-    void result;
   };
   try { main(); } catch (e) { console.error('forge-artifact: ' + e.message); process.exitCode = 1; }
 }

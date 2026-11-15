@@ -89,7 +89,7 @@ export interface Agent extends Prototyped {
   readonly skills: readonly string[];
   readonly lastActivity: string;
   /**
-   * fix-cert-rest: `'not-required'` is a genuine CLAIM about the role — "this role
+   * fix-cert-rest (F5/F6): `'not-required'` is a genuine CLAIM about the role — "this role
    * produces no claim the verify loop has to check" (see `AgentsView.tsx`'s own `VERIFICATION`
    * copy). No real Forge source this app reads (`GET /api/agents`, a mission's `check_passed`/
    * `check_failed` verdicts) reports any such role-level fact — only fixture/example data may

@@ -78,7 +78,10 @@ test('bound: a maxRuns window that excludes the older run yields none of its run
   assert.ok(stillHasOrphanIndexEntry);
 });
 
-test('the newest run alone would have reported empty — this is the real regression this WP fixes', { skip: NEEDS_ANY_RUN_ARTIFACTS }, () => {
+// the repro premise (the newest run has no artifacts/ dir yet) is a fact about live data, not about
+// the code: a run that is still producing screenshots made it false. Skip honestly when the premise does not hold.
+const NEWEST_RUN_HAS_ARTIFACTS_DIR = NEWEST_RUN_ID !== null && existsSync(join(PROJECT_ROOT, '.claude', 'forge-runs', NEWEST_RUN_ID, 'artifacts'));
+test('the newest run alone would have reported empty — this is the real regression this WP fixes', { skip: NEEDS_ANY_RUN_ARTIFACTS || (NEWEST_RUN_HAS_ARTIFACTS_DIR && 'the newest run already has an artifacts/ dir, so the repro premise does not hold on this live tree') }, () => {
   const result = buildProofAll(PROJECT_ROOT, WIDE);
   const fromNewestRun = result.artifacts.filter((a) => a.run_id === NEWEST_RUN_ID);
   // Honest either way: assert the CLAIM this test exists to prove — the aggregate carries real

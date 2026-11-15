@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Offline, hermetic tests for forge-deeplearn.cjs — builds throwaway fixture projects under
  *  os.mkdtemp and calls scanProject() directly. Never touches the real project, never uses
  *  --run/--store (no dashboard/log-event/network paths exercised). Exit 0 = all pass. */
@@ -125,9 +129,28 @@ let threw = false;
 try { scanProject(path.join(riskyRoot, 'does-not-exist')); } catch (e) { threw = /not a directory/.test(e.message); }
 t('scanProject throws on a non-existent path', threw === true);
 
-// ---- SECRET_PATTERNS sanity (re-declared set mirrors forge-store.cjs's 7 patterns) ----
-t('SECRET_PATTERNS has 7 entries', Array.isArray(SECRET_PATTERNS) && SECRET_PATTERNS.length === 7);
-t('SECRET_PATTERNS entries carry {name, re}', SECRET_PATTERNS.every((p) => typeof p.name === 'string' && p.re instanceof RegExp));
+// ---- SECRET_PATTERNS come from forge-store.cjs, so the two lists cannot drift (FB-BRAIN-F4) ----
+const STORE_PATTERNS = require('./forge-store.cjs').SECRET_PATTERNS;
+t('SECRET_PATTERNS has the same regexes as forge-store.cjs, in order',
+  Array.isArray(SECRET_PATTERNS) && SECRET_PATTERNS.length === STORE_PATTERNS.length
+  && SECRET_PATTERNS.every((p, i) => p.re.source === STORE_PATTERNS[i].source && p.re.flags === STORE_PATTERNS[i].flags));
+t('SECRET_PATTERNS entries carry {name, re}', SECRET_PATTERNS.every((p) => typeof p.name === 'string' && p.name && p.re instanceof RegExp));
+{
+  // Fake test strings, built at runtime so no scanner mistakes this file for a leak.
+  const fakes = {
+    stripe: 'sk_' + 'live_' + 'FAKEfake1234567890abcd',
+    google: 'AI' + 'za' + 'FAKEfakeFAKEfakeFAKEfakeFAKEfake123',
+    github: 'gh' + 's_' + 'FAKEfakeFAKEfakeFAKEfake1234',
+    sendgrid: 'SG' + '.FAKEfakeFAKEfake12' + '.FAKEfakeFAKEfake34',
+  };
+  for (const [kind, value] of Object.entries(fakes)) {
+    const root = mkFixture('forge-deeplearn-' + kind + '-');
+    write(root, 'src/config.js', "const key = '" + value + "';\n");
+    const r = scanProject(root);
+    t('a fake ' + kind + ' key is flagged as a secret-pattern risk', r.risks.some((x) => x.kind === 'secret-pattern' && x.evidence.file === 'src/config.js'));
+    t('the fake ' + kind + ' key text is not in the scan result', !JSON.stringify(r).includes(value));
+  }
+}
 
 // ---- static guard (loop run): the scanner's own dashboard events are logged as the ORCHESTRATOR with role
 // 'project-scan'. Logging them under the unregistered agent name 'project-scan' made forge-runcontract.cjs treat that

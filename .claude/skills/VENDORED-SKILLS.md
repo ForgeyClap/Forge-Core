@@ -84,7 +84,7 @@ geen uitvoerbit; wie ze direct wil uitvoeren gebruikt dus `bash`.
 
 ## Meegeleverd — ronde 2 (7 skills + 2 commands)
 
-Beginnersskills uit het onderzoek `.claude/forge-research/beginner-sweep-2026-09-24/web-track-b.md` (sectie A).
+Beginnersskills uit het onderzoek `.claude/forge-research/beginner-sweep-2026-09-24/web-track-b.md` (sectie A, T10).
 Bron mattpocock: https://github.com/mattpocock/skills @ `c55ee46073ed923f86ce59a5eb3b6d895095d1b7`
 MIT, (c) 2026 Matt Pocock. Bron claude-plugins-official:
 https://github.com/anthropics/claude-plugins-official @ `6bfd4e0c6d3da6050984fa5ed8281d915fa7ed69`,
@@ -172,3 +172,8 @@ zie `.claude/skills/ADAPTED-PATTERNS.md`:
 - **gsap-*** (8 vendored GSAP skills) — de `description:` van deze skills is op 2026-10-10 (WP-SKILLBUDGET)
   lokaal ingekort tot <= 110 tekens met behoud van de trigger-woorden, om de skilllijst binnen het budget te
   houden. De inhoud (body) is ongewijzigd; bij een upstream-update de korte beschrijving behouden.
+  **Alleen naslag via een pad (audit SK-1-F6):** de acht staan één map te diep
+  (`gsap/<naam>/SKILL.md`, er is geen `gsap/SKILL.md`). Claude Code zet ze daarom niet in de skilllijst, ze
+  vuren nooit op hun beschrijving en `Skill(<naam>)` vindt ze niet; ook de Forge-systeemkaart telt ze niet mee.
+  Dat is bewust: het is een naslagbibliotheek die een agent op pad leest, zoals
+  `.claude/skills/forge-website/references/team-and-tools.md` voorschrijft (`.claude/skills/gsap/<naam>/SKILL.md`).

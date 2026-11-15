@@ -1389,6 +1389,7 @@
       "groupTitle": "The team wants to do {count} things",
       "groupLead": "Choose per line, or allow everything at once.",
       "allowAll": "Allow all",
+      "readRefused": "This window may not see the waiting permission requests, so something may be waiting for you. Pair this window again or open Forge from the Forge app.",
       "listLabel": "Requests from the team",
       "assistant": "Forge"
     },

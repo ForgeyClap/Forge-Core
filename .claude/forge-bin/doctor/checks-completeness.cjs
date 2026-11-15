@@ -287,7 +287,7 @@ function mcpDormancy(root, opts) {
   // a hermetic fixture registry would report the machine's own servers as "missing" from a fixture — a
   // finding about nothing. A caller that supplies its own registryPath is by definition testing the
   // dormancy LOGIC on a fixture; drift is about reality, so it is checked only on the real config.
-  // WP 2.1: "this doctor file lives in <root>/.claude/forge-bin" — the same test as before, written without building
+  // WP 2.1 (R2): "this doctor file lives in <root>/.claude/forge-bin" — the same test as before, written without building
   // a root from its own folder, so a plugin copy (scripts/) is simply never "own project" (false, as before).
   const isOwnProject = path.resolve(root, '.claude', 'forge-bin') === path.resolve(BIN_DIR);
 

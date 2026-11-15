@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-heartbeat.cjs. Uses os.mkdtemp fixtures with crafted events.jsonl + an
  *  injected opts.now so nothing depends on real wall-clock timing for the pure checkRun() tests. CLI
  *  smoke tests use real (but self-contained) past timestamps relative to Date.now() at test run time.
@@ -71,6 +75,23 @@ const failedDir = writeEvents('run-failed-finished', [
 ]);
 const failedFinished = H.checkRun(failedDir, { now: NOW });
 t('subagent_failed counts as finished -> not stalled', failedFinished.agents[0].stalled === false && failedFinished.agents[0].finished === true);
+
+// ---- FB-LANES-F4: a second dispatch of the same agent that goes silent IS stalled -------------------
+const redispatchDir = writeEvents('run-redispatch', [
+  ev({ event_type: 'agent_started', agent: 'Verify Boss', wp_id: 'WP-1', timestamp: isoMinsAgo(120) }),
+  ev({ event_type: 'agent_completed', agent: 'Verify Boss', wp_id: 'WP-1', timestamp: isoMinsAgo(115) }),
+  ev({ event_type: 'agent_started', agent: 'Verify Boss', wp_id: 'WP-2', timestamp: isoMinsAgo(110) }),
+]);
+const redispatch = H.checkRun(redispatchDir, { now: NOW });
+t('FB-LANES-F4: silent second dispatch is stalled', redispatch.stalled.length === 1 && redispatch.agents[0].finished === false);
+t('FB-LANES-F4: silent second dispatch counts as never progressed', redispatch.agents[0].neverProgressed === true);
+t('FB-LANES-F4: checkRun.ok is false for the silent second dispatch', redispatch.ok === false);
+const parallelDir = writeEvents('run-parallel-same-name', [
+  ev({ event_type: 'agent_started', agent: 'Build Boss', timestamp: isoMinsAgo(60) }),
+  ev({ event_type: 'agent_started', agent: 'Build Boss', timestamp: isoMinsAgo(60) }),
+  ev({ event_type: 'agent_completed', agent: 'Build Boss', timestamp: isoMinsAgo(50) }),
+]);
+t('FB-LANES-F4: two parallel dispatches, one completed, is not finished', H.checkRun(parallelDir, { now: NOW }).agents[0].finished === false);
 
 // ---- never-progressed: only a start event, then silence past the window ----------------------------
 const neverDir = writeEvents('run-never-progressed', [
@@ -145,10 +166,15 @@ const runCli = (...args) => spawnSync(process.execPath, [path.join(__dirname, 'f
 
 const cliStalled = runCli('check', 'cli-stalled', '--root', CLIROOT, '--json');
 t('CLI exits 1 on the stalled fixture', cliStalled.status === 1);
-t('CLI prints the STALLED marker', /STALLED: Build Boss/.test(cliStalled.stdout));
-t('CLI --json output parses and reports one stalled agent', (() => {
-  try { const j = JSON.parse(cliStalled.stdout.slice(cliStalled.stdout.indexOf('{'))); return j.stalled.length === 1; } catch { return false; }
+t('CLI --json prints the STALLED marker on stderr', /STALLED: Build Boss/.test(cliStalled.stderr));
+// FB-LANES-F10: in --json mode stdout is ONLY the JSON document
+t('CLI --json stdout is valid JSON as a whole and reports one stalled agent', (() => {
+  try { const j = JSON.parse(cliStalled.stdout); return j.stalled.length === 1; } catch { return false; }
 })());
+t('CLI --json on a clean run: stdout is valid JSON as a whole', (() => {
+  try { return Array.isArray(JSON.parse(runCli('check', 'cli-clean', '--root', CLIROOT, '--json').stdout).stalled); } catch { return false; }
+})());
+t('CLI without --json still prints the STALLED marker on stdout', /STALLED: Build Boss/.test(runCli('check', 'cli-stalled', '--root', CLIROOT).stdout));
 
 const cliClean = runCli('check', 'cli-clean', '--root', CLIROOT);
 t('CLI exits 0 on the clean (finished) fixture', cliClean.status === 0);

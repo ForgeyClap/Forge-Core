@@ -38,6 +38,16 @@ const BRIEF_SOURCES = new Set(['startup', 'resume', 'clear']);
 const SCRIBE_STATUSES = 'unclassified,open,planned,in-progress';
 const DONE_TYPES = new Set(['wp_completed', 'wp_failed']);
 const CREATED = 'agent_work_package_created';
+// FB-MEMORY-F3: a run the owner paused (last run_paused after the last run_resumed) is never told to continue, and an
+// aborted or cancelled run is not surfaced at all.
+const STOP_TYPES = new Set(['run_aborted', 'run_cancelled', 'run_canceled', 'run_abandoned']);
+const RUN_STATE_RE = /run_(paused|resumed|aborted|cancell?ed|abandoned|completed)/;
+// Forge's registered abort shape is run_completed with a failure-close status: the run contract's own definition.
+const FAILURE_CLOSE_RE = /^(?:fail|failed|failure|aborted|abandoned|cancell?ed|blocked|refused|incomplete|partial)$/i;
+function isFailureClose(ev) {
+  try { const rc = require('./forge-runcontract.cjs'); if (typeof rc.isFailureClose === 'function') return rc.isFailureClose(ev); } catch { /* no run contract beside this copy: same rule inline */ }
+  return ['status', 'outcome', 'verdict', 'result'].some((f) => typeof ev[f] === 'string' && FAILURE_CLOSE_RE.test(ev[f].trim()));
+}
 
 const INSTRUCTION = [
   'Continue the unfinished work above NOW, without asking whether to continue.',
@@ -87,8 +97,16 @@ function newestOpenRun(dirs) {
   return null;
 }
 
-/** Feed one events.jsonl line into the open-WP map (insertion order = creation order). */
-function applyLine(line, open) {
+/** Feed one events.jsonl line into the open-WP map (insertion order = creation order) and the run state. */
+function applyLine(line, open, state) {
+  if (state && RUN_STATE_RE.test(line)) {
+    let ev = null;
+    try { ev = JSON.parse(line); } catch { ev = null; }
+    const t = ev && ev.event_type;
+    if (t === 'run_paused') state.paused = true;
+    else if (t === 'run_resumed') state.paused = false;
+    else if (STOP_TYPES.has(t) || (t === 'run_completed' && isFailureClose(ev))) state.aborted = true;
+  }
   if (!line.includes('wp_id')) return;
   const isCreated = line.includes(CREATED);
   if (!isCreated && !line.includes('wp_completed') && !line.includes('wp_failed')) return;
@@ -101,6 +119,7 @@ function applyLine(line, open) {
 /** Unfinished wp ids of one events.jsonl, read in chunks up to MAX_EVENT_BYTES. */
 function unfinishedWps(eventsFile, maxBytes = MAX_EVENT_BYTES) {
   const open = new Map();
+  const state = { paused: false, aborted: false };
   let fd = null, read = 0, rest = '', truncated = false;
   try {
     fd = fs.openSync(eventsFile, 'r');
@@ -112,13 +131,13 @@ function unfinishedWps(eventsFile, maxBytes = MAX_EVENT_BYTES) {
       read += n;
       const lines = (rest + buf.toString('utf8', 0, n)).split('\n');
       rest = lines.pop();
-      for (const l of lines) applyLine(l, open);
+      for (const l of lines) applyLine(l, open, state);
     }
-    if (!truncated && rest) applyLine(rest, open);
+    if (!truncated && rest) applyLine(rest, open, state);
   } catch { /* unreadable file: report what was read */ } finally {
     if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } }
   }
-  return { ids: [...open.keys()], truncated };
+  return { ids: [...open.keys()], truncated, paused: state.paused, aborted: state.aborted };
 }
 
 /** Mask secret-shaped tokens and control characters; keep the first `max` chars. */
@@ -172,12 +191,14 @@ function brief(raw, opts = {}) {
   const run = newestOpenRun(runsDirs(root, env));
   const wps = run ? unfinishedWps(run.events) : { ids: [], truncated: false };
   const scribe = (opts.scribe || scribeOpen)(root);
-  const hasRun = !!run && wps.ids.length > 0;
+  const hasRun = !!run && wps.ids.length > 0 && !wps.aborted;
   const hasScribe = !!scribe && scribe.count > 0;
   if (!hasRun && !hasScribe) return '';
   const out = ['[Forge resume brief]'];
   if (hasRun) {
-    out.push('Unfinished run: ' + safeText(run.id, 120) + ' (no run-finalized.json)');
+    out.push((wps.paused ? 'PAUSED run: ' : 'Unfinished run: ') + safeText(run.id, 120) + (wps.paused
+      ? ' (the owner paused it: run_paused, no later run_resumed). Do NOT continue it until the owner says so.'
+      : ' (no run-finalized.json)'));
     const more = wps.ids.length > WP_SHOWN ? ' ...' : '';
     out.push('Open work packages: ' + wps.ids.length + ' -> ' + wps.ids.slice(0, WP_SHOWN).map((id) => safeText(id, 40)).join(', ') + more +
       (wps.truncated ? ' (events.jsonl read partly)' : ''));
@@ -186,7 +207,8 @@ function brief(raw, opts = {}) {
     out.push('Open scribe items: ' + scribe.count + ' (forge-scribe list):');
     for (const l of scribe.lines.slice(0, SCRIBE_SHOWN)) out.push('  ' + safeText(l, SCRIBE_LINE_CHARS));
   }
-  out.push(...INSTRUCTION);
+  if (!(hasRun && wps.paused)) out.push(...INSTRUCTION);
+  else if (hasScribe) out.push('Work on the open scribe items above only; leave the paused run alone.', ...INSTRUCTION.slice(2));
   return cap(out.join('\n') + '\n');
 }
 

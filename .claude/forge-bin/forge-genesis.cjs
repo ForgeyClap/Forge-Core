@@ -36,7 +36,9 @@
  * CLI:
  *   node forge-genesis.cjs propose --gap "<x>" --evidence <file> [--name <slug>] [--json]
  *   node forge-genesis.cjs list [--json]
- *   node forge-genesis.cjs approve <name> --owner-approval <token> [--approver <who>] [--json]
+ *   node forge-genesis.cjs approve <name> --owner-approval <token> [--approver <who>] [--replace] [--json]
+ *     (a name that is already a live skill is refused unless --replace; a secret file written during the
+ *      current Claude Code session is refused, see forge-ownergrant.cjs)
  * Exit codes: 0 = success · 2 = usage/config error · 3 = refused (no evidence / no approval token / unknown
  * proposal) — mirrors forge-actiongate.cjs's 0/2/3 convention so a caller scripting Forge tools already
  * knows what a "3" means: something was correctly BLOCKED, not a crash.
@@ -47,6 +49,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const ownerGrant = require('./forge-ownergrant.cjs');
 
 // WP 2.1: FORGE_PROJECT_ROOT keeps first place (unchanged); the fallback is this copy's OWN project from forge-paths.cjs
 // scriptRootInfo, accepted only for an installed copy (byte-identical to the old __dirname/../.. answer). A plugin copy
@@ -202,6 +205,10 @@ function proposeSkill(params, opts) {
   }
 
   const name = slugify(params.name || gap);
+  // FB-QUALITY-F2: a proposal may never be named after a live skill; approve() would replace it.
+  if (fs.existsSync(path.join(skillsDirFor(root, opts), name, 'SKILL.md')) && opts.replace !== true) {
+    return { ok: false, staged: false, reason: '"' + name + '" is already a live skill in ' + skillsDirFor(root, opts) + ' — pick another name (a proposal never replaces a live skill unless the owner passes --replace)' };
+  }
   const staging = stagingDirFor(root, opts);
   const dir = path.join(staging, name);
   if (fs.existsSync(path.join(dir, 'SKILL.md')) && opts.overwrite !== true) {
@@ -276,11 +283,21 @@ function approve(params, opts) {
   if (!tokenMatches(token, expected.value)) {
     return { ok: false, promoted: false, reason: 'approve() refused: the supplied approval token does not match the owner approval secret' };
   }
+  // FB-QUALITY-F1: an agent can write the secret file itself, so the shared owner-grant check also refuses a
+  // secret file that was created or changed during the current Claude Code session (forge-ownergrant.cjs).
+  if (expected.source === 'file') {
+    const grant = ownerGrant.verifyOwnerGrant({ token, projectRoot: root, secretFile: APPROVAL_SECRET_REL, sessionStartMs: opts.sessionStartMs, env: opts.env, homeDir: opts.homeDir });
+    if (!grant.ok) return { ok: false, promoted: false, reason: 'approve() refused: ' + grant.reason };
+  }
 
   const staging = stagingDirFor(root, opts);
   const srcDir = path.join(staging, name);
   const srcSkill = path.join(srcDir, 'SKILL.md');
   if (!fs.existsSync(srcSkill)) return { ok: false, promoted: false, reason: 'no staged proposal named "' + name + '"' };
+  const liveSkill = path.join(skillsDirFor(root, opts), name, 'SKILL.md');
+  if (fs.existsSync(liveSkill) && opts.replace !== true) {
+    return { ok: false, promoted: false, reason: 'approve() refused: "' + name + '" is already a live skill (' + liveSkill + ') — a staged draft never replaces it unless the owner passes --replace' };
+  }
 
   const metaPath = path.join(srcDir, 'proposal.json');
   let meta = {};
@@ -343,6 +360,7 @@ function parseArgs(argv) {
     else if (a === '--name') opts.name = rest[++i];
     else if (a === '--owner-approval') opts.ownerApproval = rest[++i];
     else if (a === '--approver') opts.approver = rest[++i];
+    else if (a === '--replace') opts.replace = true;
     else if (a === '--json') opts.json = true;
     else opts.positional.push(a);
   }
@@ -351,7 +369,7 @@ function parseArgs(argv) {
 function printUsage() {
   console.error('Usage: node forge-genesis.cjs propose --gap "<x>" --evidence <file> [--name <slug>] [--json]');
   console.error('       node forge-genesis.cjs list [--json]');
-  console.error('       node forge-genesis.cjs approve <name> --owner-approval <token> [--approver <who>] [--json]');
+  console.error('       node forge-genesis.cjs approve <name> --owner-approval <token> [--approver <who>] [--replace] [--json]');
 }
 
 if (require.main === module) {
@@ -376,7 +394,7 @@ if (require.main === module) {
       const name = cli.positional[0];
       if (!name || !cli.ownerApproval) { printUsage(); process.exitCode = 2; }
       else {
-        const result = approve({ name }, { ownerApproval: cli.ownerApproval, approver: cli.approver });
+        const result = approve({ name }, { ownerApproval: cli.ownerApproval, approver: cli.approver, replace: cli.replace });
         if (cli.json) console.log(JSON.stringify(result));
         else if (result.ok) console.log('promoted "' + result.name + '" -> ' + result.destPath);
         else console.log('REFUSED: ' + result.reason);

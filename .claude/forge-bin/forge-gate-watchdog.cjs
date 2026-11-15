@@ -117,7 +117,7 @@ function classifyWithWatchdog(command, ctx) {
     Atomics.store(state, 1, 0);
 
     const WorkerImpl = ctx.WorkerImpl || Worker;
-    // wp-v4 ("the watchdog and worker included"): a missing/deleted forge-gate-classify-worker.cjs
+    // wp-v4 (sec-v3 M1, "the watchdog and worker included"): a missing/deleted forge-gate-classify-worker.cjs
     // does NOT make `new Worker(...)` throw synchronously -- Node fails to start the thread ASYNCHRONOUSLY,
     // which the swallowed 'error' handler below would otherwise turn into a full WATCHDOG_TIMEOUT_MS wait before
     // resolving. A cheap, synchronous existence check (real Worker only -- never applied to an injected test
@@ -148,7 +148,7 @@ function classifyWithWatchdog(command, ctx) {
     // A worker-side error (a bad require, an unhandled throw before writeResult runs) must never hang the wait —
     // it simply never flips status to 1, so Atomics.wait below times out and falls through to the block verdict
     // exactly like any other failure; the empty handler only stops Node from crashing on an unhandled 'error'.
-    // KNOWN, INHERENT LIMIT (wp-v4): this cannot be woken early from here the way a real worker wakes
+    // KNOWN, INHERENT LIMIT (wp-v4, sec-v3 M1): this cannot be woken early from here the way a real worker wakes
     // it via Atomics.notify() — Atomics.wait() blocks THIS thread at the OS/V8 level, so this thread's own event
     // loop (where this handler runs) never gets to execute until the wait already returns; a worker that fails
     // to START at all (e.g. a corrupted, syntactically-invalid script file rather than a missing one, which the
@@ -184,7 +184,7 @@ function classifyWithWatchdog(command, ctx) {
     }
     return { ok: true, verdict: parsed.verdict };
   } catch (e) {
-    // the catch-all that makes "never throws" actually true -- see the doc comment above.
+    // sec-v1 M1: the catch-all that makes "never throws" actually true -- see the doc comment above.
     return { ok: false, why: 'watchdog-internal-error', error: String((e && e.message) || e).split('\n')[0] };
   }
 }

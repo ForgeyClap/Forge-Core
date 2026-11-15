@@ -254,7 +254,7 @@ async function withStateLock(lockPath, fn, opts) {
     let wroteOk = false;
     try { fs.writeSync(fd, myToken); wroteOk = true; } catch { /* wroteOk stays false */ }
     try { fs.closeSync(fd); } catch { /* best effort */ }
-    if (wroteOk && readLockToken(lockPath) === myToken) break; // acquired, and independently confirmed
+    if (wroteOk && readLockToken(lockPath) === myToken) break; // acquired, and independently confirmed (N07)
     // a write that threw, or that neither threw nor produced the expected content on
     // readback — this must REFUSE outright rather than proceed into fn() with a fence() that can only ever
     // report false.

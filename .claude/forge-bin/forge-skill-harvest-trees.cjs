@@ -10,7 +10,10 @@
 const P = require('./forge-skill-harvest-parse.cjs');
 const { ghJson } = require('./forge-skill-harvest-net.cjs');
 
-const STOP = new Set(['rate_limited', 'request_budget_spent', 'server_error']);
+// FB-SKILLTOOLS-F6: only a rate limit or a spent budget stops the queue. A repo whose tree call keeps answering 5xx
+// (after ghJson's own retries) is settled with status 'server_error', so one huge monorepo cannot stall every source.
+// shortcut: such a repo is not retried automatically (it sits in the tree cache); add a tree --retry when it matters.
+const STOP = new Set(['rate_limited', 'request_budget_spent']);
 const META_BATCH = 100;
 const DEFAULT_WORKERS = 4;
 const MAX_WORKERS = 8;
@@ -44,7 +47,7 @@ function parseMeta(repos, json) {
 // Returns the meta map, or null when a rate limit / budget stops the run.
 async function metaPass(ctx, repos) {
   const r = await ghJson(ctx, ['graphql', '--input', '-'], { resource: 'graphql', input: JSON.stringify({ query: buildMetaQuery(repos) }), serverRetries: 2 });
-  if (!r.ok && STOP.has(r.error) && r.error !== 'server_error') return null;
+  if (!r.ok && STOP.has(r.error)) return null;
   return parseMeta(repos, r.json);
 }
 

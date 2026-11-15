@@ -57,7 +57,7 @@ function extractBulletValue(lines, label) {
 // misleading on screen as the `<…>` form. Before adding the rule, every one of the four fields was
 // re-read across all 15 registered projects: exactly THREE values in the entire fleet are wholly
 // parenthetical, and all three are that template's placeholders. Every other parenthesis in the
-// fleet sits mid-sentence inside real prose — "Forge Hybrid Installer (\"my project!\")",
+// fleet sits mid-sentence inside real prose — "Forge Hybrid Installer (\"my project (v2)!\")",
 // "new (greenfield)", "n8n / automation (booking + quotation backend)", "unknown (empty folder at
 // install time …)" — none of which the anchored form can touch, because a legitimate name, type,
 // goal or maturity is never wrapped in parentheses end-to-end. Same discipline as above: the rule
@@ -110,7 +110,7 @@ function readVersion(versionPath) {
 // "66a10b6aec4c"), stamped once at whatever moment the project last ran the template sync — on
 // this project's own real file, that is 2026-07-13, over two months stale relative to the ACTUAL
 // running system today. `.claude/config/orchestration/forge-canon.json`'s own `version.forge`
-// field is the real, current, machine-readable Forge version this project's own
+// field (e.g. "v10") is the real, current, machine-readable Forge version this project's own
 // CLAUDE.md names as "THE machine-readable source for version/...". Read as a best-effort EXTRA
 // field, never replacing `forge_version`/`synced_at` above (kept exactly as before) — a project
 // without a forge-canon.json (an older/simpler install) honestly reports `canon_version: null`,

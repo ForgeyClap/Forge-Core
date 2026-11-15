@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** forge-event-wiring.test.cjs — 2026-08-01, "pakket 1: repareer de bedrading".
  *
  * Three measured, real holes in the event wiring, each proven end-to-end here BEFORE it was fixed:
@@ -70,6 +74,15 @@ const RUN_DIR = path.join(SANDBOX.runsDir, RUN_ID);
 
 function log(type, extra) {
   return spawnSync(process.execPath, [LOG_EVENT, RUN_ID, type, JSON.stringify(extra || {})], { encoding: 'utf8' });
+}
+// SD-LEDGER: under strict, log-event.cjs refuses a verifier-class start with no wp_id that is not a review
+// dispatch (the repeated W2 mistake). Verifier-class agents therefore start in the review shape here; the refusal
+// itself is proven in log-event-verifier-start-guard.test.cjs. Mirrors log-event.cjs VERIFIER_CLASS_AGENTS.
+const VERIFIER_CLASS_KEYS = new Set(['verifyboss', 'verifier', 'reviewboss', 'codexreviewer', 'securityboss']);
+const REVIEW_START = { role: 'verify', task: 'independent verification of the work package', verifies_wp: 'SELFTEST' };
+function startFields(name, extra) {
+  const key = String(name).toLowerCase().replace(/[^a-z]/g, '');
+  return Object.assign({ agent: name }, extra, VERIFIER_CLASS_KEYS.has(key) ? REVIEW_START : {});
 }
 function lastEvent() {
   const raw = fs.readFileSync(path.join(RUN_DIR, 'events.jsonl'), 'utf8');
@@ -195,8 +208,8 @@ try {
   // =====================================================================================================
   console.log('\n(b1) log-event.cjs — a REAL non-Boss agent file can log its own verdict');
   // =====================================================================================================
-  t('verify-boss can log agent_started (with a dispatch id) — exit 0, no STRICT refusal', () => {
-    const r = log('agent_started', { agent: 'verify-boss', role: 'independent re-executor', dispatch_id: 'toolu_selftest_vb', task: 'selftest: re-run the doctor' });
+  t('verify-boss can log agent_started (with a dispatch id, review shape) — exit 0, no STRICT refusal', () => {
+    const r = log('agent_started', startFields('verify-boss', { dispatch_id: 'toolu_selftest_vb' }));
     assert.strictEqual(r.status, 0, 'exit ' + r.status + ' — stderr: ' + (r.stderr || '').trim());
     const ev = lastEvent();
     assert.strictEqual(ev.agent, 'verify-boss');
@@ -207,11 +220,16 @@ try {
     assert.strictEqual(r.status, 0, 'exit ' + r.status + ' — stderr: ' + (r.stderr || '').trim());
   });
   t('the acceptance is VISIBLE as a project agent, not silently as a 13th permanent Boss', () => {
-    const r = log('agent_started', { agent: 'verify-boss', dispatch_id: 'toolu_selftest_vb2', task: 'selftest: kind stamp' });
+    const r = log('agent_started', startFields('verify-boss', { dispatch_id: 'toolu_selftest_vb2' }));
     assert.strictEqual(r.status, 0, (r.stderr || '').trim());
     const ev = lastEvent();
     assert.ok(ev._forge_verify, 'a project agent must still be stamped, never silently indistinguishable from a Boss');
     assert.strictEqual(ev._forge_verify.agent_kind, 'project-agent', 'expected agent_kind:"project-agent", got: ' + JSON.stringify(ev._forge_verify));
+  });
+  t('an unkeyed verify-boss start that is not a review dispatch is refused under strict (SD-LEDGER)', () => {
+    const r = log('agent_started', { agent: 'verify-boss', role: 'independent re-executor', dispatch_id: 'toolu_selftest_vb3', task: 'selftest: re-run the doctor' });
+    assert.strictEqual(r.status, 2, 'exit ' + r.status + ' — stderr: ' + (r.stderr || '').trim());
+    assert.ok(/verifier-class/.test(r.stderr || ''), 'refusal must name the verifier-class rule: ' + (r.stderr || '').trim());
   });
   t('a permanent Boss is NOT stamped as a project agent (the two kinds stay distinguishable)', () => {
     const r = log('agent_started', { agent: 'build-boss', dispatch_id: 'toolu_selftest_bb', task: 'selftest: boss kind' });
@@ -243,7 +261,7 @@ try {
   });
   for (const name of agentNames) {
     t('agent "' + name + '" can log agent_started', () => {
-      const r = log('agent_started', { agent: name, dispatch_id: 'toolu_selftest_inv', task: 'selftest: inventory' });
+      const r = log('agent_started', startFields(name, { dispatch_id: 'toolu_selftest_inv', task: 'selftest: inventory' }));
       assert.strictEqual(r.status, 0, 'exit ' + r.status + ' — stderr: ' + (r.stderr || '').trim());
     });
   }

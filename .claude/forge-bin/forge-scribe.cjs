@@ -13,7 +13,11 @@
  *
  * Lifecycle (enforced here; storage + fold in forge-scribe-store.cjs, classifier in forge-scribe-classify.cjs):
  *   unclassified -classify-> open -link/plan-> planned -start-> in-progress -done(evidence)-> done -ack(OWNER)-> acked
- *   defer (agent, --reason)         -> defer-proposed: progress gate OK, FINAL gate blocks until the OWNER acks it
+ *   R-0233: done / defer-proposed -autoack (scribe-acker, owner delegation owner-R-0233, config scribe-autoack on)->
+ *     acked / deferred, only for an item the AUTOACK rules allow (no question, unclassified or hard-gate item, real
+ *     non-red evidence); everything else keeps needing the owner. See AUTOACK below.
+ *   defer (agent, --reason)         -> defer-proposed: progress gate OK, FINAL gate blocks until it is acked (by the
+ *                                      scribe-acker when its rules allow and scribe-autoack is on, else by the OWNER)
  *   defer --prompt P-n (owner) / ack of a defer-proposed item (owner) -> deferred (a confirmed carry-over)
  *   cancel (OWNER) from any state except cancelled/superseded; reopen: done|acked|deferred|defer-proposed|answered -> open
  *   supersede --supersedes R-m -> superseded, only when R-m still carries an outstanding WORK obligation (status
@@ -62,6 +66,9 @@
  *   transition R-n <plan|start|done|ack|reopen|supersede|cancel|defer|answer>
  *            [--evidence type:ref] [--ref type:ref] [--run id] [--prompt P-n] [--transcript path] [--reason "..."] [--supersedes R-m] [--wp ..]
  *            (--pid is an alias of --prompt)
+ *   transition R-n ack --by scribe-acker --delegation owner-R-0233   (R-0233: the delegated ack of one item = autoack)
+ *   autoack  (--all | R-n ...) [--dry-run] [--json]   (R-0233: the scribe-acker accepts every item its rules allow;
+ *            exit 2 while config scribe-autoack is off; held items are listed with the reason they stay with the owner)
  *   impact   R-n --run id [--json]           (read-only proposal; confirm with `link`)
  *   route    R-n                              (prints the /forge remember command for a preference item)
  *   gate     [--final] [--until iso] [--json] (exit 3 while blocked; recomputed from ledger + inbox, never the cache)
@@ -78,6 +85,8 @@
  *             leaves the named ids out; idempotent; see TOGGLE CORRECTIONS below)
  *   rebuild                                   (refold state.json from ledger byte 0)
  *   verify-chain [--json]                     (exit 3 on a broken inbox/ledger chain or a disagreeing run-log anchor)
+ *   scan-secrets [--json]                     (WP-SCRIBE-REDACT, read-only: file + rid/pid + field of every stored string the
+ *            current scrubber would still change; never prints the value, never rewrites the chained files; exit 3 on a hit)
  * Exit codes: 0 ok · 2 usage/refused transition · 3 gate blocked / chain broken.
  */
 const fs = require('fs');
@@ -121,8 +130,11 @@ const REPEAT_RULE_TYPES = ['standing_rule', 'decision_logged'];
 const EVIDENCE_TYPES = ['wp_completed', 'check_passed', 'commit', 'standing_rule'];
 // SC-03: classes with a close path that needs no work evidence — only the classifier or the owner may set them
 const OWNER_GATED_CLASSES = ['question', 'ack', 'preference'];
+// R-0233: the delegated acker (AUTOACK below); only autoack() writes ops under this identity
+const AUTOACK_BY = S.AUTOACK_BY || 'scribe-acker';
+const AUTOACK_DELEGATION = 'owner-R-0233';
 // identities a caller may never claim with --by: they are set by this module from verified facts only
-const RESERVED_BY = ['owner', 'scribe', 'recovery', 'import', 'hook'];
+const RESERVED_BY = ['owner', 'scribe', 'recovery', 'import', 'hook', AUTOACK_BY];
 const CLI_SOURCES = ['cli', 'dashboard', 'discord'];
 const RUN_ID_RE = /^[A-Za-z0-9_.-]+$/;
 
@@ -462,6 +474,14 @@ function markToggle(state, tags) {
  *      earlier non-question needs dice >= dice_min or a repeat cue; cover alone is not enough. Real false repeats it
  *      removes: "wat is de 3e project wat doet het?" (cover 1.00, dice 0.05) and "welke skills werden bij de
  *      restaurant website gebruikt?" (cover 0.75, dice 0.07). "meer lanes?" (dice 0.80) still repeats.
+ *      CONTENT RULE (LEAD-S1): a cover match with dice < dice_min and no repeat cue must reach cover_min with
+ *      every shared word counted once too (a weight-2 concept cannot lift one shared word over the bar), and an overlap
+ *      of concept tokens only needs cover >= cover_min or a repeat cue ("meer lanes?" yes, "stop ook met de fix lane"
+ *      no); command text,
+ *      paths, URLs and flags never score (classify repeatPlain), and 'andere'/'other' are stopwords. Real false repeats
+ *      it removes (replay of the 2026-11-12 ledger: 34 flagged -> 30, none added): R-0239 "REPEAT x23" (parallel, website,
+ *      andere, project), R-0244, a forge-config command line, "REPEAT x2 of R-0188" (node, claude, forge, bin), R-0222
+ *      "stop ook met de fix lane" and R-0107 "welke lanes draaien allemaal" (parallel only).
  *      Thresholds from the real ledger (29 owner prompts, _scratch/baseline/scribe-replay-3.8.txt): the parallel-lane asks
  *      and the "hard rule" complaint score dice 0.50-1.00; the closest non-repeats score dice <= 0.33 and cover <= 0.50
  *      (R-0012 watchdog vs R-0006 0.33/0.20, R-0027 rotator vs R-0025 0.10/0.50, R-0055 vs R-0025 0.19/0.24), and two
@@ -495,7 +515,8 @@ function repeatModel(items, cfg) {
   const profileOfText = (text) => {
     const o = originOf(text);
     const words = o.origin === 'system' ? '' : ownerWords(text);
-    return { system: o.origin === 'system', uncertain: o.uncertain, words, norm: normWords(words) };
+    // LEAD-S1: command text and paths never score (normWords would turn ".claude/forge-bin" into words)
+    return { system: o.origin === 'system', uncertain: o.uncertain, words, norm: normWords(typeof C.repeatPlain === 'function' ? C.repeatPlain(words) : words) };
   };
   const prof = (it) => { if (!profs.has(it.rid)) profs.set(it.rid, profileOfText(it.quote || it.title || '')); return profs.get(it.rid); };
   const tok = (it) => { if (!toks.has(it.rid)) toks.set(it.rid, C.repeatTokens(prof(it).norm, cfg)); return toks.get(it.rid); };
@@ -517,20 +538,25 @@ function repeatModel(items, cfg) {
   /** score(newSide, it) — newSide = {tok, cue, statusQ, complaint}; -> the pair verdict (rule 4). */
   const score = (ns, it) => {
     const et = tok(it);
-    let shared = 0, distinct = 0, w2 = 0;
+    let shared = 0, distinct = 0, w2 = 0, content = 0;
     const words = [];
     for (const [k, v] of ns.tok) {
       if (!et.has(k)) continue;
       const w = Math.max(v, et.get(k));
       shared += w; words.push(k.replace(/^#/, ''));
-      if (C.repeatDistinctive(k, cfg)) distinct++;
+      if (C.repeatDistinctive(k, cfg)) { distinct++; if (k.charAt(0) !== '#') content++; }
       if (k.charAt(0) === '#' && w >= 2) w2++;
     }
     const wN = weightSum(ns.tok), wE = weightSum(et);
     const s = shared + (ns.cue && distinct > 0 ? R.cue : 0);
     const dice = wN + wE > 0 ? Math.min(1, (2 * s) / (wN + wE)) : 0;
     const cover = wN > 0 ? Math.min(1, s / wN) : 0;
-    let match = distinct > 0 && shared >= R.minShared && wN >= R.minWeight && (dice >= R.dice || cover >= R.cover);
+    // CONTENT RULE (LEAD-S1): cover alone (the earlier ask is much longer) must also hold with every word counted once,
+    // so a weight-2 concept ("agents") cannot lift one shared word over the bar; an overlap of concept tokens only needs
+    // cover as well (the new prompt says little else: "meer lanes?"), so "stop ook met de fix lane" is no repeat of
+    // "kan je niet parallel werken?"
+    const coverOk = cover >= R.cover && (ns.cue || words.length / ns.tok.size >= R.cover);
+    let match = distinct > 0 && shared >= R.minShared && wN >= R.minWeight && (dice >= R.dice || coverOk) && (content > 0 || ns.cue || cover >= R.cover);
     if (match && ns.statusQ && it.class !== 'question' && !(w2 > 0 && ns.complaint)) match = false; // QUIET RULE 2
     // QUESTION RULE (S-FP2): a question asks the same thing again only when it is mutually similar (dice), holds a
     // repeat cue, or the earlier item is a question too; a few words of a short question inside a long instruction
@@ -763,8 +789,15 @@ function verifyEvidence(c, it, ev, runId) {
   }
   if (ev.type === 'commit') {
     if (!/^[0-9a-f]{7,40}$/i.test(ev.ref)) refuse('evidence: commit ref must be a hex sha');
-    const r = spawnSync('git', ['--no-optional-locks', '-C', c.root, 'cat-file', '-e', ev.ref + '^{commit}'], { encoding: 'utf8' });
+    const git = (args) => spawnSync('git', ['--no-optional-locks', '-C', c.root, ...args], { encoding: 'utf8' });
+    const r = git(['cat-file', '-e', ev.ref + '^{commit}']);
     if (r.status !== 0) refuse('evidence: commit ' + ev.ref + ' not found in ' + c.root);
+    // FB-SCRIBE-1-F1: the commit must be part of the work (reachable from HEAD) and made for this request (not older)
+    if (git(['merge-base', '--is-ancestor', ev.ref, 'HEAD']).status !== 0) refuse('evidence: commit ' + ev.ref + ' is not reachable from HEAD in ' + c.root);
+    const ct = parseInt(String(git(['show', '-s', '--format=%ct', ev.ref + '^{commit}']).stdout).trim(), 10);
+    const created = Date.parse(it.created || '');
+    if (!Number.isFinite(ct)) refuse('evidence: the date of commit ' + ev.ref + ' cannot be read');
+    if (Number.isFinite(created) && ct * 1000 < Math.floor(created / 1000) * 1000) refuse('evidence: commit ' + ev.ref + ' (' + new Date(ct * 1000).toISOString() + ') is older than ' + it.rid + ' (' + it.created + ')');
     return { type: ev.type, ref: ev.ref };
   }
   // standing_rule
@@ -776,7 +809,9 @@ function requireStandingRule(c, id, what) {
   const f = c.o.standingRulesPath || path.join(c.root, '.claude', 'config', 'orchestration', 'FORGE_STANDING_RULES.user.json');
   let rules = [];
   try { rules = JSON.parse(fs.readFileSync(f, 'utf8')).rules || []; } catch { rules = []; }
-  if (!rules.some((r) => r && r.id === id)) refuse(what + ': standing rule ' + id + ' not found in ' + f);
+  const rule = rules.find((r) => r && r.id === id);
+  if (!rule) refuse(what + ': standing rule ' + id + ' not found in ' + f);
+  if (rule.status !== 'active') refuse(what + ': standing rule ' + id + ' is not active (status ' + JSON.stringify(rule.status === undefined ? null : rule.status) + ')'); // FB-SCRIBE-1-F1
 }
 /** verifyRepeatRule(c, it, ref, runId) — WP-SCRIBE-REPEAT: the HARD RULE behind a repeated ask must exist: a standing
  *  rule id in FORGE_STANDING_RULES.user.json, or a decision_logged event (by event_id) in the run's events.jsonl. This
@@ -810,6 +845,240 @@ function answerOwnPrompt(c, rec, intent, applied) {
       writeOp(c, { op: 'answer', rid: it.rid, by: 'scribe', pid: rec.pid, reason: 'applied: ' + applied });
     }
   }
+}
+
+// ---------------------------------------------------------------- autoack (owner R-0233)
+/* AUTOACK. Owner R-0233, word for word: "ik wil niet meer de scribe accept doen en nooit meer dat wil ik weg want forge
+ * moet eigenlijk autonoom werken! maak een aparte agent die speciaal dit accepteert!". The owner delegated the ack of
+ * ROUTINE items; the ack authority for those is this recorded delegation, not the owner's prompt.
+ *   WHO     one identity, by:'scribe-acker' (AUTOACK_BY), delegation id 'owner-R-0233'. Only autoack() writes it; --by
+ *           scribe-acker is reserved everywhere else; `transition R-n ack --by scribe-acker --delegation owner-R-0233` on
+ *           the CLI is the same autoack() for one item. The agent .claude/agents/scribe-acker.md runs it, and the
+ *           UserPromptSubmit and Stop hooks run it too, so done-unacked never waits for the owner.
+ *   SWITCH  config scribe-autoack (FORGE_CONFIG_SCHEMA.json; default on; the owner turns it off with
+ *           /forge config set scribe-autoack off). Env FORGE_SCRIBE_AUTOACK=off only switches it OFF. A missing or
+ *           unreadable config resolver, or a damaged config file, is OFF (fail closed: the owner acks by hand, the old rule).
+ *   ACKS    (a) a done item of class new/change/cancel/preference whose evidence re-verifies NOW (the wp_completed /
+ *           check_passed event is still in the run log, not disproven, and no wp_failed for that wp came after it; the
+ *           commit is reachable from HEAD and not older than the item; the standing rule is active) in a run that is not
+ *           red (RED RUN; a done item without any run is held as contract-unknown); (b) a defer-proposed item of
+ *           such a class with a meaningful reason -> deferred (a recorded carry-over, still visible).
+ *   NEVER   a question, ack or unclassified item; an item whose words (quote, title, reason) touch a hard gate (push,
+ *           deploy, publish or make public, spend, credentials or sign-in, production, DNS, destructive deletes,
+ *           settings or plugin writes, outside the project: forge-owner-queue-check.cjs GATE_RE + SCRIBE_GATE_RE) or wait
+ *           on an owner decision (OWNER_DECISION_RE); an item of uncertain origin; missing or red evidence. It never
+ *           cancels, supersedes, answers, classifies or reopens. Without the hard-gate classifier every item is held.
+ *   RED RUN a failing signal that does not depend on the scribe itself, so the reconciliation can never deadlock on it:
+ *           the run closed as failed (run_completed with a failure status), a gate-evidence.json that is not a valid
+ *           evidence set or has failing gates, a finalize receipt whose contract is not "ok", or a completion claim whose
+ *           latest complete-phase contract check said ok:false. A working run whose contract still misses rules it meets
+ *           later is pending, not red.
+ *   RECORD  one ledger op per item {op:'ack', by:'scribe-acker', delegation:'owner-R-0233', autoack:{kind, evidence,
+ *           contract, checks, config_source}, reason}; the digest head counts "N auto-acked by scribe-acker (R-0233)".
+ *   GATE    gate --final with autoack on lists an item autoack() WOULD accept under autoack_pending instead of blocking on
+ *           it (the owner no longer has to act); every other done/defer-proposed item still blocks, titled
+ *           "owner-only (<codes>)". recheckAutoackOps() replays every scribe-acker op in every gate (on or off): a non-ack
+ *           op, a missing or wrong delegation, or an item the pure rules hold is 'unauthorized-autoack' until reopened.
+ *   LIMIT   'scribe-acker' is a label, not a proven principal: whoever runs autoack gets the same deterministic result, and
+ *           the replay re-checks the pure rules (status, class, words, origin, evidence present), not the run files. A
+ *           config write is not owner-authenticated: switching scribe-autoack back on after the owner switched it off is
+ *           visible (.claude/FORGE_CONFIG.json, each op's config_source), not prevented. */
+const AUTOACK_CONFIG_KEY = 'scribe-autoack';
+const AUTOACK_CLASSES = ['new', 'change', 'cancel', 'preference'];
+const AUTOACK_FROM = ['done', 'defer-proposed'];
+const AUTOACK_CHECKS = ['status', 'class', 'hard-gate', 'owner-decision', 'origin', 'evidence', 'contract'];
+const sibling = (f) => { try { return require('./' + f); } catch { return null; } };
+// scribe-specific hard-gate words the owner-queue classifier does not name (EN + NL); one hit holds the item
+const SCRIBE_GATE_RE = new RegExp('(?:' + [
+  '\\bgit\\s?hub\\b', '\\bgitlab\\b', '\\bbitbucket\\b', '\\bgh (?:repo|pr|release|api)\\b',
+  '\\brepo(?:sitory)?\\b[^.\\n]{0,40}\\b(?:public|openbaar|publiek|aanmaken|create)\\b', '\\bopenbaar\\w*', '\\bpubliek\\w*',
+  '\\b(?:make|set|zet|maak)\\b[^.\\n]{0,40}\\bpublic\\b', '\\bpublic (?:repo|repository|url|link|release|page)\\b',
+  '\\bupload\\w*', '\\bnpm publish\\b', '\\bsend(?:s|ing)?\\b', '\\bsent\\b', '\\b(?:ver)?stuur\\w*', '\\be-?mail\\w*', '\\bmailen\\b',
+  '\\bpost(?:en|ed|s)? (?:to|on|naar|op)\\b', '\\btweet\\w*', '\\bmarketplace\\b',
+  '\\bplugin\\b[^.\\n]{0,30}\\b(?:install\\w*|enable\\w*|aanzetten|installeer\\w*)', '\\binstall\\w*\\b[^.\\n]{0,30}\\bplugin\\b',
+  "\\b(?:op|naar|in|on|to)\\s+(?:mijn|m'n|me|je|de|the|my|your)\\s+(?:pc|computer|laptop|desktop|bureaublad|downloads?)\\b",
+  '\\b(?:in|naar|op|to|on)\\s+(?:de\\s+)?(?:desktop|bureaublad)\\b', '\\boutside (?:this|the) (?:repo|repository|folder|map)\\b',
+  '\\bbuiten (?:deze|de|dit) (?:repo|map|folder)\\b', '~[\\\\/]\\.claude\\b', '\\.claude\\.json\\b', '\\bglobale? (?:claude|settings|instellingen|config)\\b',
+  '\\bforce[- ]push\\w*', '\\breset --hard\\b', '\\brm -rf\\b', '\\btaskkill\\b', '\\bstop-process\\b', '\\bkill(?:s|ed|en|ing)?\\b', '\\bwipe\\w*',
+  '\\bbuy\\w*', '\\bkoop\\b', '\\bkopen\\b', '\\bpurchase\\w*', '\\babonnement\\w*', '\\bsubscription\\w*', '\\bcredit ?card\\w*', '\\bcredits?\\b',
+  '\\bpaid\\b', '\\bgeld\\b', '\\bmoney\\b', '\\bgo live\\b', '\\blive (?:zetten|gaan|deploy\\w*)\\b', '\\boauth\\b', '\\bsecrets?\\b',
+  '\\bapi[- ]?keys?\\b', '\\bpassword\\w*',
+].join('|') + ')', 'i');
+// the item waits on an owner decision (EN + NL); one hit holds it
+const OWNER_DECISION_RE = new RegExp('(?:' + [
+  '\\b(?:after|until|once|when|zodra|nadat|tot(?:dat)?|als)\\s+(?:the\\s+|de\\s+)?(?:owner|eigenaar)\\b[^.\\n]{0,24}\\b(?:says?|decides?|approves?|confirms?|acks?|agrees?|zegt|beslist|kiest|akkoord|bevestigt|goedkeurt|go)\\b',
+  "\\bowner(?:'s)?\\s+(?:approval|decision|go-ahead|confirmation|ack|choice|keuze|besluit)\\b",
+  '\\b(?:wacht\\w*|waiting|waits|wait)\\s+(?:op|on|for)\\s+(?:de\\s+|the\\s+)?(?:owner|eigenaar|jou|you)\\b',
+  '\\bowner[- ]only\\b', '\\bonly the owner\\b', '\\balleen de (?:owner|eigenaar)\\b', '\\bneeds? the owner\\b', '\\bowner (?:must|moet)\\b',
+].join('|') + ')', 'i');
+const firstWords = (re, text, n) => { const out = []; const g = new RegExp(re.source, 'gi'); let m; while ((m = g.exec(text)) && out.length < n) { out.push(m[0].slice(0, 40)); if (!m[0]) g.lastIndex++; } return out; };
+
+/** autoackSetting(c) -> {enabled, source, reason} — see SWITCH. Never throws. */
+function autoackSetting(c) {
+  const env = c.o.env && typeof c.o.env === 'object' ? c.o.env : process.env;
+  if (/^(off|0|false|no)$/i.test(String(env.FORGE_SCRIBE_AUTOACK == null ? '' : env.FORGE_SCRIBE_AUTOACK).trim())) return { enabled: false, source: 'env', reason: 'FORGE_SCRIBE_AUTOACK=off' };
+  if (typeof c.o.autoack === 'boolean') return { enabled: c.o.autoack, source: 'option', reason: null };
+  const CFG = sibling('forge-config.cjs');
+  if (!CFG || typeof CFG.safeGet !== 'function') return { enabled: false, source: 'unavailable', reason: 'forge-config.cjs is not installed next to forge-scribe.cjs (fail closed)' };
+  try {
+    const r = CFG.safeGet(AUTOACK_CONFIG_KEY, { projectRoot: c.root, configHome: c.o.configHome || env.FORGE_CONFIG_HOME || undefined, fallback: false });
+    if (r.degraded) return { enabled: false, source: 'degraded', reason: 'the setting could not be read (' + String(r.reason || 'unknown').slice(0, 160) + ') — fail closed' };
+    return { enabled: r.value === true, source: String(r.source || 'unknown'), reason: r.value === true ? null : AUTOACK_CONFIG_KEY + ' is off' };
+  } catch (e) { return { enabled: false, source: 'error', reason: String(e && e.message || e).slice(0, 160) + ' (fail closed)' }; }
+}
+/** wordHolds(texts) -> [{code, why}] — hard-gate and owner-decision words in the item's own texts. */
+function wordHolds(texts) {
+  const text = texts.filter((x) => typeof x === 'string' && x.trim()).join('\n');
+  const out = [];
+  const OQ = sibling('forge-owner-queue-check.cjs');
+  if (!OQ || !(OQ.GATE_RE instanceof RegExp)) out.push({ code: 'hard-gate', why: 'the hard-gate classifier (forge-owner-queue-check.cjs) is not available, so every item stays with the owner' });
+  else {
+    const w = firstWords(OQ.GATE_RE, text, 3).concat(firstWords(SCRIBE_GATE_RE, text, 3));
+    if (w.length) out.push({ code: 'hard-gate', why: 'touches a hard gate (' + Array.from(new Set(w.map((x) => x.toLowerCase()))).slice(0, 4).join(', ') + ')' });
+  }
+  const d = firstWords(OWNER_DECISION_RE, text, 2);
+  if (d.length) out.push({ code: 'owner-decision', why: 'waits on an owner decision (' + d.join(', ') + ')' });
+  return out;
+}
+const meaningfulReason = (s) => typeof s === 'string' && (s.match(/\p{L}/gu) || []).length >= 3;
+/** pureHolds(it) -> [{code, why}] — the rules that need no run file (also what the gate replays). */
+function pureHolds(it) {
+  const out = [];
+  if (!it) return [{ code: 'status', why: 'unknown item' }];
+  if (!AUTOACK_FROM.includes(it.status)) out.push({ code: 'status', why: it.rid + ' is ' + it.status + ' (only done or defer-proposed items are acked)' });
+  if (!AUTOACK_CLASSES.includes(it.class)) out.push({ code: 'class', why: it.class === 'unclassified' ? 'unclassified: settle the class first (classify R-n new|change, or the owner)' : 'a ' + it.class + ' item is never acked by the scribe-acker' });
+  for (const h of wordHolds([it.quote, it.title, it.reason])) out.push(h);
+  if (originOf(it.quote).uncertain) out.push({ code: 'origin', why: 'the origin of its text is uncertain (' + String(originOf(it.quote).reason || '').slice(0, 80) + ')' });
+  if (it.status === 'done' && !(it.evidence && EVIDENCE_TYPES.includes(it.evidence.type) && it.evidence.ref)) out.push({ code: 'evidence', why: 'no done evidence on the item' });
+  if (it.status === 'defer-proposed' && !meaningfulReason(it.reason)) out.push({ code: 'reason', why: 'the carry-over proposal has no reason' });
+  return out;
+}
+const disproven = (RC, e) => { try { return RC && typeof RC.eventIsDisproven === 'function' ? !!RC.eventIsDisproven(e) : !!(e && e._forge_verify && e._forge_verify.proof_verified === false); } catch { return true; } };
+/** runRedOf(c, runId, memo) -> {run_id, red: true|false|null, reason} — see RED RUN (null = it cannot be judged). */
+function runRedOf(c, runId, memo) {
+  if (!runId) return { run_id: null, red: false, reason: 'no run to judge' };
+  if (memo && memo.has(runId)) return memo.get(runId);
+  const done = (red, reason) => { const r = { run_id: runId, red, reason: String(reason).slice(0, 300) }; if (memo) memo.set(runId, r); return r; };
+  const f = RUN_ID_RE.test(runId) ? runEventsFileOf(c.root, runId) : null;
+  if (!f || !fs.existsSync(f)) return done(null, 'the run log of ' + runId + ' is missing');
+  const RC = sibling('forge-runcontract.cjs');
+  if (!RC || typeof RC.runStateOf !== 'function') return done(null, 'forge-runcontract.cjs is not available to judge run ' + runId);
+  const evs = S.readJsonl(f, false);
+  const st = RC.runStateOf(evs);
+  const dir = path.dirname(f);
+  const why = [];
+  if (st.status === 'closed-failed') { const e = evs[st.completed_index] || {}; why.push('the run was closed as failed (run_completed ' + ['status', 'outcome', 'verdict', 'result'].filter((k) => typeof e[k] === 'string').map((k) => k + ' ' + e[k]).join(', ') + ')'); }
+  if (fs.existsSync(path.join(dir, 'gate-evidence.json'))) {
+    let d = null;
+    try { d = typeof RC.canonicalEvidenceDigest === 'function' ? RC.canonicalEvidenceDigest(c.root, runId) : null; } catch { d = null; }
+    if (!d) why.push('gate-evidence.json is not a valid evidence set');
+    else if (d.allGreen !== true) why.push('gate evidence has failing gate(s): ' + (d.failed || []).join(', '));
+  }
+  const rf = path.join(dir, 'run-finalized.json');
+  if (fs.existsSync(rf)) { let j = null; try { j = JSON.parse(fs.readFileSync(rf, 'utf8')); } catch { j = null; } if (!j || j.contract !== 'ok') why.push('the finalize receipt does not say contract ok'); }
+  if (st.status === 'completed') {
+    let last = null;
+    for (const e of evs) if (e && e.event_type === 'gate_evaluated' && (!e.phase || e.phase === 'complete') && !disproven(RC, e)) last = e;
+    if (last && last.ok === false) why.push('the run claims completion over a red contract check (gate_evaluated ok:false)');
+  }
+  return done(why.length ? true : false, why.length ? why.join('; ') : 'no failing signal (run ' + st.status + ')');
+}
+/** evidenceNow(c, it) -> {evidence} | {hold} — the done evidence re-verified against the files as they are now. */
+function evidenceNow(c, it) {
+  const ev = it.evidence;
+  const runId = ev.run_id || (it.run_ids.length ? it.run_ids[it.run_ids.length - 1] : undefined);
+  let v;
+  try { v = verifyEvidence(c, it, { type: ev.type, ref: ev.ref }, runId); } catch (e) { return { hold: { code: 'evidence', why: 'the evidence does not re-verify now: ' + String(e && e.message || e).slice(0, 160) } }; }
+  if (ev.type === 'wp_completed' || ev.type === 'check_passed') {
+    const RC = sibling('forge-runcontract.cjs');
+    const evs = runEvents(c, runId);
+    const at = evs.findIndex((e) => e && e.event_type === ev.type && (ev.type === 'wp_completed' ? e.wp_id === ev.ref && !/fail/i.test(String(e.status || '')) : e.event_id === ev.ref));
+    if (at < 0 || disproven(RC, evs[at])) return { hold: { code: 'evidence', why: 'the ' + ev.type + ' event for ' + ev.ref + ' is disproven' } };
+    if (ev.type === 'wp_completed' && evs.slice(at + 1).some((e) => e && e.event_type === 'wp_failed' && e.wp_id === ev.ref)) return { hold: { code: 'evidence', why: 'a wp_failed for ' + ev.ref + ' came after its wp_completed' } };
+  }
+  return { evidence: Object.assign({}, v, { run_id: v.run_id || runId || undefined }) };
+}
+/** judgeAutoack(c, it, memo) -> {rid, status, class, kind, eligible, holds, evidence, contract}. Never throws. */
+function judgeAutoack(c, it, memo) {
+  const base = { rid: it && it.rid, status: it && it.status, class: it && it.class, kind: it && it.status, evidence: null, contract: null };
+  try {
+    const holds = pureHolds(it);
+    if (it.status === 'done' && !holds.some((h) => h.code === 'evidence')) {
+      const e = evidenceNow(c, it);
+      if (e.hold) holds.push(e.hold); else base.evidence = e.evidence;
+      const runId = (e.evidence && e.evidence.run_id) || (it.run_ids.length ? it.run_ids[it.run_ids.length - 1] : null);
+      // FB-SCRIBE-1-F1: no run means nothing can be judged, never "not red"
+      base.contract = runId ? runRedOf(c, runId, memo) : { run_id: null, red: null, reason: 'the item has no run to judge, so its contract is unknown' };
+      if (base.contract.red === true) holds.push({ code: 'contract-red', why: 'run ' + runId + ' is red: ' + base.contract.reason });
+      else if (base.contract.red === null) holds.push({ code: 'contract-unknown', why: base.contract.reason });
+    }
+    if (it.status === 'defer-proposed') base.contract = { run_id: null, red: false, reason: 'a carry-over proposal needs no run' };
+    return Object.assign(base, { eligible: holds.length === 0, holds });
+  } catch (e) { return Object.assign(base, { eligible: false, holds: [{ code: 'error', why: String(e && e.message || e).slice(0, 160) }] }); }
+}
+/** autoack(opts) -> {enabled, agent, delegation, config_source, dry_run, eligible, applied, held, left} — see AUTOACK.
+ *  opts.all or opts.rids ([R-n]); opts.dryRun; opts.single (the CLI's one-item ack: a held item is refused);
+ *  opts.max / opts.deadline (epoch ms) bound it; opts.autoack / opts.configHome / opts.env are seams. */
+function autoack(opts) {
+  const c = ctx(opts);
+  const set = autoackSetting(c);
+  if (!set.enabled) refuse('autoack is off (config ' + AUTOACK_CONFIG_KEY + ' off: ' + (set.reason || set.source) + ') — the owner acks by hand; turn it on with /forge config set ' + AUTOACK_CONFIG_KEY + ' on');
+  const want = Array.isArray(c.o.rids) && c.o.rids.length ? c.o.rids.map((r) => String(r).trim().toUpperCase()) : null;
+  if (!want && !c.o.all) refuse('autoack needs --all or one or more item ids (R-n)');
+  for (const r of want || []) if (!/^R-\d+$/.test(r)) refuse('autoack: not an item id: ' + JSON.stringify(r));
+  const max = Number.isFinite(c.o.max) && c.o.max >= 0 ? c.o.max : Infinity;
+  const deadline = Number.isFinite(c.o.deadline) ? c.o.deadline : Infinity;
+  const go = () => {
+    const st = S.loadState(c.p);
+    for (const r of want || []) if (!st.items[r]) refuse('unknown item ' + r);
+    const items = (want ? want.map((r) => st.items[r]) : Object.values(st.items).filter((i) => AUTOACK_FROM.includes(i.status))).sort(byRid);
+    const out = { enabled: true, agent: AUTOACK_BY, delegation: AUTOACK_DELEGATION, config_source: set.source, dry_run: !!c.o.dryRun, eligible: [], applied: [], held: [], left: 0 };
+    const memo = new Map();
+    for (const it of items) {
+      if (out.applied.length >= max || Date.now() >= deadline) { out.left++; continue; }
+      const j = judgeAutoack(c, it, memo);
+      if (!j.eligible) {
+        if (c.o.single) refuse(it.rid + ' stays with the owner: ' + j.holds.map((h) => h.code + ': ' + h.why).join('; '));
+        out.held.push({ rid: it.rid, status: it.status, class: it.class, title: it.title, holds: j.holds });
+        continue;
+      }
+      out.eligible.push({ rid: it.rid, kind: j.kind, status: it.status });
+      if (out.dry_run) continue;
+      const ev = j.evidence;
+      const next = writeOp(c, { op: 'ack', rid: it.rid, by: AUTOACK_BY, delegation: AUTOACK_DELEGATION, run_id: ev && ev.run_id ? ev.run_id : undefined,
+        autoack: { kind: j.kind, evidence: ev || null, contract: j.contract, checks: AUTOACK_CHECKS, config_source: set.source },
+        reason: 'auto-ack by ' + AUTOACK_BY + ' under owner delegation R-0233 (' + (ev ? 'done with ' + ev.type + ':' + ev.ref : 'a carry-over proposal with a reason') + ')' });
+      out.applied.push({ rid: it.rid, kind: j.kind, to: next.items[it.rid] ? next.items[it.rid].status : null });
+    }
+    return out;
+  };
+  return c.o.dryRun ? go() : S.withLock(c.p, go, lockOpts(c));
+}
+/** autoackStatus(opts) -> {enabled, source, reason, agent, delegation} — for the hooks and the gate. Never throws. */
+function autoackStatus(opts) {
+  try { return Object.assign(autoackSetting(ctx(opts)), { agent: AUTOACK_BY, delegation: AUTOACK_DELEGATION }); } catch (e) { return { enabled: false, source: 'error', reason: String(e && e.message || e).slice(0, 160), agent: AUTOACK_BY, delegation: AUTOACK_DELEGATION }; }
+}
+/** recheckAutoackOps(records) -> [{rid, op, seq, status:'unauthorized-autoack', reason}] — the gate's replay of every
+ *  delegated op (see GATE). A later reopen of the item, or an owner cancel, clears its flag. */
+function recheckAutoackOps(records) {
+  const st = S.emptyState();
+  const flagged = new Map();
+  for (const r of records) {
+    if (!r || !(r.seq > st.last_seq)) continue;
+    const it = st.items[r.rid];
+    if (it && (r.by === AUTOACK_BY || (r.delegation !== undefined && r.delegation !== null))) {
+      let why = null;
+      if (r.by !== AUTOACK_BY) why = 'the delegation ' + r.delegation + ' was used by ' + JSON.stringify(r.by) + ' — only ' + AUTOACK_BY + ' may use it';
+      else if (r.op !== 'ack') why = AUTOACK_BY + ' wrote a ' + r.op + ' op — it may only ack';
+      else if (r.delegation !== AUTOACK_DELEGATION) why = 'an ' + AUTOACK_BY + ' ack without the owner delegation ' + AUTOACK_DELEGATION;
+      else { const h = pureHolds(it); if (h.length) why = AUTOACK_BY + ' acked an item its rules keep for the owner (' + h.map((x) => x.code + ': ' + x.why).join('; ').slice(0, 200) + ')'; }
+      if (why) flagged.set(r.rid, { rid: r.rid, op: r.op, seq: r.seq, status: 'unauthorized-autoack', reason: r.rid + ': ' + why + ' — reopen ' + r.rid });
+    }
+    if (it && (r.op === 'reopen' || (r.op === 'cancel' && r.by === 'owner'))) flagged.delete(r.rid);
+    S.applyOp(st, r);
+    st.last_seq = r.seq;
+  }
+  return Array.from(flagged.values());
 }
 
 // ---------------------------------------------------------------- transitions
@@ -939,7 +1208,8 @@ function transition(rid, op, args, opts) {
   const c = ctx(opts);
   const a = args || {};
   if (!OPS.includes(op)) refuse('unknown op ' + op + ' (ops: ' + OPS.join(', ') + ')');
-  if (a.by && RESERVED_BY.includes(String(a.by).toLowerCase())) refuse('--by ' + a.by + ' is reserved: that identity is set only from verified facts');
+  if (a.by && RESERVED_BY.includes(String(a.by).toLowerCase())) refuse('--by ' + a.by + ' is reserved: that identity is set only from verified facts' + (String(a.by).toLowerCase() === AUTOACK_BY ? ' (the delegated ack runs only through autoack, or transition R-n ack --by ' + AUTOACK_BY + ' --delegation ' + AUTOACK_DELEGATION + ' on the CLI)' : ''));
+  if (a.delegation !== undefined && a.delegation !== null) refuse('--delegation is used only by the delegated ack (autoack); transition never takes it');
   if (a.run_id !== undefined && a.run_id !== null && !RUN_ID_RE.test(String(a.run_id))) refuse('invalid run id');
   return S.withLock(c.p, () => {
     try { recoverOrphans(c); } catch { /* the gate still counts an orphan */ }
@@ -1180,8 +1450,23 @@ function gateOf(c) {
   const until = c.o.until ? Date.parse(c.o.until) : null;
   const inWindow = (ts) => !until || Date.parse(ts) <= until;
   const blockOn = final ? S.FINAL_BLOCKING : S.ACTIVE;
-  const blocking = Object.values(st.items).filter((i) => blockOn.includes(i.status) && inWindow(i.created))
+  let blocking = Object.values(st.items).filter((i) => blockOn.includes(i.status) && inWindow(i.created))
     .sort((a, b) => a.rid.localeCompare(b.rid)).map((i) => ({ rid: i.rid, status: i.status, class: i.class, title: i.title }));
+  // R-0233 (AUTOACK, GATE): with scribe-autoack on, a done/defer-proposed item the scribe-acker WOULD accept is not the
+  // owner's job any more — it waits for autoack (autoack_pending); every other one still blocks, titled owner-only
+  const aa = autoackSetting(c);
+  const pending = [];
+  if (final && aa.enabled) {
+    const memo = new Map();
+    blocking = blocking.filter((b) => {
+      if (!AUTOACK_FROM.includes(b.status)) return true;
+      const j = judgeAutoack(c, st.items[b.rid], memo);
+      if (j.eligible) { pending.push({ rid: b.rid, status: b.status, class: b.class, kind: j.kind, title: b.title }); return false; }
+      b.title = 'owner-only (' + Array.from(new Set(j.holds.map((h) => h.code))).join(', ') + '): ' + b.title;
+      b.holds = j.holds;
+      return true;
+    });
+  }
   const withItem = new Set(Object.values(st.items).map((i) => i.pid).filter(Boolean));
   const orphans = snap.ix.records.filter((r) => isPromptRecord(r) && !withItem.has(r.pid) && inWindow(r.ts));
   for (const r of orphans) blocking.push({ rid: null, pid: r.pid, status: 'orphan', class: 'unclassified', title: 'inbox ' + r.pid + ' never became an item (crash recovery pending): ' + titleOf(r.text, 50) });
@@ -1189,13 +1474,17 @@ function gateOf(c) {
   for (const u of unauthorized) blocking.push({ rid: u.rid, status: 'unauthorized-owner-op', class: u.op, title: u.reason });
   const dropped = snap.lchain.ok ? recheckAgentOps(snap.records.filter(Boolean), c.cfg) : [];
   for (const u of dropped) blocking.push({ rid: u.rid, status: u.status, class: u.op, title: u.reason });
+  const autoBad = snap.lchain.ok ? recheckAutoackOps(snap.records.filter(Boolean)) : [];
+  for (const u of autoBad) blocking.push({ rid: u.rid, status: u.status, class: u.op, title: u.reason });
   const anchors = anchorsOf(c.root);
   const anchorBreaks = checkAnchors(snap.lchain, snap.ix.chain, anchors);
   for (const b of anchorBreaks) problems.push(b.reason);
   const lbuf = snap.lbuf || Buffer.alloc(0);
   return {
     ok: problems.length === 0 && blocking.length === 0, final, blocking, problems, counts: st.counts,
-    orphans: orphans.length, unauthorized: unauthorized.length, dropped_scope: dropped.length, chain_ok: snap.lchain.ok && snap.ix.chain.ok && anchorBreaks.length === 0,
+    orphans: orphans.length, unauthorized: unauthorized.length, dropped_scope: dropped.length, unauthorized_autoack: autoBad.length,
+    autoack: { enabled: aa.enabled, source: aa.source, reason: aa.reason, agent: AUTOACK_BY, delegation: AUTOACK_DELEGATION }, autoack_pending: pending,
+    chain_ok: snap.lchain.ok && snap.ix.chain.ok && anchorBreaks.length === 0,
     ledger_head: snap.lchain.head, ledger_lines: snap.lchain.lines, ledger_bytes: lbuf.length, ledger_sha256: S.sha256(lbuf),
     inbox_head: snap.ix.chain.head, inbox_lines: snap.ix.chain.lines, anchors_checked: anchors.length,
   };
@@ -1447,8 +1736,31 @@ function importLines(items, opts) {
   });
 }
 
+/** scanSecrets(opts) -> {ok, findings:[{file, id, field}], records} — READ-ONLY (WP-SCRIBE-REDACT): every string leaf of
+ *  the inbox, ledger, skipped log and the cached state.json that the current scrubber (S.scrubText) would still change,
+ *  i.e. a secret stored before a redaction rule existed. Reports where, never the value; writes nothing. */
+function scanSecrets(opts) {
+  const c = ctx(opts);
+  const findings = [];
+  let records = 0;
+  const leaves = (v, pre, cb) => {
+    if (typeof v === 'string') cb(pre, v);
+    else if (v && typeof v === 'object') for (const k of Object.keys(v)) leaves(v[k], pre ? pre + '.' + k : k, cb);
+  };
+  const check = (file, id, rec) => { records++; leaves(rec, '', (field, v) => { if (S.scrubText(v).text !== v) findings.push({ file, id, field }); }); };
+  for (const f of [c.p.inbox, c.p.ledger, c.p.skipped]) {
+    S.readJsonl(f, false).forEach((rec, i) => check(path.basename(f), (rec && (rec.rid || rec.pid)) || 'line ' + (i + 1), rec));
+  }
+  if (fs.existsSync(c.p.state)) {
+    let st = null;
+    try { st = JSON.parse(fs.readFileSync(c.p.state, 'utf8')); } catch { findings.push({ file: 'state.json', id: null, field: '(unreadable JSON: not scanned)' }); }
+    if (st && st.items) for (const rid of Object.keys(st.items)) check('state.json', rid, st.items[rid]);
+  }
+  return { ok: findings.length === 0, findings, records };
+}
+
 module.exports = {
-  REPEAT_RULE_TYPES,
+  REPEAT_RULE_TYPES, scanSecrets,
   capture, transition, impact, gate, list, digest, rebuild, verifyChains, reconcileBinding, recover, recordSkip, route, importLines,
   ownerCheck, userText: S.userText, anchorsOf, checkAnchors, ScribeError, OPS, EVIDENCE_TYPES, OWNER_GATED_CLASSES, RESERVED_BY,
   // WP 3.8: origin filter, owner words, OWNER REPEATS v2, the owner view and the one-time clean-up
@@ -1456,6 +1768,10 @@ module.exports = {
   ENVELOPE_TAGS, IGNORE_REASON,
   // WP I.8c: toggle corrections (a TAG on owner records) and their one-time back-fill
   toggleOfOwner, toggleFields, toggleTagIndex, markToggle, isToggleRec, retag, TC_RECEIPT,
+  // R-0233: the delegated ack (scribe-acker, owner-R-0233) and its gate replay
+  autoack, autoackStatus, recheckAutoackOps,
+  /** judgeAutoack(itemOrRid, opts) -> the AUTOACK verdict for one item (read-only; opts like every other call) */
+  judgeAutoack: (it, opts) => { const c = ctx(opts); return judgeAutoack(c, typeof it === 'string' ? S.loadState(c.p).items[it] : it, new Map()); }, AUTOACK_BY, AUTOACK_DELEGATION, AUTOACK_CONFIG_KEY, AUTOACK_CLASSES, SCRIBE_GATE_RE, OWNER_DECISION_RE,
 };
 
 // ---------------------------------------------------------------- CLI
@@ -1466,7 +1782,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { out._.push(a); continue; }
     const k = a.slice(2);
-    const boolFlags = ['json', 'write', 'final', 'stdin', 'run-active', 'system-origin', 'apply', 'toggle-correction'];
+    const boolFlags = ['json', 'write', 'final', 'stdin', 'run-active', 'system-origin', 'apply', 'toggle-correction', 'all', 'dry-run'];
     if (boolFlags.includes(k)) { out[k] = true; continue; }
     const v = argv[++i];
     if (v === undefined) throw new ScribeError('missing value for --' + k);
@@ -1488,7 +1804,7 @@ function main(argv) {
   const pid = a.prompt || a.pid;
   // SC-07: every command (except the read-only chain check and gate, which count orphans themselves) first re-folds
   // inbox prompts that never became an item. A failure is reported, never fatal here — the gate stays the judge.
-  if (cmd && !['verify-chain', 'gate'].includes(cmd)) {
+  if (cmd && !['verify-chain', 'gate', 'scan-secrets'].includes(cmd)) {
     try { const r = recover(); if (r.length) console.error('forge-scribe: recovered ' + r.length + ' inbox prompt(s) as open item(s): ' + r.map((x) => x.rid + '<-' + x.pid).join(', ')); }
     catch (e) { console.error('forge-scribe: NOTE crash recovery could not run (' + String(e && e.message || e).slice(0, 160) + ')'); }
   }
@@ -1511,7 +1827,7 @@ function main(argv) {
         items.forEach((i0) => {
           const i = view[i0.rid] || i0;
           const rp = S.repeatTag(i);
-          console.log(i.rid + ' [' + i.class + '|' + i.status + (isSetAside(i) ? '(' + IGNORE_REASON + ')' : '') + (i.wp_ids.length ? '|' + i.wp_ids.join(',') : '') + '] ' + (rp ? rp + (i.repeat_rule_ref ? ' (rule: ' + i.repeat_rule_ref.type + ':' + i.repeat_rule_ref.ref + ')' : ' (no HARD RULE linked yet)') + ' ' : '') + i.title);
+          console.log(i.rid + ' [' + i.class + '|' + i.status + (isSetAside(i) ? '(' + IGNORE_REASON + ')' : '') + (i.acked_by === AUTOACK_BY ? '(auto-acked: ' + AUTOACK_BY + ')' : '') + (i.wp_ids.length ? '|' + i.wp_ids.join(',') : '') + '] ' + (rp ? rp + (i.repeat_rule_ref ? ' (rule: ' + i.repeat_rule_ref.type + ':' + i.repeat_rule_ref.ref + ')' : ' (no HARD RULE linked yet)') + ' ' : '') + i.title);
         });
       }
       return 0;
@@ -1542,9 +1858,31 @@ function main(argv) {
     case 'digest': out(digest({ write: !!a.write })); return 0;
     case 'classify': out(transition(rid, 'classify', { class: extra, split: a.split, run_id: a.run, by: a.by, pid, transcript: a.transcript })); return 0;
     case 'link': out(transition(rid, 'link', { wp_ids: csv(a.wp), tickets: csv(a.ticket), run_id: a.run, by: a.by })); return 0;
-    case 'transition':
+    case 'transition': {
+      // R-0233: `transition R-n ack --by scribe-acker --delegation owner-R-0233` is the delegated ack of ONE item
+      const byAcker = a.by !== undefined && String(a.by).toLowerCase() === AUTOACK_BY;
+      if (a.delegation !== undefined) {
+        if (a.delegation !== AUTOACK_DELEGATION) throw new ScribeError('unknown delegation ' + JSON.stringify(a.delegation) + ': the only delegation is ' + AUTOACK_DELEGATION + ' (owner R-0233, for ' + AUTOACK_BY + ')');
+        if (!byAcker) throw new ScribeError('--delegation ' + AUTOACK_DELEGATION + ' is the owner\'s delegation to ' + AUTOACK_BY + ' only (got --by ' + JSON.stringify(a.by || null) + ')');
+        if (extra !== 'ack') throw new ScribeError(AUTOACK_BY + ' may only ack (got ' + JSON.stringify(extra || null) + ')');
+        if (pid) throw new ScribeError('a delegated ack takes no --prompt: the delegation is its authority');
+        const r = autoack({ rids: [rid], single: true });
+        out(a.json ? r : (r.applied.length ? rid + ' ' + r.applied[0].to + ' by ' + AUTOACK_BY + ' (owner delegation R-0233)' : rid + ': nothing to ack'));
+        return 0;
+      }
+      if (byAcker) throw new ScribeError('--by ' + AUTOACK_BY + ' needs --delegation ' + AUTOACK_DELEGATION + ' and works only for ack (or run: forge-scribe.cjs autoack --all)');
       out(transition(rid, extra, { wp_ids: csv(a.wp), tickets: csv(a.ticket), run_id: a.run, evidence: parseEvidence(a.evidence), ref: parseEvidence(a.ref), pid, transcript: a.transcript, reason: a.reason, supersedes: a.supersedes, class: a.class, by: a.by }));
       return 0;
+    }
+    case 'autoack': {
+      const ids = a._.slice(1).filter(Boolean);
+      const r = autoack({ all: !!a.all, rids: ids.length ? ids : undefined, dryRun: !!a['dry-run'] });
+      if (a.json) { out(r); return 0; }
+      console.log('forge-scribe autoack (' + r.agent + ', owner delegation ' + r.delegation + '): ' + (r.dry_run ? r.eligible.length + ' would be acked (dry run)' : r.applied.length + ' acked') + ', ' + r.held.length + ' held for the owner' + (r.left ? ', ' + r.left + ' left for a later run (time budget)' : ''));
+      (r.dry_run ? r.eligible.map((x) => '  ' + x.rid + ' ' + x.status + ' -> ' + (x.status === 'done' ? 'acked' : 'deferred')) : r.applied.map((x) => '  ' + x.rid + ' ' + x.kind + ' -> ' + x.to)).forEach((l) => console.log(l));
+      r.held.forEach((h) => console.log('  held ' + h.rid + ' [' + h.class + '|' + h.status + '] ' + h.holds.map((x) => x.code + ': ' + x.why).join('; ').slice(0, 300)));
+      return 0;
+    }
     case 'impact': out(impact(rid, a.run)); return 0;
     case 'route': out(route(rid)); return 0;
     case 'gate': {
@@ -1578,8 +1916,17 @@ function main(argv) {
       if (a.json) out(r); else console.log('forge-scribe verify-chain: ' + (r.ok ? 'OK' : 'BROKEN') + ' · inbox ' + r.inbox.lines + ' line(s)' + (r.inbox.ok ? '' : ' BROKEN ' + JSON.stringify(r.inbox.breaks)) + ' · ledger ' + r.ledger.lines + ' line(s)' + (r.ledger.ok ? '' : ' BROKEN ' + JSON.stringify(r.ledger.breaks)) + ' · ' + r.anchors + ' run-log anchor(s)');
       return r.ok ? 0 : 3;
     }
+    case 'scan-secrets': {
+      const r = scanSecrets();
+      if (a.json) out(r);
+      else {
+        console.log('forge-scribe scan-secrets: ' + (r.ok ? 'CLEAN' : r.findings.length + ' stored field(s) still hold a secret') + ' · ' + r.records + ' record(s) scanned (values not shown)');
+        r.findings.forEach((x) => console.log('  ' + x.file + ' ' + (x.id || '-') + ' ' + x.field));
+      }
+      return r.ok ? 0 : 3;
+    }
     default:
-      console.error('usage: forge-scribe.cjs <capture|list|digest|classify|link|transition|impact|route|gate|import-lines|recover|reclassify|retag|rebuild|verify-chain> ... (see file header)');
+      console.error('usage: forge-scribe.cjs <capture|list|digest|classify|link|transition|autoack|impact|route|gate|import-lines|recover|reclassify|retag|rebuild|verify-chain|scan-secrets> ... (see file header)');
       return 2;
   }
 }

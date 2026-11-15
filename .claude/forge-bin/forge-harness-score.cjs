@@ -25,7 +25,13 @@ const path = require('path');
 const crypto = require('crypto');
 
 const RUBRIC_REL = '.claude/config/quality/harness-rubric.json';
-const opt = (name) => { try { return require('./' + name); } catch { return null; } };
+// FB-VERIFY-2-F5: only an absent sibling is 'not available'; a sibling that fails to load throws, so its check fails.
+const opt = (name) => {
+  try { return require('./' + name); } catch (e) {
+    if (e && e.code === 'MODULE_NOT_FOUND' && !fs.existsSync(path.join(__dirname, name))) return null;
+    throw e;
+  }
+};
 const forgePaths = opt('forge-paths.cjs');
 
 function defaultRoot() {
@@ -44,14 +50,16 @@ const relName = (root, abs) => { const r = path.relative(root, abs); return r.st
 const PASS = (detail) => ({ status: 'pass', ratio: 1, detail });
 const FAIL = (detail) => ({ status: 'fail', ratio: 0, detail });
 const NM = (detail) => ({ status: 'not_measured', ratio: null, detail });
-const PART = (ratio, detail) => ({ status: ratio >= 1 ? 'pass' : ratio <= 0 ? 'fail' : 'partial', ratio: Math.max(0, Math.min(1, ratio)), detail });
+// FB-VERIFY-2-F3: a non-finite ratio (0/0, a missing bar) is a fail, never a NaN that silently voids the score
+const PART = (ratio, detail) => (!Number.isFinite(ratio) ? FAIL(detail + ' (ratio not a number)')
+  : { status: ratio >= 1 ? 'pass' : ratio <= 0 ? 'fail' : 'partial', ratio: Math.max(0, Math.min(1, ratio)), detail });
 
 function runsDirs(root) {
   try { if (forgePaths) return forgePaths.existingStateDirs(root, 'runs'); } catch { /* fall back */ }
   const legacy = path.join(root, '.claude', 'forge-runs');
   return fs.existsSync(legacy) ? [legacy] : [];
 }
-function latestRun(root) {
+function allRuns(root) {
   const all = [];
   for (const d of runsDirs(root)) {
     let ents = [];
@@ -59,7 +67,12 @@ function latestRun(root) {
     for (const e of ents) if (e.isDirectory() && /^forge-\d{4}-\d{2}-\d{2}/.test(e.name)) all.push({ id: e.name, dir: path.join(d, e.name) });
   }
   all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return all.length ? all[all.length - 1] : null;
+  return all;
+}
+// FB-VERIFY-2-F4: a run is closed once it has a run-finalized.json or a run_completed event.
+function isClosed(run) {
+  if (readText(path.join(run.dir, 'run-finalized.json')) != null) return true;
+  return (readText(path.join(run.dir, 'events.jsonl')) || '').split(/\r?\n/).some((l) => { try { return JSON.parse(l).event_type === 'run_completed'; } catch { return false; } });
 }
 function lintCounts(check, root) {
   if (check.tool === 'skill') { const L = opt('forge-skilllint.cjs'); if (!L) return null; const r = L.lintSkills(root); return { n: r.skills, counts: r.counts }; }
@@ -130,21 +143,27 @@ const CHECKS = {
   'latest-run-chain'(c, ctx) {
     const run = ctx.latest;
     if (!run) return NM('no run folder found');
-    const t = readText(path.join(run.dir, 'events.jsonl'));
-    if (t == null) return FAIL(run.id + ': no events.jsonl');
-    const lines = t.split(/\r?\n/).filter((l) => l.trim());
-    let bad = 0;
-    for (const l of lines) { try { const e = JSON.parse(l); if (!e.entry_hash || !e.prev_hash) bad++; } catch { bad++; } }
-    return lines.length ? PART((lines.length - bad) / lines.length, run.id + ': ' + (lines.length - bad) + '/' + lines.length + ' events parse and are chained') : FAIL(run.id + ': events.jsonl is empty');
+    // FB-VERIFY-2-F1: the writer's own verifier (genesis anchor, prev_hash links, recomputed entry_hash), not field presence
+    const LE = opt('../forge-dashboard/log-event.cjs');
+    if (!LE || typeof LE.readEventsClassified !== 'function') return NM('log-event.cjs not available: the chain cannot be verified');
+    const cls = LE.readEventsClassified(path.join(run.dir, 'events.jsonl'), { verifyChain: true, runId: run.id });
+    if (cls.status === 'missing') return FAIL(run.id + ': no events.jsonl');
+    if (cls.status === 'empty') return FAIL(run.id + ': events.jsonl is empty');
+    if (cls.status === 'corrupt') { const b = cls.badLines[0] || {}; return FAIL(run.id + ': chain corrupt at line ' + b.line + ' (' + (b.reason || 'unparseable') + ')'); }
+    const n = cls.entries.length + cls.badLines.length;
+    const ok = cls.entries.filter((e) => e && e.entry_hash && e.prev_hash).length;
+    return PART(ok / n, run.id + ': ' + ok + '/' + n + (cls.status === 'partial' ? ' events parse (last line cut off, so the chain was not verified)' : ' events parse and are chained'));
   },
   'latest-run-finalized'(c, ctx) {
-    const run = ctx.latest;
-    if (!run) return NM('no run folder found');
-    return readText(path.join(run.dir, 'run-finalized.json')) != null ? PASS(run.id + ' finalized') : FAIL(run.id + ' has no run-finalized.json');
+    if (!ctx.latest) return NM('no run folder found');
+    const run = ctx.runs.slice().reverse().find(isClosed);
+    const note = run === ctx.latest ? '' : ' (' + ctx.latest.id + ' still open)';
+    if (!run) return NM('no closed run yet' + note);
+    return readText(path.join(run.dir, 'run-finalized.json')) != null ? PASS(run.id + ' finalized' + note) : FAIL(run.id + ' has no run-finalized.json' + note);
   },
   lint(c, ctx) {
     let r;
-    try { r = lintCounts(c, ctx.root); } catch (e) { return NM(c.tool + ' lint threw: ' + e.message); }
+    try { r = lintCounts(c, ctx.root); } catch (e) { return FAIL(c.tool + ' lint threw: ' + e.message); }
     if (!r) return NM('forge-' + c.tool + 'lint.cjs not available');
     if (!r.n) return NM('no ' + c.tool + 's to lint');
     const p = penalty(c, r.counts);
@@ -207,6 +226,26 @@ const CHECKS = {
   },
 };
 
+// FB-VERIFY-2-F2: the fields each check type reads. A typo used to throw inside the check, become not_measured and drop
+// out of the score, so the check could never fail.
+const isStr = (v) => typeof v === 'string' && v.trim() !== '';
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const isList = (v) => Array.isArray(v) && v.length > 0 && v.every(isStr);
+const REQUIRED_FIELDS = {
+  'doctor-check': { check: isStr },
+  'file-present': { path: isStr },
+  'json-array-min': { path: isStr, array: isStr, min: isNum },
+  'json-ids-present': { path: isStr, array: isStr, key: isStr, ids: isList },
+  'settings-hook': { event: isStr, command_includes: isStr, matcher_includes: isList },
+  'config-value': { key: isStr },
+  'memory-file': { name: isStr, min_bytes: isNum },
+  lint: { tool: isStr, per_error: isNum, per_warn: isNum },
+  'settings-flag-absent': { flag: isStr },
+  'eval-baseline-present': { path: isStr },
+  'eval-baseline-nofail': { path: isStr },
+  'eval-baseline-ratio': { path: isStr, min: (v) => isNum(v) && v > 0 },
+  'config-scan': { per_error: isNum, per_warn: isNum },
+};
 function validateRubric(r) {
   const errs = [];
   if (!r || r.kind !== 'forge-harness-rubric' || !Number.isInteger(r.version) || !Array.isArray(r.categories) || !r.categories.length) return ['not a forge-harness-rubric (kind, integer version, categories[])'];
@@ -218,6 +257,9 @@ function validateRubric(r) {
       else ids.add(ch.id);
       if (!ch || !CHECKS[ch.type]) errs.push(cat.id + '/' + (ch && ch.id) + ': unknown check type ' + JSON.stringify(ch && ch.type));
       if (!ch || !(ch.points > 0)) errs.push(cat.id + '/' + (ch && ch.id) + ': points must be > 0');
+      const req = ch && REQUIRED_FIELDS[ch.type];
+      if (req) for (const [k, ok] of Object.entries(req)) if (!ok(ch[k])) errs.push(cat.id + '/' + ch.id + ': ' + ch.type + ' needs a valid "' + k + '"');
+      if (ch && ch.type === 'config-value' && !Object.prototype.hasOwnProperty.call(ch, 'equals')) errs.push(cat.id + '/' + ch.id + ': config-value needs "equals"');
     }
   }
   return errs;
@@ -240,7 +282,8 @@ function scoreHarness(rootIn, opts) {
     try { doctor = JSON.parse(raw.replace(/^﻿/, '')); } catch (e) { throw new Error('--doctor-json is not valid JSON: ' + e.message); }
     inputs.doctor_json = { file: relName(root, path.resolve(o.doctorJson)), sha256: sha(raw) };
   }
-  const ctx = { root, doctor, latest: latestRun(root) };
+  const runs = allRuns(root);
+  const ctx = { root, doctor, runs, latest: runs.length ? runs[runs.length - 1] : null };
   const categories = [];
   const candidates = [];
   let wSum = 0, wEarned = 0;
@@ -249,7 +292,7 @@ function scoreHarness(rootIn, opts) {
     let max = 0, earned = 0;
     for (const ch of cat.checks) {
       let res;
-      try { res = CHECKS[ch.type](ch, ctx); } catch (e) { res = NM('check threw: ' + e.message); }
+      try { res = CHECKS[ch.type](ch, ctx); } catch (e) { res = FAIL('check threw: ' + e.message); } // FB-VERIFY-2-F2: a throw is a fail
       const pts = res.ratio == null ? null : r2(ch.points * res.ratio);
       if (pts != null) { max += ch.points; earned += pts; }
       checks.push({ id: ch.id, status: res.status, points: ch.points, earned: pts, detail: res.detail });
@@ -309,7 +352,7 @@ function main(argv, io) {
     fs.writeFileSync(abs, text + '\n');
   } else w(text);
   const anyFail = rep.categories.some((c) => c.checks.some((ch) => ch.status === 'fail'));
-  return flags.has('--strict') && (rep.overall == null || rep.overall < min || anyFail) ? 1 : 0;
+  return flags.has('--strict') && (!Number.isFinite(rep.overall) || rep.overall < min || anyFail) ? 1 : 0;
 }
 
 module.exports = { scoreHarness, validateRubric, formatReport, main, CHECKS, RUBRIC_REL };

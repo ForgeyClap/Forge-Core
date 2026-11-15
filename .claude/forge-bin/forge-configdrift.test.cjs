@@ -123,6 +123,20 @@ t('a SKILL.md hash covers ONLY the frontmatter — a body edit is not a governan
   assert.notStrictEqual(afterFm.sha256, before.sha256, 'a frontmatter edit did NOT change the hash');
 });
 
+t('ensureBaseline (FB-INSTALL-2-F7): writes the baseline once; a resume never resets it', () => {
+  const fx = buildProject('cd-ensure');
+  assert.strictEqual(typeof cd.ensureBaseline, 'function', 'ensureBaseline is not exported');
+  const first = cd.ensureBaseline(fx.root, fx.runId);
+  assert.strictEqual(first.written, true);
+  assert.ok(cd.readBaseline(fx.root, fx.runId), 'no baseline after the first call');
+  const before = fs.readFileSync(first.path, 'utf8');
+  fs.writeFileSync(path.join(fx.root, '.claude', 'config', 'agents', 'agent-tool-policy.json'), JSON.stringify({ changed: true }) + '\n');
+  const second = cd.ensureBaseline(fx.root, fx.runId);
+  assert.strictEqual(second.written, false, 'a second call (a resume) rewrote the run-start baseline');
+  assert.strictEqual(fs.readFileSync(first.path, 'utf8'), before);
+  assert.ok(findingKinds(cd.checkDrift(fx.root, fx.runId)).includes('unannounced_change'), 'the mid-run change is still caught');
+});
+
 // --- direction 1: a change nobody announced ------------------------------------------------------------
 t('direction 1 — an UNANNOUNCED governance change is a finding', () => {
   const fx = buildProject('cd-unannounced');

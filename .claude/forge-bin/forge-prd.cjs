@@ -48,7 +48,7 @@
  * may contain `[NEEDS CLARIFICATION: <question>]`. The Lead resolves one by rewriting it in place as
  * `[CLARIFIED: <answer>]`, which openClarifications() no longer reports. `openClarifications(prd)` is pure,
  * never throws, and returns every OPEN marker in document order — each returned question is ALSO redacted
- * by openClarifications() itself, independent of whether the source meta.json was ever written via
+ * by openClarifications() itself (W1-03), independent of whether the source meta.json was ever written via
  * writePrd(). The CLI `clarifications <prd_id>` command reads the stored meta.json and exits 3/0/1 so a
  * beginner or the Head Chef can gate on it without parsing anything; `write`/`render` additionally print
  * `open clarifications: N` when N >= 1.
@@ -75,9 +75,17 @@
  *        ticket or PRD, empty --gap, invalid --found-by/--run id, a credential-shaped ticket/found-by/run
  *        id, no --test, a --test path that escapes the project root (also through a link) / does not
  *        exist / is not a file, or the PRD locked by another amend). Exit 0 on success.
+ *   render and write take the PRD as one JSON argument, or `--file <path>`, or `-` (stdin) — SK-6-F9.
  *   Bad or missing JSON exits 1 with a clear message. Guarded end-to-end; never throws uncaught.
  *
- * Module API: require('./forge-prd.cjs') -> { renderPrd, writePrd, criteriaToTickets, openClarifications, amendTicket }
+ * DOMAIN BASELINE (CF-4-F4). A top-level `domain` (a forge-router slug: website, fullstack, n8n,
+ * scraping, rag, prediction, integration) pulls that domain's requirements from
+ * config/orchestration/domain-presets.json into `domain_baseline` [{id, text}] on write and render (unless the
+ * Lead set domain_baseline itself). It renders as a "Domain Baseline (<domain>)" section after the other
+ * sections. Advisory: it never becomes tickets or acceptance criteria; copy a requirement into
+ * acceptance_criteria to make it gate.
+ *
+ * Module API: require('./forge-prd.cjs') -> { renderPrd, writePrd, criteriaToTickets, openClarifications, amendTicket, domainBaseline }
  *
  * SECRET HYGIENE: every string in the PRD is redacted (forge-store's redactValue) before it is
  * rendered to markdown or written to disk — a raw secret is never rendered, stored, or printed.
@@ -256,6 +264,12 @@ function renderPrd(prd) {
     lines.push('');
     lines.push(renderSectionBody(key, sections[key]));
   }
+  if (Array.isArray(p.domain_baseline) && p.domain_baseline.length) {
+    lines.push('');
+    lines.push('## Domain Baseline (' + (p.domain || 'domain') + ')');
+    lines.push('');
+    lines.push(p.domain_baseline.map((r, i) => renderCriterion(r, i, 'base-')).join('\n'));
+  }
   if (Array.isArray(p.spec_gaps) && p.spec_gaps.length) {
     lines.push('');
     lines.push('## Spec gaps found in review');
@@ -269,7 +283,7 @@ function renderPrd(prd) {
 // A resolved marker is rewritten by the Lead as [CLARIFIED: ...] in place, which the literal
 // "[NEEDS CLARIFICATION:" prefix below simply does not match — no separate "resolved" bookkeeping needed.
 const CLARIFICATION_PREFIX = '[NEEDS CLARIFICATION:';
-// placeholder recognition is limited to EXACTLY these documented forms (compared after trimming) —
+// W1-01: placeholder recognition is limited to EXACTLY these documented forms (compared after trimming) —
 // documentation of the marker SYNTAX itself, found by dogfooding on the PRD. Anything else in angle
 // brackets, such as "<EU or US?>", is a REAL question, not a placeholder — a broad "any <...>" rule used to
 // swallow it.
@@ -340,11 +354,11 @@ function findMarkers(str) {
  *  failure_conditions, invariants) or any object item with an explicit `.id`. `id` is the item's explicit
  *  id, or the same default (`<prefix>-<n>`) the renderer assigns for an id-bearing section, or null when
  *  the marker sits in prose/a plain string entry.
- *  an item section is scanned in EVERY shape renderSectionBody accepts for it — an array of items,
+ *  W1-01: an item section is scanned in EVERY shape renderSectionBody accepts for it — an array of items,
  *  OR a single item (string or object) not wrapped in an array at all — using the same
  *  `Array.isArray(value) ? value : (value ? [value] : [])` unwrap the renderer already applies, so a lone
  *  criterion/failure-condition/invariant object can no longer disappear just because it wasn't an array.
- *  every returned `question` is redacted here, at the source, via the same redactValue() this file
+ *  W1-03: every returned `question` is redacted here, at the source, via the same redactValue() this file
  *  already imports — this does NOT depend on the prd/meta object having passed through writePrd() first,
  *  so a hand-written or directly-read meta fixture still comes out redacted.
  *  Pure and guarded — a malformed prd returns []. */
@@ -368,7 +382,7 @@ function openClarifications(prd) {
       const value = sections[key];
       const isItemSection = Object.prototype.hasOwnProperty.call(ITEM_SECTIONS, key);
       if (isItemSection) {
-        // same singleton unwrap as renderSectionBody, so a lone (non-array) item is still scanned.
+        // W1-01: same singleton unwrap as renderSectionBody, so a lone (non-array) item is still scanned.
         const arr = Array.isArray(value) ? value : (value ? [value] : []);
         arr.forEach((item, i) => {
           if (typeof item === 'string') pushQuestions(key, null, item);
@@ -389,6 +403,29 @@ function openClarifications(prd) {
   }
 }
 
+// ---- domain baseline (CF-4-F4) ----
+const PRESETS_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'domain-presets.json');
+/** domainBaseline(domain, opts) -> [{id, text}] — the domain's requirements from domain-presets.json (keys are the
+ *  forge-router domain slugs, matched case-insensitively). [] for no domain, an unknown domain or an unreadable file;
+ *  never throws. opts.presetsPath is the test seam. */
+function domainBaseline(domain, opts) {
+  const key = typeof domain === 'string' ? domain.trim().toLowerCase() : '';
+  if (!key) return [];
+  try {
+    const data = JSON.parse(fs.readFileSync((opts && opts.presetsPath) || PRESETS_PATH, 'utf8'));
+    const entry = data && data.domains && data.domains[key];
+    const reqs = entry && Array.isArray(entry.requirements) ? entry.requirements : [];
+    return reqs.filter((r) => r && typeof r.id === 'string' && typeof r.text === 'string').map((r) => ({ id: r.id, text: r.text }));
+  } catch { return []; }
+}
+/** withDomainBaseline(prd) -> prd with `domain_baseline` filled from prd.domain when the Lead did not set it. The
+ *  baseline is advisory: it renders as its own section and never becomes tickets or acceptance criteria. */
+function withDomainBaseline(prd, opts) {
+  if (!prd || typeof prd !== 'object' || Array.isArray(prd.domain_baseline)) return prd;
+  const base = domainBaseline(prd.domain, opts);
+  return base.length ? Object.assign({}, prd, { domain_baseline: base }) : prd;
+}
+
 // ---- store writes (forge-prd/<id>.md + <id>.meta.json + index.jsonl) ----
 function resolvePrdFile(id, ext) {
   if (!isValidId(id)) throw new Error('writePrd: invalid prd_id (allowed: A-Z a-z 0-9 _ -): ' + id);
@@ -405,7 +442,7 @@ function writePrd(prd) {
   const { dir, file: mdPath } = resolvePrdFile(id, '.md');
   const { file: metaPath } = resolvePrdFile(id, '.meta.json');
   fs.mkdirSync(dir, { recursive: true });
-  const redacted = redactValue(prd);
+  const redacted = redactValue(withDomainBaseline(prd));
   const md = renderPrd(redacted);
   const generated = new Date().toISOString();
   const meta = Object.assign({}, redacted, { _generated: generated });
@@ -415,24 +452,58 @@ function writePrd(prd) {
   return { prd_id: id, mdPath, metaPath };
 }
 
-// ---- acceptance criteria -> tickets (forge-tickets/tk-<prd_id>-<n>) ----
-/** criteriaToTickets(prd, opts) -> array of created ticket ids. Never crashes on a bad ticket id — skips + warns. */
+// ---- acceptance criteria -> tickets (forge-tickets/tk-<prd_id>-<criterion id>) ----
+/** ticketIdFor(prdId, criterionId) -> the ticket id of one acceptance criterion (FB-QUALITY-F8). A criterion's own
+ *  id gives tk-<prd>-<id>, so a reorder keeps every ticket on its criterion; an `ac-<n>` id (also the default id of
+ *  a plain-string criterion) keeps the positional tk-<prd>-<n> every ticket had before, and so does an id a ticket id
+ *  cannot hold (n = the 1-based position, when given). The ONE join: forge-verify.cjs and forge-coldverify.cjs call
+ *  this, never their own copy. */
+function ticketIdFor(prdId, criterionId, n) {
+  const m = /^ac-(\d+)$/.exec(String(criterionId));
+  const id = 'tk-' + prdId + '-' + (m ? m[1] : String(criterionId));
+  return !isValidId(id) && Number.isInteger(n) ? 'tk-' + prdId + '-' + n : id;
+}
+/** namesCriterion(ticket, criterionId, prdId) -> true when a ticket's generated description names this criterion
+ *  (every ticket criteriaToTickets made carries 'Acceptance criterion <id> for PRD <prd>'). */
+function namesCriterion(ticket, criterionId, prdId) {
+  return !!ticket && ticket.description === 'Acceptance criterion ' + criterionId + ' for PRD ' + prdId;
+}
+/** criteriaToTickets(prd, opts) -> array of created ticket ids, with `.kept` (tickets that already existed and were
+ *  left exactly as they are: FB-QUALITY-F8, a re-run never reopens done work or drops spec_gaps) and `.failed` (ids
+ *  that could not be written, or a second criterion that maps to an id already used in this PRD). Never crashes on
+ *  a bad ticket id — skips + warns + counts it as failed. A legacy positional ticket (tk-<prd>-<n>, made before
+ *  criterion ids) whose description names this criterion is kept instead of minting a second ticket.
+ *  shortcut: a plain-string criterion has no id, so it stays positional and a reorder still moves it; give it an id. */
 function criteriaToTickets(prd, opts) {
   opts = opts || {};
-  if (!prd || typeof prd !== 'object') return [];
+  const created = [];
+  created.kept = [];
+  created.failed = [];
+  if (!prd || typeof prd !== 'object') return created;
   const redacted = redactValue(prd);
   const prdId = redacted.prd_id;
   const raw = (redacted.sections && redacted.sections.acceptance_criteria) || [];
   const criteria = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-  const created = [];
+  const seen = new Set();
+  const isTicketFile = (id) => { try { return fs.statSync(path.join(resolveStoreDir('tickets'), id + '.json')).isFile(); } catch { return false; } };
   criteria.forEach((c, i) => {
     const n = i + 1;
-    const ticketId = 'tk-' + prdId + '-' + n;
-    if (!isValidId(ticketId)) { console.error('forge-prd: skipping invalid ticket id "' + ticketId + '"'); return; }
+    // same id rule as forge-verify.cjs::acceptanceCriteria (a trimmed string id, else ac-<n>)
+    const criterionId = (c && typeof c === 'object' && typeof c.id === 'string' && c.id.trim()) || ('ac-' + n);
+    const ticketId = ticketIdFor(prdId, criterionId, n);
+    if (!isValidId(ticketId)) { console.error('forge-prd: skipping invalid ticket id "' + ticketId + '"'); created.failed.push(ticketId); return; }
+    if (seen.has(ticketId)) { console.error('forge-prd: criterion ' + criterionId + ' maps to ticket ' + ticketId + ', which another criterion of this PRD already uses — give the criteria distinct ids'); created.failed.push(ticketId); return; }
+    seen.add(ticketId);
+    if (isTicketFile(ticketId)) { created.kept.push(ticketId); return; }
+    const legacyId = 'tk-' + prdId + '-' + n;
+    if (legacyId !== ticketId && !seen.has(legacyId) && isTicketFile(legacyId)) {
+      let legacy = null;
+      try { legacy = JSON.parse(fs.readFileSync(path.join(resolveStoreDir('tickets'), legacyId + '.json'), 'utf8')); } catch { legacy = null; }
+      if (namesCriterion(legacy, criterionId, prdId)) { seen.add(legacyId); created.kept.push(legacyId); return; }
+    }
     const text = typeof c === 'string' ? c : ((c && c.text) || ('acceptance criterion ' + n));
     const owner = (c && typeof c === 'object' && c.owner) || null;
     const requiredTests = (c && typeof c === 'object' && Array.isArray(c.required_tests)) ? c.required_tests : [];
-    const criterionId = (c && typeof c === 'object' && c.id) || ('ac-' + n);
     const value = {
       ticket_id: ticketId, prd_id: prdId, run_id: opts.run_id || opts.run || null,
       title: text, description: 'Acceptance criterion ' + criterionId + ' for PRD ' + prdId,
@@ -440,7 +511,7 @@ function criteriaToTickets(prd, opts) {
       created: new Date().toISOString(),
     };
     try { putEntity('tickets', ticketId, value); created.push(ticketId); }
-    catch (e) { console.error('forge-prd: failed to create ticket ' + ticketId + ': ' + e.message); }
+    catch (e) { console.error('forge-prd: failed to create ticket ' + ticketId + ': ' + e.message); created.failed.push(ticketId); }
   });
   return created;
 }
@@ -617,7 +688,7 @@ function writeFileAtomic(file, content) {
  *   - historyPath — default .claude/FORGE_TASK_HISTORY.md (path.join(CLAUDE_DIR, ...), already hermetic
  *     via FORGE_STORE_ROOT like every other path in this file).
  *   - writeFile(file, content) -> void — defaults to writeFileAtomic() above; a test seam only, to inject
- *     a failure on one specific file and prove the OTHER file is left untouched.
+ *     a failure on one specific file and prove the OTHER file is left untouched (W2-07).
  *
  * one PRD-scoped exclusive lock (forge-lock-guard.cjs, hotspot
  * "forge-prd-amend:<prd_id>") is held across the authoritative read, id allocation, the event log, and
@@ -687,7 +758,7 @@ function amendTicket(opts) {
     resolvedTests.push(r.rel);
   }
 
-  // Lightweight, UNLOCKED peek — only to learn prd_id so the right PRD-scoped lock can be taken.
+  // Lightweight, UNLOCKED peek — only to learn prd_id so the right PRD-scoped lock can be taken (W2-08).
   // The authoritative read happens again just below, once the lock is held.
   let ticketPeek;
   try { ticketPeek = JSON.parse(fs.readFileSync(ticketFile, 'utf8')); }
@@ -728,7 +799,7 @@ function amendTicket(opts) {
     catch (e) { throw new Error('forge-prd amend: PRD meta ' + prdId + ' ' + jsonFailure(e)); }
     const mdFile = path.join(prdDir, prdId + '.md');
 
-    // ---- sanitise every free-text field the SAME way, once ----
+    // ---- sanitise every free-text field the SAME way, once (W2-04/W2-05) ----
     // Redact THEN cap (same discipline as capQuestion()/W1-N04 above) — a secret must never survive a cut
     // at the 500-char boundary as an unredacted fragment.
     const gapText = capGapText(sanitizeGapField(rawGap));
@@ -821,33 +892,49 @@ function amendTicket(opts) {
   }
 }
 
-module.exports = { renderPrd, writePrd, criteriaToTickets, openClarifications, amendTicket };
+module.exports = { renderPrd, writePrd, criteriaToTickets, openClarifications, amendTicket, domainBaseline, ticketIdFor, namesCriterion };
 
 // ---- CLI ----
+/** prdInput(argv) -> { json, next } | { error, usage }. SK-6-F9: the PRD is argv[1] as JSON text, or
+ *  `--file <path>`, or `-` for stdin, so no shell has to pass a quoted JSON argument. `next` is the index of the
+ *  first option after the PRD. */
+function prdInput(argv) {
+  const a = argv[1];
+  if (!a || (a === '--file' && !argv[2])) return { usage: true };
+  try {
+    if (a === '--file') return { json: fs.readFileSync(argv[2], 'utf8'), next: 3 };
+    if (a === '-') return { json: fs.readFileSync(0, 'utf8'), next: 2 };
+  } catch (e) { return { error: 'forge-prd: the PRD input ' + jsonFailure(e) }; }
+  return { json: a, next: 2 };
+}
+const PRD_INPUT_USAGE = "'<prd-json>' | --file <path> | - (stdin)";
+
 if (require.main === module) {
   const main = () => {
     const argv = process.argv.slice(2);
     const cmd = argv[0];
 
     if (cmd === 'render') {
-      const json = argv[1];
-      if (!json) { console.error("Usage: node forge-prd.cjs render '<prd-json>'"); process.exitCode = 1; return; }
+      const input = prdInput(argv);
+      if (input.usage) { console.error('Usage: node forge-prd.cjs render ' + PRD_INPUT_USAGE); process.exitCode = 1; return; }
+      if (input.error) { console.error(input.error); process.exitCode = 1; return; }
       let prd;
-      try { prd = JSON.parse(json); } catch (e) { console.error('forge-prd: the PRD argument ' + jsonFailure(e)); process.exitCode = 1; return; }
-      console.log(renderPrd(prd));
+      try { prd = JSON.parse(input.json); } catch (e) { console.error('forge-prd: the PRD argument ' + jsonFailure(e)); process.exitCode = 1; return; }
+      console.log(renderPrd(withDomainBaseline(prd)));
       const open = openClarifications(prd);
       if (open.length) console.log('open clarifications: ' + open.length);
       return;
     }
 
     if (cmd === 'write') {
-      const json = argv[1];
-      if (!json) { console.error("Usage: node forge-prd.cjs write '<prd-json>' [--run <id>] [--tickets]"); process.exitCode = 1; return; }
+      const input = prdInput(argv);
+      if (input.usage) { console.error('Usage: node forge-prd.cjs write ' + PRD_INPUT_USAGE + ' [--run <id>] [--tickets]'); process.exitCode = 1; return; }
+      if (input.error) { console.error(input.error); process.exitCode = 1; return; }
       let prd;
-      try { prd = JSON.parse(json); } catch (e) { console.error('forge-prd: the PRD argument ' + jsonFailure(e)); process.exitCode = 1; return; }
+      try { prd = JSON.parse(input.json); } catch (e) { console.error('forge-prd: the PRD argument ' + jsonFailure(e)); process.exitCode = 1; return; }
 
       let run = null, wantTickets = false;
-      for (let i = 2; i < argv.length; i++) {
+      for (let i = input.next; i < argv.length; i++) {
         if (argv[i] === '--run') run = argv[++i];
         else if (argv[i] === '--tickets') wantTickets = true;
       }
@@ -857,9 +944,12 @@ if (require.main === module) {
       catch (e) { console.error('forge-prd: write failed: ' + e.message); process.exitCode = 1; return; }
 
       let ticketIds = [];
+      let ticketsFailed = 0;
       if (wantTickets) {
-        try { ticketIds = criteriaToTickets(prd, { run_id: run }); }
-        catch (e) { console.error('forge-prd: ticket creation failed: ' + e.message); }
+        // SK-6-F8: a ticket that was not created fails the command — the review gates rely on one ticket per criterion
+        try { ticketIds = criteriaToTickets(prd, { run_id: run }); ticketsFailed = ticketIds.failed.length; }
+        catch (e) { console.error('forge-prd: ticket creation failed: ' + e.message); ticketsFailed = -1; }
+        if (ticketsFailed) process.exitCode = 1;
       }
 
       if (run) {
@@ -874,7 +964,9 @@ if (require.main === module) {
       console.log('PRD written: ' + result.prd_id);
       console.log('  md:   ' + result.mdPath);
       console.log('  meta: ' + result.metaPath);
-      console.log('  tickets created: ' + ticketIds.length + (ticketIds.length ? ' (' + ticketIds.join(', ') + ')' : ''));
+      console.log('  tickets created: ' + ticketIds.length + (ticketIds.length ? ' (' + ticketIds.join(', ') + ')' : '')
+        + (ticketIds.kept && ticketIds.kept.length ? ', kept: ' + ticketIds.kept.length + ' (already existed, left unchanged)' : '')
+        + (ticketsFailed > 0 ? ', FAILED: ' + ticketsFailed : (ticketsFailed < 0 ? ', FAILED: ticket creation threw' : '')));
       const open = openClarifications(prd);
       if (open.length) console.log('open clarifications: ' + open.length);
       return;
@@ -919,7 +1011,7 @@ if (require.main === module) {
       return;
     }
 
-    console.error('Usage: node forge-prd.cjs <render|write|clarifications|amend> \'<prd-json>\'|<prd_id>|<ticket_id> [--run <id>] [--tickets] [--gap <text> --found-by <id> --test <path> [--no-history]]');
+    console.error('Usage: node forge-prd.cjs <render|write|clarifications|amend> \'<prd-json>\'|--file <path>|-|<prd_id>|<ticket_id> [--run <id>] [--tickets] [--gap <text> --found-by <id> --test <path> [--no-history]]');
     process.exitCode = 1;
   };
   try { main(); } catch (e) { console.error('forge-prd: ' + e.message); process.exitCode = 1; }

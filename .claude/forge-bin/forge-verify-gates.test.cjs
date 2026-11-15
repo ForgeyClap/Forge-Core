@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** forge-verify-gates.test.cjs — THE GATE-ISOLATION MATRIX for forge-verify.cjs's exit code.
  *
  *  WHY THIS SUITE EXISTS (the fourth false-green found in one night, so a per-case fix is provably not
@@ -224,6 +228,16 @@ const SCENARIOS = {
   dead_worker_heartbeats: () => writeRun('gate-dead-worker-only', [
     { event_type: 'agent_started', agent: 'Dead Boss' },
     { event_type: 'agent_progress', agent: 'Dead Boss', note: 'still working…' },
+  ]),
+
+  // FB-VERIFY-1-F7 — a check that failed and was never re-run green, from an agent that never
+  // logged a completion (so mismatches stays 0) and left no open heartbeat (so dead_worker stays 0).
+  unresolved_failed_tasks: () => writeRun('gate-unresolved-failed-only', [
+    { event_type: 'run_started', agent: 'orchestrator' },
+    { event_type: 'agent_started', agent: 'Test Boss' },
+    { event_type: 'check_started', agent: 'Test Boss', task: 'suite' },
+    { event_type: 'check_failed', agent: 'Test Boss', task: 'suite', note: '3 failed' },
+    { event_type: 'run_completed', agent: 'orchestrator' },
   ]),
 
   // a work package that declared its files with scope_lock, and one in-project

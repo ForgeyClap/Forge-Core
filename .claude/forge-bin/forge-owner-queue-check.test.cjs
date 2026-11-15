@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // Tests for forge-owner-queue-check.cjs. The red case is the owner queue of the skills-audit report as it
 // stood at commit 87bc0c2: three items handed the owner a choice and the owner had to say "maak de beste keuzes" again.
 const assert = require('assert');
@@ -198,6 +202,30 @@ t('wired (review M3): forge-endreview check re-judges the report as it is now, s
     const c = E.checkRecorded({ root, runId: 'r1' });
     assert.strictEqual(c.ok, false); assert.ok(c.problems.some((p) => /item 2 .*open choice/.test(p)), JSON.stringify(c.problems));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// FB-FINALIZE-2-F1: the four real queue headings the regex missed (from real final-report.md files)
+t('FB-FINALIZE-2-F1: real queue headings are recognised and their pure-choice items judged', () => {
+  for (const h of ['## Eigenaar-keuze (logo)', '## 6. Eigenaarswachtrij', '## Openstaand voor jou', '## Not done here (owner-gated)']) {
+    const r = Q.checkText('# R\n\n' + h + '\n1. Kies de logokleur.\n\n## Self-review\nok\n');
+    assert.strictEqual(r.section, true, h + ' was not read as a queue: ' + JSON.stringify(r));
+    assert.ok(r.findings.length >= 1, h + ': the choice item passed: ' + JSON.stringify(r));
+  }
+});
+t('FB-FINALIZE-2-F1: an ordinary heading that mentions the owner is still not a queue', () => {
+  assert.strictEqual(Q.checkText('# R\n\n## What the owner asked\n1. Kies de logokleur.\n').section, false);
+});
+
+t('FB-FINALIZE-2-F2: a "#" line inside a code fence is not a heading; the fence folds into its item', () => {
+  const md = '## Owner queue\n1. Push the branch:\n```\n# shell comment\ngit push origin main\n```\n2. Kies de logokleur zelf of laat het ons weten, wat je wilt.\n';
+  const r = Q.checkText(md);
+  assert.strictEqual(r.items, 2, JSON.stringify(r));
+  assert.ok(!r.findings.some((f) => /```/.test(f.text || '') || /```/.test(f.reason || '')), JSON.stringify(r.findings));
+  assert.ok(r.findings.some((f) => f.item === 2 && /no hard gate/.test(f.reason)), JSON.stringify(r.findings)); // item 2 is judged at last
+  // an INDENTED fence (inside a list item) is a fence too, also when its code starts at column 0
+  const ind = Q.checkText('## Owner queue\n1. Push the branch:\n   ```\n# shell comment\ngit push origin main\n   ```\n2. Kies de logokleur zelf of laat het ons weten, wat je wilt.\n');
+  assert.strictEqual(ind.items, 2, JSON.stringify(ind));
+  assert.ok(ind.findings.some((f) => f.item === 2 && /no hard gate/.test(f.reason)), JSON.stringify(ind.findings));
 });
 
 console.log('\nforge-owner-queue-check tests:');

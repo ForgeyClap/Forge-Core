@@ -49,7 +49,7 @@ components:
 - Ids are opaque strings in the contract, even if the database uses integers.
 
 ## 4. Versioning and change control
-- `info.version` follows the API version; the server URL or path carries the major version.
+- `info.version` follows the API version; the server URL or path carries the major version (`/v1`).
 - Additive change (new optional field, new endpoint, new enum value only when clients were told to tolerate unknowns): same major version.
 - Breaking change (removed/renamed field, new required input, narrowed type, changed status code): new major version, `deprecated: true` on the old operation, `Deprecation` / `Sunset` headers, and a dated notice.
 - Run a breaking-change diff between the base branch spec and the PR spec in review (any OpenAPI diff tool the project already has; adding one is an opt-in dependency, see `references/team-and-tools.md`).

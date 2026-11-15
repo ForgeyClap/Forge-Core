@@ -1,4 +1,35 @@
-# Forge hooks — mostly opt-in, 8 real hook entries LIVE (3 snapshot entries in section 4, 2 tool-ledger entries in section 5, the gate hook in section 6, the scribe capture hook and the shared Stop entry in section 7)
+# Forge hooks: what `.claude/settings.json` runs and what Forge ships opt-in
+
+## Live hook inventory (checked against `.claude/settings.json` on 2026-11-13)
+
+`.claude/settings.json` registers **16 hook entries** on **11 events**, running **17 commands** from **14 scripts**
+(the two Stop scripts share one matcher-less entry; forge-toolhook and forge-agent-tool-hook each have two entries).
+This table is the count of record; the dated status blocks below keep their old counts as history.
+Every hook below is fail-open on its own errors. Three can block on purpose: the gate hook (a command), and the two
+Stop scripts (a stop, with a reason Claude reads).
+"Remove" means deleting that entry from `.claude/settings.json` (an owner-gated settings write); the env
+switches work without editing anything. More detail per hook: `.claude/docs/HOOKS_OPT_IN.md` and the sections below.
+
+| Event | Matcher | Script | Purpose | Off switch |
+|---|---|---|---|---|
+| PreCompact | `manual`, `auto` (2 entries) | forge-snapshot-marker.cjs | writes the context-continuity snapshot before a compaction (section 4) | remove the entries |
+| SessionStart | `compact` | forge-snapshot-reinject.cjs | re-injects a short snapshot summary after a compaction (section 4) | remove the entry |
+| SessionStart | `startup\|resume\|clear` | forge-resume-brief.cjs | prints a short brief (newest open run and its unfinished work packages, open scribe items) into a new, resumed or cleared session | env `FORGE_RESUME_BRIEF=off` |
+| PreToolUse | `Bash\|PowerShell` | forge-gate-hook.cjs | blocks the command-kind hard gates (section 6) | the owner's `gate-hook` setting (section 6, "Switching the gate off") |
+| PreToolUse | `Agent` | forge-agent-tool-hook.cjs | records the harness's tool_use_id and subagent_type of every Agent-tool dispatch in `<runs>/_hooks/agent-tool.jsonl` (never the prompt or the response text) | env `FORGE_AGENT_TOOL_HOOK=off` |
+| PostToolUse | `Agent` | forge-agent-tool-hook.cjs | records the dispatched agent's id from the tool response, so the dispatch joins to SubagentStart/Stop | env `FORGE_AGENT_TOOL_HOOK=off` |
+| PostToolUse | `Write\|Edit\|MultiEdit\|NotebookEdit\|Bash` | forge-toolhook.cjs | tool-behaviour ledger (section 5) | owner setting `tool-log` off |
+| PostToolUse | `PowerShell` | forge-toolhook.cjs | the same ledger for Windows shell calls | owner setting `tool-log` off |
+| PostToolUseFailure | (none) | forge-tool-failure.cjs | writes failed tool calls into the same ledger with `ok:false` | env `FORGE_TOOL_FAILURE_HOOK=off`, or `tool-log` off |
+| Stop | (none) | forge-stop-obligations.cjs | stop obligations of an active run (a reminder, or a block on a red contract, open subagents or a missing required run) | env `FORGE_STOP_OBLIGATIONS=off` |
+| Stop | (none, same entry) | forge-scribe-stop.cjs | blocks a stop once per unplanned owner request of this session (section 7) | env `FORGE_SCRIBE_STOP=off` |
+| UserPromptSubmit | (none) | forge-scribe-hook.cjs | captures every owner prompt word for word into `.claude/forge-scribe/` (section 7) | env `FORGE_SCRIBE_HOOK=off` |
+| SubagentStart | (none) | forge-subagent-start.cjs | records that a subagent started (`<runs>/_hooks/subagent-start.jsonl`) and injects context into EVERY subagent: its default and run skills and, for an agent without an agent file, the forge-conduct text | env `FORGE_SUBAGENT_START_HOOK=off` |
+| SubagentStop | (none) | forge-subagent-stop.cjs | records that a subagent finished and which skills its transcript shows it opened | env `FORGE_SUBAGENT_STOP_HOOK=off` |
+| SessionEnd | (none, async) | forge-session-end.cjs | dry-run memory consolidation check at session end (never applies it) | env `FORGE_SESSION_END_HOOK=off` |
+| StopFailure | `rate_limit\|overloaded` | forge-rotator-hook.cjs | writes the one rotator resume marker; does nothing unless `rotator-auto-resume` is on (default off) | env `FORGE_ROTATOR_HOOK=off` |
+
+## History
 
 **Status (updated 2026-10-10, part ii):** two **scribe** hooks
 joined (section 7): a `UserPromptSubmit` hook that captures every owner prompt word for word into
@@ -96,7 +127,7 @@ Mechanizes the "one writer per hotspot at a time" HARD MUST. **Primary use is th
       "hooks": [{
         "type": "command",
         // reads the tool_input file path on stdin; checks (does not itself hold) a lock.
-        // Non-blocking here (exit 0 always) — flip to `exit 3` inside the node to actually BLOCK a second writer.
+        // Non-blocking here (exit 0 always) — flip to `exit 2` (reason on stderr) inside the node to actually BLOCK a second writer; Claude Code blocks a PreToolUse call only on exit 2.
         "command": "node -e \"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const i=JSON.parse(d);const f=(i.tool_input&&i.tool_input.file_path)||'';const g=require('./.claude/forge-bin/forge-lock-guard.cjs');const r=g.check({hotspot:f});if(r.held)console.error('[forge-lock] '+f+' held by run='+r.lock.run_id);}catch(e){}process.exit(0)})\""
       }]
     }]

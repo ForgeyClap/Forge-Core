@@ -10,6 +10,7 @@ description: "Playbook for browser and Godot games: game loop, win/lose states (
 ## When to use
 - Use for: browser and Godot games: a playable loop, no stuck states, viewport and input coverage, playtest evidence.
 - Not for: HUD/menus/responsive layout on their own (`forge-website` / `ui-boss`).
+- Roblox: these hard rules still hold, and the Roblox pack adds the team and skills: the `rbx-*` specialists and the `roblox-*` skills in `.claude/config/packs/roblox.json`. Every Roblox lane opens the presets `roblox-all` and `process` first; the Lead checks it with `node .claude/forge-bin/forge-lane-skills.cjs --workflow <dir> --require roblox-all,process`. Is the pack complete in this project? `node .claude/forge-bin/forge-roblox-pack.cjs` (doctor check `roblox_pack`).
 - Domain framing, team roles and honesty rule: `references/overview.md`.
 
 ## Hard rules (non-negotiable)
@@ -42,6 +43,7 @@ L2 for a single-mechanic browser game; L3 for a multi-level / multi-system game 
 - If a zero-dependency constraint was set, no external/CDN deps; self-contained (and CSP-safe if delivered as an artifact).
 - Save/load / high-scores (if promised) persist and restore across reloads.
 - Real playtest evidence attached (screenshots/recording of win + lose + restart) — not asserted.
+- Android target: run `node .claude/forge-bin/forge-device-env.cjs` before any "no device" claim, then play the APK on the emulator it names. A built APK is not a played APK.
 
 ## Ship-readiness (unique)
 Evidence checklist before handoff: `references/ship-readiness.md`.

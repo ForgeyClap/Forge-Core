@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-trace.test.cjs — hermetic, offline tests for forge-trace.cjs. EVERY fixture run lives under
  * os.tmpdir() (fs.mkdtempSync), pointed at via opts.root/FORGE_PROJECT_ROOT — this file never writes to
@@ -432,6 +436,26 @@ let projRoot;
   // main() block — no usage text on stderr, no unexpected side effect merely from being require()'d.
   const requireOnly = spawnSync(process.execPath, ['-e', 'require(' + JSON.stringify(cliPath) + '); console.log("LOADED_OK");'], { encoding: 'utf8' });
   t('H10: requiring forge-trace.cjs as a plain module never triggers CLI usage output or a stray exit code', requireOnly.status === 0 && requireOnly.stdout.includes('LOADED_OK') && !/Usage: node forge-trace\.cjs/.test(requireOnly.stderr));
+}
+
+// ---- Section V (FB-BRAIN-F1): wp_verified PASS and wp_completed count as the verified stage ----
+{
+  const base = [
+    { event_type: 'agent_note', note: 'forge-intake: 3 vragen' },
+    { event_type: 'prd_generated', prd_id: 'prd-v' },
+    { event_type: 'ticket_created', ticket_id: 'tk-v-1', prd_id: 'prd-v' },
+    { event_type: 'artifact_stored', artifact_id: 'art-v', ticket_id: 'tk-v-1' },
+  ];
+  const pass = TR.projectTrace(base.concat([{ event_type: 'wp_verified', ticket_id: 'tk-v-1', verdict: 'PASS' }]));
+  t('V1: a wp_verified PASS meets the verified stage', pass.requirements[0].stages.verified.met === true && pass.requirements[0].gap_at === null);
+  const failV = TR.projectTrace(base.concat([{ event_type: 'wp_verified', ticket_id: 'tk-v-1', verdict: 'FAIL' }]));
+  t('V2: a wp_verified FAIL does not', failV.requirements[0].stages.verified.met === false && failV.requirements[0].gap_at === 'verified');
+  const done = TR.projectTrace(base.concat([{ event_type: 'wp_completed', ticket_id: 'tk-v-1' }]));
+  t('V3: wp_completed counts, as in log-event.cjs PASS_ASSERTION_EVENTS', done.requirements[0].stages.verified.met === true);
+  const le = fs.readFileSync(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'), 'utf8');
+  const m = /const PASS_ASSERTION_EVENTS = new Set\(\[([^\]]*)\]\)/.exec(le);
+  const theirs = m ? m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean) : null;
+  t('V4: drift guard: every log-event.cjs PASS_ASSERTION_EVENTS type is a verified type here', !!theirs && theirs.every((x) => TR.VERIFIED_EVENT_TYPES.has(x)));
 }
 
 // ---- Section I: EVERY temp dir this test file created is under os.tmpdir() ----

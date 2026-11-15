@@ -32,9 +32,9 @@
  *                                moved old memory there — and agent-memory/<agent>/lessons-archive-*.md)
  *   memoryArchiveFiles(dir)   -> sorted FORGE_*_ARCHIVE_*.md regular files directly in <dir> (no recursion)
  *   lessonsArchiveFiles(cdir) -> sorted agent-memory/<agent>/lessons-archive-*.md regular files (one level deep)
- *   scan(files?)              -> { scanned, hits, clean }          (files omitted -> defaultTargets())
+ *   scan(files?)              -> { scanned, hits, unreadable, clean } (files omitted -> defaultTargets(); an unreadable file is never clean)
  *
- * CLI (exit: 0 = clean · 3 = finding(s) — advisory, never a hard block · 2 = usage):
+ * CLI (exit: 0 = clean · 3 = finding(s) — advisory, never a hard block · 2 = usage, an unreadable file or no patterns):
  *   node forge-secret-scrub.cjs [file ...] [--json]     (no files -> scan runtime artifacts by default)
  */
 const fs = require('fs');
@@ -133,9 +133,12 @@ function targetsIn(runsDirs, memDirs, cdir) {
 
 function scan(files) {
   const list = (Array.isArray(files) && files.length) ? files : defaultTargets();
-  let hits = [];
-  for (const f of list) hits = hits.concat(scanFile(f));
-  return { scanned: list.length, hits, clean: hits.length === 0 };
+  let hits = []; const unreadable = [];
+  for (const f of list) {
+    let raw; try { raw = fs.readFileSync(f, 'utf8'); } catch { unreadable.push(f); continue; } // never counted as clean
+    hits = hits.concat(scanText(raw, f));
+  }
+  return { scanned: list.length - unreadable.length, hits, unreadable, clean: hits.length === 0 && unreadable.length === 0 && PATTERNS.length > 0 };
 }
 
 module.exports = { scanText, scanFile, scan, defaultTargets, projectTargets, memoryArchiveFiles, lessonsArchiveFiles, MEMORY_ARCHIVE_RE, LESSONS_ARCHIVE_RE, PATTERN_COUNT: PATTERNS.length };
@@ -155,7 +158,9 @@ if (require.main === module) {
     // location only — never the secret
     r.hits.slice(0, 50).forEach((h) => console.log('  ⚠ ' + h.pattern + ' in ' + h.file + ':' + h.line));
     if (r.hits.length > 50) console.log('  … ' + (r.hits.length - 50) + ' more');
+    r.unreadable.forEach((f) => console.log('  ✗ could not read ' + f + ' (not scanned)'));
+    if (!PATTERNS.length) console.log('  ✗ no secret patterns loaded: nothing could be judged');
     if (!r.clean) console.log('  (advisory only — nothing was blocked or modified; rotate any real exposed secret)');
   }
-  process.exit(r.clean ? 0 : 3);
+  process.exit(r.unreadable.length || !PATTERNS.length ? 2 : r.clean ? 0 : 3);
 }

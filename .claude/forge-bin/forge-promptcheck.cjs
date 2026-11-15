@@ -91,9 +91,26 @@ function hasKeyword(text, phrase) {
 
 // a slash-delimited path segment ("src/components/Hero.tsx", ".claude/forge-bin/x.cjs") or a bare
 // filename carrying a recognizable extension ("Hero.tsx") — either counts as concrete grounding.
-const PATH_TOKEN_RE = /[\w.-]+\/[\w./-]+/;
-const FILE_EXT_RE = /\b[\w-]+\.(?:cjs|js|mjs|ts|tsx|jsx|md|json|yml|yaml|py|txt|html|css|sh|ps1|cmd)\b/i;
-function hasPathOrFileToken(text) { return PATH_TOKEN_RE.test(text) || FILE_EXT_RE.test(text); }
+// FB-SCRIBE-2-F4: a bare word/word ("en/of", "12/12", "Write/Edit") and a framework name ("Node.js", "Next.js") are
+// not file grounding. A slash token counts when it starts with ./, ../ or a drive letter, has 3+ segments, or has
+// 2+ segments and ends in a file extension. shortcut: a bare capitalised X.js ("App.js") no longer counts on its own;
+// "src/App.js" still does.
+const PATH_PREFIX_RE = /(?:^|[\s"'`(])(?:\.{1,2}[\\/]|[A-Za-z]:[\\/])[\w.\\/-]+/;
+const PATH_TOKEN_RE = /[\w.-]+(?:[\\/][\w.-]+)+/g;
+const FILE_EXT_RE = /\b[\w-]+\.(?:cjs|js|mjs|ts|tsx|jsx|md|json|yml|yaml|py|txt|html|css|sh|ps1|cmd)\b/gi;
+// case-sensitive on purpose: only a capitalised X.js ("Node.js", "Next.js") is a framework name; "server.js" is a file
+const FRAMEWORK_JS_RE = /^[A-Z][a-z]+\.js$/;
+function hasFileExtToken(s) {
+  return (s.match(FILE_EXT_RE) || []).some((tok) => !FRAMEWORK_JS_RE.test(tok));
+}
+function isPathToken(tok) {
+  const segs = tok.split(/[\\/]/).filter(Boolean);
+  return segs.length >= 3 || (segs.length >= 2 && /\.[A-Za-z][A-Za-z0-9]{0,5}$/.test(tok));
+}
+function hasPathOrFileToken(text) {
+  const s = String(text == null ? '' : text);
+  return PATH_PREFIX_RE.test(s) || (s.match(PATH_TOKEN_RE) || []).some(isPathToken) || hasFileExtToken(s);
+}
 
 const VAGUE_PATTERNS = [
   /\bhandle\b/gi,
@@ -104,6 +121,12 @@ const VAGUE_PATTERNS = [
   /\bclean[\s-]*up\b/gi,
   /\bsome\b/gi,
   /\betc\b/gi,
+  // SD-T7: the Dutch forms an owner types for a vague ask
+  /\bmaak\s+het\s+(?:beter|mooier)\b/gi,
+  /\bdoe\s+iets\b/gi,
+  /\bfix\s+het\b/gi,
+  /\bregel\s+het\b/gi,
+  /\bpak\s+het\s+aan\b/gi,
 ];
 function countVagueHits(text) {
   let n = 0;

@@ -703,7 +703,7 @@ const hasExecCapableFlag = (s) => String(s).split(/\s+/).some((w) => EXEC_CAPABL
  *  `$1` to the pager flag `-O` and glued it onto the quoted kill-word text, and the OLD regex waved it through
  *  because `1` is not `[A-Za-z_]`. Now any of `[A-Za-z_0-9@*#?$!-]` right after the optional `{` counts.
  *
- *  the check used to apply to EVERY word in the segment, so `git grep -e 'rm -rf' -- $file` was flagged
+ *  F4: the check used to apply to EVERY word in the segment, so `git grep -e 'rm -rf' -- $file` was flagged
  *  exec-capable purely because `$file` appears somewhere in the line — but `$file` sits AFTER a standalone `--`
  *  (end-of-options), where a well-behaved tool (grep, git, …) can never again read an argument as a FLAG,
  *  whatever it expands to. hasUnresolvedVarLeadWord() now stops scanning at the first standalone `--` token —
@@ -1432,7 +1432,7 @@ module.exports = {
   stripCommandOpeners, commandPositionCandidates, laterBranchStarts, COMMAND_OPENER_STEPS,
   // secret-print's position-aware pattern-vs-file veto, exported for direct unit testing.
   secretPrintPatternExempt, SECRET_TARGET_RE, splitSegmentWords, wordText,
-  // the command-position-only head resolver and its wrapper allow-list, exported
+  // the command-position-only head resolver (F1) and its wrapper allow-list, exported
   // for direct unit testing.
   resolveSearchToolHead, SEARCH_TOOL_WRAPPER_NAMES,
   // WP-GATEFP4 — secret-print's additive substitution/glob views, exported for direct

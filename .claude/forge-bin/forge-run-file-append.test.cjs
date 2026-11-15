@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-run-file-append.test.cjs — category tests A2/A4. The project memory files (FORGE_MEMORY.md,
  * FORGE_TASK_HISTORY.md, FORGE_AGENT_LEDGER.md, FORGE_DECISIONS.md, FORGE_SKILL_REGISTRY.md and
@@ -116,6 +120,46 @@ t('skill discovery doc states the skill_map_created map format, injection at sta
   const real = m.map((x) => /\["([a-z0-9-]+)"/.exec(x)[1]).filter((s) => fs.existsSync(path.join(__dirname, '..', 'skills', s, 'SKILL.md')));
   assert.ok(real.length >= 1, 'no example with a real skill folder name');
   assert.ok(/skill-delivered/.test(ref) && /inject/i.test(ref), 'no skill-delivered / injection sentence');
+});
+
+// CORE-1-F2: a run close-out written as `## 2026-11-09 — run …` (no "Status") landed at the BOTTOM of
+// FORGE_MEMORY.md, so latestStatusBlock never saw it; and the same close-out was appended twice in three files.
+const MEM_HEAD = '# Forge Memory\n\n> newest first\n\n';
+t('CORE-1-F2: a dated ## heading without "Status" in a FORGE_MEMORY.md draft becomes ## Status and goes on top', () => {
+  const root = project();
+  fs.writeFileSync(path.join(root, '.claude', 'FORGE_MEMORY.md'), MEM_HEAD + '## Status 2026-11-08 ~06:30 — PAUSED\n- old\n');
+  const r = run(root, ['append', '--file', 'FORGE_MEMORY.md', '--from', draft(root, '## 2026-11-09 — run forge-2026-11-09-063358 (owner R-0190)\n- closed\n')]);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const text = read(root, 'FORGE_MEMORY.md');
+  assert.strictEqual(text, MEM_HEAD + '## Status 2026-11-09 — run forge-2026-11-09-063358 (owner R-0190)\n- closed\n\n## Status 2026-11-08 ~06:30 — PAUSED\n- old\n');
+  assert.strictEqual(require(TOOL).latestStatusBlock(text).key, '2026-11-09');
+});
+t('CORE-1-F2: a draft whose heading is already in the file is refused and the file stays unchanged', () => {
+  const root = project();
+  const mem = MEM_HEAD + '## 2026-11-09 — run forge-2026-11-09-063358\n- closed\n';
+  fs.writeFileSync(path.join(root, '.claude', 'FORGE_MEMORY.md'), mem);
+  for (const d of ['## 2026-11-09 — run forge-2026-11-09-063358\n- closed again\n', '## Status 2026-11-09 — run forge-2026-11-09-063358\n- x\n']) {
+    const r = run(root, ['append', '--file', 'FORGE_MEMORY.md', '--from', draft(root, d)]);
+    assert.notStrictEqual(r.status, 0, 'accepted a duplicate: ' + d);
+    assert.ok(/REFUSED: .*already/.test(r.stderr), r.stderr);
+  }
+  assert.strictEqual(read(root, 'FORGE_MEMORY.md'), mem);
+  const hist = '# History\n\n## 2026-11-09 — run forge-2026-11-09-063358\n- a\n';
+  fs.writeFileSync(path.join(root, '.claude', 'FORGE_TASK_HISTORY.md'), hist);
+  const h = run(root, ['append', '--file', 'FORGE_TASK_HISTORY.md', '--from', draft(root, '## 2026-11-09 — run forge-2026-11-09-063358\n- a\n')]);
+  assert.notStrictEqual(h.status, 0, 'history duplicate accepted');
+  assert.strictEqual(read(root, 'FORGE_TASK_HISTORY.md'), hist);
+});
+t('CORE-1-F2: a headingless draft already in the file (a byte-identical ledger row) is refused', () => {
+  const root = project();
+  const row = '| 2026-11-09 | forge-2026-11-09-063358 | Build Boss | WP-BRIDGE | opus/medium |';
+  fs.writeFileSync(path.join(root, '.claude', 'FORGE_AGENT_LEDGER.md'), '# Ledger\n' + row + '\n');
+  const r = run(root, ['append', '--file', 'FORGE_AGENT_LEDGER.md', '--from', draft(root, row + '\n')]);
+  assert.notStrictEqual(r.status, 0, 'duplicate row accepted');
+  assert.ok(/already/.test(r.stderr), r.stderr);
+  assert.strictEqual(read(root, 'FORGE_AGENT_LEDGER.md'), '# Ledger\n' + row + '\n');
+  const ok = run(root, ['append', '--file', 'FORGE_AGENT_LEDGER.md', '--from', draft(root, row.replace('WP-BRIDGE', 'WP-APK') + '\n')]);
+  assert.strictEqual(ok.status, 0, 'a different row must still append: ' + ok.stderr);
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

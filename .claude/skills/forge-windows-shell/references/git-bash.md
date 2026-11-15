@@ -19,7 +19,7 @@ because Git Bash started from PowerShell inherits it.
   (forward slashes work for most Windows programs, including Node and git).
 - Convert with `cygpath -w '/c/path'` (Windows), `cygpath -m '/c/path'` (mixed, forward slashes) and
   `cygpath -u 'C:\path'` (Bash).
-- Quote every path. This project lives in `C:\Users\YOU\Documents\my project!`: spaces and a `!`.
+- Quote every path. This project lives in `C:\Users\YOU\Documents\my project (v2)!`: spaces and a `!`.
   Single quotes are always safe. Double quotes are fine in the Bash tool (it is non-interactive, so `!`
   history expansion is off), but an interactive Bash expands `!` inside double quotes.
 - The Bash tool resets the working directory between calls in an agent thread: use absolute paths, or

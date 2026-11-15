@@ -43,7 +43,7 @@
  *   FORGE_AUTONOMY.json "default". Seams: opts.configModule (null = absent), opts.configOpts (forge-config seams).
  *   decide() stays free of side effects and never looks at the live usage state; decideLive() does that:
  *
- *   usageLimitActive(opts) -> { active, reason, source: 'state'|'no-state'|'unreadable'|'guard-off'|'stale', file? }
+ *   usageLimitActive(opts) -> { active, reason, source: 'state'|'no-state'|'corrupt'|'guard-off'|'stale'|'override-honoured', file? }
  *     reads <opts.statePath | FORGE_USAGE_GUARD_STATE | (opts.guardHome | FORGE_USAGE_GUARD_HOME | ~/.claude)
  *     /FORGE_USAGE_GUARD_STATE.json> — active only when mode === 'paused' and its resumeAtEpoch (if any) has not
  *     passed yet (the same self-heal rule as the global usage-guard hook). CFG-01:
@@ -199,13 +199,28 @@ function usageLimitActive(opts) {
   };
   const home = opts.guardHome || process.env.FORGE_USAGE_GUARD_HOME || path.join(os.homedir(), '.claude');
   const file = opts.statePath || process.env.FORGE_USAGE_GUARD_STATE || path.join(home, 'FORGE_USAGE_GUARD_STATE.json');
+  // LEAD-U2: an owner who switched the guard off (a READABLE config) has no pause enforced; a damaged config never lifts one (CFG-01).
+  const ownerOff = sw.value === false && !sw.degraded;
+  const ownerOffResult = () => ({ active: false, reason: 'usage-guard is off in the owner config - a recorded pause is not enforced', source: 'guard-off', file });
+  const now = typeof opts.now === 'number' ? opts.now : Date.now();
+  // FB-SCRIBE-2-F1: a torn/unparsable file or mode 'corrupt' fails closed (active), unless the guard stopped touching it
+  // (file time older than STALE_INTERVALS x the interval), so a dead guard cannot block forever.
+  const corruptResult = (why) => {
+    if (ownerOff) return ownerOffResult();
+    let mtime = NaN;
+    try { mtime = fs.statSync(file).mtimeMs; } catch { /* no file time: judged as fresh */ }
+    const stale = Number.isFinite(mtime) ? stalePauseNote({ lastCheckAt: new Date(mtime).toISOString() }, now, opts) : null;
+    if (stale) return { active: false, reason: 'usage-guard state is corrupt (' + why + ') and ' + stale, source: 'stale', file };
+    return { active: true, reason: 'usage-guard state is corrupt (' + why + ') — treated as a pause until the guard writes a good state', source: 'corrupt', file };
+  };
   let st;
   try { st = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\ufeff/, '')); } catch (e) {
     if (e && e.code === 'ENOENT') return sw.value === false ? guardOffResult() : { active: false, reason: 'no usage-guard state file — no pause was ever recorded', source: 'no-state', file };
-    return { active: false, reason: 'usage-guard state unreadable (' + ((e && e.message) || e) + ') — not treated as a pause', source: 'unreadable', file };
+    return corruptResult('unreadable: ' + ((e && e.message) || e));
   }
+  if (st && st.mode === 'corrupt') return corruptResult('mode corrupt');
   if (!st || st.mode !== 'paused') return sw.value === false ? guardOffResult() : { active: false, reason: 'usage guard is not paused', source: 'state', file };
-  const now = typeof opts.now === 'number' ? opts.now : Date.now();
+  if (ownerOff) return ownerOffResult();
   // SB-M6 (Security Boss, sec-w11): since a resume attempt that keeps failing
   // (e.g. an agent that no longer exists — see usage-guard.cjs's own doResume()/runOverrideOn() SB-M6 fix)
   // leaves mode:'paused' with a fresh lastCheckAt on every tick, so the STALE-pause escape hatch above never

@@ -118,7 +118,7 @@
       "evidence_required": "The verified, assumed and open lists.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "What was verified vs. assumed is stated explicitly." }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Handoff completeness", "quote": "What was verified vs. assumed is stated explicitly." }
     }
   ],
   "common_sloppy_defects": [

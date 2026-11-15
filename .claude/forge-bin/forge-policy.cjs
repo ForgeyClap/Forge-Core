@@ -36,7 +36,7 @@
  * agentsGeneratedCheck(), which only READ files under the project's .claude/ folder. Nothing in this file ever writes.
  *
  * CLI: node forge-policy.cjs route "<task>" [--risk low|medium|high]
- *      node forge-policy.cjs escalate <route> <process|context> [--escalated] [--workflow]
+ *      node forge-policy.cjs escalate <route> <process|context> [--escalated] [--no-effort-control]
  *      node forge-policy.cjs check [--json] [--root <dir>]     (exit 1 when the routing check is red)
  *      node forge-policy.cjs                                   (no arguments: worked examples)
  */
@@ -72,7 +72,7 @@ const SPEC_AGENT_DEFAULTS = Object.freeze({
 const VALID_MODELS = new Set(['sonnet', 'opus', 'haiku', 'fable', 'inherit']);
 const VALID_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'];
-// One step up for each failure kind. A process failure without effort control (no Workflow) takes the next
+// One step up for each failure kind. A process failure with no effort control (noEffort) takes the next
 // route, which is the next effort level up the same way (quick->build, build->deep); deep is already at
 // xhigh, so its only step left is the bigger model.
 const PROCESS_NEXT = Object.freeze({ quick: 'build', build: 'deep', deep: 'escalate' });
@@ -110,9 +110,9 @@ function routeFor(opts) {
   return { route, model: v.model, effort: v.effort, risk: outRisk, reason: why, source: 'fallback-rules' };
 }
 
-/** escalate({route, failure, escalated, workflow, routes}) — the ONE escalation after a failed check.
+/** escalate({route, failure, escalated, noEffort, routes}) — the ONE escalation after a failed check.
  *  failure: 'process' (skipped a file / did not run the tests) | 'context' (also 'capability': failed with
- *  the full context). workflow: true when effort can be set per dispatch (Workflow agent({effort})).
+ *  the full context). noEffort: true only when effort cannot be set per dispatch (then the next route).
  *  Returns {ok, action:'retry'|'stop'|'invalid', ...}. 'stop' = report honestly to the owner. */
 function escalate(opts) {
   const o = opts || {};
@@ -125,10 +125,12 @@ function escalate(opts) {
   if (o.escalated) return { ok: true, action: 'stop', from: route, reason: 'this task was already escalated once — a second FAIL stops; report honestly to the owner with the evidence' };
   const cur = routeValues(o.routes, route);
   const lesson = 'append ONE line to the lessons file: <YYYY-MM-DD> <task pattern> -> <route that worked>';
-  if (failure === 'process' && o.workflow) {
+  // FB-CONFIG-1-F3: more effort is the default for a process failure (a Workflow agent({effort}) and the Agent tool
+  // both take effort); only an explicit noEffort (--no-effort-control) takes the next route. workflow is still accepted.
+  if (failure === 'process' && !o.noEffort) {
     const i = EFFORT_LADDER.indexOf(cur.effort);
     if (i >= 0 && i < EFFORT_LADDER.length - 1) {
-      return { ok: true, action: 'retry', from: route, route, model: cur.model, effort: EFFORT_LADDER[i + 1], step: 'more-effort', escalated: true, reason: 'process failure -> same route, effort ' + cur.effort + ' -> ' + EFFORT_LADDER[i + 1] + ' (Workflow agent({effort}))', lesson };
+      return { ok: true, action: 'retry', from: route, route, model: cur.model, effort: EFFORT_LADDER[i + 1], step: 'more-effort', escalated: true, reason: 'process failure -> same route, effort ' + cur.effort + ' -> ' + EFFORT_LADDER[i + 1] + ' (Workflow agent({effort}) or the Agent tool effort parameter)', lesson };
     }
   }
   const next = failure === 'process' ? PROCESS_NEXT[route] : CONTEXT_NEXT[route];
@@ -312,27 +314,35 @@ function agentRoute(agent, opts) {
  *  routing: env CLAUDE_CODE_EFFORT_LEVEL / CLAUDE_CODE_SUBAGENT_MODEL, or modelSettings.*.effortLevel. */
 function settingsAntiPatterns(root) {
   const out = [];
-  for (const rel of ['settings.json', 'settings.local.json']) {
-    const r = readJson(path.join(root, '.claude', rel));
-    if (!r.data || typeof r.data !== 'object') continue; // absent or unparseable: bypass-mode already reports an unparseable file
-    const env = r.data.env && typeof r.data.env === 'object' ? r.data.env : {};
-    for (const k of FORBIDDEN_ENV) {
-      if (Object.prototype.hasOwnProperty.call(env, k)) out.push({ file: '.claude/' + rel, key: 'env.' + k, detail: 'env.' + k + ' overrides every per-agent ' + (k.endsWith('MODEL') ? 'model' : 'effort') + ' — remove it' });
-    }
-    const ms = r.data.modelSettings;
-    if (ms && typeof ms === 'object') {
-      for (const [m, v] of Object.entries(ms)) {
-        if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'effortLevel')) out.push({ file: '.claude/' + rel, key: 'modelSettings.' + m + '.effortLevel', detail: 'a per-model effort override fights per-agent effort — remove it' });
-      }
+  for (const rel of ['settings.json', 'settings.local.json']) out.push(...settingsFileAntiPatterns(path.join(root, '.claude', rel), '.claude/' + rel));
+  return out;
+}
+function settingsFileAntiPatterns(abs, label) {
+  const out = [];
+  const r = readJson(abs);
+  if (!r.data || typeof r.data !== 'object') return out; // absent or unparseable: bypass-mode already reports an unparseable file
+  const env = r.data.env && typeof r.data.env === 'object' ? r.data.env : {};
+  for (const k of FORBIDDEN_ENV) {
+    if (Object.prototype.hasOwnProperty.call(env, k)) out.push({ file: label, key: 'env.' + k, detail: 'env.' + k + ' overrides every per-agent ' + (k.endsWith('MODEL') ? 'model' : 'effort') + ' — remove it' });
+  }
+  const ms = r.data.modelSettings;
+  if (ms && typeof ms === 'object') {
+    for (const [m, v] of Object.entries(ms)) {
+      if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'effortLevel')) out.push({ file: label, key: 'modelSettings.' + m + '.effortLevel', detail: 'a per-model effort override fights per-agent effort — remove it' });
     }
   }
   return out;
+}
+/** claudeHomeOf(opts) -> the Claude Code config folder: opts.claudeHome, else CLAUDE_CONFIG_DIR, else ~/.claude. */
+function claudeHomeOf(opts) {
+  if (opts && typeof opts.claudeHome === 'string') return opts.claudeHome;
+  return process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude');
 }
 
 /** routingCheck(root) -> {ok, applicable, checked, violations:[{kind, agent?, detail}], notes, routes}.
  *  Applicable when the project has FORGE_MODEL_ROUTING.json or agent-model-map.json (a project without
  *  Forge agents has nothing to route). Once applicable, every rule below is a hard violation. */
-function routingCheck(root) {
+function routingCheck(root, opts) {
   root = path.resolve(root || DEFAULT_ROOT);
   const routingFile = readJson(path.join(root, ...ROUTING_REL));
   const mapFile = readJson(path.join(root, ...MODEL_MAP_REL));
@@ -376,7 +386,7 @@ function routingCheck(root) {
       else if (lead.effort !== SPEC_ROUTES.router.effort) v('lead-spec-drift', 'session.lead effort "' + lead.effort + '" but the GOAT spec pins the router to ' + SPEC_ROUTES.router.effort);
     }
   }
-  // 1c. agentDefaults must exist: without it loadRouting() silently substitutes SPEC_AGENT_DEFAULTS, so the
+  // 1c. agentDefaults must exist (F5): without it loadRouting() silently substitutes SPEC_AGENT_DEFAULTS, so the
   //     per-agent route checks below would validate nothing while the runtime still routes.
   const agentDefaultsRaw = data ? data.agentDefaults : undefined;
   const agentDefaultsOk = !!agentDefaultsRaw && typeof agentDefaultsRaw === 'object' && !Array.isArray(agentDefaultsRaw);
@@ -429,12 +439,16 @@ function routingCheck(root) {
     }
   }
 
-  // 3. settings anti-patterns (project settings only — never the user's global settings)
+  // 3. settings anti-patterns: the project settings are violations; the user's global settings are named as a
+  //    note (FB-CONFIG-1-F5) — they fight per-agent effort just the same, but only the owner may edit that file,
+  //    so a red check there would block every run on a value no agent is allowed to change.
   for (const s of settingsAntiPatterns(root)) v('settings-anti-pattern', s.file + ': ' + s.detail);
+  const globalSettings = settingsFileAntiPatterns(path.join(claudeHomeOf(opts), 'settings.json'), '<claude home>/settings.json');
+  for (const s of globalSettings) notes.push(s.file + ': ' + s.key + ' — ' + s.detail + ' (machine-wide; only the owner can change this file)');
   for (const k of FORBIDDEN_ENV) {
     if (process.env[k] !== undefined) notes.push(k + ' is set in this process environment — it overrides every per-agent ' + (k.endsWith('MODEL') ? 'model' : 'effort') + '; unset it (not a project-file finding)');
   }
-  return { ok: violations.length === 0, applicable: true, checked, violations, notes, routes: routes || null };
+  return { ok: violations.length === 0, applicable: true, checked, violations, notes, routes: routes || null, global_settings: globalSettings };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -471,7 +485,7 @@ const AGENTS_POLICY_DOC = Object.freeze({
   derived: 'bossOrSpecialist: boss for the 12 permanent Bosses, else specialist. roleClass: from the EFFECTIVE tools (tools minus disallowedTools, plus Read/Write/Edit when memory is set; the docs do not say whether disallowedTools removes those memory grants, so they are assumed to survive): write (Write/Edit/NotebookEdit) and shell (Bash/PowerShell) = full-build, write only = write-no-exec, shell only = exec-reviewer, neither = read-only-audit, no tools line = every tool = full-build. route: the GOAT route whose spec model/effort equals the frontmatter model/effort (sonnet/low is triage for head-chef, quick otherwise).',
   maxTurns: { why: 'A runaway guard sized well above normal use, never a work budget. At the limit Claude Code returns the output marked partial (v2.1.246+) and the Lead can resume the agent. Reviewers sit lower than builders: they read and report, builders edit, build and fix.', bands: MAX_TURNS_BANDS },
   color: { allowed: AGENT_COLORS, families: 'purple = mission owner; yellow = coordination and bookkeeping; blue = code builders; pink = interface; orange = external systems and payments; cyan = data, research and docs; green = verification and tests; red = review and security gates' },
-  skills: 'Preloaded at startup: the full skill content is injected, first 32 distinct names, a disable-model-invocation skill cannot be preloaded. Taken from agent-skill-map.json, keeping only skills on disk under .claude/skills that are not disable-model-invocation and carry no situational invocation note (grilling, resolving-merge-conflicts, claude-md-improver stay out). No shipped agent has the Skill tool, so a skill that is not preloaded reaches an agent only through its dispatch prompt.',
+  skills: 'Preloaded at startup: the full skill content is injected, first 32 distinct names, a disable-model-invocation skill cannot be preloaded. Generated from .claude/config/orchestration/FORGE_DEFAULT_SKILLS.json by forge-agent-skills-sync.cjs: forge-conduct, then the role baseline (a specialist borrows its Boss baseline), then the agent\'s own domain skills; only skills that ship under .claude/skills. agent-skill-map.json must list every preload. Exec-class agents (full-build, exec-reviewer) also hold the Skill tool; the others Read a SKILL.md by path.',
   disallowedTools: 'Added only where the tools allowlist does not already exclude a tool the class forbids. Every shipped agent has an explicit tools allowlist and no read-only agent carries memory, so none needs it today; the check fails if a forbidden tool becomes effective.',
   isolation: 'Not set on any agent (2026-10-24). Frontmatter isolation applies to EVERY dispatch, but forge-worktrees keeps single-agent sequential work in the main tree; a subagent worktree branches from the remote default branch unless the setting worktree.baseRef is "head", and never carries uncommitted work; it holds only tracked files (no node_modules); and log-event.cjs run from a worktree writes into that worktree\'s forge-runs. Use the Agent tool isolation parameter on parallel dispatches until these are resolved. When set, only "worktree" on a full-build agent is valid.',
 });
@@ -712,7 +726,7 @@ function cli(argv) {
     return 0;
   }
   if (cmd === 'escalate') {
-    const r = escalate({ route: args[1], failure: args[2], escalated: args.includes('--escalated'), workflow: args.includes('--workflow'), routes: loadRouting(root).routes });
+    const r = escalate({ route: args[1], failure: args[2], escalated: args.includes('--escalated'), workflow: args.includes('--workflow'), noEffort: args.includes('--no-effort-control'), routes: loadRouting(root).routes });
     console.log(JSON.stringify(r, null, 2));
     return r.ok ? 0 : 2;
   }

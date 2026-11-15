@@ -99,7 +99,7 @@
  *     "real only for the selected project" precedent this file already uses
  *     for `agentCount`/`missionCount`. `description`/`templateVersion` are
  *     real for the active project via the new `GET /api/projects/:name/profile`
- *     endpoint. `openTickets`/`blockers` stay 0 — genuinely no data
+ *     endpoint (T6d). `openTickets`/`blockers` stay 0 — genuinely no data
  *     source exists anywhere in this gateway for either (no ticket/blocker
  *     registry is integrated); this is a named gap, not a silent one.
  *   - `type: ProjectType` — FIXED in cc-wire-usage: `ProjectType` now carries a
@@ -111,7 +111,7 @@
  *     profile stays honestly `'unknown'`, never a keyword-guessed default.
  *     Every other project row still gets `'unknown'` too (same "real only for
  *     the selected project" precedent this file already applies elsewhere).
- *   - Agent `skills` (from the new `GET /api/agents` `skills[]`),
+ *   - Agent `skills` (from the new `GET /api/agents` `skills[]`, T6a),
  *     `verification` (derived from this run's real per-agent `check_passed`/
  *     `check_failed` verdicts — previously discarded at the `agent` field on
  *     `MissionVerdictRow`) and `progress` (real completed/total task ratio for

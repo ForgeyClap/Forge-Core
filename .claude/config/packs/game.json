@@ -1,0 +1,71 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "game",
+  "_doc": "The game pack (owner request R-0239, contract): 3 game-* SPECIALIST agents (never Bosses; the 12 permanent Bosses are unchanged) for browser and Godot games, built from the roles the owner's browser game project really used (game systems engineer, screenshot QA, UI/UX designer). Roblox work stays with the Roblox pack (rbx-*). forge-router sends non-Roblox game work to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Lanes open the presets game-all and process first (checked by forge-lane-skills.cjs --require game-all,process); game-all holds every shipped game-dev skill, per the owner rule that every game agent opens all of them.",
+  "projectTypes": [
+    "game",
+    "browser-game",
+    "godot"
+  ],
+  "signals": [
+    "browser game",
+    "spel",
+    "game loop",
+    "Phaser",
+    "PixiJS",
+    "canvas game",
+    "Godot",
+    "GDScript",
+    "platformer",
+    "puzzle game",
+    "level design",
+    "highscore"
+  ],
+  "playbook": "forge-game",
+  "agents": [
+    "game-designer",
+    "game-programmer",
+    "game-playtester"
+  ],
+  "skills": [
+    "forge-game",
+    "prototype-fast",
+    "level-design",
+    "game-feel",
+    "input-systems",
+    "save-systems",
+    "performance-optimization",
+    "game-ui-ux",
+    "camera-systems",
+    "audio-design",
+    "game-ai",
+    "create-game-assets",
+    "forge-brainstorm",
+    "forge-testing",
+    "forge-debug",
+    "ponytail",
+    "test-driven-development",
+    "forge-verify"
+  ],
+  "presets": {
+    "game-all": [
+      "forge-game",
+      "prototype-fast",
+      "level-design",
+      "game-feel",
+      "input-systems",
+      "save-systems",
+      "performance-optimization",
+      "game-ui-ux",
+      "camera-systems",
+      "audio-design",
+      "game-ai",
+      "create-game-assets"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

@@ -308,7 +308,7 @@ describe('parseDoctorHealth — real doctor.json numbers via /api/proof, or hone
 
 describe('toGatewayProject — real detail only for the active project, honest empty otherwise', () => {
   /**
-   * cc-finish fix-cert-fabrication — UPDATED by fix-cert-rest (item 3): the OLD version of
+   * cc-finish fix-cert-fabrication (F3) — UPDATED by fix-cert-rest (item 3): the OLD version of
    * this test asserted `taskCount`/`health.score` stayed `0` for `EMPTY_ACTIVE_PROJECT_DETAIL` and
    * stopped there, titled as if that were the whole, correct story ("stay a real, documented 0").
    * It was not: a bare `0` is exactly what a genuinely-measured empty project would ALSO produce —

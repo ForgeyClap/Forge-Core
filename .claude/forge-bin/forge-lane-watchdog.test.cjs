@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-lane-watchdog.test.cjs — tests for forge-lane-watchdog.cjs with synthetic Agent-tool transcripts written
  * to a fresh folder in the OS temp directory (removed at exit). Zero dependencies; run: node forge-lane-watchdog.test.cjs
@@ -62,6 +66,12 @@ writeLane('errs4', [...pair(1, 'Bash', { command: 'a' }, { is_error: true }), ..
   ...pair(1, 'Bash', { command: 'c' }, { is_error: true }), ...pair(1, 'Bash', { command: 'd' }, { is_error: true }), ...pair(1, 'Bash', { command: 'e' })]);
 writeLane('done1', [...pair(70, 'Edit', { file_path: 'c.js' }), asst(65, [{ type: 'text', text: 'All done.' }], 'end_turn'),
   { type: 'system', timestamp: ago(64), subtype: 'note' }, { type: 'attachment', timestamp: ago(64) }], 60);
+{ const hb = use('SubagentHandback', {}); writeLane('handback1', [...pair(70, 'Edit', { file_path: 'c.js' }), asst(65, [hb]),
+  Object.assign(user(65, [{ type: 'tool_result', tool_use_id: hb.id, content: 'handed back' }]), { toolEndsTurn: true })], 60); }
+// Real transcripts also hold api-request-blob entries that replay earlier (already answered) tool_use blocks.
+{ const ed = pair(70, 'Edit', { file_path: 'd.js' }); const hb = use('SubagentHandback', {});
+  writeLane('handback2', [...ed, { type: 'api-request-blob', timestamp: ago(66), message: { content: ed[0].message.content } }, asst(65, [hb]),
+    Object.assign(user(65, [{ type: 'tool_result', tool_use_id: hb.id, content: 'handed back' }]), { toolEndsTurn: true })], 60); }
 writeLane('notdone1', [...pair(70, 'Edit', { file_path: 'c.js' }), asst(65, [{ type: 'text', text: 'Next I will...' }], null)], 60);
 
 (async () => {
@@ -114,6 +124,14 @@ writeLane('notdone1', [...pair(70, 'Edit', { file_path: 'c.js' }), asst(65, [{ t
     assert(/^done done1/m.test(r.out) && !/STALLED/.test(r.out), r.out);
     const r2 = once('notdone1');
     assert(r2.code === 1 && /STALLED notdone1/.test(r2.out), 'same age without end_turn must stall: ' + r2.out);
+  });
+
+  await t('FB-LANES-F5: a lane that ended on a turn-ending tool (toolEndsTurn, no pending) is "done", never STALLED', () => {
+    const r = once('handback1');
+    assert(r.code === 0, 'exit ' + r.code + '\n' + r.out);
+    assert(/^done handback1/m.test(r.out) && !/STALLED/.test(r.out), r.out);
+    const r2 = once('handback2');
+    assert(r2.code === 0 && /^done handback2 .* tools 2 {2}pending 0/m.test(r2.out), 'a replayed tool_use in an api-request-blob is not a new call: ' + r2.out);
   });
 
   await t('--once with several lanes reports each and exits 1 when any one is flagged', () => {

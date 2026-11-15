@@ -3,7 +3,7 @@
 /**
  * account-rotator-handoff.cjs — the FULL handoff around an account switch (owner amendment 2026-10-09: "save
  * everything, switch, then everything continues automatically" — same discipline as usage-guard). Runs under the
- * vault's transaction lock, AFTER account-rotator-txn.cjs preflight() passed (nothing is paused before that).
+ * vault's transaction lock, AFTER account-rotator-txn.cjs preflight() passed (nothing is paused before that, M2).
  *
  *   1 SAVE      handoff.json (token-free) first; running Paperclip agents paused through usage-guard.cjs's OWN helpers
  *               (allAgents/pc/journalAppend: pause-intent -> paused | pause-failed (4xx: certainly not applied) |

@@ -19,6 +19,7 @@ Forge changes: no scripts or allowed-tools taken over, no unattended tag/push, e
 - Also for: Tauri v2 apps — same bar, Tauri mechanics (capabilities, permissions, updater keys) in `references/tauri.md`.
 - Not for: renderer UI (`forge-website`) or gateway/API and money flows (`forge-integration` / `forge-payments`).
 - Domain framing, team roles and honesty rule: `references/overview.md`.
+- See also: `forge-glass-ui` for the Mono Glass renderer style.
 
 ## Hard rules (verify, don't assume — cite the exact config line)
 - **`contextIsolation: true` on every `BrowserWindow`**

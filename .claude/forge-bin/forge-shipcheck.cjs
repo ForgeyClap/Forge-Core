@@ -22,7 +22,7 @@
  *   release_orphan / release_unexpected / release_missing / plugin_missing / plugin_unlisted  (--release-tree)
  *   release_placeholder_missing / release_placeholder_unreadable / release_placeholder_secret (never gappable)
  *                              a `release_placeholder` entry's placeholder must be tracked in the release tree and,
- *                              when the tree folder is readable, hold no forge-store SECRET_PATTERNS shape;
+ *                              when the tree folder is readable, hold no forge-store SECRET_PATTERNS shape (R2/N12);
  *                              protected_path_shipped also runs over the release enumeration (channel 'release')
  *   manifest_invalid · enumeration_failed · sync_delivery_unavailable  (the check could not be trusted)
  * A violation that matches a `known_gaps` entry (kind + path glob, with an owner WP) is a WARNING; every other
@@ -93,7 +93,7 @@ const PROTECTED_PATHS = [
   { glob: '.env', probe: '.env' }, { glob: '.env.*', probe: '.env.local', except: ['.env.example'] },
   { glob: '**/.env', probe: 'apps/web/.env' }, { glob: '**/.env.*', probe: 'apps/web/.env.production', except: ['**/.env.example'] },
   { glob: '**/*.pem', probe: 'secrets/server.pem' }, { glob: '**/*.key', probe: 'certs/private.key' },
-  { glob: '**/id_rsa*', probe: '.ssh/id_rsa' }, { glob: '**/credentials*.json', probe: '.claude/.credentials.json' },
+  { glob: '**/id_rsa*', probe: '.ssh/id_rsa' }, { glob: '**/*credentials*.json', probe: '.claude/.credentials.json' },
   { glob: 'secrets/**', probe: 'secrets/api-token.txt' }, { glob: '**/secrets/**', probe: 'ops/secrets/token.txt' },
   { glob: '.claude/agent-memory/**', probe: '.claude/agent-memory/head-chef/MEMORY.md' },
   { glob: '.claude/forge-runs/**', probe: '.claude/forge-runs/forge-2026-01-01-probe/events.jsonl' },
@@ -158,16 +158,18 @@ function globFragment(g) {
   return re;
 }
 function globToRegExp(g) { return new RegExp('^' + globFragment(g) + '$'); }
+const globToRegExpI = (g) => new RegExp(globToRegExp(g).source, 'i');
 /** protectedSpecOf(p) -> the PROTECTED_PATHS matcher for p (honouring `except`), or null. Compiled once, shared by
- *  the source pass and the release enumeration. */
+ *  the source pass and (R2/N12) the release enumeration. Case-insensitive (FB-INSTALL-2-F5): on a Windows disk .ENV
+ *  and .env are the same file. */
 let protectedMatchersCache = null;
 function protectedMatchers() {
-  if (!protectedMatchersCache) protectedMatchersCache = PROTECTED_PATHS.map((p) => ({ re: globToRegExp(p.glob), exceptRes: (p.except || []).map(globToRegExp), spec: p }));
+  if (!protectedMatchersCache) protectedMatchersCache = PROTECTED_PATHS.map((p) => ({ re: globToRegExpI(p.glob), exceptRes: (p.except || []).map(globToRegExpI), spec: p }));
   return protectedMatchersCache;
 }
 function protectedSpecOf(p) { return protectedMatchers().find((x) => x.re.test(p) && !x.exceptRes.some((e) => e.test(p))) || null; }
 /** secretShapeIn(text) -> 'SECRET_PATTERNS[i]' for the first forge-store secret shape found, null when none, or
- *  undefined when forge-store.cjs is unavailable. Never returns the match itself. */
+ *  undefined when forge-store.cjs is unavailable. Never returns the match itself (R2/N12). */
 function secretShapeIn(text) {
   const pats = storeTool && Array.isArray(storeTool.SECRET_PATTERNS) ? storeTool.SECRET_PATTERNS : null;
   if (!pats) return undefined;
@@ -314,7 +316,7 @@ function runShipcheck(root, opts) {
   if (en.error) { v('enumeration_failed', '.', en.error); return finish({ enumeration: { method: en.method } }); }
   const sourceSet = new Set(en.files);
   const byClass = {}; const ruleHits = new Map();
-  // standalone match counts (every rule the path matches, not only the winner) and demotions by non-shipped rules
+  // F10: standalone match counts (every rule the path matches, not only the winner) and demotions by non-shipped rules
   const standalone = new Map(); const demoted = new Map();
   const protectedRes = protectedMatchers();
   const isProtected = protectedSpecOf;
@@ -329,12 +331,12 @@ function runShipcheck(root, opts) {
     const prot = SHIPPED_CLASSES.has(r.class) ? isProtected(p) : null;
     if (prot) v('protected_path_shipped', p, 'protected path (' + prot.spec.glob + ') is classified ' + r.class + ' by rule ' + JSON.stringify(r.pattern) + ' — secrets, env files, credentials, agent memory and run data never travel on any channel', { rule: r.pattern, protected_by: prot.spec.glob });
   }
-  // synthetic probes — a broad shipped glob must not accept a private path even when no such file exists today
+  // F10: synthetic probes — a broad shipped glob must not accept a private path even when no such file exists today
   for (const x of protectedRes) {
     const r = classify(rules, x.spec.probe);
     if (r && SHIPPED_CLASSES.has(r.class)) v('protected_path_shipped', x.spec.probe, 'synthetic probe: a path of the protected shape ' + x.spec.glob + ' would be classified ' + r.class + ' by rule ' + JSON.stringify(r.pattern) + ' — add a per-project/local-only rule for it', { rule: r.pattern, protected_by: x.spec.glob, synthetic: true });
   }
-  // breadth — a non-per-project rule matching more than BROAD_RULE_MAX_SHARE of the tree is a catch-all in effect
+  // F10: breadth — a non-per-project rule matching more than BROAD_RULE_MAX_SHARE of the tree is a catch-all in effect
   for (const r of rules) {
     const n = standalone.get(r.index) || 0;
     if (r.class !== 'per-project' && en.files.length >= 20 && n / en.files.length > BROAD_RULE_MAX_SHARE) v('manifest_invalid', 'rules[' + r.index + '] ' + r.pattern, 'rule too broad: it matches ' + n + ' of ' + en.files.length + ' source paths (' + Math.round(100 * n / en.files.length) + '% > ' + Math.round(100 * BROAD_RULE_MAX_SHARE) + '%) — a glob this wide hides unclassified and undelivered paths behind one class');

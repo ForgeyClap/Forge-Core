@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * Hermetic tests for forge-briefing.cjs (piece J5). EVERY fixture lives under a fresh
  * os.tmpdir() directory — this file NEVER touches this repo's real .claude/forge-runs/. Exit 0 = all pass.
@@ -147,6 +151,27 @@ console.log('8) invalid run_id throws a usage error — never a fabricated empty
   const root = freshDir('fb-badid');
   t('generate() throws for an invalid run_id', (() => { try { fb.generate({ run_id: 'bad id!' }, { root }); return false; } catch (e) { return /valid run_id/.test(e.message); } })());
   t('generate() throws for a missing run_id', (() => { try { fb.generate({}, { root }); return false; } catch (e) { return /valid run_id/.test(e.message); } })());
+}
+
+console.log('8b) events-only: last qualifying event per WP wins, wp_verified mapped by verdict (FB-BRAIN-F2)');
+{
+  const root = freshDir('fb-lastwins');
+  writeEvents(root, 'run-lw', [
+    { event_type: 'wp_failed', agent: 'Build Boss', wp_id: 'WP1', reason: 'first try broke', timestamp: '2026-07-19T01:00:00Z' },
+    { event_type: 'wp_completed', agent: 'Build Boss', wp_id: 'WP1', timestamp: '2026-07-19T01:10:00Z' },
+    { event_type: 'wp_completed', agent: 'Build Boss', wp_id: 'WP2', timestamp: '2026-07-19T01:20:00Z' },
+    { event_type: 'wp_verified', agent: 'Verify Boss', wp_id: 'WP2', verdict: 'FAIL', reason: 'tests not run', timestamp: '2026-07-19T01:30:00Z' },
+    { event_type: 'wp_completed', agent: 'Build Boss', wp_id: 'WP2', timestamp: '2026-07-19T01:40:00Z' },
+    { event_type: 'wp_verified', agent: 'Verify Boss', wp_id: 'WP3', verdict: 'PASS', timestamp: '2026-07-19T01:50:00Z' },
+  ]);
+  const r = fb.generate({ run_id: 'run-lw' }, { root });
+  const ranIds = r.ran.map((x) => x.wp_id).sort().join(',');
+  const blockedIds = r.blocked.map((x) => x.wp_id).sort().join(',');
+  t('a failed-then-fixed WP1 is listed only under ran', ranIds.split(',').includes('WP1') && !blockedIds.split(',').includes('WP1'));
+  t('no retry decision for the fixed WP1', !r.decisions_needed.some((d) => d.wp_id === 'WP1'));
+  t('a wp_verified FAIL puts WP2 under blocked; a later builder claim does not undo it', blockedIds === 'WP2' && !ranIds.split(',').includes('WP2'));
+  t('a wp_verified PASS puts WP3 under ran', ranIds === 'WP1,WP3');
+  t('the FAIL verdict reaches the owner as a decision with its reason', r.decisions_needed.some((d) => d.wp_id === 'WP2' && /tests not run/.test(d.detail)));
 }
 
 console.log('9) real spawned CLI: exit codes, --json output, markdown sections');

@@ -1,5 +1,5 @@
 /*
- * Sidebar — redesign 1C (DESIGN.md §2, mockups/01-start). Tokens only (`--fs-*`); motion only on
+ * Sidebar — redesign 1C (DESIGN.md §2, mockups/01-start). Tokens only (`--fs-*`, v1.0); motion only on
  * transform and opacity; every control restates the two-layer focus ring; reduced motion stops the
  * breathing dot (it stays solid).
  */

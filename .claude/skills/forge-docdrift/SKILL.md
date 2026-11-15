@@ -1,6 +1,6 @@
 ---
 name: forge-docdrift
-description: "User-invoked only: /forge-docdrift or /forge docs-check. Fetches the external docs our skills cite (Claude Code, n8n) and flags possible claim drift; manual because it makes network calls."
+description: "User-invoked only: /forge-docdrift. Fetches the external docs our skills cite (Claude Code, n8n) and flags possible claim drift; manual because it makes network calls."
 disable-model-invocation: true
 ---
 
@@ -60,10 +60,12 @@ registered `log-event.cjs` event type — no new registration needed) is logged 
 
 ## When to use
 
+The owner starts it with `/forge-docdrift` (it makes network calls, so it never runs on its own; there is no
+`/forge` subcommand for it). Good moments for the owner to run it, and for a Boss to suggest it in its report:
+
 - Before major n8n work (an n8n node's documented behavior — auth options, response mode — may have moved).
 - Before relying on a cited Claude Code native feature (a subagent frontmatter field like `memory`/`hooks`/
   `isolation`, or a slash command like `/goal`/`/loop`) in a new skill or governance doc.
-- On the owner's `/forge docs-check`.
 - As one more check inside a periodic audit pass (alongside `forge-audit-loop`'s own MEMORY-INTEGRITY/
   AGENT-HEALTH/FEATURE-USAGE/DOCTOR-DELTA checks — this tool covers a gap none of those four checks touch:
   claims about content OUTSIDE this project).
@@ -93,7 +95,7 @@ duplicate event for a condition already on record.
 
 ## Fan-out & flow
 
-**1 agent, no team.** Build Boss (or whichever Boss is doing the citing work) runs a docdrift check directly
+**1 agent, no team.** On the owner's `/forge-docdrift`, the Lead (or the Boss it hands the citing work to) runs a docdrift check directly
 — this is a single zero-dependency CLI call, not a multi-agent task.
 
 ## Ship-readiness (unique)

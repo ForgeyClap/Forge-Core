@@ -152,6 +152,9 @@ async function enumSkillsSh(ctx, store, opts) {
       if (!children.length) locs.push(...inner);
       for (const c of children) { const cr = await getText(ctx, c); if (cr && cr.status === 200) locs.push(...P.parseSitemapLocs(cr.body)); }
     }
+    // FB-SKILLTOOLS-F5: no sitemap answered with entries (timeouts, 5xx): save nothing, so the next run retries,
+    // instead of persisting repos:[] that every later run reads as a finished, empty source.
+    if (!locs.length) { ctx.log('skillssh: no sitemap answered with entries (robots ' + (robots ? robots.status : 'none') + ') - nothing saved, the next run retries'); return; }
     const byRepo = {};
     for (const e of locs.map(P.parseSkillsShLoc).filter(Boolean)) (byRepo[e.repo] = byRepo[e.repo] || []).push(e.skill);
     Object.assign(st, { entries: Object.values(byRepo).reduce((a, s) => a + s.length, 0), byRepo, repos: Object.keys(byRepo),

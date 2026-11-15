@@ -40,8 +40,19 @@ for (const d of fixtures.CRITICAL_DOMAINS) {
   });
 }
 
-t('requirement(): CRITICAL_DOMAINS lists exactly finance/parser/ocr/data/prediction (no drift)', () => {
-  assert.deepStrictEqual([...fixtures.CRITICAL_DOMAINS].sort(), ['data', 'finance', 'ocr', 'parser', 'prediction']);
+t('requirement(): CRITICAL_DOMAINS lists exactly data/ecommerce/finance/ocr/parser/payments/prediction (no drift)', () => {
+  assert.deepStrictEqual([...fixtures.CRITICAL_DOMAINS].sort(), ['data', 'ecommerce', 'finance', 'ocr', 'parser', 'payments', 'prediction']);
+});
+
+t('requirement(): the money domains the classifier really produces (payments, ecommerce) are gated (FB-MISC-1-F8)', () => {
+  const catalog = require('../config/orchestration/domain-catalog.json');
+  const ids = new Set(Object.keys(catalog.domains || {}));
+  for (const d of ['payments', 'ecommerce']) {
+    assert.ok(ids.has(d), d + ' is a domain-catalog id');
+    assert.strictEqual(fixtures.requirement({ domain: d }).required, true, d + ' must need real fixtures');
+  }
+  // finance/parser/ocr are aliases only: the classifier never outputs them, so they are not the only money gate
+  assert.ok(fixtures.CRITICAL_DOMAINS.filter((d) => ids.has(d)).length >= 4);
 });
 
 t('requirement(): "marketing" (marketing copy) is NOT required', () => {

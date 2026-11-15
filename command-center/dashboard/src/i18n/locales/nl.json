@@ -1389,6 +1389,7 @@
       "groupTitle": "Het team wil {count} dingen doen",
       "groupLead": "Kies per regel, of sta alles in één keer toe.",
       "allowAll": "Alles toestaan",
+      "readRefused": "Dit venster mag de wachtende toestemmingsvragen niet zien, dus er kan iets op jou wachten. Koppel dit venster opnieuw of open Forge vanuit de Forge-app.",
       "listLabel": "Verzoeken van het team",
       "assistant": "Forge"
     },

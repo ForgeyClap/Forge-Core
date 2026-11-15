@@ -186,10 +186,15 @@ t('escalate: process failure WITH effort control (Workflow) -> same route, effor
   const b = escalate({ route: 'build', failure: 'process', workflow: true });
   assert.ok(b.route === 'build' && b.model === 'opus' && b.effort === 'high', JSON.stringify(b));
 });
-t('escalate: process failure WITHOUT effort control -> the next route (quick -> build)', () => {
-  const r = escalate({ route: 'quick', failure: 'process' });
+t('FB-CONFIG-1-F3: process failure by DEFAULT -> more effort on the same route (the Agent tool takes effort too)', () => {
+  const q = escalate({ route: 'quick', failure: 'process' });
+  assert.ok(q.action === 'retry' && q.route === 'quick' && q.model === 'sonnet' && q.effort === 'medium' && q.step === 'more-effort', JSON.stringify(q));
+  assert.strictEqual(escalate({ route: 'build', failure: 'process' }).effort, 'high');
+});
+t('escalate: process failure with NO effort control (noEffort / --no-effort-control) -> the next route (quick -> build)', () => {
+  const r = escalate({ route: 'quick', failure: 'process', noEffort: true });
   assert.ok(r.action === 'retry' && r.route === 'build' && r.model === 'opus' && r.effort === 'medium' && r.escalated === true, JSON.stringify(r));
-  assert.strictEqual(escalate({ route: 'build', failure: 'process' }).route, 'deep');
+  assert.strictEqual(escalate({ route: 'build', failure: 'process', noEffort: true }).route, 'deep');
 });
 t('escalate: context/capability failure -> bigger model: build -> deep -> escalate (fable/high)', () => {
   const b = escalate({ route: 'build', failure: 'context' });
@@ -252,6 +257,18 @@ t('routingCheck: a clean temp copy of the real files is ok (fixture sanity)', ()
   const d = fixture('clean'); cleanups.push(d);
   const r = routingCheck(d);
   assert.ok(r.ok === true, JSON.stringify(r.violations));
+});
+t('routingCheck FB-CONFIG-1-F5: per-model effort overrides and forbidden env in the GLOBAL settings are named (a note: only the owner can change that file)', () => {
+  const d = fixture('global'); cleanups.push(d);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-home-')); cleanups.push(home);
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_EFFORT_LEVEL: 'high' }, modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' } } }));
+  const r = routingCheck(d, { claudeHome: home });
+  assert.deepStrictEqual(r.global_settings.map((s) => s.key), ['env.CLAUDE_CODE_EFFORT_LEVEL', 'modelSettings.claude-opus-5-5.effortLevel']);
+  assert.ok(r.notes.some((n) => /settings\.json: modelSettings\.claude-opus-5-5\.effortLevel/.test(n) && /owner/.test(n)), JSON.stringify(r.notes));
+  assert.ok(r.ok === true, 'a global finding is a note, never red: ' + JSON.stringify(r.violations));
+  // a clean (or absent) global settings file adds nothing
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-home0-')); cleanups.push(empty);
+  assert.deepStrictEqual(routingCheck(d, { claudeHome: empty }).global_settings, []);
 });
 t('routingCheck DRIFT: frontmatter effort changed in one agent file -> effort-drift + default-route-drift, ok=false', () => {
   const d = fixture('effort'); cleanups.push(d);
@@ -483,7 +500,7 @@ const realFile = JSON.parse(fs.readFileSync(path.join(REPO, ...P.AGENTS_GENERATE
 function generatedProof(root) {
   const text = fs.readFileSync(path.join(root, ...P.AGENTS_GENERATED_REL), 'utf8').replace(/\r\n/g, '\n');
   const file = JSON.parse(text);
-  assert.deepStrictEqual(file.counts, { agents: 20, bosses: 12, specialists: 8 });
+  assert.deepStrictEqual(file.counts, { agents: 66, bosses: 12, specialists: 54 } /* 8 + the 12 Roblox pack specialists + scribe-acker (R-0233) + the 33 specialists of the 10 R-0239 packs*/);
   const names = file.agents.map((a) => a.name);
   assert.deepStrictEqual(names, [...names].sort());
   const fresh = P.buildAgentsGenerated(root).data;
@@ -493,18 +510,18 @@ function generatedProof(root) {
   assert.deepStrictEqual([fresh.schema, fresh._doc, fresh.policy], [file.schema, file._doc, file.policy], 'schema, _doc or policy differ from the shipped generator');
   return { mode: 'synced', own: fresh.agents.map((a) => a.name).filter((n) => !names.includes(n)) };
 }
-t('real tree: agentsGeneratedCheck is applicable and IN SYNC with 0 violations (synced project: the 20 shipped agents, project-own agents only noted)', () => {
-  assert.ok(realGen.applicable === true && realGen.ok === true && realGen.checked === 20, JSON.stringify(realGen.violations.slice(0, 5)));
+t('real tree: agentsGeneratedCheck is applicable and IN SYNC with 0 violations (synced project: the 66 shipped agents, project-own agents only noted)', () => {
+  assert.ok(realGen.applicable === true && realGen.ok === true && realGen.checked === 66, JSON.stringify(realGen.violations.slice(0, 5)));
   if (P.isDevTree(REPO)) return;
   assert.strictEqual(realGen.devTree, false);
   for (const own of generatedProof(REPO).own) assert.ok(realGen.notes.some((n) => n.includes('project-own agent ' + own + ' ')), own + ' not noted: ' + JSON.stringify(realGen.notes));
 });
-t('real tree: the generated file lists 20 agents (12 bosses + 8 specialists), sorted, and regenerates byte-identically (synced project: per listed agent)', () => {
+t('real tree: the generated file lists 66 agents (12 bosses + 54 specialists: 12 of the Roblox pack, 1 the scribe-acker, 33 of the 10 R-0239 packs), sorted, and regenerates byte-identically (synced project: per listed agent)', () => {
   const g = generatedProof(REPO);
   assert.strictEqual(g.mode, P.isDevTree(REPO) ? 'dev' : 'synced');
   if (g.own.length) console.log('    note: project-own agent(s) beside the shipped set: ' + g.own.join(', '));
 });
-t('real tree: derived roleClass == agent-tool-policy class and route == FORGE_MODEL_ROUTING agentDefaults for all 20', () => {
+t('real tree: derived roleClass == agent-tool-policy class and route == FORGE_MODEL_ROUTING agentDefaults for all 66', () => {
   const pol = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'config', 'agents', 'agent-tool-policy.json'), 'utf8'));
   const routing = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'FORGE_MODEL_ROUTING.json'), 'utf8'));
   for (const a of realFile.agents) {
@@ -531,11 +548,14 @@ t('real tree: maxTurns — every reviewer (read-only-audit / exec-reviewer) stay
   const bld = realFile.agents.filter((a) => a.roleClass === 'full-build').map((a) => a.maxTurns);
   assert.ok(Math.max(...rev) < Math.min(...bld), JSON.stringify({ rev, bld }));
 });
-t('real tree: specialists preload nothing; Bosses preload only skills on disk, model-invocable and listed in agent-skill-map', () => {
+t('real tree: every agent preloads exactly preloadFor(agent) from FORGE_DEFAULT_SKILLS.json; each skill on disk, model-invocable and listed in agent-skill-map', () => {
   const sm = JSON.parse(fs.readFileSync(path.join(REPO, '.claude', 'config', 'agents', 'agent-skill-map.json'), 'utf8'));
+  const DS = require('./forge-default-skills.cjs');
+  const defaults = DS.loadDefaults(REPO);
+  assert.ok(defaults.ok, JSON.stringify(defaults.problems));
   for (const a of realFile.agents) {
-    if (a.bossOrSpecialist === 'specialist') { assert.deepStrictEqual(a.skills, [], a.name); continue; }
-    assert.ok(a.skills.length >= 1 && a.skills.length <= P.SKILL_PRELOAD_CAP, a.name);
+    assert.deepStrictEqual(a.skills, DS.preloadFor(a.name, defaults.data), a.name);
+    assert.ok(a.skills[0] === defaults.data.conduct && a.skills.length <= P.SKILL_PRELOAD_CAP, a.name);
     for (const s of a.skills) {
       assert.ok(sm.agents[a.name].includes(s), a.name + ' ' + s + ' not in map');
       const fm = P.parseAgentFrontmatter(fs.readFileSync(path.join(REPO, '.claude', 'skills', s, 'SKILL.md'), 'utf8'));
@@ -569,9 +589,9 @@ function editAgent(fx, name, fn) { const p = agentPath(fx, name); const before =
 const addLine = (line) => (text) => text.replace(/(\r?\n)---(\r?\n)/, '$1' + line + '$1---$2'); // before the CLOSING fence
 function regen(fx) { fs.writeFileSync(path.join(fx, ...P.AGENTS_GENERATED_REL), JSON.stringify(P.buildAgentsGenerated(fx).data, null, 2) + '\n'); }
 
-t('hermetic: the untouched copy is IN SYNC (0 violations, 20 checked)', () => {
+t('hermetic: the untouched copy is IN SYNC (0 violations, 66 checked)', () => {
   const r = P.agentsGeneratedCheck(agentsFixture());
-  assert.ok(r.ok && r.applicable && r.checked === 20, JSON.stringify(r.violations.slice(0, 3)));
+  assert.ok(r.ok && r.applicable && r.checked === 66, JSON.stringify(r.violations.slice(0, 3)));
 });
 // PORTABLE: the shape of a synced project that keeps its own agent file (26h2: idea-reviewer.md, no color,
 // no maxTurns) — the real-tree proof and the fixture builder must hold there, and the dev tree must stay strict.
@@ -581,7 +601,7 @@ t('PORTABLE: a synced-project-shaped copy with a project-own agent passes the re
   const s = syncedShape();
   assert.deepStrictEqual(generatedProof(s), { mode: 'synced', own: ['idea-reviewer'] });
   const r = P.agentsGeneratedCheck(s);
-  assert.ok(r.ok && r.applicable && r.devTree === false && r.checked === 20 && r.notes.some((n) => n.includes('project-own agent idea-reviewer ')), JSON.stringify(r));
+  assert.ok(r.ok && r.applicable && r.devTree === false && r.checked === 66 && r.notes.some((n) => n.includes('project-own agent idea-reviewer ')), JSON.stringify(r));
 });
 t('PORTABLE: the same copy WITH the dev-tree marker fails the proof and the check (the development tree stays strict)', () => {
   const d = agentsFixture(); fs.writeFileSync(agentPath(d, 'idea-reviewer'), OWN_AGENT);
@@ -597,7 +617,7 @@ t('PORTABLE: agentsFixture built FROM a synced-shaped source copies only the shi
   const fx = agentsFixture({ src: syncedShape() });
   assert.ok(!fs.existsSync(agentPath(fx, 'idea-reviewer')), 'the project-own agent leaked into the fixture');
   const r = P.agentsGeneratedCheck(fx);
-  assert.ok(r.ok && r.devTree === true && r.checked === 20, JSON.stringify(r.violations.slice(0, 3)));
+  assert.ok(r.ok && r.devTree === true && r.checked === 66, JSON.stringify(r.violations.slice(0, 3)));
 });
 t('DRIFT: maxTurns changed in the frontmatter but not regenerated -> drift-field naming build-boss.maxTurns', () => {
   const fx = agentsFixture();
@@ -649,7 +669,7 @@ t('generated file not JSON -> generated-unreadable, frontmatter rules still run'
   const fx = agentsFixture();
   fs.writeFileSync(path.join(fx, ...P.AGENTS_GENERATED_REL), '{ broken');
   const r = P.agentsGeneratedCheck(fx);
-  assert.ok(!r.ok && kinds(r).includes('generated-unreadable') && r.checked === 20);
+  assert.ok(!r.ok && kinds(r).includes('generated-unreadable') && r.checked === 66);
 });
 t('RULE: preloading a disable-model-invocation skill (grill-me) -> skill-not-preloadable', () => {
   const fx = agentsFixture();
@@ -670,7 +690,7 @@ t('RULE: a missing skill -> skill-missing + skill-not-in-map; 33 skills -> skill
 });
 t('RULE: skills as a scalar instead of a YAML list -> skills-not-a-list', () => {
   const fx = agentsFixture();
-  editAgent(fx, 'security-boss', (s) => s.replace(/skills:\r?\n  - forge-verify/, 'skills: forge-verify'));
+  editAgent(fx, 'security-boss', (s) => s.replace(/skills:(\r?\n  - [^\r\n]+)+/, 'skills: forge-conduct'));
   regen(fx);
   assert.ok(kinds(P.agentsGeneratedCheck(fx)).includes('skills-not-a-list'));
 });
@@ -730,7 +750,7 @@ t('LEGACY: absent mirrors are notes, never a crash; the frontmatter is still jud
   const fx = agentsFixture();
   for (const f of ['agent-registry.json', 'agent-skill-map.json', 'agent-tool-policy.json']) fs.unlinkSync(path.join(fx, '.claude', 'config', 'agents', f));
   const r = P.agentsGeneratedCheck(fx);
-  assert.ok(r.ok === true && r.notes.length === 3 && r.checked === 20, JSON.stringify(r));
+  assert.ok(r.ok === true && r.notes.length === 3 && r.checked === 66, JSON.stringify(r));
 });
 t('frontmatter-unparseable: an agent file without frontmatter is a violation and buildAgentsGenerated reports it', () => {
   const fx = agentsFixture();
@@ -746,7 +766,7 @@ t('doctor: agentsCheck is red on generated drift and its ✗ line names it; gree
   const green = agentsFixture();
   const g = D.agentsCheck(green);
   assert.ok(g.ok === true && g.generated.applicable === true, JSON.stringify(g.generated));
-  assert.ok(/✓ agents .*generated config in sync \(20 agents\)/.test(lineOf(g)), lineOf(g));
+  assert.ok(/✓ agents .*generated config in sync \(66 agents\)/.test(lineOf(g)), lineOf(g));
   const red = agentsFixture();
   editAgent(red, 'test-boss', (s) => s.replace(/^color: green/m, 'color: yellow'));
   const rr = D.agentsCheck(red);

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-ownergrant.test.cjs — one verification for "did the owner really authorise this?".
  *
@@ -248,6 +252,39 @@ t('CLI: exit 3 on refusal, 0 on a verified token, 2 on usage error', () => {
   assert.strictEqual(r2.status, 0, r2.stdout + r2.stderr);
   const r3 = spawnSync(process.execPath, [CLI, 'bogus'], { encoding: 'utf8' });
   assert.strictEqual(r3.status, 2);
+});
+
+// FB-GUARDS-1-F1: an agent that is refused could write the secret file itself and then
+// pass its own token. A secret file created or changed after the current Claude Code session started is
+// therefore refused, and the refusal no longer tells the caller to write the file.
+t('F1: a secret file written after the session started is REFUSED (the agent may have written it)', () => {
+  const dir = root('AGENT-WROTE-THIS');
+  const r = G.verifyOwnerGrant({ token: 'AGENT-WROTE-THIS', projectRoot: dir, sessionStartMs: Date.now() - 60000 });
+  assert.strictEqual(r.ok, false, 'a secret created inside this session must not authorise');
+  assert.ok(/session/i.test(r.reason), r.reason);
+  assert.ok(!r.reason.includes('AGENT-WROTE-THIS'), 'the secret is never echoed');
+});
+
+t('F1: a secret file that existed before the session started still authorises', () => {
+  const dir = root('OWNER-WROTE-THIS');
+  const r = G.verifyOwnerGrant({ token: 'OWNER-WROTE-THIS', projectRoot: dir, sessionStartMs: Date.now() + 60000 });
+  assert.strictEqual(r.ok, true, r.reason);
+});
+
+t('F1: the missing-secret refusal says the OWNER writes it by hand, never the caller', () => {
+  const r = G.verifyOwnerGrant({ token: 'x', projectRoot: root(undefined) });
+  assert.ok(/owner writes it by hand/i.test(r.reason), r.reason);
+  assert.ok(/agent must never/i.test(r.reason), r.reason);
+});
+
+t('F1: sessionStartFromEnv reads the Claude Code session start from CLAUDE_PID, null outside a session', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ownergrant-home-'));
+  fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'sessions', '4242.json'), JSON.stringify({ pid: 4242, startedAt: 1700000000000 }));
+  assert.strictEqual(G.sessionStartFromEnv({ CLAUDE_PID: '4242' }, home), 1700000000000);
+  assert.strictEqual(G.sessionStartFromEnv({}, home), null, 'no CLAUDE_PID = not inside Claude Code');
+  assert.strictEqual(G.sessionStartFromEnv({ CLAUDE_PID: '999' }, home), null, 'no session record = unknown');
+  assert.strictEqual(G.sessionStartFromEnv({ CLAUDE_PID: '../x' }, home), null, 'a non-numeric pid is never used as a path');
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

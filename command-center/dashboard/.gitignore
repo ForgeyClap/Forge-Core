@@ -1,4 +1,4 @@
-# secrets (managed by forge-setup guard)
+# Forge — secrets (managed by forge-setup guard)
 .env
 .env.local
 .env.*.local

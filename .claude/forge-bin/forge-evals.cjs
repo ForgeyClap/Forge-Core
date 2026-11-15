@@ -70,6 +70,14 @@
  *     below — the min-samples floor and the significance gate are coupled by design, not independently
  *     tunable without thinking about both.
  *
+ *     UPDATE 2026-11-12 (audit FB-SKILLTOOLS-F2): compareArms no longer uses the binomial test below. The
+ *     assertions of one sample are correlated and the WITHOUT rate is itself an estimate, so pooling
+ *     assertions x samples promoted noise (35/40 vs 25/40 -> p=0.0008, while per sample 7/8 vs 5/8 -> p~0.57).
+ *     Each test now counts SAMPLES (a sample passes when all its assertions pass) and compares the two arms
+ *     with a two-sided Fisher exact test (`fisherExactTwoSided` / `classifyArms`); the floors below are not
+ *     needed for a two-sample test. classifyTest() stays exported for one-arm-against-a-known-rate callers.
+ *     The asymmetric gate and the verdicts are unchanged. The original text follows.
+ *
  *     STATISTICALLY-HONEST VERDICT (2026-07-13 fix — replaces the old "pooled deltaPp > 0" promote rule,
  *     which promoted pure noise, e.g. 4/9 vs 3/9, at n=3): per test, the WITH arm's passed/total is
  *     compared against the WITHOUT arm's observed rate using a DETERMINISTIC, zero-dependency, log-space
@@ -288,16 +296,18 @@ function scoreArm(normalizedEvals, dir) {
   let bytesProxy = 0;
   const tests = normalizedEvals.tests.map((test) => {
     const samplePaths = listSamples(dir, test.id);
-    let passed = 0, total = 0;
+    let passed = 0, total = 0, samplesPassed = 0;
     for (const sp of samplePaths) {
       const text = fs.readFileSync(sp, 'utf8');
       bytesProxy += Buffer.byteLength(text, 'utf8');
       const results = test.assertions.map((a) => runAssertion(a, text));
-      passed += results.filter((r) => r.pass).length;
+      const ok = results.filter((r) => r.pass).length;
+      passed += ok;
       total += results.length;
+      if (ok === results.length) samplesPassed++; // FB-SKILLTOOLS-F2: one sample is one trial
     }
     if (samplePaths.length === 0) { passed = 0; total = test.assertions.length; }
-    return { id: test.id, samplesCount: samplePaths.length, passed, total };
+    return { id: test.id, samplesCount: samplePaths.length, samplesPassed, passed, total };
   });
   const samples = tests.length ? Math.min(...tests.map((t) => t.samplesCount)) : 0;
   const passed = tests.reduce((s, t) => s + t.passed, 0);
@@ -387,6 +397,31 @@ function classifyTest(withPass, withTotal, withoutPass, withoutTotal) {
   return { pValue, classification: withRate < withoutRate ? 'significant_regression' : 'significant_gain' };
 }
 
+/** fisherExactTwoSided(a, n1, c, n2) -> two-sided Fisher exact p-value for the 2x2 table (a of n1 passed in one arm,
+ *  c of n2 in the other): the sum of every hypergeometric table probability with the same margins that is <= the
+ *  observed one. Log space via logChoose, so it never overflows. Two empty arms -> 1. */
+function fisherExactTwoSided(a, n1, c, n2) {
+  const k = a + c, n = n1 + n2;
+  if (n1 <= 0 || n2 <= 0 || k === 0 || k === n) return 1;
+  const lo = Math.max(0, k - n2), hi = Math.min(k, n1);
+  const logDen = logChoose(n, k);
+  const logP = (x) => logChoose(n1, x) + logChoose(n2, k - x) - logDen;
+  const observed = logP(a);
+  const EPS = 1e-7;
+  let total = 0;
+  for (let x = lo; x <= hi; x++) { const lp = logP(x); if (lp <= observed + EPS) total += Math.exp(lp); }
+  return Math.min(1, total);
+}
+/** classifyArms(withPass, withN, withoutPass, withoutN) -> {pValue, classification}: a two-sample comparison of
+ *  per-sample pass counts (FB-SKILLTOOLS-F2). classifyTest() above stays for callers that test one arm against a
+ *  known rate; compareArms no longer uses it, because the WITHOUT arm's rate is itself an estimate. */
+function classifyArms(withPass, withN, withoutPass, withoutN) {
+  const pValue = fisherExactTwoSided(withPass, withN, withoutPass, withoutN);
+  if (pValue >= SIGNIFICANCE_ALPHA) return { pValue, classification: 'no_sig_change' };
+  const withRate = withN > 0 ? withPass / withN : 0, withoutRate = withoutN > 0 ? withoutPass / withoutN : 0;
+  return { pValue, classification: withRate < withoutRate ? 'significant_regression' : 'significant_gain' };
+}
+
 /** compareArms(normalizedEvals, withDir, withoutDir, minSamples) -> the full A/B result object (same
  *  shape printed / emitted as --json). `promotable` requires BOTH arms to reach `minSamples`; when false
  *  the verdict is always INCONCLUSIVE regardless of any test's classification — a decision made on too
@@ -410,8 +445,10 @@ function compareArms(normalizedEvals, withDir, withoutDir, minSamples) {
 
   const perTest = withArm.tests.map((wt, i) => {
     const ot = withoutArm.tests[i];
-    const { pValue, classification } = classifyTest(wt.passed, wt.total, ot.passed, ot.total);
-    return { id: wt.id, withPass: wt.passed, withTotal: wt.total, withoutPass: ot.passed, withoutTotal: ot.total, classification, pValue };
+    const { pValue, classification } = classifyArms(wt.samplesPassed, wt.samplesCount, ot.samplesPassed, ot.samplesCount);
+    return { id: wt.id, withPass: wt.passed, withTotal: wt.total, withoutPass: ot.passed, withoutTotal: ot.total,
+      withSamplesPassed: wt.samplesPassed, withSamples: wt.samplesCount, withoutSamplesPassed: ot.samplesPassed, withoutSamples: ot.samplesCount,
+      classification, pValue };
   });
   const regressions = perTest.filter((pt) => pt.classification === 'significant_regression');
   const gains = perTest.filter((pt) => pt.classification === 'significant_gain');
@@ -517,7 +554,7 @@ function printUsage() {
 module.exports = {
   ASSERTION_TYPES, wordCount, allLines, nonEmptyLines, runAssertion, validateEvals, loadEvals,
   checkTest, resolveOutputPath, scoreSuite, listSamples, scoreArm, readArmMeta, compareArms,
-  logGamma, logChoose, logBinomPmf, twoSidedExactBinomialTest, classifyTest, SIGNIFICANCE_ALPHA,
+  logGamma, logChoose, logBinomPmf, twoSidedExactBinomialTest, classifyTest, fisherExactTwoSided, classifyArms, SIGNIFICANCE_ALPHA,
   logGateEvaluated, formatValidateResult, formatCheckResult, formatScoreTable, formatCompareResult,
   parseArgs,
 };

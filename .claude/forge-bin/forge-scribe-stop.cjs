@@ -20,6 +20,9 @@
  * cannot interrupt synchronous work in Node, see DEADLINE in forge-scribe-hook.cjs). A prompt of this session that is
  * still not an item is an ORPHAN and is reported like an open item (once per prompt id, `reminded_p`), so an unfolded
  * backlog never lets a stop through silently; the gate counts the same orphans as open.
+ * AUTOACK (R-0233): before the active-run check, so also after a run is finalized, the scribe-acker's autoack
+ * (forge-scribe-hook.cjs autoackStep: config scribe-autoack on, a done or defer-proposed item present) accepts what its
+ * rules allow, bounded by AUTOACK_BUDGET_MS. It never blocks a stop and prints nothing; the result is runStop's `autoack`.
  * FAIL-OPEN: no active run, no session_id, no scribe in the project, an unreadable store or any error -> exit 0,
  * nothing printed. A failsafe timer exits 0 silently after STOP_DEADLINE_MS. No LLM call, no network.
  * OPT-OUT: env FORGE_SCRIBE_STOP=off (or remove its entry from the Stop hooks in .claude/settings.json).
@@ -33,6 +36,7 @@ const STOP_DEADLINE_MS = 3000;
 const LOCK_WAIT_MS = 600;
 const RECOVER_BATCH = 8;          // R5 SV-09: at most this many crash orphans folded per stop ...
 const RECOVER_BUDGET_MS = 700;    // ... and none started after this much time since the hook began (see DEADLINE in forge-scribe-hook.cjs)
+const AUTOACK_BUDGET_MS = 1500;   // R-0233: no autoack item is started after this much time since the hook began
 const OPEN_STATUSES = ['unclassified', 'open'];
 const MAX_LISTED = 6;
 const TITLE_MAX = 48;
@@ -50,8 +54,8 @@ function messageFor(items, runId, orphans) {
     H.oneLine('[forge-scribe] Owner request(s) captured this session are not planned yet (run ' + runId + ')' + (orph.length ? ', ' + orph.length + ' of them not an item yet' : '') + ': ' + all.slice(0, MAX_LISTED).join(', ') + more, LINE_MAX),
     H.oneLine((orph.length ? orph.length + ' prompt(s) are not items yet (crash recovery runs in batches) — first: ' + cli + ' recover; then ' : '')
       + 'Before you stop, for each: plan it — ' + cli + ' link R-n --wp <wp_id> --run ' + runId + ' — or propose to carry it over — '
-      + cli + ' transition R-n defer --reason "<why>" (the owner confirms at the end; unclassified: ' + cli + ' classify R-n <class> first; question/ack: transition R-n answer --reason "<where>").', LINE_MAX),
-    'This reminder fires once per item (FORGE_SCRIBE_STOP=off silences it); owner acks stay batched for the end of the run.',
+      + cli + ' transition R-n defer --reason "<why>" (the scribe-acker confirms it when scribe-autoack is on, a hard-gate one waits for the owner; unclassified: ' + cli + ' classify R-n <class> first; question/ack: transition R-n answer --reason "<where>").', LINE_MAX),
+    'This reminder fires once per item (FORGE_SCRIBE_STOP=off silences it); routine acks are the scribe-acker\'s (R-0233), only owner-only items wait for the owner, batched at the end.',
   ].join('\n');
 }
 /** P-id sets are stored like the R-id sets (compact numeric ranges, no cap) under `reminded_p`. */
@@ -70,7 +74,8 @@ function remindedOf(rec) {
 function runStop(payload, opts) {
   opts = opts || {};
   const t0 = Date.now();
-  const out = (o) => Object.assign({ block: false, text: null, reason: null, rids: [], run_id: null }, o, { ms: Date.now() - t0 });
+  let auto = null; // R-0233: what the scribe-acker's autoack did on this stop (never a reason to block)
+  const out = (o) => Object.assign({ block: false, text: null, reason: null, rids: [], run_id: null, autoack: auto }, o, { ms: Date.now() - t0 });
   try {
     const env = opts.env || process.env;
     if (H.isOff(env.FORGE_SCRIBE_STOP)) return out({ reason: 'disabled (FORGE_SCRIBE_STOP=off)' });
@@ -85,6 +90,11 @@ function runStop(payload, opts) {
     const { S, SC } = mod;
     const p = S.paths(root);
     if (!fs.existsSync(p.ledger) && !fs.existsSync(p.inbox)) return out({ reason: 'the scribe has captured nothing in this project' });
+    // R-0233: end of every turn (also after the run is finalized) the scribe-acker accepts what its rules allow, bounded
+    if (fs.existsSync(p.ledger) && typeof H.autoackStep === 'function') {
+      auto = H.autoackStep(SC, S, p, root, { now: opts.now, env, configHome: opts.configHome }, opts.config, t0 + AUTOACK_BUDGET_MS);
+      if (auto) delete auto.line; // a Stop hook prints only when it blocks
+    }
     const act = H.activeRunOf(root, opts);
     if (!act) return out({ reason: 'no active run' });
     // R5 SV-09: a BOUNDED crash-recovery batch with a deadline (never an unbounded replay); what is left stays an orphan

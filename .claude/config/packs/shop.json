@@ -1,0 +1,51 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "shop",
+  "_doc": "The Shop pack (owner request R-0239): 4 shop-* SPECIALIST agents plus the existing payment-integration specialist, which joins by reference (no rename). For web shops and digital products (Etsy, Shopify, WooCommerce, Gumroad). Evidence: a cashflow project and an e-commerce project. forge-router sends a shop request to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Presets are expanded by forge-lane-skills.cjs (--require shop-all,process). Real data only: no invented sales, reviews or metrics; publishing, price changes, spend and messages to buyers stay owner gates.",
+  "projectTypes": [
+    "ecommerce"
+  ],
+  "signals": [
+    "shop",
+    "webshop",
+    "webwinkel",
+    "online store",
+    "etsy",
+    "shopify",
+    "woocommerce",
+    "gumroad",
+    "listing",
+    "digital product",
+    "catalog",
+    "cashflow"
+  ],
+  "playbook": "forge-ecommerce",
+  "agents": [
+    "shop-product-researcher",
+    "shop-listing-writer",
+    "shop-catalog-engineer",
+    "shop-ops-analyst",
+    "payment-integration"
+  ],
+  "skills": [
+    "forge-ecommerce",
+    "forge-payments",
+    "forge-integration",
+    "forge-research-evidence",
+    "humanizer",
+    "forge-verify",
+    "forge-security-review"
+  ],
+  "presets": {
+    "shop-all": [
+      "forge-ecommerce",
+      "forge-payments",
+      "forge-research-evidence"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

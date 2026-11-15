@@ -58,30 +58,38 @@ function inferRoot(dir) {
   const runs = path.dirname(dir), claude = path.dirname(runs);
   return path.basename(runs) === 'forge-runs' && path.basename(claude) === '.claude' ? path.dirname(claude) : null;
 }
-/** eventPaths(e) -> the .md report paths a report/prd event names. */
-function eventPaths(e) {
+const cleanPath = (w) => w.replace(/^[`'"(<[]+/, '').replace(/[`'")>\]:.]+$/, '');
+const isReportPath = (p) => !!p && p.length <= MAX_PATH && p.toLowerCase().endsWith('.md') && isReportName(path.basename(p));
+/** eventPathGroups(e) -> [{whole, words}] per ';' ',' or newline segment of each path field. FB-FINALIZE-2-F4: whole is
+ *  the segment read as ONE path (a path with a space), words are its whitespace-split report paths (a sentence). */
+function eventPathGroups(e) {
   const out = [];
   for (const k of PATH_FIELDS) {
     if (typeof e[k] !== 'string') continue;
-    for (const w of e[k].split(/[\s;,]+/)) {
-      if (!w || w.length > MAX_PATH) continue;
-      const p = w.replace(/^[`'"(<[]+/, '').replace(/[`'")>\]:.]+$/, '');
-      if (p.toLowerCase().endsWith('.md') && isReportName(path.basename(p))) out.push(p);
+    for (const seg of e[k].split(/[;,\r\n]+/)) {
+      const whole = cleanPath(seg.trim());
+      const words = seg.split(/\s+/).map(cleanPath).filter(isReportPath);
+      if (isReportPath(whole) || words.length) out.push({ whole: isReportPath(whole) ? whole : null, words });
     }
   }
   return out;
 }
-/** namedReports(root, dir, events, notes) -> absolute paths of existing reports named by report/prd events. */
+/** eventPaths(e) -> the .md report paths a report/prd event names, split on whitespace (the word reading). */
+function eventPaths(e) { return eventPathGroups(e).flatMap((g) => g.words); }
+/** namedReports(root, dir, events, notes) -> absolute paths of existing reports named by report/prd events. A segment
+ *  that is one existing path with a space wins; otherwise its words are judged one by one. */
 function namedReports(root, dir, events, notes) {
   const out = [];
+  const resolve = (p) => (path.isAbsolute(p) ? [p] : [root, root && path.join(root, '.claude'), dir].filter(Boolean).map((b) => path.resolve(b, p))).find(isFile);
   for (const e of events) {
     if (!e || !REPORT_EVENTS.has(e.event_type)) continue;
-    for (const p of eventPaths(e)) {
-      const cands = path.isAbsolute(p) ? [p] : [root, root && path.join(root, '.claude'), dir].filter(Boolean).map((b) => path.resolve(b, p));
-      const f = cands.find(isFile);
-      if (!f) { notes.push(e.event_type + ' names ' + p + ', which was not found: not judged'); continue; }
-      if (root && outside(root, f)) { notes.push(e.event_type + ' names ' + p + ', which is outside the project: not judged'); continue; }
-      out.push(f);
+    for (const g of eventPathGroups(e)) {
+      const wholeFile = g.whole && /\s/.test(g.whole) ? resolve(g.whole) : null;
+      for (const [p, f] of wholeFile ? [[g.whole, wholeFile]] : g.words.map((w) => [w, resolve(w)])) {
+        if (!f) { notes.push(e.event_type + ' names ' + p + ', which was not found: not judged'); continue; }
+        if (root && outside(root, f)) { notes.push(e.event_type + ' names ' + p + ', which is outside the project: not judged'); continue; }
+        out.push(f);
+      }
     }
   }
   return out;

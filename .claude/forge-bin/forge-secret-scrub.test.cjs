@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-secret-scrub.test.cjs — tests the advisory runtime-artifact secret scanner. Uses
 // OBVIOUSLY-FAKE strings shaped to match forge-store's real SECRET_PATTERNS (never a real secret). The
 // load-bearing test is that output reports LOCATION ONLY and never echoes the matched secret text.
@@ -48,6 +52,21 @@ t('scanFile reads a real file and detects a planted fake secret', () => {
   const hits = scrub.scanFile(f);
   assert.ok(hits.length >= 1 && hits[0].line === 2);
   try { fs.unlinkSync(f); } catch {}
+});
+
+t('scan() over an unreadable file is not clean: it is listed as unreadable (FB-GUARDS-1-F15)', () => {
+  const f = path.join(os.tmpdir(), 'forge-scrub-missing-' + process.pid + '.jsonl');
+  const r = scrub.scan([f]);
+  assert.strictEqual(r.clean, false);
+  assert.deepStrictEqual(r.unreadable, [f]);
+  assert.strictEqual(r.hits.length, 0);
+});
+
+t('CLI: an unreadable file exits 2, never CLEAN', () => {
+  const f = path.join(os.tmpdir(), 'forge-scrub-missing-cli-' + process.pid + '.jsonl');
+  const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'forge-secret-scrub.cjs'), f], { encoding: 'utf8' });
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(!/CLEAN/.test(r.stdout), r.stdout);
 });
 
 t('scan() over an explicit clean file returns clean:true, hits:[]', () => {

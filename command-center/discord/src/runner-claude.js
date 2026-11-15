@@ -121,7 +121,7 @@ export function parseClaudeJson(stdout) {
 }
 
 /** BROKER-ATTEST v2 (Codex r5 #30-rest, versioned refactor 2026-08-07).
- *  de gateway attesteert bij de servicestart niet alleen het GERESOLVEDE pad maar ook de
+ *  v2: de gateway attesteert bij de servicestart niet alleen het GERESOLVEDE pad maar ook de
  *  FILE-IDENTITEIT van het doel (size + mtimeMs + ino) via env CLAUDE_CLI_ATTEST. De runner
  *  herverifieert die identiteit bij ELKE spawn — een binary die na de attest wordt vervangen of een
  *  link die wordt omgelegd, wordt op het spawn-moment gedetecteerd en hard geweigerd (geen fallback).

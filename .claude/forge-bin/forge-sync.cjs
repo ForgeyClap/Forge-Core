@@ -23,7 +23,7 @@
  * forge-doctor.cjs --json` run against the freshly-populated canary, before any rollback) isolated the exact
  * cause: one real, non-fabricated test (forge-capabilities-panel.test.cjs) has a genuine precondition of "at
  * least one real run with events.jsonl exists in this project" — true for every real Forge project, but
- * structurally impossible for a scaffold that canaryInit wipes and recreates empty on every single run.
+ * structurally impossible for a scaffold that canaryInit wipes and recreates empty on every single run (M5).
  * Every other check/suite was genuinely green (89 suites, only this 1 assertion red). See seedCanaryRun's own
  * doc comment (near runValidation) for the fix: log ONE real, honestly-described run_started event into the
  * canary's own just-synced forge-runs/ (via its own freshly-copied log-event.cjs, going through the same
@@ -140,8 +140,14 @@
  *   writes atomically, MOVES proven orphans into the backup (unproven ones only with --retire-unproven-orphans
  *   "<reason>"), writes template-provenance.json + a receipt, and restores from the backup on any failure. --verify (read-only) exits 3 on any difference. Every "missing in template" message
  *   (status, dry-run, install refusal) now points at `publish-template --plan` as the fix.
+ *   Category tests round 8 (forge-sync-publish-guard.cjs; loaded lazily; refuse when it cannot load): --apply
+ *   also refuses (exit 4) when (1) a published test require()s/imports a development-tree file the template does not get
+ *   (a local-only module, or anything outside .claude/) — static, no test runs; (2) there is no GREEN full-doctor receipt
+ *   (`node .claude/forge-bin/forge-doctor.cjs --receipt`, <dev root>/_scratch/forge-doctor-receipt.json) whose fingerprint
+ *   equals the published set now — required while the tree has forge-bin/forge-doctor.cjs. Escape for (2) only:
+ *   --skip-doctor-receipt "<reason>" (stderr WARNING; reason + receipt state in the publish receipt's `doctorReceipt`).
  *
- * CODEX REVIEW OF SYNC SAFETY (2026-10-10,, findings SYNC-01..13; see
+ * R3 — CODEX REVIEW OF SYNC SAFETY (2026-10-10,, findings SYNC-01..13; see
  * .claude/forge-research/overhaul-2026-10-09/codex-r3-sync.md). In one line each:
  *   01 backups (project, central, settings, retired, orphans) are written and read only through REAL folders inside the
  *      project (realDirChain: no junction/symlink on the chain, realpath containment) — else refused, nothing applied.
@@ -172,7 +178,7 @@
  *      that to paths strictly inside .claude/worktrees/<name>/ — everywhere else two unreadable readings are a violation again.]
  *   13 coupled trio: a member the template lacks refuses the install (only "none of it anywhere" is out of scope).
  *
- * CODEX R6 VERIFICATION FIXES (2026-10-10, findings F14..F19; .claude/forge-research/overhaul-2026-10-09/
+ * R6 — CODEX R6 VERIFICATION FIXES (2026-10-10, findings F14..F19; .claude/forge-research/overhaul-2026-10-09/
  * codex-r6-sync-verify.md). In one line each:
  *   F14 rollback re-judges every file against the manifest right before staging: only this batch's own bytes (newHash) or an
  *       absent file is replaced — an owner edit made after the divergence scan is kept — unless --force-rollback-newer.
@@ -351,13 +357,13 @@
  *   isSymlinkPath, containmentSafe, projectId, receiptPath, readReceipt, writeReceipt,
  *   receiptLastTemplateHashMap, readOverrideAllowlist, migrateOwnerStandingRules, preflight, buildPlan, fullFileManifest,
  *   aggregateManifestHash, backupDirFor, centralBackupDir, takeBackup, applyPlanSafely, runValidation,
- *   decideValidationOutcome, decidePreBaseline, preBaselineManifestHash, manifestForRels, workspaceFingerprint, seedCanaryRun, verifyBackupIntegrity, loadTrustedManifest, findNewerOverlappingBatches,
+ *   decideValidationOutcome, decidePreBaseline, preBaselineManifestHash, manifestForRels (F11), workspaceFingerprint, seedCanaryRun, verifyBackupIntegrity, loadTrustedManifest, findNewerOverlappingBatches,
  *   restoreFromManifest, rollbackProject, rollbackBatch, acquireLock, releaseLock, safeSyncProject,
  *   adoptProject, rawInstall, status, findForgeProjects, dedicatedCanaryDir, canaryInit, runSyncAll,
  *   parseArgs, CANARY_DIR_NAME, pruneRetiredFiles, restoreRetiredPruneLedger, RETIRED_TEMPLATE_FILES,
  *   RETIRED_STATE_FILES;: listSeedFiles, shipPlan, loadShipManifest, isNeverTouch, isNeverTouchDir,
  *   isSafeBatchId, migrateScoutVerdicts, findOrphans, retireOrphans, restoreRetiredOrphansLedger;
- *   quiesceCheck, isUntouchedFreshInstall, buildProtectManifest, verifyProtect, diffProtectManifests, protectExpectationsFromRun/FromBatch,
+ *   quiesceCheck, isUntouchedFreshInstall (F10), buildProtectManifest, verifyProtect, diffProtectManifests, protectExpectationsFromRun/FromBatch,
  *   mergeSettingsForBatch, restoreSettingsLedger, coupledDeliveryCheck, templateProvenance, provenanceFor,
  *   previewProjectScaffold, settingsDelta, installPlanJson, buildSyncReport, writeSyncReport;
  *   planPublishTemplate, applyPublishTemplate, verifyPublishTemplate, publishSourceSet, proveTemplateOrphan,
@@ -390,7 +396,7 @@ const { spawnSync } = require('child_process');
 //   every other class (per-project, local-only, ship-release-only, installer-only, global-install, retired) and
 //   every unclassified path -> never delivered.
 // WHICH manifest: the TEMPLATE's own copy when it carries one — it describes exactly that template, and only then
-// is "a ship-sync entry missing from the template" a hard refusal. A template without one (an older,
+// is "a ship-sync entry missing from the template" a hard refusal (F3). A template without one (an older,
 // pre-manifest template, or a hand-built test fixture) is classified with THIS forge-sync's sibling copy and a
 // missing entry is reported as advisory. No usable manifest at all, an invalid one, or no forge-shipcheck.cjs
 // beside this file -> shipPlan()/listSystemFiles() THROW: forge-sync never guesses what to ship.
@@ -452,7 +458,7 @@ const FIXTURES_VAULT_SHIPPED_LC = new Set([...FIXTURES_VAULT_SHIPPED].map((s) =>
  *  committed .env.example), *.pem, *.key, *.pfx, *.p12, names starting id_rsa, id_dsa, id_ecdsa or id_ed25519, and
  *  .credentials.json. */
 function isSecretFloorName(baseLc) {
-  // every `.env*` name except the committed `.env.example` (so `.envrc`, `.env.local`, `.environment` too), and
+  // R4 / F07: every `.env*` name except the committed `.env.example` (so `.envrc`, `.env.local`, `.environment` too), and
   // every `*.env` (`prod.env`), not only `.env` and `.env.<x>`.
   if (baseLc === '.env' || (baseLc.startsWith('.env') && baseLc !== '.env.example') || /\.env$/.test(baseLc)) return true;
   return /\.(pem|key|pfx|p12)$/.test(baseLc) || /^id_(rsa|dsa|ecdsa|ed25519)/.test(baseLc) || baseLc === '.credentials.json';
@@ -491,14 +497,14 @@ function isNeverTouch(rel) {
   const r = String(rel == null ? '' : rel).split('\\').join('/');
   const segs = r.split('/');
   if (!r || r.startsWith('/') || /^[A-Za-z]:/.test(r) || segs.some((s) => s === '' || s === '.' || s === '..')) return true;
-  if (pathHygieneProblem(r)) return true; // an ADS / device / trailing-dot / 8.3 spelling is never a path a sync may touch
+  if (pathHygieneProblem(r)) return true; // R4 / F07: an ADS / device / trailing-dot / 8.3 spelling is never a path a sync may touch
   const lc = r.toLowerCase();
   const lsegs = lc.split('/');
   const base = lsegs[lsegs.length - 1];
   if (NEVER_TOUCH_DIRS_LC.has(lsegs[0]) || NEVER_TOUCH_FILES_LC.has(lc) || PROTECT_LC.has(lc)) return true;
   if (lsegs[0].startsWith('.forge-') || lsegs.includes('.claude-flow') || lsegs.includes('node_modules') || lsegs.includes('.git')) return true;
   if (lsegs.includes('secrets') || isSecretFloorName(base)) return true; // secrets/** and key/env material, any depth
-  if (MEMORY_NAME_PREFIXES_LC.some((p) => base.startsWith(p))) return true; // FORGE_MEMORY*, FORGE_TASK_HISTORY*, FORGE_AGENT_LEDGER*, FORGE_DECISIONS*
+  if (MEMORY_NAME_PREFIXES_LC.some((p) => base.startsWith(p))) return true; // R4 / F07: FORGE_MEMORY*, FORGE_TASK_HISTORY*, FORGE_AGENT_LEDGER*, FORGE_DECISIONS*
   if (/\.user\.json$/.test(base)) return true;
   if (/^forge_killswitch_state/.test(lc) || /^forge_config\.once\./.test(lc) || /^config\/forge-owner-grant/.test(lc)) return true;
   if (/^forge-sync-report-[^/]*\.md$/.test(lc)) return true; // the per-batch change report forge-sync writes into the project
@@ -596,7 +602,7 @@ function literalDirPrefixes(pattern) {
  *  seed-only (a never-touch path never appears). missing: [{rel, kind:'file'|'dir', class, rule, releaseExcluded}]
  *  — a literal ship-sync/seed-only entry the template lacks, or the literal folder of a glob entry that is absent
  *  altogether (skills/gsap/). missingBlocking: the ship-sync ones NOT marked release_excluded, and only when the
- *  manifest is the template's own; install and sync refuse on it before writing anything. */
+ *  manifest is the template's own; install and sync refuse on it before writing anything (F3). */
 function shipPlan(templateDir) {
   const tdir = path.resolve(templateDir);
   if (!isDirectory(tdir)) throw new Error('forge-sync: the template folder does not exist (or is not a plain folder): ' + tdir);
@@ -669,7 +675,7 @@ const PROTECT = new Set([ // NEVER overwrite these project-local files even insi
 const PROTECT_LC = new Set([...PROTECT].map((s) => s.toLowerCase())); // compared lower-cased by isNeverTouch
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.turbo', 'graphify-out']);
 const CANARY_DIR_NAME = '.forge-canary'; // dot-prefixed -> structurally excluded from findForgeProjects discovery
-// extensions treated as text for EOL-only classification (raw bytes ALWAYS backed up/copied/restored —
+// M9: extensions treated as text for EOL-only classification (raw bytes ALWAYS backed up/copied/restored —
 // normalization below is for CLASSIFICATION ONLY, never for the actual bytes on disk).
 const TEXT_EXTS_FOR_EOL = new Set(['.md', '.json', '.cjs', '.js', '.css', '.html', '.ps1', '.sh', '.txt']);
 
@@ -749,9 +755,43 @@ function describeRetiredPruneFailure(r) {
  *  manifest cannot be read — callers never get a guessed list. */
 function listSystemFiles(templateDir) { return shipPlan(templateDir).system; }
 function listSeedFiles(templateDir) { return shipPlan(templateDir).seed; }
-function sha256(p) { try { return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); } catch { return null; } }
+function sha256(p) {
+  try { return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); }
+  catch (e) { if (isTooLargeForOneRead(e)) { try { return hashFileChunked(p, false).hash; } catch { return null; } } return null; }
+}
+/** FIX-SYNC C-F3: readFileSync refuses a file over 2 GiB (ERR_FS_FILE_TOO_LARGE); such a file (a capture, an installer, a game
+ *  asset in the project) is hashed in 1 MiB chunks instead of being "unreadable" — which made every protect check a violation. */
+const HASH_CHUNK_BYTES = 1024 * 1024;
+function isTooLargeForOneRead(e) { return !!(e && e.code === 'ERR_FS_FILE_TOO_LARGE'); }
+/** hashFileChunked(p, eolAuto) -> {hash, binary}. eolAuto: when the first 8192 bytes hold no NUL byte the file is text and the
+ *  CRLF/CR -> LF form is hashed (normalizeEolBuffer's rule, a CR carried across chunk ends); otherwise the raw bytes. Throws on
+ *  a read error. */
+function hashFileChunked(p, eolAuto) {
+  const fd = fs.openSync(p, 'r');
+  try {
+    const h = crypto.createHash('sha256');
+    const buf = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
+    let binary = eolAuto ? null : true, carryCR = false, n;
+    while ((n = fs.readSync(fd, buf, 0, HASH_CHUNK_BYTES, null)) > 0) {
+      let chunk = buf.subarray(0, n);
+      if (binary === null) binary = chunk.subarray(0, 8192).includes(0);
+      if (!binary) {
+        const out = Buffer.allocUnsafe(chunk.length);
+        let j = 0;
+        for (let i = 0; i < chunk.length; i++) {
+          const b = chunk[i];
+          if (carryCR) { carryCR = false; if (b === 0x0a) continue; }
+          if (b === 0x0d) { out[j++] = 0x0a; carryCR = true; } else out[j++] = b;
+        }
+        chunk = out.subarray(0, j);
+      }
+      h.update(chunk);
+    }
+    return { hash: h.digest('hex'), binary: binary === true };
+  } finally { fs.closeSync(fd); }
+}
 function sha256Str(s) { return crypto.createHash('sha256').update(String(s)).digest('hex'); }
-// normalized (CRLF/CR -> LF) hash, used ONLY to classify a raw-byte difference as "eol_only" — never used
+// M9: normalized (CRLF/CR -> LF) hash, used ONLY to classify a raw-byte difference as "eol_only" — never used
 // for the actual copy/backup/restore, which always operate on raw bytes.
 /** normalizeEolBuffer — S7 FIX: normalize CRLF/CR -> LF on the raw BYTE buffer, never on a decoded string.
  *  The old code called `.toString('utf8')` before normalizing — that decode is LOSSY: any invalid/non-UTF8
@@ -848,7 +888,7 @@ function lstatKind(p) {
   catch (e) { return e && e.code === 'ENOENT' ? 'missing' : 'error'; }
 }
 /** isPlainRel(rel) — a plain relative posix path: no absolute/drive prefix, no '', '.' or '..' segment. */
-function isPlainRel(rel) { return typeof rel === 'string' && !!rel && !rel.startsWith('/') && !/^[A-Za-z]:/.test(rel) && !rel.split(/[\\/]/).some((s) => s === '' || s === '.' || s === '..') && !pathHygieneProblem(rel); } // hygiene too
+function isPlainRel(rel) { return typeof rel === 'string' && !!rel && !rel.startsWith('/') && !/^[A-Za-z]:/.test(rel) && !rel.split(/[\\/]/).some((s) => s === '' || s === '.' || s === '..') && !pathHygieneProblem(rel); } // R4 / F07: hygiene too
 /** realTargetProblem(dst, out) -> null | reason. R4 / F06: the never-touch floor judged on the PHYSICAL path. The parent folder
  *  of a write/delete/move target is resolved through every junction/symlink/8.3 alias it may contain (realpath of the longest
  *  existing ancestor), and the resolved location must (1) still lie inside the real .claude of the project and (2) not fall
@@ -932,7 +972,7 @@ function centralAnchorFor(projectDir, centralRoot, opts) {
  *  AFTER the temp file is staged and IMMEDIATELY before the rename — the last point at which a check is possible; a
  *  destination that no longer holds those bytes returns 'changed' and nothing is replaced (the window left is the rename
  *  system call itself, which no user-mode check can close).
- *  approvedRealParent (from realTargetCheck) — the physical folder the never-touch floor was judged on; the writer's
+ *  R6 / F15: approvedRealParent (from realTargetCheck) — the physical folder the never-touch floor was judged on; the writer's
  *  own resolution of the parent must still be exactly that folder, else nothing is staged. floor:true — the floor is judged
  *  again on the writer's OWN resolved destination (realFloorProblem), so a junction swapped in after the caller's check (while
  *  the source was read, say) can never land a file in agent-memory/ or another floored folder inside .claude. */
@@ -955,7 +995,7 @@ function writeBytesNoFollow(buf, out, baseDir, opts) {
   try {
     fd = fs.openSync(tmp, 'wx'); fs.writeSync(fd, buf); fs.closeSync(fd); fd = null;
     if (realParent && fs.realpathSync.native(path.dirname(outReal)) !== realParent) throw new Error('containment guard tripped at write time: parent of ' + out + ' changed identity during staging');
-    if (opts.expectOldHash !== undefined) { // the destination must still be exactly what the caller judged
+    if (opts.expectOldHash !== undefined) { // R4 / F05: the destination must still be exactly what the caller judged
       const st = fileStatus(outReal);
       const cur = st.kind === 'ok' ? st.hash : (st.kind === 'missing' ? null : 'unreadable');
       if (cur !== opts.expectOldHash) return 'changed';
@@ -980,7 +1020,7 @@ function writeBytesNoFollow(buf, out, baseDir, opts) {
  *  still equal the backed-up hash are removed; anything else is someone's newer work and is put back (hard link, so a file
  *  that took the name meanwhile is never replaced) — never deleted. */
 function quarantineAndVerify(out, expectedHash, approvedRealParent) {
-  // when the caller judged the floor on a physical folder, the move aside happens only while out's parent still is it
+  // R6 / F15: when the caller judged the floor on a physical folder, the move aside happens only while out's parent still is it
   if (typeof approvedRealParent === 'string') {
     let now;
     try { now = fs.realpathSync.native(path.dirname(out)); } catch (e) { throw new Error('the parent of ' + out + ' cannot be resolved right before the move aside (' + e.message + ') — kept'); }
@@ -995,7 +1035,10 @@ function quarantineAndVerify(out, expectedHash, approvedRealParent) {
     return { removed: true };
   }
   let keptAt = q;
-  try { fs.linkSync(q, out); fs.rmSync(q, { force: true }); keptAt = out; } catch { /* a new file holds the name now: keep both */ }
+  try { fs.linkSync(q, out); keptAt = out; fs.rmSync(q, { force: true }); } catch (e) {
+    // FB-SYNC-A-F6: no hard links on this volume (EPERM, ENOTSUP, EXDEV, ...): rename back while the name is still free
+    if (keptAt !== out && !(e && e.code === 'EEXIST') && !fs.existsSync(out)) { try { fs.renameSync(q, out); keptAt = out; } catch { /* keep it at q */ } }
+  }
   return { removed: false, keptAt, reason: 'changed since it was backed up (now ' + (h ? h.slice(0, 12) : 'unreadable') + ', expected ' + String(expectedHash).slice(0, 12) + ') — kept' + (keptAt !== out ? ' at ' + keptAt + ' because another file now holds its name' : '') };
 }
 
@@ -1044,10 +1087,10 @@ function manifestEntryProblems(m) {
 }
 // ---- the apply journal ------------------------------------------------
 // <batch>/apply-journal.jsonl records what the apply did per file (intent-create, created, written, skipped). It is the ONLY
-// evidence a rollback has for "this batch created that file", so it must be impossible to redirect — the file is created
+// evidence a rollback has for "this batch created that file", so it must be (F01) impossible to redirect — the file is created
 // exclusively and every append first lstat()s it: a plain regular file, not a link, ONE hard link (a pre-planted hard link to
 // FORGE_MEMORY.md or .env would otherwise receive the JSON lines), and the same dev/ino this process saw when it created or
-// first verified it — and tamper-evident against accidents: every record carries the batch id, a 1-based `seq` and
+// first verified it — and (F02) tamper-evident against accidents: every record carries the batch id, a 1-based `seq` and
 // `prev` (the sha256 of the previous line, 'genesis' for the first); the head (hash + seq) is written into the bound manifest
 // after the apply. The reader re-derives the chain and marks the journal UNTRUSTED on a gap, a reorder, a truncation, a
 // malformed or unbound line or a head mismatch; an untrusted journal proves nothing, so a rollback then deletes nothing
@@ -1106,7 +1149,7 @@ function appendApplyJournal(dirs, rec, chain) {
  *  skipped:Set, head, seq, records}. Per rel, the LAST record decides. trusted is false on any chain defect (see the block
  *  comment above); with expectedHead ({head, seq} from the bound manifest) the file must end exactly there, and a MISSING
  *  file is then untrusted too (present:false, trusted:false — the manifest says a journal was written). */
-/** opts.anchorPrefix (used by a resume and by every append): the anchor {head, seq} must still be IN the journal —
+/** R6 / F16 — opts.anchorPrefix (used by a resume and by every append): the anchor {head, seq} must still be IN the journal —
  *  record #seq hashes to head and everything up to it chains from genesis — while complete, chained records AFTER it are
  *  accepted (out.beyondAnchor counts them; see the interrupted-append rules at takeBackupUnsafe). Without anchorPrefix (a
  *  rollback) the journal must END exactly at the anchor. An anchor of {genesis, 0} means the apply recorded nothing: a missing
@@ -1189,9 +1232,22 @@ function journalHeadError(apply, headRec) {
   return 'the apply journal head could not be recorded in the batch manifest (' + ((headRec && headRec.reason) || 'unknown reason') + ') — without it a later rollback cannot prove the journal complete, so this batch is not committed';
 }
 
+/** projectId(projectDir) — the central-backup folder name of a project. FIX-SYNC A-F1: built from the case-folded REAL path (as
+ *  manifestBinding compares it), so `C:\...\proj` and `c:\...\proj` are one project. legacyProjectId is the pre-fix id (hash of
+ *  path.resolve as typed); readers try both, so a central backup written before the fix is still found. */
 function projectId(projectDir) {
+  const real = realProjectPath(projectDir);
+  return path.basename(real) + '-' + sha256Str(foldCase(real)).slice(0, 8);
+}
+function legacyProjectId(projectDir) {
   const abs = path.resolve(projectDir);
   return path.basename(abs) + '-' + sha256Str(abs).slice(0, 8);
+}
+function projectIdCandidates(projectDir) { return [...new Set([projectId(projectDir), legacyProjectId(projectDir)])]; }
+/** sameProjectPath(recorded, projectDir) — FIX-SYNC A-F1: a ledger's projectPath names THIS project when the case-folded real
+ *  paths match (a VS Code terminal or cmd may spell the drive letter differently than the shell that ran the install). */
+function sameProjectPath(recorded, projectDir) {
+  return typeof recorded === 'string' && foldCase(realProjectPath(recorded)) === foldCase(realProjectPath(projectDir));
 }
 
 // ---- receipt (records what THIS tool last wrote, so drift can be told apart from a hand-edit) ----
@@ -1245,7 +1301,7 @@ function copyNoFollow(src, out, baseDir, opts) {
     if (realParent !== realBase && !realParent.startsWith(realBase + path.sep)) {
       throw new Error('containment guard tripped BEFORE staging: parent of ' + out + ' resolves outside ' + baseDir + ' — no bytes written');
     }
-    // the same physical-parent + floor re-check as writeBytesNoFollow (for the ledger restores into the project)
+    // R6 / F15: the same physical-parent + floor re-check as writeBytesNoFollow (for the ledger restores into the project)
     if (typeof opts.approvedRealParent === 'string' && foldCase(realParent) !== foldCase(opts.approvedRealParent)) {
       throw new Error('never-touch floor guard tripped BEFORE staging: the parent of ' + out + ' now resolves to ' + realParent + ', not ' + opts.approvedRealParent + ' where the floor was checked (a junction/symlink was swapped in) — no bytes written');
     }
@@ -1447,7 +1503,7 @@ function pruneRetiredFiles(projectDir, opts) {
         copyNoFollow(out, backupTarget, pruneDir); // no-follow + containment-checked write, not a bare fs.copyFileSync
         if (sha256(backupTarget) !== entry.oldHash) throw new Error('backup for ' + entry.rel + ' could not be verified after writing — refusing to delete the original'); // never delete without a verified-correct backup in hand
         // move aside, re-hash what moved; bytes that changed since the backup are put back, never deleted
-        const q = quarantineAndVerify(out, entry.oldHash, rt.realParent); // only while the parent is the checked one
+        const q = quarantineAndVerify(out, entry.oldHash, rt.realParent); // R6 / F15: only while the parent is the checked one
         if (!q.removed) { kept.push({ rel: entry.rel, reason: 'changed-since-plan: ' + q.reason }); continue; }
       } else fs.rmSync(out, { force: true });
       if (fs.existsSync(out)) throw new Error('file still present after delete attempt'); // H1-style post-step verification
@@ -1546,7 +1602,7 @@ function retireOrphans(projectDir, report, opts) {
       // the live file is moved aside and the MOVED bytes re-hashed right before removal. If they no longer
       // equal the hash just verified in the backup, someone changed the file in between: it is put back (never deleted),
       // reported as changed-since-plan, and taken out of the ledger again.
-      const q = quarantineAndVerify(out, c.hash, rt.realParent); // only while the parent is the checked one
+      const q = quarantineAndVerify(out, c.hash, rt.realParent); // R6 / F15: only while the parent is the checked one
       if (!q.removed) {
         ledgerFiles = ledgerFiles.filter((f) => f.rel !== c.rel);
         writeLedger();
@@ -1573,7 +1629,7 @@ function restoreRetiredOrphansLedger(projectDir, batchId) {
   try { ledger = JSON.parse(fs.readFileSync(path.join(bdir, RETIRED_ORPHANS_MANIFEST_NAME), 'utf8')); }
   catch (e) { return { ok: true, restored: [], failed: [], conflicts: [], skipped: e && e.code === 'ENOENT' ? 'no orphans were retired in this batch' : ('orphan ledger unreadable: ' + e.message) }; }
   if (!ledger || !Array.isArray(ledger.files) || !ledger.files.length) return { ok: true, restored: [], failed: [], conflicts: [], skipped: 'empty orphan ledger' };
-  if (ledger.batchId !== batchId || ledger.projectPath !== path.resolve(projectDir)) {
+  if (ledger.batchId !== batchId || !sameProjectPath(ledger.projectPath, projectDir)) {
     return { ok: false, restored: [], failed: [{ rel: '(orphan ledger)', reason: 'ledger batchId/projectPath do not match this batch/project — refusing to trust it' }], conflicts: [] };
   }
   const restored = [], failed = [], conflicts = [];
@@ -1609,8 +1665,18 @@ function readOverrideAllowlist(projectDir) {
   const out = new Set();
   out.refused = [];
   let list = [];
-  try { const obj = JSON.parse(fs.readFileSync(overridesAllowlistPath(projectDir), 'utf8')); list = Array.isArray(obj.overrides) ? obj.overrides : []; }
-  catch { return out; }
+  // FIX-SYNC A-F2: a leading BOM (PowerShell 5.1 writes one) is stripped; a file that exists but cannot be read or parsed, or
+  // whose `overrides` is not a list, is NOT an empty list (that silently switched every override off): out.error names it and
+  // preflight lists it as unreadable, which refuses the sync. Only a missing file means "no overrides".
+  let raw;
+  try { raw = fs.readFileSync(overridesAllowlistPath(projectDir), 'utf8'); }
+  catch (e) { if (!e || e.code !== 'ENOENT') out.error = 'cannot be read (' + ((e && e.code) || (e && e.message) || 'error') + ')'; return out; }
+  let obj;
+  try { obj = JSON.parse(raw.replace(/^﻿/, '')); }
+  catch (e) { out.error = 'is not valid JSON (' + e.message + ')'; return out; }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) { out.error = 'is not a JSON object with an "overrides" list'; return out; }
+  if (obj.overrides !== undefined && !Array.isArray(obj.overrides)) { out.error = '"overrides" is not a list of paths'; return out; }
+  list = obj.overrides || [];
   for (const raw of list) {
     if (typeof raw !== 'string' || !raw.trim()) { out.refused.push({ entry: raw, reason: 'not a path' }); continue; }
     const k = normKey(raw.trim());
@@ -1687,8 +1753,12 @@ function migrateOwnerStandingRules(projectDir, opts) {
   const done = (ids, pending) => { ids.pending = !!pending; return ids; };
 
   let templateDoc;
-  try { templateDoc = JSON.parse(fs.readFileSync(templatePath, 'utf8')); }
-  catch { return done([], false); } // no file yet, or unreadable/corrupt — nothing this safety net can act on
+  let templateRaw;
+  try { templateRaw = fs.readFileSync(templatePath, 'utf8'); } catch { return done([], false); } // no file yet / unreadable
+  // FB-SYNC-A-F4: strip a BOM like the Scout sibling does; a file that still does not parse but names an owner rule
+  // is held back (pending), so it is never replaced while its owner content is unknown
+  try { templateDoc = JSON.parse(templateRaw.replace(/^﻿/, '')); }
+  catch { return done([], templateRaw.includes(STANDING_OWNER_REMEMBER_SOURCE)); }
   if (!templateDoc || !Array.isArray(templateDoc.rules)) return done([], false);
 
   const toMigrate = templateDoc.rules.filter((r) => r && typeof r === 'object' && r.source === STANDING_OWNER_REMEMBER_SOURCE);
@@ -1770,7 +1840,7 @@ const SCOUT_VETTING_REL = 'config/orchestration/FORGE_SCOUT_VETTING.json';
 const SCOUT_VETTING_USER_REL = 'config/orchestration/FORGE_SCOUT_VETTING.user.json';
 const SCOUT_VERDICTS = new Set(['approve', 'hard-pass']);
 /** migrateScoutVerdicts(templateDir, projectDir, opts) -> moved verdict list (with `.pending`), same contract as
- *  migrateOwnerStandingRules. Before the 2026-09-26 template/user split (forge-scout.cjs) Scout's record()
+ *  migrateOwnerStandingRules. Before the 2026-09-26 template/user split (forge-scout.cjs, N4) Scout's record()
  *  appended the project's OWN verdicts to the SHIPPED FORGE_SCOUT_VETTING.json — which this sync replaces. Runs
  *  before that file is compared or replaced (every real write path, dry-run included as a zero-write preview):
  *   - the project's copy still equals the hash forge-sync last shipped -> it holds template verdicts only: no-op;
@@ -1893,11 +1963,12 @@ function preflight(templateDir, projectDir, opts) {
   const allowlist = readOverrideAllowlist(projectDir);
   const historyMatch = templateHistoryMatcher(templateDir, opts); // WP-SYNC-R7 item 1 (lazy: only drift/conflict candidates reach it)
   const toChange = [], expectedOverrides = [], unknownDrift = [], conflicts = [], skipped = [], unreadable = [], seedKept = [];
+  if (allowlist.error) unreadable.push({ rel: 'config/forge-overrides.json', error: 'the overrides file ' + allowlist.error + ' — fix it (or remove it) first: without it the declared overrides would be treated as drift' }); // FIX-SYNC A-F2
   const missingInTemplate = sp.missing.slice();
   let same = 0, seedSame = 0;
   for (const rel of sp.system) {
     const src = path.join(templateDir, rel);
-    if (!fs.existsSync(src)) { missingInTemplate.push({ rel, kind: 'file', class: 'ship-sync', rule: null, releaseExcluded: null, vanished: true }); continue; } // listed, never silently skipped
+    if (!fs.existsSync(src)) { missingInTemplate.push({ rel, kind: 'file', class: 'ship-sync', rule: null, releaseExcluded: null, vanished: true }); continue; } // F3: listed, never silently skipped
     const out = safeJoin(dst, rel);
     if (out == null) { skipped.push({ rel, reason: 'unsafe-path' }); continue; }
     if (isSymlinkPath(out)) { skipped.push({ rel, reason: 'symlink' }); continue; }
@@ -1907,10 +1978,10 @@ function preflight(templateDir, projectDir, opts) {
     const templateHash = sha256(src);
     const outHash = outStatus.kind === 'ok' ? outStatus.hash : null;
     if (outHash === templateHash) { same++; continue; }
-    if (allowlist.has(normKey(rel))) { expectedOverrides.push(rel); continue; } // case-folded like the file system
+    if (allowlist.has(normKey(rel))) { expectedOverrides.push(rel); continue; } // R4 / F13: case-folded like the file system
     if (outHash === null) { toChange.push({ rel, oldHash: null, newHash: templateHash, isNew: true, overrideClass: null }); continue; }
     const ext = path.extname(rel).toLowerCase();
-    if (TEXT_EXTS_FOR_EOL.has(ext)) { // raw bytes differ, but ONLY by line-ending style -> always safe
+    if (TEXT_EXTS_FOR_EOL.has(ext)) { // M9: raw bytes differ, but ONLY by line-ending style -> always safe
       const normOut = sha256Normalized(out), normSrc = sha256Normalized(src);
       if (normOut !== null && normOut === normSrc) { toChange.push({ rel, oldHash: outHash, newHash: templateHash, isNew: false, overrideClass: 'eol_only' }); continue; }
     }
@@ -1950,7 +2021,7 @@ function preflight(templateDir, projectDir, opts) {
   return {
     toChange, expectedOverrides, unknownDrift, conflicts, skipped, unreadable, same,
     seedKept, seedSame, seedRels: sp.seed.slice(), missingInTemplate, missingBlocking, shipManifest: sp.manifest, neverTouchClaimed: sp.neverTouchClaimed,
-    overridesRefused: allowlist.refused || [], // override entries that normalise to the floor (dropped, reported)
+    overridesRefused: allowlist.refused || [], // R4 / F13: override entries that normalise to the floor (dropped, reported)
   };
 }
 
@@ -2200,8 +2271,12 @@ function takeBackupUnsafe(projectDir, batchId, plan, templateVer, nowIso, opts, 
     const recovery = ' — refusing to resume; nothing was rewritten or appended. Recovery: `forge-sync rollback <project> --batch ' + batchId + '` (an untrusted journal deletes nothing it cannot prove; updates come back from the verified backups), then sync with a new batch id';
     if (jr.reason) throw new Error('the apply journal of batch ' + batchId + ' cannot be trusted for a resume (' + jr.reason + ')' + recovery);
     if (jr.present && jr.tornTail) throw new Error('the apply journal of batch ' + batchId + ' ends in a record without a line end (an append was interrupted mid-write)' + recovery);
+    // FIX-SYNC B-F3: a rollback journal left by an earlier (partial) rollback of this batch describes the files BEFORE this resume
+    // writes them again; it is not the progress of any later rollback, so it goes now.
+    try { fs.rmSync(journalPath(bdir), { force: true }); }
+    catch (e) { throw new Error('the old rollback journal of batch ' + batchId + ' could not be removed before the resume (' + e.message + ') — refusing to resume'); }
   }
-  // a FRESH batch folder (no manifest yet) must not already hold an apply journal — a leftover or a planted file
+  // R4 / F01: a FRESH batch folder (no manifest yet) must not already hold an apply journal — a leftover or a planted file
   // (a hard link to a protected file would receive this batch's records). A real resume has a manifest and continues its own
   // journal, which is verified link-free on every append.
   if (!priorManifest) {
@@ -2268,7 +2343,7 @@ function takeBackupUnsafe(projectDir, batchId, plan, templateVer, nowIso, opts, 
     // deze herbouw schreef het manifest zonder dat veld en gooide daarmee het enige record weg waarmee
     // een latere rollback de .gitignore-append/created files van poging 1 kon terugdraaien.
     ...(priorManifest && priorManifest.scaffold ? { scaffold: priorManifest.scaffold } : {}),
-    // the journal anchor survives the rebuild (validated above); the resume's apply re-anchors after it ran
+    // R6 / F16: the journal anchor survives the rebuild (validated above); the resume's apply re-anchors after it ran
     ...(priorManifest && priorManifest.apply_journal ? { apply_journal: priorManifest.apply_journal } : {}),
     // the owner-data migrations' exact writes (rel, existed, preHash, postHash) — not rolled back (they only
     // ever ADD the project's own rules/verdicts to its *.user.json), but recorded so verify-protect --batch can tell
@@ -2350,7 +2425,7 @@ function applyPlanSafely(templateDir, projectDir, plan, copyFileImpl, opts) {
   const done = (obj) => Object.assign(obj, { journal: journalDirs.length ? { head: chain.head, seq: chain.seq, batchId: chain.batchId } : null, changedDuringWrite });
   if (journalDirs.length) {
     if (!chain.batchId) return done({ ok: false, applied, created, skipped, error: 'an apply journal needs a valid batch id to bind its records to — none given' });
-    // a resume passes the anchor its bound manifest carries (opts.expectedHead); the journal must still contain it
+    // R6 / F16: a resume passes the anchor its bound manifest carries (opts.expectedHead); the journal must still contain it
     const prior = readApplyJournal(journalDirs[0], { batchId: chain.batchId, expectedHead: opts.expectedHead || null, anchorPrefix: true });
     if (prior.reason) return done({ ok: false, applied, created, skipped, error: 'the existing apply journal of batch ' + chain.batchId + ' cannot be trusted (' + prior.reason + ') — refusing to append to it; nothing was written' });
     if (prior.present && prior.tornTail) return done({ ok: false, applied, created, skipped, error: 'the existing apply journal of batch ' + chain.batchId + ' ends without a line end (an append was interrupted) — refusing to append to it; nothing was written' });
@@ -2374,9 +2449,9 @@ function applyPlanSafely(templateDir, projectDir, plan, copyFileImpl, opts) {
         return done({ ok: false, applied, created, skipped, error: 'containment guard tripped at write time: ' + entry.rel + ' resolves through a symlink or outside the project — refusing to write' });
       }
       if (!isPlainRel(entry.rel) || isNeverTouch(entry.rel)) return done({ ok: false, applied, created, skipped, error: entry.rel + ' is under the never-touch floor — refusing to write it' });
-      const real = realTargetCheck(dst, out); // the floor by the REAL path (a junction into agent-memory/ ...)
+      const real = realTargetCheck(dst, out); // R4 / F06: the floor by the REAL path (a junction into agent-memory/ ...)
       if (real.problem) return done({ ok: false, applied, created, skipped, error: 'refusing to write ' + entry.rel + ': ' + real.problem });
-      const floorOpts = { approvedRealParent: real.realParent, floor: true }; // the writer re-checks on ITS resolution
+      const floorOpts = { approvedRealParent: real.realParent, floor: true }; // R6 / F15: the writer re-checks on ITS resolution
       // SYNC-04 (source): read once, hash, and write exactly these bytes
       let buf;
       try { buf = fs.readFileSync(src); } catch (e) { return done({ ok: false, applied, created, skipped, error: 'the template file ' + entry.rel + ' cannot be read now (' + e.message + ')' }); }
@@ -2390,7 +2465,7 @@ function applyPlanSafely(templateDir, projectDir, plan, copyFileImpl, opts) {
         continue;
       }
       fs.mkdirSync(path.dirname(out), { recursive: true });
-      // writtenHash = the hash of the buffer THIS run writes — never sampled from the destination afterwards
+      // R4 / F03: writtenHash = the hash of the buffer THIS run writes — never sampled from the destination afterwards
       const writtenHash = srcHash;
       if (entry.oldHash === null) {
         journal({ rel: entry.rel, action: 'intent-create', hash: writtenHash });
@@ -2401,12 +2476,12 @@ function applyPlanSafely(templateDir, projectDir, plan, copyFileImpl, opts) {
         journal({ rel: entry.rel, action: 'created', hash: writtenHash });
       } else {
         let r = 'written';
-        if (copyFileImpl) copyFileImpl(src, out); else r = writeBytesNoFollow(buf, out, dst, Object.assign({ expectOldHash: entry.oldHash }, floorOpts)); // re-hashed right before the rename
+        if (copyFileImpl) copyFileImpl(src, out); else r = writeBytesNoFollow(buf, out, dst, Object.assign({ expectOldHash: entry.oldHash }, floorOpts)); // R4 / F05: re-hashed right before the rename
         if (r === 'changed') { skip(entry, 'changed while it was being replaced (re-hashed right before the rename) — never overwritten', sha256(out)); continue; }
         applied.push(entry.rel);
         journal({ rel: entry.rel, action: 'written', hash: writtenHash });
       }
-      // a verification READ after the rename — on a mismatch the file is NOT written again ("repaired"); someone
+      // R4 / F03: a verification READ after the rename — on a mismatch the file is NOT written again ("repaired"); someone
       // else is writing here right now. Reported as changed-during-write; the caller rolls back its own writes and the
       // divergence check keeps the newer bytes.
       const after = sha256(out);
@@ -2422,8 +2497,8 @@ function applyPlanSafely(templateDir, projectDir, plan, copyFileImpl, opts) {
 }
 
 // ---- validation: H4 evidence-based gate + H3 pre/post baseline comparison ----
-// build a human-copy-pasteable command STRING from an argv array with proper quoting — naive string
-// concatenation breaks on a project path containing a space and/or a "!" (e.g. "my project!").
+// M10: build a human-copy-pasteable command STRING from an argv array with proper quoting — naive string
+// concatenation breaks on a project path containing a space and/or a "!" (e.g. "my project (v2)!").
 function quoteArg(a) {
   const s = String(a);
   return /[\s"!]/.test(s) ? ('"' + s.replace(/"/g, '\\"') + '"') : s;
@@ -2731,7 +2806,7 @@ function runDoctorJson(projectDir, doctorPath, timeoutMs) {
   const r = spawnSync(process.execPath, [doctorPath].concat(argsArr), { cwd: projectDir, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024 });
   const durationMs = Date.now() - started; // WP-SYNC-R7: the measured wall time, recorded on the result and in the report
   const exitCode = r.status == null ? 1 : r.status;
-  // spawnSync sets status:null + a kill signal (or r.error.code === 'ETIMEDOUT') when its timeout fires —
+  // M4: spawnSync sets status:null + a kill signal (or r.error.code === 'ETIMEDOUT') when its timeout fires —
   // treat that as BLOCKED (couldn't confirm), never as a confirmed validation failure.
   const timedOut = r.status === null && (!!r.signal || (r.error && r.error.code === 'ETIMEDOUT'));
   let parsed = null; try { parsed = JSON.parse(r.stdout || ''); } catch { parsed = null; }
@@ -2739,7 +2814,7 @@ function runDoctorJson(projectDir, doctorPath, timeoutMs) {
 }
 /** runValidation — the gate for "did this sync leave the project provably OK". opts.doctorTimeoutMs
  *  overrides the default limit (doctorTimeoutFor: DEFAULT_DOCTOR_TIMEOUT_MS = 1800 s, or 12 s per suite when that is more;
- *  `--doctor-timeout` makes this a real, settable flag). The result carries durationMs, timeoutMs and timeoutSource. */
+ *  M4: `--doctor-timeout` makes this a real, settable flag). The result carries durationMs, timeoutMs and timeoutSource. */
 /** doctorProvenance — WHO WROTE THE GATE (broad Codex audit #2).
  *  The install validated itself with `<project>/.claude/forge-bin/forge-doctor.cjs` — a file this very sync
  *  had just written. That is fine while the doctor really is the template's, but system files can legally
@@ -2875,7 +2950,7 @@ function runValidation(projectDir, plan, opts) {
 }
 /** seedCanaryRun — CANARY-ONLY, opt-in via opts.seedRunForValidation (set ONLY on the dedicated canary's own
  *  sync options in runSyncAll, NEVER for a real project's syncOpts). WHY THIS EXISTS (root cause, found via
- *  direct repro 2026-07-26): the dedicated canary is wiped fresh on every canary-init/sync-all run and
+ *  direct repro 2026-07-26): the dedicated canary is wiped fresh on every canary-init/sync-all run (M5) and
  *  therefore NEVER accumulates any forge-runs/ history of its own — but the REAL forge-doctor.cjs this tool
  *  syncs into it runs the project's REAL *.test.cjs suite, and at least one real, non-fabricated test
  *  (forge-capabilities-panel.test.cjs) has a genuine precondition of "at least one real run with
@@ -2941,7 +3016,7 @@ function seedProjectScaffold(templateDir, projectDir) {
   // file created in between was truncated. Both are closed here: refuse non-regular targets, verify
   // containment against the resolved real path, and create with the exclusive 'wx' flag.
   const root = path.resolve(projectDir);
-  // the project root itself must be a plain folder that resolves to itself (a junction as the root would send the
+  // R4 / F06: the project root itself must be a plain folder that resolves to itself (a junction as the root would send the
   // scaffold's .gitignore append and CLAUDE.md stub into another tree)
   let rootReal = null; try { rootReal = fs.realpathSync.native(root); } catch { rootReal = null; }
   const rootProblem = lstatKind(root) !== 'dir' ? 'the project root is not a plain folder' : (rootReal == null || foldCase(rootReal) !== foldCase(root) ? 'the project root ' + root + ' resolves to ' + rootReal + ' (a junction/alias on the path)' : null);
@@ -2973,12 +3048,16 @@ function seedProjectScaffold(templateDir, projectDir) {
           else throw e;
         }
       } else {
-        const priorBytes = fs.readFileSync(target, 'utf8');
+        const priorBuf = fs.readFileSync(target);
+        const priorBytes = priorBuf.toString('utf8');
         const existing = new Set(priorBytes.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
         const missing = snippet.split(/\r?\n/)
           .map((l) => l.trim())
           .filter((l) => l && !l.startsWith('#') && !existing.has(l));
-        if (missing.length === 0) out.gitignore = 'unchanged';
+        // FB-SYNC-A-F5: the undo record is a UTF-8 string; a file that does not round-trip as UTF-8 (UTF-16, Latin-1)
+        // could never be restored byte-for-byte, so it is not appended to at all
+        if (missing.length && !Buffer.from(priorBytes, 'utf8').equals(priorBuf)) { out.gitignore = 'skipped (not UTF-8 text — add the Forge lines by hand)'; out.errors.push('.gitignore: not UTF-8 text, the Forge block was not appended'); }
+        else if (missing.length === 0) out.gitignore = 'unchanged';
         else {
           const appended = GITIGNORE_SCAFFOLD_HEADER + missing.join('\n') + '\n';
           fs.appendFileSync(target, appended, 'utf8');
@@ -3099,6 +3178,10 @@ function redDetail(summary) {
 }
 function decideValidationOutcome(preValidation, validation, opts) {
   opts = opts || {};
+  // FB-SYNC-A-F3: the installer's own syntax gate carries no doctor summary, so an all-red baseline must never wave it through
+  if (validation.tool === 'installer-syntax-gate' || (validation.syntaxGate && Array.isArray(validation.syntaxGate.failures) && validation.syntaxGate.failures.length)) {
+    return { ok: false, reason: validation.reason || 'just-synced file(s) failed the installer syntax gate' };
+  }
   if (validation.timedOut) {
     const lim = Number.isFinite(validation.timeoutMs) ? ' after ' + Math.round(validation.timeoutMs / 1000) + ' s (' + (validation.timeoutSource || 'unknown') + ' limit — raise it with --doctor-timeout <ms>)' : '';
     return { ok: false, timedOut: true, reason: 'forge-doctor timed out' + lim + ' (' + (validation.signal || 'no signal') + ') — treating as BLOCKED, not a confirmed validation failure' };
@@ -3805,14 +3888,15 @@ function loadTrustedManifest(projectDir, batchId, centralBackupRoot, opts) {
   const local = tryDir(pDir, 'project', pChain);
   if (local) return local;
   if (centralBackupRoot) {
-    const pid = projectId(projectDir);
-    let cDir = centralBackupDir(centralBackupRoot, batchId, pid), cChain;
-    try {
-      if (lstatKind(path.resolve(centralBackupRoot)) === 'missing') cChain = { ok: false, problem: 'no central backup root' };
-      else { const a = centralAnchorFor(projectDir, centralBackupRoot, { create: false }); cDir = centralBackupDir(a.root, batchId, pid); cChain = realDirChain(a.anchor, cDir, { create: false }); }
-    } catch (e) { cChain = { ok: false, problem: e.message }; }
-    const central = tryDir(cDir, 'central', cChain);
-    if (central) return central;
+    for (const pid of projectIdCandidates(projectDir)) { // FIX-SYNC A-F1: the folded-real-path id, then the pre-fix id
+      let cDir = centralBackupDir(centralBackupRoot, batchId, pid), cChain;
+      try {
+        if (lstatKind(path.resolve(centralBackupRoot)) === 'missing') cChain = { ok: false, problem: 'no central backup root' };
+        else { const a = centralAnchorFor(projectDir, centralBackupRoot, { create: false }); cDir = centralBackupDir(a.root, batchId, pid); cChain = realDirChain(a.anchor, cDir, { create: false }); }
+      } catch (e) { cChain = { ok: false, problem: e.message }; }
+      const central = tryDir(cDir, 'central', cChain);
+      if (central) return central;
+    }
   }
   return {
     ok: false, found, legacyUnbound,
@@ -3832,11 +3916,20 @@ function findNewerOverlappingBatches(projectDir, batchId, manifest, centralBacku
   const targetRels = new Set((manifest.files || []).map((f) => f.rel));
   const seen = new Set();
   const overlaps = [];
+  const dst = claudeDirOf(projectDir);
+  // FIX-SYNC B-F2: a newer batch's file counts only while the disk still holds what THAT batch wrote (its newHash). A newer
+  // batch that was rolled back (in-run or by hand) left the file at its oldHash, so it no longer stands in the way. An entry
+  // without newHash (a legacy manifest) cannot be judged and still counts.
+  const stillHoldsNewer = (f) => {
+    if (!f || !Object.prototype.hasOwnProperty.call(f, 'newHash')) return true;
+    const out = safeJoin(dst, f.rel);
+    return out == null || sha256(out) === f.newHash;
+  };
   const consider = (id, m) => {
     if (id === batchId || seen.has(id)) return;
     seen.add(id);
     if (!m || !m.ts || !manifest.ts || !(m.ts > manifest.ts)) return; // only strictly-newer batches matter
-    const overlapRels = (m.files || []).map((f) => f.rel).filter((rel) => targetRels.has(rel));
+    const overlapRels = (m.files || []).filter((f) => f && targetRels.has(f.rel) && stillHoldsNewer(f)).map((f) => f.rel);
     if (overlapRels.length) overlaps.push({ batchId: id, ts: m.ts, rels: overlapRels });
   };
 
@@ -3850,17 +3943,33 @@ function findNewerOverlappingBatches(projectDir, batchId, manifest, centralBacku
 
   if (centralBackupRoot) { // S4: also scan the central hub — findable even when local is entirely gone
     const centralBatchesDir = path.join(centralBackupRoot, '.claude', 'forge-backups');
-    const pid = projectId(projectDir);
+    const pids = projectIdCandidates(projectDir); // FIX-SYNC A-F1
     let centralBatchIds = [];
     try { centralBatchIds = fs.readdirSync(centralBatchesDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { /* no central hub / not created yet */ }
     for (const id of centralBatchIds) {
-      let m; try { m = JSON.parse(fs.readFileSync(path.join(centralBatchesDir, id, pid, 'manifest.json'), 'utf8')); } catch { continue; }
-      consider(id, m);
+      for (const pid of pids) {
+        let m; try { m = JSON.parse(fs.readFileSync(path.join(centralBatchesDir, id, pid, 'manifest.json'), 'utf8')); } catch { continue; }
+        consider(id, m);
+        break;
+      }
     }
   }
   return overlaps;
 }
 function journalPath(manifestDir) { return path.join(manifestDir, 'rollback-journal.json'); }
+/** batchAlreadyRolledBack(projectDir, manifestDir, manifest) — FIX-SYNC B-F2: true only when this batch's own rollback journal
+ *  says 'complete' AND every file of the manifest is at its pre-batch state right now (oldHash; absent for a file it created). */
+function batchAlreadyRolledBack(projectDir, manifestDir, manifest) {
+  let j;
+  try { j = JSON.parse(fs.readFileSync(journalPath(manifestDir), 'utf8')); } catch { return false; }
+  if (!j || j.status !== 'complete' || j.batchId !== manifest.batchId || !Array.isArray(manifest.files)) return false;
+  // a batch that also retired files or orphans keeps the normal path: those ledgers are restored after the files and are
+  // not covered by the journal
+  const bdir = isSafeBatchId(manifest.batchId) ? backupDirFor(projectDir, manifest.batchId) : null;
+  if (!bdir || [RETIRED_PRUNE_MANIFEST_NAME, RETIRED_ORPHANS_MANIFEST_NAME].some((n) => fs.existsSync(path.join(bdir, n)))) return false;
+  const dst = claudeDirOf(projectDir);
+  return manifest.files.every((f) => { const out = safeJoin(dst, f.rel); return out != null && sha256(out) === f.oldHash; });
+}
 /** subsetManifest — a shallow copy of a backup manifest restricted to a subset of rels (used when only
  *  PART of a plan was actually applied before a failure, so rollback never touches an untouched file). */
 function subsetManifest(manifest, rels) {
@@ -3873,7 +3982,7 @@ function subsetManifest(manifest, rels) {
  *  (neither newHash nor absent) means someone changed it since this sync, and rolling back would destroy
  *  that — refuse unless --force-rollback-newer. Legacy manifests (no newHash field) can't be checked and are
  *  allowed through unchanged (backward compatible with a pre-B7 backup). */
-function computeDivergence(dst, manifest, doneSet) { // doneSet: rels to leave out (already restored, or never written)
+function computeDivergence(dst, manifest, doneSet) { // doneSet: rels to leave out (already restored, or never written — R3)
   const diverged = [];
   for (const f of manifest.files) {
     if (doneSet.has(f.rel)) continue;
@@ -3894,7 +4003,7 @@ function computeDivergence(dst, manifest, doneSet) { // doneSet: rels to leave o
   return diverged;
 }
 /** restoreFromManifest — restores byte-for-byte from an already-TRUSTED manifest/manifestDir. Journaled: a
- *  thrown interruption (real or the __throwAfter test hook, gated behind FORGE_SYNC_TEST_HOOKS=1) leaves
+ *  thrown interruption (real or the __throwAfter test hook, gated behind FORGE_SYNC_TEST_HOOKS=1 — M11) leaves
  *  rollback-journal.json with the rels already restored; calling this again on the SAME manifestDir resumes
  *  from there (idempotent). H1: every restore step is verified — ENOENT-on-delete is tolerated, but any OTHER
  *  error (EPERM, an unsafe path) is recorded as a real failure, and every file is RE-HASHED after its restore
@@ -3915,7 +4024,7 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
   const dst = claudeDirOf(projectDir);
   // R3 / SYNC-02(c) + SYNC-04: what this batch really did, per file (the apply journal beside the manifest). A file it
   // SKIPPED was never written by it; a file it CREATED is the only kind a rollback may delete.
-  // the journal is verified as a chain bound to this batch, and against the head the bound manifest recorded. An
+  // R4 / F02: the journal is verified as a chain bound to this batch, and against the head the bound manifest recorded. An
   // UNTRUSTED journal (gap, reorder, truncation, unbound or malformed record, head mismatch, or missing although recorded)
   // proves nothing: no file is deleted on its say-so and no "skipped" record suppresses a restore; it is reported.
   const applyRec = readApplyJournal(manifestDir, { batchId: manifest.batchId, expectedHead: manifest.apply_journal || null });
@@ -3925,8 +4034,21 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
   const jPath = journalPath(manifestDir);
   let journal;
   try { journal = JSON.parse(fs.readFileSync(jPath, 'utf8')); } catch { journal = null; }
-  if (!journal || journal.status === 'complete') journal = { batchId: manifest.batchId, status: 'in-progress', doneRels: [], versionRestored: false, receiptRestored: false };
-  const doneSet = new Set(journal.doneRels);
+  // FIX-SYNC B-F3: a journal of ANOTHER batch (or a malformed one) is not this restore's progress
+  if (!journal || typeof journal !== 'object' || journal.status === 'complete' || journal.batchId !== manifest.batchId || !Array.isArray(journal.doneRels)) {
+    journal = { batchId: manifest.batchId, status: 'in-progress', doneRels: [], versionRestored: false, receiptRestored: false };
+  }
+  // FIX-SYNC B-F3: a rel the journal lists counts as done only while its file still holds the pre-batch state (oldHash; absent
+  // for a file this batch created) — a stale journal entry is restored again, never reported as restored on its word alone
+  const fileByRel = new Map(manifest.files.map((f) => [f.rel, f]));
+  const doneSet = new Set(journal.doneRels.filter((rel) => { const f = fileByRel.get(rel); const out = f ? safeJoin(dst, rel) : null; return out != null && sha256(out) === f.oldHash; }));
+  // FIX-SYNC B-F8: a journal write that fails (disk full, EPERM on the backup folder) never stops the restore of the other files;
+  // it is kept as a note on the result — without the journal a re-run simply re-checks every file.
+  let journalSaveError = null;
+  const saveJournal = () => {
+    try { writeAtomic(jPath, JSON.stringify(journal, null, 2)); }
+    catch (e) { if (!journalSaveError) journalSaveError = 'the rollback journal could not be saved (' + e.message + ') — the restore went on; a re-run re-checks every file'; }
+  };
   const notWritten = journalTrusted ? manifest.files.filter((f) => applyRec.skipped.has(f.rel)).map((f) => f.rel) : [];
   const excluded = new Set([...doneSet, ...notWritten]);
 
@@ -3935,14 +4057,14 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
     if (diverged.length) return { ok: false, refusedDivergence: true, diverged, restored: [] };
   }
 
-  const testHooksEnabled = process.env.FORGE_SYNC_TEST_HOOKS === '1'; // gate the test-only throw switch
+  const testHooksEnabled = process.env.FORGE_SYNC_TEST_HOOKS === '1'; // M11: gate the test-only throw switch
   const restored = [], failed = [], kept = [], quarantined = [];
   for (const f of manifest.files) {
     if (doneSet.has(f.rel)) { restored.push(f.rel); continue; }
     if (journalTrusted && applyRec.skipped.has(f.rel)) continue; // never written by this batch: nothing of ours to undo
     if (testHooksEnabled && opts.__throwAfter != null && restored.length === opts.__throwAfter) {
       journal.doneRels = [...doneSet];
-      fs.writeFileSync(jPath, JSON.stringify(journal, null, 2));
+      saveJournal();
       throw new Error('SIMULATED rollback interruption after ' + restored.length + ' file(s) (test-only injection hook)');
     }
     const out = safeJoin(dst, f.rel);
@@ -3954,7 +4076,7 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
     // Dezelfde check, op hetzelfde moment: vlak voor de write/delete. (Volledig raceloos kan alleen met
     // no-follow-handles die fs.copyFileSync niet biedt — dat restrisico is gedocumenteerd, niet verstopt.)
     else if (isSymlinkPath(out) || !containmentSafe(dst, out)) { ok = false; reason = 'containment guard tripped at restore time (symlink/junction on the path)'; }
-    else if ((real = realTargetCheck(dst, out)).problem) { ok = false; reason = 'refused by the real-path floor: ' + real.problem; } // the folder it was judged on is kept)
+    else if ((real = realTargetCheck(dst, out)).problem) { ok = false; reason = 'refused by the real-path floor: ' + real.problem; } // R4 / F06 (R6 / F15: the folder it was judged on is kept)
     else if (f.oldHash === null) {
       // R3 / SYNC-02(c): a rollback deletes ONLY a file this batch itself created, and only while it still holds exactly
       // those bytes. R4 / F02: "created" means a TRUSTED journal's post-write `created` record whose recorded hash equals the
@@ -3968,7 +4090,7 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
         const ours = provenCreated || (!bound && !applyRec.present && exact);
         try {
           if (ours && exact) {
-            const q = quarantineAndVerify(out, cur, real.realParent); // moved aside, re-hashed, removed only when still ours
+            const q = quarantineAndVerify(out, cur, real.realParent); // R4 / F05: moved aside, re-hashed, removed only when still ours
             if (!q.removed) throw new Error('changed while it was being moved aside — kept (' + q.reason + ')');
           } else if (ours && opts.forceRollbackNewer) {
             const qTarget = path.join(manifestDir, 'rollback-quarantine', ...f.rel.split('/'));
@@ -3985,10 +4107,10 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
         } catch (e) { if (!e || e.code !== 'ENOENT') { ok = false; reason = e.message; } }
       }
     } else {
-      // the backup bytes are read and verified IN MEMORY against the recorded oldHash, then written with a
+      // R4 / F03 + F05: the backup bytes are read and verified IN MEMORY against the recorded oldHash, then written with a
       // re-hash of the destination right before the rename: it must still hold what was judged a moment ago (this sync's
       // newHash, or be absent) — otherwise 'changed-during-restore', kept.
-      // the sample taken here is itself judged against the manifest BEFORE anything is staged — the divergence scan
+      // R6 / F14: the sample taken here is itself judged against the manifest BEFORE anything is staged — the divergence scan
       // above ran earlier, and an owner edit in between must not become the "expected" bytes of the write. Unless the owner
       // asked for --force-rollback-newer, only this batch's own bytes (newHash) or an absent file may be replaced; anything
       // else is kept and reported. (A legacy entry without newHash cannot be judged — unchanged, as computeDivergence.)
@@ -4015,24 +4137,32 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
     }
     if (ok) { restored.push(f.rel); doneSet.add(f.rel); } else failed.push({ rel: f.rel, reason });
     journal.doneRels = [...doneSet];
-    fs.writeFileSync(jPath, JSON.stringify(journal, null, 2));
+    saveJournal();
   }
 
-  if (failed.length) return { ok: false, partial: true, restored, failed, kept, quarantined, notWritten, journal: { trusted: journalTrusted, note: journalNote } };
+  if (failed.length) return { ok: false, partial: true, restored, failed, kept, quarantined, notWritten, journal: { trusted: journalTrusted, note: journalNote }, journalSaveError };
 
+  // FB-SYNC-B-F7: a removal is only "done" once the file is really gone; otherwise stop partial, journal step not marked
+  // a FOLDER in the file's place was never written by this sync (version and receipt are files): it is left alone, not a failure
+  const removeOrReason = (p) => {
+    let err = null; try { fs.rmSync(p, { force: true }); } catch (e) { err = e; }
+    let st = null; try { st = fs.lstatSync(p); } catch { st = null; }
+    return st && !st.isDirectory() ? 'could not remove ' + p + (err ? ' (' + (err.code || err.message) + ')' : '') : null;
+  };
+  const stopPartial = (rel, reason) => ({ ok: false, partial: true, restored, failed: [{ rel, reason }], kept, quarantined, notWritten, journal: { trusted: journalTrusted, note: journalNote }, journalSaveError });
   if (!journal.versionRestored) {
     if (manifest.hadVersionFile) writeAtomic(versionFilePath(projectDir), manifest.oldVersion); // atomic on rollback too (audit #22)
-    else { try { fs.rmSync(versionFilePath(projectDir), { force: true }); } catch { /* already gone */ } }
+    else { const why = removeOrReason(versionFilePath(projectDir)); if (why) return stopPartial(path.basename(versionFilePath(projectDir)), why); }
     journal.versionRestored = true;
-    fs.writeFileSync(jPath, JSON.stringify(journal, null, 2));
+    saveJournal();
   }
   if (!journal.receiptRestored) {
     if (Object.prototype.hasOwnProperty.call(manifest, 'hadReceipt')) {
       if (manifest.hadReceipt) writeAtomic(receiptPath(projectDir), manifest.oldReceipt); // atomic on rollback too (audit #22)
-      else { try { fs.rmSync(receiptPath(projectDir), { force: true }); } catch { /* already gone */ } }
+      else { const why = removeOrReason(receiptPath(projectDir)); if (why) return stopPartial(path.basename(receiptPath(projectDir)), why); }
     }
     journal.receiptRestored = true;
-    fs.writeFileSync(jPath, JSON.stringify(journal, null, 2));
+    saveJournal();
   }
   // AUDIT #21: a manifest written by a sync that seeded the project scaffold carries the
   // undo-information for it (see safeSyncProject's manifest-persist step). A LATER rollback — the crash
@@ -4056,11 +4186,11 @@ function restoreFromManifest(projectDir, manifestDir, manifest, opts) {
       + (undone.errors.length ? ' · errors: ' + undone.errors.join('; ') : '');
   }
   journal.status = 'complete';
-  fs.writeFileSync(jPath, JSON.stringify(journal, null, 2));
+  saveJournal();
   return {
     ok: true, restored, versionAction: manifest.hadVersionFile ? 'restored' : 'removed',
     receiptAction: !('hadReceipt' in manifest) ? 'unknown (legacy manifest predates receipt backup)' : (manifest.hadReceipt ? 'restored' : 'removed'),
-    scaffoldAction, quarantined, notWritten, journal: { trusted: journalTrusted, note: journalNote },
+    scaffoldAction, quarantined, notWritten, journal: { trusted: journalTrusted, note: journalNote }, journalSaveError,
   };
 }
 /** batchRecency(bdir, id) -> epoch-millis number, or null when `id` is not a real batch at all.
@@ -4127,7 +4257,7 @@ function latestBatchId(projectDir) {
 function verifyRetiredPruneLedger(ledger, batchId, projectDir, pruneDir) {
   if (!ledger || typeof ledger !== 'object' || !Array.isArray(ledger.files)) return { entries: [], dropped: [{ rel: null, reason: 'ledger has no files array' }] };
   if (ledger.batchId !== batchId) return { entries: [], dropped: [{ rel: null, reason: 'ledger batchId (' + ledger.batchId + ') does not match the batch being restored (' + batchId + ') — refusing to trust it' }] };
-  if (ledger.projectPath !== path.resolve(projectDir)) return { entries: [], dropped: [{ rel: null, reason: 'ledger projectPath (' + ledger.projectPath + ') does not match this project (' + path.resolve(projectDir) + ') — refusing to trust it' }] };
+  if (!sameProjectPath(ledger.projectPath, projectDir)) return { entries: [], dropped: [{ rel: null, reason: 'ledger projectPath (' + ledger.projectPath + ') does not match this project (' + path.resolve(projectDir) + ') — refusing to trust it' }] };
   const knownRels = new Set(RETIRED_TEMPLATE_FILES.concat(RETIRED_STATE_FILES));
   const entries = [], dropped = [];
   for (const f of ledger.files) {
@@ -4251,6 +4381,16 @@ function rollbackProject(projectDir, batchId, opts) {
     }
     return { ok: false, reason: trusted.reason, batchId: targetBatch };
   }
+  // FIX-SYNC B-F2: a batch whose rollback already completed (e.g. rolled back in-run after a failed validation) is a no-op —
+  // never re-run and reported as "N file(s) restored" while nothing changed.
+  // settings.json counts too: a batch whose files came back but whose settings.json still needs (or refuses) a restore is not done.
+  const settingsNow = batchAlreadyRolledBack(projectDir, trusted.manifestDir, trusted.manifest) ? restoreSettingsLedger(projectDir, targetBatch, { checkOnly: true }) : null;
+  if (settingsNow && settingsNow.ok === true && !settingsNow.checkOnly) {
+    return {
+      ok: true, alreadyRolledBack: true, batchId: targetBatch, source: trusted.source, binding: trusted.binding, restored: [],
+      versionAction: 'unchanged (already rolled back)', receiptAction: 'unchanged (already rolled back)', settingsAction: 'none', quarantined: [], notWritten: [],
+    };
+  }
   if (!opts.forceRollbackNewer) {
     const overlaps = findNewerOverlappingBatches(projectDir, targetBatch, trusted.manifest, centralBackupRoot);
     if (overlaps.length) {
@@ -4310,6 +4450,7 @@ function rollbackProject(projectDir, batchId, opts) {
         ok: allOk, batchId: targetBatch, source: trusted.source, binding: trusted.binding, restored: result.restored,
         versionAction: result.versionAction, receiptAction: result.receiptAction, retiredPruneRestore, retiredOrphansRestore,
         settingsRestore, settingsAction: settingsRestore.action || 'none', quarantined: result.quarantined || [], notWritten: result.notWritten || [],
+        journalSaveError: result.journalSaveError || null, // FIX-SYNC B-F8
       },
       allOk ? {} : {
         reason: 'the main rollback succeeded, but ' + [retiredOk ? '' : 'restoring retired legacy file(s) did not: ' + problems,
@@ -4333,7 +4474,7 @@ function rollbackBatch(rootDir, batchId, opts) {
   for (const p of projects) {
     const hasLocal = fs.existsSync(path.join(claudeDirOf(p), 'forge-backups', batchId));
     const trusted = loadTrustedManifest(p, batchId, opts.centralBackupRoot, { allowLegacyManifest: opts.allowLegacyManifest });
-    if (!hasLocal && !trusted.ok && !trusted.found) continue; // a refused (found but untrusted) manifest is reported, not skipped
+    if (!hasLocal && !trusted.ok && !trusted.found) continue; // R3: a refused (found but untrusted) manifest is reported, not skipped
     // S6: hold this project's OWN lock while restoring it (in addition to the CLI's root lock held for the
     // whole batch), so a concurrent single-project `install`/`rollback` on the SAME project cannot race this.
     const lock = acquireLock(claudeDirOf(p), { batchId });
@@ -4344,7 +4485,7 @@ function rollbackBatch(rootDir, batchId, opts) {
   return results;
 }
 
-// ---- a lightweight, cooperative concurrency lock (CLI-layer only — library functions stay lock-free so
+// ---- M2: a lightweight, cooperative concurrency lock (CLI-layer only — library functions stay lock-free so
 // direct unit tests remain deterministic and dry-run stays a true zero-write operation). ----
 function lockPathFor(dir) { return path.join(dir, '.forge-sync.lock'); }
 /** LOCK_STALE_MS — the one freshness window for `.forge-sync.lock`. A younger lock means "a sync is running here":
@@ -4357,7 +4498,15 @@ const LOCK_STALE_MS = 6 * 60 * 60 * 1000;
 function lockBody(opts, nonce) {
   const now = new Date().toISOString();
   const batchId = opts && isSafeBatchId(opts.batchId) ? opts.batchId : null;
-  return JSON.stringify({ pid: process.pid, batch_id: batchId, started_at: now, ts: now, nonce });
+  return JSON.stringify({ pid: process.pid, host: os.hostname(), batch_id: batchId, started_at: now, ts: now, nonce });
+}
+/** LOCK_DEAD_OWNER_GRACE_MS — FIX-SYNC C-F1: a lock whose body names THIS host and whose pid is provably not running is left
+ *  behind by a killed run (tool timeout, closed terminal, the gateway's execFile timeout: the finally never ran). After this
+ *  grace it is reclaimable at once instead of blocking the project for the 6 h window. A lock of another host, or without a
+ *  host (written before this fix), keeps the 6 h rule: its pid means nothing on this machine. */
+const LOCK_DEAD_OWNER_GRACE_MS = 2 * 60 * 1000;
+function deadOwnerOnThisHost(info, alive, ageMs) {
+  return !!(info && typeof info === 'object' && typeof info.host === 'string' && info.host === os.hostname() && alive === false && ageMs != null && ageMs > LOCK_DEAD_OWNER_GRACE_MS);
 }
 /** acquireLock(dir, opts) -> {ok, lockPath, nonce, pid, batchId, reclaimedStale?} | {ok:false, held?, reason}. R3 / SYNC-10:
  *  a held lock is reclaimed ONLY when it is older than the 6 h window (opts.staleMs) AND its owner is provably gone: its
@@ -4402,7 +4551,8 @@ function acquireLock(dir, opts) {
     const startedMs = info ? Date.parse(info.started_at || info.ts || '') : NaN;
     const ageMs = Number.isFinite(startedMs) ? nowMs - startedMs : (st ? nowMs - st.mtimeMs : null);
     const alive = ownerReadable ? (opts.pidAlive || pidAlive)(info.pid) : null;
-    return { raw, info, st, ageMs, ownerReadable, alive, ownerGone: !ownerReadable || alive === false, present: st != null };
+    const deadHere = deadOwnerOnThisHost(info, alive, ageMs); // FIX-SYNC C-F1
+    return { raw, info, st, ageMs, ownerReadable, alive, ownerGone: !ownerReadable || alive === false, deadHere, reclaimable: deadHere || (ageMs != null && ageMs > staleMs && (!ownerReadable || alive === false)), present: st != null };
   };
   const first = judge();
   if (!first.present) { try { create(); return mine; } catch (e) { if (e.code !== 'EEXIST') return { ok: false, reason: 'could not create lock at ' + lp + ': ' + e.message }; return { ok: false, held: true, reason: 'another forge-sync run took the lock at ' + lp + ' a moment ago — refusing to run concurrently' }; } }
@@ -4410,7 +4560,7 @@ function acquireLock(dir, opts) {
     ok: false, held: true, pid: j.ownerReadable ? j.info.pid : null, ageMs: j.ageMs,
     reason: 'another forge-sync run is in progress (lock held' + (j.ownerReadable ? ' by pid ' + j.info.pid : '') + (j.info && j.info.ts ? ' since ' + j.info.ts : '') + (j.ageMs != null ? ', ' + Math.round(j.ageMs / 60000) + ' min old' : '') + ') at ' + lp + ' — refusing to run concurrently' + (why ? ' (' + why + ')' : ''),
   });
-  if (first.ageMs == null || first.ageMs <= staleMs) return heldReason(first, null);
+  if (!first.deadHere && (first.ageMs == null || first.ageMs <= staleMs)) return heldReason(first, null);
   if (!first.ownerGone) return heldReason(first, 'older than ' + Math.round(staleMs / 3600000) + ' h, but its process ' + first.info.pid + (first.alive === true ? ' is still running' : ' could not be checked') + ' — a lock whose owner may be alive is never reclaimed');
   // phase 1: the reclaim marker, named after the stale lock's exact bytes — one reclaimer per stale lock
   const marker = lp + '.reclaim-' + sha256Str(first.raw == null ? 'unreadable' : first.raw).slice(0, 16);
@@ -4431,7 +4581,7 @@ function acquireLock(dir, opts) {
     // phase 2: re-read under the marker — still the SAME stale owner, still dead?
     const second = judge();
     if (!second.present) { try { create(); return Object.assign({}, mine, { reclaimedStale: true, reclaimedFrom: { pid: first.ownerReadable ? first.info.pid : null, ageMs: first.ageMs, ownerReadable: first.ownerReadable, vanished: true } }); } catch (e) { return { ok: false, held: true, reason: 'the stale lock vanished and another run took the name at ' + lp + ' — refusing' }; } }
-    if (second.raw !== first.raw || !second.ownerGone || second.ageMs == null || second.ageMs <= staleMs) {
+    if (second.raw !== first.raw || !second.ownerGone || !second.reclaimable) {
       return { ok: false, held: true, reason: 'the lock at ' + lp + ' changed while it was being reclaimed (another owner now holds it) — refusing, left in place' };
     }
     const gone = marker + '.gone';
@@ -4469,13 +4619,13 @@ function pidAlive(pid) {
  *  -> { path, present, fresh, stale, ageMs, pid, pidAlive, batchId, startedAt, corrupt }. The age comes from the
  *  lock's own started_at/ts, falling back to the file time for an unreadable body. opts.now / opts.staleMs / opts.pidAlive
  *  are test seams. Never writes, never kills. */
-/** `stale` now means "old AND its owner is provably gone" — the only lock acquireLock would reclaim. An old lock whose
+/** R4 / F11: `stale` now means "old AND its owner is provably gone" — the only lock acquireLock would reclaim. An old lock whose
  *  pid is still alive is `liveOwnerOld` (state 'live-owner-old': a sync IS still running, however long); one whose owner cannot
  *  be told is 'unknown-owner-old' (not reclaimable either). `state` is one of fresh | stale | live-owner-old | unknown-owner-old. */
 function readLockStatus(claudeDir, opts) {
   opts = opts || {};
   const lp = lockPathFor(claudeDir);
-  const out = { path: lp, present: false, fresh: false, stale: false, liveOwnerOld: false, state: null, ageMs: null, pid: null, pidAlive: null, batchId: null, startedAt: null, corrupt: false };
+  const out = { path: lp, present: false, fresh: false, stale: false, liveOwnerOld: false, deadOwner: false, state: null, ageMs: null, pid: null, pidAlive: null, batchId: null, startedAt: null, corrupt: false };
   let st;
   try { st = fs.statSync(lp); } catch { return out; }
   out.present = true;
@@ -4491,6 +4641,9 @@ function readLockStatus(claudeDir, opts) {
   out.batchId = info && isSafeBatchId(info.batch_id) ? info.batch_id : null;
   out.fresh = out.ageMs < (opts.staleMs != null ? opts.staleMs : LOCK_STALE_MS);
   out.pidAlive = (opts.pidAlive || pidAlive)(out.pid);
+  // FIX-SYNC C-F1: a lock of THIS host whose pid is gone (past the short grace) is what acquireLock reclaims at once — stale, not fresh
+  out.deadOwner = deadOwnerOnThisHost(info, out.pidAlive, out.ageMs);
+  if (out.deadOwner) out.fresh = false;
   const old = !out.fresh;
   out.liveOwnerOld = old && out.pidAlive === true;
   out.stale = old && (out.pid == null || out.pidAlive === false);
@@ -4668,6 +4821,21 @@ function safeSyncProject(templateDir, projectDir, opts) {
       noop: !blocked, blocked, projectDir, plan, templateVersion: templateVer, settingsMerge: settingsMergeNoop, retiredPrune, orphans, retiredOrphans,
       coupledDelivery: coupled, quiesce: quiesceRec,
     };
+    // FIX-SYNC B-F6: the COMMIT ORDER promise below ("a crash between the receipt and the stamp self-heals on the next sync") — a
+    // file no-op whose FORGE_VERSION.json is missing or names another version re-stamps it: every system file equals this template.
+    if (!blocked) {
+      let vfNow = null;
+      try { vfNow = JSON.parse(fs.readFileSync(versionFilePath(projectDir), 'utf8')); } catch { vfNow = null; }
+      if (!vfNow || vfNow.forge_version !== templateVer) {
+        try {
+          writeAtomic(versionFilePath(projectDir), JSON.stringify({
+            forge_version: templateVer, synced_at: opts.nowIso || new Date().toISOString(), template: templateDir, system_files: listSystemFiles(templateDir).length,
+            devCommitFrom: provenance.devCommitFrom, devCommitTo: provenance.devCommitTo, provenanceSource: provenance.source, templateDirty: provenance.dirty,
+          }, null, 2) + '\n');
+          noopResult.versionRestamped = true;
+        } catch (e) { noopResult.versionRestampError = e.message; }
+      }
+    }
     // even a file no-op may have written (settings.json, retired files, orphans) — and a live writer
     // may have touched protected files meanwhile. Re-check; a violation rolls back whatever this batch recorded.
     const verdict = protectVerdict({ plan, retiredPrune, retiredOrphans });
@@ -4693,11 +4861,26 @@ function safeSyncProject(templateDir, projectDir, opts) {
     return noopResult;
   }
 
+  /** B3 (Blocker 3): opts.refuseOnUnresolvedDrift (set ONLY by the single-project `install` CLI path — sync-all deliberately
+   *  does NOT set it, since its staged-rollout M8 semantics already treat "this project's own partial sync succeeded, but the
+   *  batch still stops" as an accepted, distinct outcome, proven by section 40b). A direct `install` is all-or-nothing: either
+   *  every system file resolves cleanly (or via --accept-template/--force-overwrite/forge-overrides.json/adopt), or NOTHING is
+   *  stamped, so the project never falsely claims templateVersionTo. FIX-SYNC B-F9: plan.unknownDrift and plan.conflicts are
+   *  final here, so the refusal comes BEFORE the backup, the writes, the settings merge and both doctor runs — it used to come
+   *  after all of them and then roll everything back. Nothing is written. */
+  if (opts.refuseOnUnresolvedDrift && !opts.forceOverwrite && (plan.unknownDrift.length > 0 || plan.conflicts.length > 0)) {
+    return {
+      ok: false, refusedPartialDrift: true, nothingWritten: true, projectDir, plan, templateVersion: templateVer, orphans, coupledDelivery: coupled, quiesce: quiesceRec,
+      reason: 'refusing to sync: ' + plan.unknownDrift.length + ' unresolved drift + ' + plan.conflicts.length
+        + ' conflict file(s) (use --accept-template <rel> per file, --force-overwrite for all of them, or resolve via .claude/config/forge-overrides.json/adopt) — a partially-synced project must never claim the new template version; nothing was written',
+    };
+  }
+
   const nowIso = opts.nowIso || new Date().toISOString();
   const batchId = opts.batchId;
   if (!isSafeBatchId(batchId)) return { ok: false, refused: true, projectDir, plan, templateVersion: templateVer, reason: 'refusing to sync: a valid batch id is required before anything is written (none given)' };
 
-  // reusing a --batch-id already backed up for THIS project would silently overwrite that manifest.
+  // M3: reusing a --batch-id already backed up for THIS project would silently overwrite that manifest.
   const existingBatchManifestPath = path.join(backupDirFor(projectDir, batchId), 'manifest.json');
   if (fs.existsSync(existingBatchManifestPath) && !opts.resumeBatch) {
     return {
@@ -4713,7 +4896,7 @@ function safeSyncProject(templateDir, projectDir, opts) {
   let preValidation = null, baselineSource;
   if (opts.reusePreBaseline) {
     const nowMs = Date.parse(nowIso);
-    const priorForReuse = readReceipt(projectDir); // re-hashed over the file set that receipt recorded
+    const priorForReuse = readReceipt(projectDir); // F11: re-hashed over the file set that receipt recorded
     const decision = decidePreBaseline(priorForReuse, preBaselineManifestHash(templateDir, projectDir, priorForReuse), fingerprintImpl(projectDir), Number.isFinite(nowMs) ? nowMs : Date.now(), settingsSnapshot(projectDir, false));
     if (decision.reuse) {
       preValidation = decision.preValidation;
@@ -4733,8 +4916,8 @@ function safeSyncProject(templateDir, projectDir, opts) {
     return { ok: false, refused: true, projectDir, plan, templateVersion: templateVer, preManifest, backup, reason: 'refusing to sync: ' + backup.error };
   }
 
-  const apply = applyPlanSafely(templateDir, projectDir, plan, opts.copyFileImpl, { journalDirs: [backup.backupDir, backup.centralDir], batchId, expectedHead: backup.manifest && backup.manifest.apply_journal }); // a resume's anchor
-  // the journal head goes into the bound manifest BEFORE any rollback reads it. R6 / F17: when that mandatory write
+  const apply = applyPlanSafely(templateDir, projectDir, plan, opts.copyFileImpl, { journalDirs: [backup.backupDir, backup.centralDir], batchId, expectedHead: backup.manifest && backup.manifest.apply_journal }); // R6 / F16: a resume's anchor
+  // R4 / F02: the journal head goes into the bound manifest BEFORE any rollback reads it. R6 / F17: when that mandatory write
   // fails the batch is NOT committed — a later rollback could not prove the journal complete — so it is rolled back like a
   // failed write (the in-memory manifest already carries the head, so this in-run rollback can still prove its creations).
   const headRec = recordApplyJournalHead(backup, apply);
@@ -4928,40 +5111,19 @@ function safeSyncProject(templateDir, projectDir, opts) {
     return valFail;
   }
 
-  /** B3 (Blocker 3) FIX: opts.refuseOnUnresolvedDrift (set ONLY by the single-project `install` CLI path —
-   *  sync-all deliberately does NOT set it, since its staged-rollout M8 semantics already treat "this
-   *  project's own partial sync succeeded, but the batch still stops" as an accepted, distinct outcome, proven
-   *  by section 40b). Without this fix, a project with SOME safely-syncable files AND unresolved
-   *  unknown_drift/conflict on OTHER files would fall through the `plan.toChange.length === 0` early-return
-   *  above (which is the ONLY place H2's `blocked` classification is computed) and proceed to apply+validate+
-   *  STAMP the template version as if the whole project were fully synced — silently hiding the drift. A
-   *  direct `install` refuses that: it is all-or-nothing — either every system file resolves cleanly (or via
-   *  --force-overwrite/forge-overrides.json/adopt), or NOTHING is stamped and whatever WAS just applied is
-   *  rolled back, so the project never falsely claims templateVersionTo. */
-  if (opts.refuseOnUnresolvedDrift && !opts.forceOverwrite && (plan.unknownDrift.length > 0 || plan.conflicts.length > 0)) {
-    const rb = inRunRollback(); // WP-SYNC-R12: the same path as a failed validation — settings.json first, then files, scaffold
-    const { settingsRestore, restored, rollbackError, rolledBack } = rb;
-    const driftFail = {
-      ok: false, refusedPartialDrift: true, projectDir, plan, backup, validation, preValidation, baselineSource, suiteCheck, scaffold, settingsMerge, settingsRestore, rolledBack, rollbackError, restored, preManifest,
-      reason: 'refusing to stamp templateVersionTo: ' + plan.unknownDrift.length + ' unresolved drift + ' + plan.conflicts.length
-        + ' conflict file(s) remain (use --accept-template <rel> per file, --force-overwrite for all of them, or resolve via .claude/config/forge-overrides.json/adopt) — a partially-synced project must never claim the new template version',
-    };
-    driftFail.protect = protectVerdict({ plan, scaffold, canarySeed });
-    driftFail.report = reportFor(projectDir, batchId, Object.assign({}, reportBase, {
-      outcome: 'ROLLED BACK — unresolved drift', reason: driftFail.reason, plan, templateVersionTo: templateVer, preValidation, validation, suiteCheck, baselineSource,
-      settingsDelta: settingsDelta(templateDir, settingsMerge), settingsLedger: settingsMerge && settingsMerge.ledger, // WP-SYNC-R11
-      protect: driftFail.protect, backupDir: backup.backupDir, rollback: { ok: rolledBack, reason: rb.reason, settingsRestore },
-    }));
-    return driftFail;
-  }
-
+  // B3 / FIX-SYNC B-F9: the unresolved-drift refusal of a direct install now runs before the backup (see above) — nothing to roll back here.
+  // FIX-SYNC B-F6: everything from here to the version stamp (prune, orphans, manifests, receipt, stamp) is the COMMIT step. A throw in it
+  // (EPERM/EBUSY on a rename, a full disk) used to escape with the files applied and settings.json merged, and no rollback or report.
+  // It now takes the in-run rollback path like a failed validation (the body is not re-indented, to keep the diff readable).
+  let retiredPrune, retiredOrphans, postManifest, receipt;
+  try {
   // the main sync is confirmed good (validation passed above, no unresolved drift blocking
   // the stamp) — clean up any retired dashboard file this project already carries from an older sync,
   // backed up into this SAME real batch's backup dir first (see pruneRetiredFiles's own doc comment). A
   // failure here is reported on the result but never rolls back the (already-validated) main sync.
-  const retiredPrune = pruneRetiredFiles(projectDir, { batchId });
+  retiredPrune = pruneRetiredFiles(projectDir, { batchId });
   // opt-in orphan retirement, on the same validated batch (moves into its backup, never deletes).
-  const retiredOrphans = opts.retireOrphans ? retireOrphans(projectDir, orphans, { batchId }) : null;
+  retiredOrphans = opts.retireOrphans ? retireOrphans(projectDir, orphans, { batchId }) : null;
 
   const priorReceipt = readReceipt(projectDir);
   const ver = {
@@ -4970,10 +5132,10 @@ function safeSyncProject(templateDir, projectDir, opts) {
     devCommitFrom: provenance.devCommitFrom, devCommitTo: provenance.devCommitTo, provenanceSource: provenance.source, templateDirty: provenance.dirty,
   };
 
-  const postManifest = fullFileManifest(templateDir, projectDir);
+  postManifest = fullFileManifest(templateDir, projectDir);
   const knownHashes = rebuildKnownHashes(priorReceipt, plan, postManifest);
 
-  const receipt = {
+  receipt = {
     projectId: projectId(projectDir), projectPath: path.resolve(projectDir),
     batchId, runId: opts.runId || null,
     templateVersionFrom: priorReceipt ? (priorReceipt.templateVersionTo || priorReceipt.forge_version || null) : null,
@@ -4981,7 +5143,7 @@ function safeSyncProject(templateDir, projectDir, opts) {
     backupRef: { project: backup.backupDir, central: backup.centralDir || null },
     preSyncManifestHash: aggregateManifestHash(preManifest),
     postSyncManifestHash: aggregateManifestHash(postManifest),
-    postSyncManifestRels: Object.keys(postManifest).sort(), // the exact file set the hash above covers (preBaselineManifestHash)
+    postSyncManifestRels: Object.keys(postManifest).sort(), // F11: the exact file set the hash above covers (preBaselineManifestHash)
     filesChanged: plan.toChange.map((e) => ({ rel: e.rel, oldHash: e.oldHash, newHash: e.newHash, overrideClass: e.overrideClass || null })),
     knownHashes,
     overridesPreserved: { expectedOverride: plan.expectedOverrides, unknownDriftSkipped: plan.unknownDrift, conflictSkipped: plan.conflicts },
@@ -5039,6 +5201,30 @@ function safeSyncProject(templateDir, projectDir, opts) {
    *  directory), so a concurrent reader always sees one whole file, never a half-written one. */
   writeReceipt(projectDir, receipt);
   writeAtomic(versionFilePath(projectDir), JSON.stringify(ver, null, 2) + '\n');
+  } catch (e) {
+    const why = 'the commit step after a passed validation threw (' + (e && e.message ? e.message : String(e)) + ')';
+    const rb = inRunRollback(); // settings.json, files (receipt + version from the manifest), scaffold
+    const sideRestore = []; // what the prune / orphan steps of this batch moved, put back from their ledgers
+    for (const [label, fn] of [['retired files', restoreRetiredPruneLedger], ['orphans', restoreRetiredOrphansLedger]]) {
+      try { const x = fn(projectDir, batchId); if (x && x.ok === false) sideRestore.push(label + ': ' + describeRetiredPruneFailure(x)); }
+      catch (e2) { sideRestore.push(label + ': ' + e2.message); }
+    }
+    const rolledBack = rb.rolledBack && sideRestore.length === 0;
+    const rbReason = [rb.reason].concat(sideRestore).filter(Boolean).join('; and ') || null;
+    const commitFail = {
+      ok: false, commitFailed: true, projectDir, plan, backup, validation, preValidation, baselineSource, outcome, suiteCheck, canarySeed, scaffold, settingsMerge,
+      settingsRestore: rb.settingsRestore, rolledBack, rollbackError: rb.rollbackError, restored: rb.restored, preManifest,
+      reason: why + ' — this batch was ' + (rolledBack ? 'rolled back (files, receipt, version, scaffold, settings.json)' : 'NOT confirmed rolled back: ' + rbReason),
+    };
+    commitFail.protect = protectVerdict({ plan, scaffold, canarySeed });
+    commitFail.report = reportFor(projectDir, batchId, Object.assign({}, reportBase, {
+      outcome: rolledBack ? 'ROLLED BACK — the commit step failed' : 'COMMIT FAILED — rollback not confirmed', reason: commitFail.reason, plan,
+      templateVersionTo: templateVer, preValidation, validation, suiteCheck, baselineSource, protect: commitFail.protect, backupDir: backup.backupDir,
+      settingsDelta: settingsDelta(templateDir, settingsMerge), settingsLedger: settingsMerge && settingsMerge.ledger,
+      rollback: { ok: rolledBack, reason: rbReason, settingsRestore: rb.settingsRestore },
+    }));
+    return commitFail;
+  }
   // WP-SYNC-R11: the settings.json merge is NO LONGER here. It ran before the doctor (see "VALIDATE THE FINAL STATE" above),
   // so the receipt and version stamp above commit a project whose settings.json the doctor already judged. Kept from WP22:
   // the merge stays independent of that commit — a refused-safe merge is reported on the result (ok:false overall, below),
@@ -5060,7 +5246,7 @@ function safeSyncProject(templateDir, projectDir, opts) {
     // WP-SYNC-R12 (Codex R11-02 aggravation): a settings.json conflict no longer refuses this WHOLE rollback — the files, receipt,
     // version and scaffold come back, the settings conflict is reported separately (settingsConflictNonBlocking, see rollbackProject).
     const rb = rollbackProject(projectDir, batchId, { centralBackupRoot: opts.centralBackupRoot, centralBackupRootExplicit: true, settingsConflictNonBlocking: true });
-    // once settings.json verifiably holds its pre-sync bytes again, this batch's own .forge-bak goes too
+    // R11-05: once settings.json verifiably holds its pre-sync bytes again, this batch's own .forge-bak goes too
     if (rb && rb.settingsRestore && rb.settingsRestore.ok !== false && sameSettingsState(settingsSnapshot(projectDir, false), settingsTarget)) {
       const fb = removeOwnForgeBak(projectDir, batchId, settingsTarget);
       if (fb) rb.forgeBak = fb;
@@ -5259,7 +5445,7 @@ function rawInstall(templateDir, projectDir, opts) {
     return { ok: false, exitCode: 1, projectDir, reason: backup.error, backup };
   }
   const apply = applyPlanSafely(templateDir, projectDir, plan, null, { journalDirs: [backup.backupDir, backup.centralDir], batchId, expectedHead: backup.manifest && backup.manifest.apply_journal }); // R6 / F16
-  const headError = journalHeadError(apply, recordApplyJournalHead(backup, apply)); // a failed head write fails the batch
+  const headError = journalHeadError(apply, recordApplyJournalHead(backup, apply)); // R4 / F02; R6 / F17: a failed head write fails the batch
   if (!apply.ok || apply.skipped.length || headError) {
     const appliedManifest = subsetManifest(backup.manifest, apply.applied);
     let restored = null;
@@ -5406,7 +5592,7 @@ function devTreeStatus(templateDir, projectDir, s) {
   return ahead.length ? 1 : 0;
 }
 
-/** status — read-only.: it no longer filters template-missing files away silently: every ship-sync /
+/** status — read-only.: it no longer filters template-missing files away silently (F3): every ship-sync /
  *  seed-only entry the template lacks is listed, an incomplete template (missingBlocking) is never "up to date",
  *  seed files the project still lacks count as behind, and the orphan report says which files the template no
  *  longer ships. Returns 1 when the project is behind OR the template is incomplete, else 0. */
@@ -5416,14 +5602,31 @@ function status(templateDir, projectDir, verbose) {
   try { sp = shipPlan(templateDir); tv = templateVersion(templateDir); }
   catch (e) { console.error(path.basename(projectDir) + ': status could not be determined — ' + e.message); return 1; }
   let vf = {}; try { vf = JSON.parse(fs.readFileSync(path.join(dst, 'FORGE_VERSION.json'), 'utf8')); } catch { /* none */ }
-  const drift = sp.system.filter((rel) => sha256(path.join(templateDir, rel)) !== sha256(path.join(dst, rel)));
   const seedsAbsent = sp.seed.filter((rel) => !fs.existsSync(path.join(dst, rel)));
-  const behind = drift.length + seedsAbsent.length;
-  if (readDevTreeMarker(dst)) return devTreeStatus(templateDir, projectDir, { tv, vf, drift, seedsAbsent, verbose });
+  if (readDevTreeMarker(dst)) {
+    const drift = sp.system.filter((rel) => sha256(path.join(templateDir, rel)) !== sha256(path.join(dst, rel)));
+    return devTreeStatus(templateDir, projectDir, { tv, vf, drift, seedsAbsent, verbose });
+  }
+  // FIX-SYNC B-F10: an installed project is judged the way install judges it (preflight): only what install WOULD change is
+  // "behind"; a declared override, unknown drift and a conflict are listed on their own lines with the step that clears them.
+  let pf;
+  try { pf = preflight(templateDir, projectDir); }
+  catch (e) { console.error(path.basename(projectDir) + ': status could not be determined — ' + e.message); return 1; }
+  const behindRels = pf.toChange.filter((e) => e.overrideClass !== 'seed').map((e) => e.rel);
+  const behind = behindRels.length + seedsAbsent.length;
+  const blockedRels = pf.unknownDrift.concat(pf.conflicts);
+  const unreadableN = (pf.unreadable || []).length;
   const head = sp.missingBlocking.length ? 'TEMPLATE INCOMPLETE (' + sp.missingBlocking.length + ' shipped file(s) missing from it) — install would refuse; fix: forge-sync publish-template --plan (from the development tree)'
-    : (behind ? ('DRIFT (' + behind + ' files behind) — run: forge-sync install') : 'up to date ✓');
+    : (unreadableN ? 'UNREADABLE (' + unreadableN + ' file(s) cannot be read — install refuses until they can; see below)'
+      : (blockedRels.length ? 'BLOCKED (' + blockedRels.length + ' file(s) changed in this project — install refuses them until each is resolved; see below)' + (behind ? ' · DRIFT (' + behind + ' files behind)' : '')
+        : (behind ? ('DRIFT (' + behind + ' files behind) — run: forge-sync install') : 'up to date ✓')));
   console.log(path.basename(projectDir) + ': installed=' + (vf.forge_version || 'none') + ' · template=' + tv + ' · ' + head);
-  if (drift.length && verbose) drift.forEach((f) => console.log('    behind: ' + f));
+  if (behindRels.length && verbose) behindRels.forEach((f) => console.log('    behind: ' + f));
+  for (const u of pf.unreadable || []) console.log('  UNREADABLE: ' + u.rel + ' (' + u.error + ')');
+  if (pf.unknownDrift.length) console.log('  ' + pf.unknownDrift.length + ' file(s) edited here (unknown drift): ' + pf.unknownDrift.join(', '));
+  if (pf.conflicts.length) console.log('  ' + pf.conflicts.length + ' conflict(s) (edited here AND changed in the template): ' + pf.conflicts.join(', '));
+  if (blockedRels.length) console.log('  resolve each with: forge-sync install <project> --accept-template <rel> (take the template copy), --force-overwrite (all of them), or declare it in .claude/config/forge-overrides.json (keep yours)');
+  if (pf.expectedOverrides.length) console.log('  ' + pf.expectedOverrides.length + ' expected override(s) — declared in .claude/config/forge-overrides.json, never touched: ' + pf.expectedOverrides.join(', '));
   if (seedsAbsent.length) console.log('  ' + seedsAbsent.length + ' seed file(s) this project does not have yet — install creates them (never overwrites an existing one): ' + (verbose ? seedsAbsent.join(', ') : seedsAbsent.slice(0, 6).join(', ') + (seedsAbsent.length > 6 ? ', …' : '')));
   printMissingInTemplate(projectDir, sp.missing, sp.missingBlocking, sp.manifest, verbose);
   // read-only preview of the retired Control Center cleanup — `status` never writes, so
@@ -5434,7 +5637,7 @@ function status(templateDir, projectDir, verbose) {
   printOrphanReport(projectDir, findOrphans(projectDir, sp), null);
   const sr = stateRootOf(projectDir); // WP 2.1
   if (sr.present) console.log('  ' + sr.rel + '/ (per-project state root: runs, memory, scribe store, ...) — protected: forge-sync never ships, writes, seeds or retires anything in it');
-  return (behind || sp.missingBlocking.length) ? 1 : 0;
+  return (behind || blockedRels.length || unreadableN || sp.missingBlocking.length) ? 1 : 0;
 }
 /** printMissingInTemplate — F3: say which shipped entries the template lacks, never a silent skip. Blocking ones are
  *  always named; advisory ones (release_excluded, or a template without its own manifest) are counted, and named
@@ -5516,7 +5719,7 @@ function canaryInit(templateDir, rootDir, opts) {
   return { dir, refreshed: true };
 }
 
-function abortNote(result) { // never say "(if applicable)" — say plainly whether anything was rolled back.
+function abortNote(result) { // M8: never say "(if applicable)" — say plainly whether anything was rolled back.
   // Three distinct shapes since H2: (1) blocked/refused before any write -> nothing to roll back; (2) ok:true
   // but STILL has unresolved drift on THIS project (some files synced fine, others left drifted) -> the
   // project's OWN sync succeeded and is stamped, nothing needs rolling back, but the batch still can't proceed
@@ -5596,7 +5799,7 @@ function runSyncAll(templateDir, rootDir, opts) {
    *  --quiesce-override "<reason>" -> refused, nothing written; an override is recorded in that project's receipt and
    *  report. opts.requireQuiesce turns it on (the CLI always does for a real run); opts.quiesceOpts are quiesceCheck's
    *  options (idleMin and the test seams). The disposable dedicated canary is not a real project and is not checked. */
-  // the project lock is taken FIRST and the quiesce check runs UNDER it (check-after-lock); the check recognises this
+  // R4 / F09: the project lock is taken FIRST and the quiesce check runs UNDER it (check-after-lock); the check recognises this
   // run's own lock by nonce + pid, so it is never mistaken for "another sync running".
   const quiesceFor = (p, lock) => {
     if (!opts.requireQuiesce || opts.dryRun) return null;
@@ -5622,7 +5825,7 @@ function runSyncAll(templateDir, rootDir, opts) {
       let r;
       if (opts.dryRun) r = rawInstall(templateDir, p, unsafeOpts);
       else {
-        const lock = acquireLock(claudeDirOf(p), { batchId }); // lock first, then the quiesce check under it
+        const lock = acquireLock(claudeDirOf(p), { batchId }); // R4 / F09: lock first, then the quiesce check under it
         if (!lock.ok) r = { ok: false, refused: true, exitCode: 1, projectDir: p, reason: 'could not acquire the project lock for ' + p + ': ' + lock.reason };
         else { try { r = rawInstall(templateDir, p, Object.assign(unsafeOpts, quiesceOptsFor(p, false, lock))); } finally { releaseLock(lock); } }
         if (r.refused && !r.ok) console.error(path.basename(p) + ': REFUSED — ' + r.reason);
@@ -5798,7 +6001,7 @@ function printSafeSyncResult(projectDir, r) {
   }
   if (r.blocked) { console.error(name + ': BLOCKED: ' + r.plan.unknownDrift.length + ' drifted / ' + r.plan.conflicts.length + ' conflicted (use --force-overwrite or declare .claude/config/forge-overrides.json)'); return; }
   if (r.refusedPartialDrift) { // B3: never silently stamp a partially-synced project
-    console.error(name + ': BLOCKED — ' + r.plan.unknownDrift.length + ' drifted / ' + r.plan.conflicts.length + ' conflicted file(s) prevent a full sync (use --accept-template <rel> per file, --force-overwrite for all, or declare .claude/config/forge-overrides.json); safely-syncable file(s) were rolled back, NOT partially stamped');
+    console.error(name + ': BLOCKED — ' + r.plan.unknownDrift.length + ' drifted / ' + r.plan.conflicts.length + ' conflicted file(s) prevent a full sync (use --accept-template <rel> per file, --force-overwrite for all, or declare .claude/config/forge-overrides.json); ' + (r.nothingWritten ? 'nothing was written (refused before the backup)' : 'safely-syncable file(s) were rolled back, NOT partially stamped'));
     if (r.plan.unknownDrift.length) console.error('  UNKNOWN DRIFT: ' + r.plan.unknownDrift.join(', '));
     if (r.plan.conflicts.length) console.error('  CONFLICT: ' + r.plan.conflicts.join(', '));
     if (r.settingsRestore && r.settingsRestore.ok === false) console.error('  ' + settingsRestoreProblem(r.settingsRestore)); // WP-SYNC-R11
@@ -5827,7 +6030,7 @@ function printSafeSyncResult(projectDir, r) {
     if (r.report && r.report.path) console.log('  change report: ' + r.report.path);
     else if (r.report && r.report.error) console.error('  change report could not be written: ' + r.report.error);
   } else {
-    const failLabel = r.outcome && r.outcome.validationThrew ? 'the validation step threw' // WP-SYNC-R12
+    const failLabel = r.outcome && r.outcome.validationThrew ? 'the validation step threw' // WP-SYNC-R12 (R11-01 / R11-02)
       : (r.outcome && r.outcome.settingsChanged ? 'settings.json changed during validation; ' + (r.validation ? r.validation.tool + ', exit ' + r.validation.exitCode : 'no validation result')
         : (r.validation ? (r.validation.timedOut ? (r.validation.tool + ' TIMED OUT (blocked, not a confirmed failure)') : (r.validation.tool + ', exit ' + r.validation.exitCode)) : (r.applyError || 'unknown')));
     let rbNote;
@@ -5924,7 +6127,8 @@ function parseArgs(argv) {
         else flags.allowDevTreeTarget = reason;
       }
     }
-    else if (!a.startsWith('--')) pos.push(a);
+    else if (a.length > 1 && a.startsWith('-')) { if (!argError) argError = 'unknown flag ' + a + ' (see the usage line; a mistyped --dry-run must never run a real install)'; } // FIX-SYNC B-F1
+    else pos.push(a);
   }
   return { flags, pos, argError };
 }
@@ -6012,7 +6216,7 @@ const QUIESCE_DEFAULT_IDLE_MIN = 10;
 const QUIESCE_TRANSCRIPT_MAX_DEPTH = 8;
 /** claudeProjectSlug(projectDir) — the folder name Claude Code uses for a project under ~/.claude/projects: every
  *  character that is not a letter or digit becomes '-'. Observed on this machine: `C:\Users\YOU\Documents\my project
- *!` -> `c--Users-YOU-Documents-my-project-v2-` (the drive letter's case varies, so matching is
+ *  (v2)!` -> `c--Users-YOU-Documents-my-project-v2-` (the drive letter's case varies, so matching is
  *  case-insensitive). */
 function claudeProjectSlug(projectDir) { return path.resolve(projectDir).replace(/[^A-Za-z0-9]/g, '-'); }
 function defaultClaudeProjectsRoot() { return path.join(os.homedir(), '.claude', 'projects'); }
@@ -6098,20 +6302,28 @@ function parseWin32ProcessJson(stdout) {
   const arr = parsed == null ? [] : (Array.isArray(parsed) ? parsed : [parsed]);
   return arr.map((p) => ({ pid: Number(p && p.ProcessId), ppid: Number(p && p.ParentProcessId), name: p && p.Name != null ? String(p.Name) : null, cmd: p && p.CommandLine != null ? String(p.CommandLine) : null })).filter((p) => Number.isFinite(p.pid));
 }
+/** listProcessesStructured(opts) — FIX-SYNC B-F4: opts.requirePid (quiesceCheck passes this process's own pid) — a listing
+ *  that does not contain that pid is incomplete (empty output from a failed Get-CimInstance, a truncated listing) and throws,
+ *  so the caller counts it as unknown, never as idle. Get-CimInstance runs with -ErrorAction Stop: a failure is a non-zero exit
+ *  (the trailing `exit 0` only keeps non-terminating ConvertTo-Json noise from failing a good listing). */
 function listProcessesStructured(opts) {
   const o = opts || {};
   const platform = o.platform || process.platform; // test seams: platform + spawnSyncImpl (never a real listing in the suite)
   const run = typeof o.spawnSyncImpl === 'function' ? o.spawnSyncImpl : spawnSync;
+  const complete = (list) => {
+    if (Number.isInteger(o.requirePid) && !list.some((p) => p.pid === o.requirePid)) throw new Error('the process listing is incomplete (' + list.length + ' process(es), this process ' + o.requirePid + ' is not among them)');
+    return list;
+  };
   if (platform === 'win32') {
-    // the image Name is read too — it is readable for every process, also those whose command line is not
-    const r = run('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress -Depth 3; exit 0'],
+    // R4 / F09: the image Name is read too — it is readable for every process, also those whose command line is not
+    const r = run('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress -Depth 3; exit 0'],
       { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 60000, windowsHide: true });
     if (r.error || r.status !== 0) throw new Error('Get-CimInstance Win32_Process failed (' + (r.error ? r.error.message : 'exit ' + r.status) + ')');
-    return parseWin32ProcessJson(r.stdout); // WP-SYNC-R7 item 3: raw control characters escaped before JSON.parse
+    return complete(parseWin32ProcessJson(r.stdout)); // WP-SYNC-R7 item 3: raw control characters escaped before JSON.parse
   }
   const r = run('ps', ['-eo', 'pid=,ppid=,comm=,args='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30000 });
   if (r.error || r.status !== 0) throw new Error('ps failed (' + (r.error ? r.error.message : 'exit ' + r.status) + ')');
-  return String(r.stdout || '').split(/\r?\n/).map((l) => { const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s?(.*)$/.exec(l); return m ? { pid: Number(m[1]), ppid: Number(m[2]), name: m[3], cmd: m[4] } : null; }).filter(Boolean);
+  return complete(String(r.stdout || '').split(/\r?\n/).map((l) => { const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s?(.*)$/.exec(l); return m ? { pid: Number(m[1]), ppid: Number(m[2]), name: m[3], cmd: m[4] } : null; }).filter(Boolean));
 }
 /** QUIESCE_SUSPECT_IMAGE_RE — R4 / F09: image names that can plausibly be an agent, a tool or a shell writing into a project.
  *  A process with such a name whose command line (or, on Linux, working directory) cannot be read is UNKNOWN — never idle.
@@ -6250,7 +6462,7 @@ function quiesceCheck(projectDir, opts) {
   // (4) live processes that name the project on their command line (structured listing; never kills anything)
   let list = null, listErr = null;
   try {
-    list = (typeof opts.listProcesses === 'function' ? opts.listProcesses : listProcessesStructured)();
+    list = typeof opts.listProcesses === 'function' ? opts.listProcesses() : listProcessesStructured({ requirePid: process.pid }); // FIX-SYNC B-F4: a real listing must hold this process
     if (!Array.isArray(list)) throw new Error('the process listing is not a list');
   } catch (e) { listErr = e && e.message ? e.message : String(e); }
   if (listErr) checks.processes = { state: 'unknown', detail: 'process listing unavailable (' + listErr + ') — unknown counts as NOT idle' };
@@ -6267,12 +6479,12 @@ function quiesceCheck(projectDir, opts) {
       const pid = Number(p && p.pid);
       if (!Number.isFinite(pid) || skip.has(pid)) continue;
       const exeOf = () => { const first = String(p.cmd || '').trim().match(/^"([^"]+)"|^(\S+)/); return first ? path.basename(first[1] || first[2]) : (p.name || '?'); };
-      // a process whose working directory the platform exposes (Linux) is matched by cwd too — `node worker.js`
+      // R4 / F09: a process whose working directory the platform exposes (Linux) is matched by cwd too — `node worker.js`
       // started inside the project names it on no command line
       const cwd = cwdOf(pid);
       if (typeof cwd === 'string') { cwdChecked++; const cf = foldCase(path.resolve(cwd)); if (cf === absFold || cf.startsWith(absFold + path.sep)) { hits.push({ pid, exe: exeOf(), via: 'cwd' }); continue; } }
       if (p.cmd == null || p.cmd === '') {
-        // an interpreter/tool/shell image whose command line cannot be read COULD be working in this project — unknown
+        // R4 / F09: an interpreter/tool/shell image whose command line cannot be read COULD be working in this project — unknown
         if (isSuspectImage(p.name)) unknowns.push({ pid, exe: p.name }); else noCmd++;
         continue;
       }
@@ -6300,7 +6512,7 @@ function quiesceCheck(projectDir, opts) {
   const states = Object.keys(checks).map((k) => checks[k].state);
   return {
     schema: 'forge-sync-quiesce/v1', idle: states.every((s) => s === 'ok'), unknown: states.includes('unknown'), idleMin,
-    projectPath: abs, checkedAt: iso(nowMs), checks, checkedUnderLock,
+    projectPath: abs, checkedAt: iso(nowMs), checks, checkedUnderLock, ...(opts.testSeams ? { testSeams: true } : {}), // FB-SYNC-C-F6
     reasons: Object.keys(checks).filter((k) => checks[k].state !== 'ok').map((k) => k + ' ' + checks[k].state.toUpperCase() + ': ' + checks[k].detail),
   };
 }
@@ -6382,7 +6594,8 @@ function quiesceRecord(quiesce, override) {
   if (!quiesce && !override) return null;
   return {
     idle: !!(quiesce && quiesce.idle), checkedAt: quiesce ? quiesce.checkedAt : null, idleMin: quiesce ? quiesce.idleMin : null,
-    checkedUnderLock: !!(quiesce && quiesce.checkedUnderLock), // the check ran AFTER this run took the project lock
+    checkedUnderLock: !!(quiesce && quiesce.checkedUnderLock), // R4 / F09: the check ran AFTER this run took the project lock
+    ...(quiesce && quiesce.testSeams ? { testSeams: true } : {}), // FB-SYNC-C-F6: taken through the test seams, said so
     reasons: quiesce ? quiesce.reasons : ['no quiesce check result was supplied'], override: override || null,
   };
 }
@@ -6528,7 +6741,7 @@ function summarizeSetFrom(list) {
   return out;
 }
 const ENV_FILE_RE = /^\.env(\..*)?$/i;
-const APP_SUBTREE_MAX_DEPTH = 4; // submodules inside submodules are inventoried this deep, deeper is guarded:'partial'
+const APP_SUBTREE_MAX_DEPTH = 4; // R6 / F19: submodules inside submodules are inventoried this deep, deeper is guarded:'partial'
 /** isSecretLikeRel(rel) — files whose CONTENT the protect manifest must never read: only size + modified time are
  *  recorded (.env*, .credentials.json, key material, anything under a secrets/ folder). */
 function isSecretLikeRel(rel) {
@@ -6581,7 +6794,10 @@ function protectEntryFor(abs, rel) {
   if (!st.isFile()) return { kind: 'other' };
   if (isSecretLikeRel(rel)) return { kind: 'meta', size: st.size, mtimeMs: st.mtimeMs };
   try { return { kind: 'file', size: st.size, hash: crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex') }; }
-  catch (e) { return protectUnreadableEntry(e, abs, st); }
+  catch (e) {
+    if (isTooLargeForOneRead(e)) { try { return { kind: 'file', size: st.size, hash: hashFileChunked(abs, false).hash }; } catch (e2) { return protectUnreadableEntry(e2, abs, st); } } // FIX-SYNC C-F3
+    return protectUnreadableEntry(e, abs, st);
+  }
 }
 /** buildProtectManifest(templateDir, projectDir, opts) -> the inverse manifest: EVERY file and folder under
  *  <project>/.claude that this template does not ship (listSystemFiles minus the project's forge-overrides.json), plus the
@@ -7009,7 +7225,10 @@ function appCodeGitState(projectDir, exclude, opts) {
     if (st.isDirectory()) return 'dir';
     if (!st.isFile()) return 'other';
     let buf;
-    try { buf = fs.readFileSync(p); } catch (e) { return appUnreadableMarker(e, 'open'); }
+    try { buf = fs.readFileSync(p); } catch (e) {
+      if (!isTooLargeForOneRead(e)) return appUnreadableMarker(e, 'open');
+      try { const big = hashFileChunked(p, true); return (big.binary ? '' : 'eol:') + big.hash; } catch (e2) { return appUnreadableMarker(e2, 'open'); } // FIX-SYNC C-F3
+    }
     const probe = buf.subarray(0, 8192);
     const binary = probe.includes(0);
     return (binary ? '' : 'eol:') + crypto.createHash('sha256').update(binary ? buf : normalizeEolBuffer(buf)).digest('hex');
@@ -7064,7 +7283,7 @@ function appCodeGitState(projectDir, exclude, opts) {
       if (!rel || isExcluded(rel)) continue;
       const p = path.join(topDir, ...rp.split('/'));
       let content = contentOf(p);
-      if (content === 'dir' && isRepoRoot(p)) { // a submodule / nested repository — fingerprint its own worktree
+      if (content === 'dir' && isRepoRoot(p)) { // R6 / F19: a submodule / nested repository — fingerprint its own worktree
         const sub = subtreeFingerprint(p, 1);
         if (sub.unreadable) content = sub.unreadable; // WP-SYNC-R14: a path inside it could not be read — unverifiable (fail closed)
         else if (sub.problem) partial.push('the worktree of ' + rel + ' (a submodule or nested repository) could not be inventoried: ' + sub.problem + ' — edits inside it are not guarded');
@@ -7087,7 +7306,7 @@ function appCodeGitState(projectDir, exclude, opts) {
   }
   // ignored files: count + hash of the sorted name list (outside .claude/, minus the names the caller reconciles itself)
   let ignored = null;
-  // --full-name — `git ls-files` otherwise prints paths relative to its working directory (the project), so in a
+  // R6 / F18: --full-name — `git ls-files` otherwise prints paths relative to its working directory (the project), so in a
   // project nested inside a larger repository no name carried the repository prefix and every ignored file was dropped
   // WP-SYNC-R8 (measured on the 26H2 project): git skips the pathspec check for an IGNORED folder and walks it whole,
   // so `:(exclude).claude` alone did not stop it walking .claude/worktrees/ (ignored there via .git/info/exclude): 8,770
@@ -7214,7 +7433,7 @@ function diffProtectManifests(before, after, expected) {
   }
   // application code outside .claude/ — any change in git HEAD or in the status/content of a path outside
   // .claude/ and the three root files is a violation (it is reported under `changed`, keyed "(app) <path>").
-  // the ignored inventory, the submodule HEADs and link targets are compared too; a probe the "before" side could not
+  // R4 / F08: the ignored inventory, the submodule HEADs and link targets are compared too; a probe the "before" side could not
   // run makes the verdict guarded:'partial'. R4 / F12: a file that was UNTRACKED before and is absent from the status after is
   // NOT a violation when THIS sync's scaffold wrote the .gitignore block, the file is still there with the same (normalised)
   // bytes, and git confirms it is now ignored — the scaffold's own ignore rules hid it, nothing changed it.
@@ -7230,7 +7449,7 @@ function diffProtectManifests(before, after, expected) {
       const scaffoldGitignore = typeof expected.gitignoreAppended === 'string' || addedOk.has('.gitignore');
       const nowHidden = [], eolOnly = [];
       const root = after.projectPath || before.projectPath;
-      // a committed file whose ONLY change is its line endings newly appears in (or vanishes from) `git status` as
+      // R4 / F08: a committed file whose ONLY change is its line endings newly appears in (or vanishes from) `git status` as
       // ` M`; its normalised hash is compared with the normalised HEAD blob — equal means eol-only, not a violation
       const eolSame = (k, h) => {
         try {
@@ -7301,8 +7520,8 @@ function diffProtectManifests(before, after, expected) {
 /** verifyProtect(projectDir, before, expected) — recompute the manifest with the SAME shipped list and compare. */
 function verifyProtect(projectDir, before, expected) {
   if (!before || before.schema !== PROTECT_SCHEMA) throw new Error('not a protect manifest');
-  if (path.resolve(projectDir) !== before.projectPath) throw new Error('this manifest was taken for ' + before.projectPath + ', not ' + path.resolve(projectDir));
-  // names that were untracked before are left out of the "after" ignored inventory — the F12 reconciliation above
+  if (!sameProjectPath(before.projectPath, projectDir)) throw new Error('this manifest was taken for ' + before.projectPath + ', not ' + path.resolve(projectDir));
+  // R4 / F12: names that were untracked before are left out of the "after" ignored inventory — the F12 reconciliation above
   // judges each of them individually (still present, same bytes, now confirmed ignored), so they are never counted twice
   const untrackedBefore = before.git && before.git.entries ? Object.keys(before.git.entries).filter((k) => typeof before.git.entries[k] === 'string' && before.git.entries[k].startsWith('?? ')) : [];
   // WP-SYNC-R8: summarize exactly what the "before" side summarized — symmetric by construction. A manifest written before
@@ -7355,10 +7574,12 @@ function protectExpectationsFromBatch(projectDir, batchId) {
   const plainRel = (rel) => typeof rel === 'string' && !!rel && !rel.startsWith('/') && !/^[A-Za-z]:/.test(rel) && !rel.split(/[\\/]/).some((s) => s === '' || s === '.' || s === '..');
   const readJson = (n) => { try { return JSON.parse(fs.readFileSync(path.join(bdir, n), 'utf8')); } catch { return null; } };
   const m = readJson('manifest.json');
-  if (m && m.batchId === batchId && Array.isArray(m.files)) {
+  // FB-SYNC-C-F5: only a manifest this forge-sync wrote and bound to this project and batch is an allow-list; never-touch
+  // paths are never allowed, and a migration may only explain the two owner-data files the migrations really write
+  if (m && m.batchId === batchId && Array.isArray(m.files) && manifestBinding(m, projectDir, batchId).state === 'bound') {
     out.sources.push('manifest.json');
     for (const f of m.files) {
-      if (!f || !plainRel(f.rel)) continue;
+      if (!f || !plainRel(f.rel) || isNeverTouch(f.rel)) continue;
       const k = '.claude/' + f.rel;
       if (f.existed === false || f.oldHash === null) out.addedOk.push(k);
       if (typeof f.newHash === 'string') out.changedOk[k] = f.newHash;
@@ -7368,7 +7589,7 @@ function protectExpectationsFromBatch(projectDir, batchId) {
       if (typeof m.scaffold.gitignoreAppended === 'string') out.gitignoreAppended = m.scaffold.gitignoreAppended;
     }
     for (const w of Array.isArray(m.migrations) ? m.migrations : []) {
-      if (!w || !plainRel(w.rel) || typeof w.postHash !== 'string') continue;
+      if (!w || !plainRel(w.rel) || typeof w.postHash !== 'string' || (w.rel !== STANDING_RULES_USER_REL && w.rel !== SCOUT_VETTING_USER_REL)) continue;
       out.changedOk['.claude/' + w.rel] = w.postHash;
       if (!w.existed) out.addedOk.push('.claude/' + w.rel);
     }
@@ -7491,7 +7712,7 @@ function mergeSettingsForBatch(templateDir, projectDir, batchId, opts) {
   let postHash = null, postHashSource = null;
   const postObserved = post.kind === 'ok' ? post.hash : null;
   if (applied) {
-    // postHash is the hash of the bytes the MERGE TOOL WROTE (forge-settings-merge.cjs reports writtenSha256 for
+    // R4 / F03: postHash is the hash of the bytes the MERGE TOOL WROTE (forge-settings-merge.cjs reports writtenSha256 for
     // its create and merge writes), never a sample of the destination taken afterwards — an owner edit in that instant is
     // then a conflict on rollback (kept), never mistaken for this sync's output and replaced.
     if (typeof result.writtenSha256 === 'string' && /^[0-9a-f]{64}$/.test(result.writtenSha256)) { postHash = result.writtenSha256; postHashSource = 'writer'; }
@@ -7535,7 +7756,7 @@ function restoreSettingsLedger(projectDir, batchId, opts) {
     if (e && e.code === 'ENOENT') return { ok: true, action: 'none', skipped: 'no settings.json change recorded for this batch' };
     return { ok: false, action: 'none', error: 'the settings ledger is unreadable (' + e.message + ') — settings.json not restored' };
   }
-  if (!ledger || ledger.batchId !== batchId || ledger.projectPath !== path.resolve(projectDir) || ledger.rel !== 'settings.json') {
+  if (!ledger || ledger.batchId !== batchId || !sameProjectPath(ledger.projectPath, projectDir) || ledger.rel !== 'settings.json') {
     return { ok: false, action: 'none', error: 'the settings ledger does not match this batch/project — refusing to trust it' };
   }
   // a merge that did not apply (refused, failed, a no-op) never owned settings.json — nothing to undo, even
@@ -7580,9 +7801,22 @@ function restoreSettingsLedger(projectDir, batchId, opts) {
       if (bak && !isSymlinkPath(bak) && containmentSafe(dst, bak) && sha256(bak) === ledger.preHash) { src = bak; label = ledger.forgeBak; }
       else throw new Error('no verified pre-sync copy of settings.json (the batch copy is missing or corrupt, and the .forge-bak does not hash to the recorded value)');
     }
-    copyNoFollow(src, settingsPath, dst);
+    // FIX-SYNC C-F4: forced over an owner edit (neither the pre-sync nor this sync's bytes): those bytes are copied into the batch
+    // backup and verified BEFORE the restore, and the restore only replaces exactly the bytes judged here.
+    let keptCopy = null;
+    if (curHash !== null && curHash !== ledger.postHash) {
+      const qDir = path.join(dirs.bdir, 'rollback-quarantine');
+      ensureRealDir(dirs.bdir, qDir);
+      keptCopy = path.join(qDir, 'settings.json');
+      for (let i = 1; fs.existsSync(keptCopy); i++) keptCopy = path.join(qDir, 'settings.json.' + i);
+      copyNoFollow(settingsPath, keptCopy, dirs.bdir);
+      if (sha256(keptCopy) !== curHash) throw new Error('the copy of the current settings.json could not be verified — not restored, kept as it is');
+    }
+    const preBuf = fs.readFileSync(src);
+    if (sha256Buf(preBuf) !== ledger.preHash) throw new Error('the pre-sync copy of settings.json changed while it was read — not restored');
+    if (writeBytesNoFollow(preBuf, settingsPath, dst, { expectOldHash: curHash }) === 'changed') throw new Error('settings.json changed again right before it was restored — kept as it is' + (keptCopy ? ' (a copy is at ' + keptCopy + ')' : ''));
     if (sha256(settingsPath) !== ledger.preHash) throw new Error('hash mismatch after restoring settings.json');
-    return { ok: true, action: 'restored byte-for-byte from ' + label };
+    return { ok: true, action: 'restored byte-for-byte from ' + label + (keptCopy ? '; the settings.json found there (changed since this sync) is kept at ' + keptCopy : ''), keptCopy };
   } catch (e) { return { ok: false, action: 'none', error: e.message }; }
 }
 /** undoSettingsMerge(projectDir, batchId) -> restoreSettingsLedger's result — WP-SYNC-R11. safeSyncProject now merges
@@ -7630,7 +7864,7 @@ function settingsRollbackTarget(projectDir, batchId, snap) {
     if (!dirs.ok) return snap;
     let ledger = null;
     try { ledger = JSON.parse(fs.readFileSync(dirs.ledgerPath, 'utf8')); } catch { return snap; }
-    if (!ledger || ledger.batchId !== batchId || ledger.projectPath !== path.resolve(projectDir) || ledger.rel !== 'settings.json') return snap;
+    if (!ledger || ledger.batchId !== batchId || !sameProjectPath(ledger.projectPath, projectDir) || ledger.rel !== 'settings.json') return snap;
     const owns = ledger.applied === true || ledger.status === 'pending' || (ledger.applied === undefined && (ledger.status === 'merged' || ledger.status === 'created'));
     if (!owns) return snap;
     if (ledger.existed === false) return { kind: 'missing', fromLedger: true };
@@ -7718,7 +7952,7 @@ function removeOwnForgeBak(projectDir, batchId, pre, hintName) {
     if (!dirs.ok) return null;
     let ledger = null;
     try { ledger = JSON.parse(fs.readFileSync(dirs.ledgerPath, 'utf8')); } catch { return null; }
-    if (!ledger || ledger.batchId !== batchId || ledger.projectPath !== path.resolve(projectDir)) return null;
+    if (!ledger || ledger.batchId !== batchId || !sameProjectPath(ledger.projectPath, projectDir)) return null;
     const name = typeof ledger.forgeBak === 'string' ? ledger.forgeBak : (typeof hintName === 'string' ? hintName : null);
     if (!name) return null;
     if (!/^settings\.json\.forge-bak-[A-Za-z0-9._-]+$/.test(name)) return 'kept ' + name + ' (not a plain settings.json.forge-bak-* name directly in .claude/)';
@@ -7782,7 +8016,7 @@ function settleUnconfirmedSettingsMerge(projectDir, batchId, pre, merge, central
       const dirs = settingsLedgerDirs(projectDir, batchId);
       let ledger = null;
       if (dirs.ok) { try { ledger = JSON.parse(fs.readFileSync(dirs.ledgerPath, 'utf8')); } catch { ledger = null; } }
-      if (ledger && ledger.batchId === batchId && ledger.projectPath === path.resolve(projectDir) && ledger.rel === 'settings.json') {
+      if (ledger && ledger.batchId === batchId && sameProjectPath(ledger.projectPath, projectDir) && ledger.rel === 'settings.json') { // FB-SYNC-C-F2
         const marked = Object.assign({}, ledger, {
           status: 'reverted', applied: false, changed: false, postHash: null, postHashSource: null, forgeBak: null,
           mergeStatus: 'reverted after an unconfirmed merge — ' + why + '; settings.json was put back to its pre-sync bytes, unchanged by this batch',
@@ -7803,7 +8037,7 @@ function settleUnconfirmedSettingsMerge(projectDir, batchId, pre, merge, central
     settle: { put, ledgerMark },
   };
 }
-/** filesRestoreProblem(restored, rollbackError) -> null | one plain line: why the in-run FILE restore is not confirmed. */
+/** filesRestoreProblem(restored, rollbackError) -> null | one plain line: why the in-run FILE restore is not confirmed (R11-03). */
 function filesRestoreProblem(restored, rollbackError) {
   if (rollbackError) return 'the file restore threw (' + rollbackError + ')';
   if (!restored) return 'the file restore did not run';
@@ -8303,7 +8537,8 @@ const TEMPLATE_CARRIED_NEVER_TOUCH = new Set(['settings.json']); // the template
 const PUBLISH_EXIT = { ok: 0, error: 1, usage: 2, differs: 3, refused: 4 };
 const PUBLISH_ORPHAN_PROOF_MAX = 200; // git calls per orphan are cheap, but never unbounded
 const PUBLISH_USAGE = 'usage: forge-sync publish-template [--plan|--apply|--verify] [--template-dir <template>/.claude] [--batch-id <id>] [--json] [--verbose]\n'
-  + '         --apply only: [--allow-dirty "<reason>"] [--retire-unproven-orphans "<reason>"] [--confirm-real-template] [--backup-dir <dir>]';
+  + '         --apply only: [--allow-dirty "<reason>"] [--retire-unproven-orphans "<reason>"] [--skip-doctor-receipt "<reason>"] [--confirm-real-template] [--backup-dir <dir>]\n'
+  + '         --apply needs a green full-doctor receipt first: node .claude/forge-bin/forge-doctor.cjs --receipt';
 
 function publishError(msg) { const e = new Error(msg); e.publishError = true; return e; }
 /** defaultRealTemplateDir() — the REAL central template: os.homedir() (USERPROFILE on Windows) + .claude/forge/template/.claude. */
@@ -8392,7 +8627,7 @@ function publishSourceSet(devDir) {
     if (isNeverPublish(x.rel)) { claimed.push(Object.assign({ why: 'never-touch floor' }, x)); continue; }
     put(x.rel, 'template-only');
   }
-  if (!files.has(SHIP_MANIFEST_REL)) put(SHIP_MANIFEST_REL, 'manifest'); // the template must carry its own manifest
+  if (!files.has(SHIP_MANIFEST_REL)) put(SHIP_MANIFEST_REL, 'manifest'); // F3: the template must carry its own manifest
   const sorted = new Map([...files.entries()].sort((a, b) => (a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0))));
   return { files: sorted, claimed, rules, sc, devMissing: sp.missing, devMissingBlocking: sp.missingBlocking };
 }
@@ -8578,6 +8813,7 @@ function planPublishTemplate(opts) {
   plan.digest = sha256Str(JSON.stringify([foldCase(realpathViaExistingAncestor(ctx.templateDir)), add, update, unchanged, blocked, orphans.map((x) => [x.rel, x.hash, x.retirable]), foreign.map((x) => x.rel)]));
   Object.defineProperty(plan, 'srcHashes', { value: srcHashes, enumerable: false }); // internal: the receipt's file list
   plan.applyWouldRefuse = publishApplyBlockers(plan, {});
+  plan.guardedTestLoads = publishGuardedLoads(plan); // FIX-SYNC D-F2: listed, never passed silently
   return plan;
 }
 
@@ -8613,12 +8849,25 @@ function publishApplyBlockers(plan, o) {
     const sites = (ctc.noOp || []).slice(0, 6).map((x) => (x.suite || '?') + (x.line ? ':' + x.line : '')).join(', ');
     reasons.push('the development tree\'s own check_the_checks is red (' + (ctc.noOp || []).length + ' no-op assertion site(s): ' + sites + ') — every install would roll back on it; fix the tests first');
   }
+  // Category tests round 8: a published test required a local-only module (P1) and a file over its budget
+  // shipped because the full doctor never ran (P2). forge-sync-publish-guard.cjs refuses both; it cannot be loaded = refuse.
+  const guard = publishGuard();
+  if (!guard.ok) reasons.push('the publish guard (forge-sync-publish-guard.cjs) could not be loaded (' + guard.error + ') — refusing, because the published-test require() check and the full-doctor receipt check cannot run');
+  else reasons.push(...guard.mod.applyBlockers(plan, o));
   for (const name of [TEMPLATE_PROVENANCE_NAME, TEMPLATE_PUBLISH_RECEIPT_NAME]) {
     const p = path.join(plan.templateDir, name);
     if (isSymlinkPath(p) || (fs.existsSync(p) && !fs.lstatSync(p).isFile())) reasons.push(name + ' in the template is a symlink or not a regular file — never written through');
   }
   return reasons;
 }
+/** publishGuard() -> {ok, mod, error}: forge-sync-publish-guard.cjs, loaded lazily (it requires this file back). */
+function publishGuard() {
+  try { return { ok: true, mod: require('./forge-sync-publish-guard.cjs'), error: null }; } catch (e) { return { ok: false, mod: null, error: e.message.split('\n')[0] }; }
+}
+/** publishGuardedLoads(plan) -> the published tests' loads behind an existence check ([] when the guard cannot run). */
+function publishGuardedLoads(plan) { const g = publishGuard(); if (!g.ok || typeof g.mod.guardedLoads !== 'function') return []; try { return g.mod.guardedLoads(plan); } catch { return []; /* the same failure already refuses --apply (publishApplyBlockers) */ } }
+/** publishDoctorRecord(plan, o) -> the doctor-receipt record for the publish receipt (null when the guard is missing). */
+function publishDoctorRecord(plan, o) { const g = publishGuard(); return g.ok ? g.mod.receiptRecord(plan, o) : null; }
 
 /** backupTemplateTree(templateDir, backupDir, hooks) -> {ok, problems[], hashes, fileCount}. Pure-Node full copy of the
  *  template folder (all files, .git/node_modules skipped, symlinks recorded, never followed) into <backup>/files, then a
@@ -8704,7 +8953,7 @@ function runPublishAction(ctx, act) {
     act.removedDirs = pruneEmptyParents(ctx.templateDir, out);
     return;
   }
-  // the bytes are read ONCE into memory, hashed, and exactly those bytes are written; act.writtenHash is that hash —
+  // R4 / F03: the bytes are read ONCE into memory, hashed, and exactly those bytes are written; act.writtenHash is that hash —
   // never a re-read of the template file afterwards (an owner edit in that instant would otherwise be attributed to the
   // publish and replaced on restore). R4 / F05: the destination is re-hashed right before the rename (expectOldHash); a
   // post-rename read that differs is 'changed-during-write' — reported, never written again.
@@ -8820,6 +9069,7 @@ function applyPublishTemplate(opts) {
   if (typeof o.nowIso !== 'string' || !Number.isFinite(Date.parse(o.nowIso))) return refuse('the publish time (nowIso) is required');
   if (o.allowDirty != null && !validAllowDirtyReason(o.allowDirty)) return refuse('--allow-dirty needs a reason of 3-500 characters');
   if (o.retireUnprovenOrphans != null && !validAllowDirtyReason(o.retireUnprovenOrphans)) return refuse('--retire-unproven-orphans needs a reason of 3-500 characters');
+  if (o.skipDoctorReceipt != null && !validAllowDirtyReason(o.skipDoctorReceipt)) return refuse('--skip-doctor-receipt needs a reason of 3-500 characters');
   if (!o.templateDir) return refuse('a template folder is required');
   const realTemplateDir = path.resolve(o.realTemplateDir || defaultRealTemplateDir());
   // the publish is bound to the PHYSICAL target. The requested path is resolved
@@ -8899,6 +9149,8 @@ function applyUnderLock(o, plan, backupDir) {
     // which folder was asked for, and which physical folder was actually written
     templateDirRequested: o._requestedTemplateDir || plan.templateDir, templateDirPhysical: plan.templateDir,
     realTemplate: !!o._isRealTemplate, confirmRealTemplate: !!o.confirmRealTemplate,
+    // category tests round 8: which full-doctor receipt this publish relied on, or the --skip-doctor-receipt reason
+    doctorReceipt: publishDoctorRecord(plan, o),
   };
   acts.push(metaAction(plan.templateDir, TEMPLATE_PROVENANCE_NAME, provenance), metaAction(plan.templateDir, TEMPLATE_PUBLISH_RECEIPT_NAME, receipt));
   const journal = path.join(backupDir, 'journal.jsonl');
@@ -8922,7 +9174,7 @@ function applyUnderLock(o, plan, backupDir) {
     return { ok: false, refused: false, exitCode: PUBLISH_EXIT.error, error: e.message, restore, plan, backupDir, manualRecovery: restore.ok ? null : 'copy the listed files back from ' + path.join(backupDir, 'files') };
   }
   writePublishBackupReceipt(backupDir, Object.assign({}, receipt, { outcome: 'PUBLISHED' }));
-  return { ok: true, refused: false, plan, backupDir, provenance, receiptPath: path.join(plan.templateDir, TEMPLATE_PUBLISH_RECEIPT_NAME), applied: { added: receipt.added, updated: receipt.updated, orphansMoved: moved, orphansKept: kept.map((k) => k.rel) } };
+  return { ok: true, refused: false, plan, backupDir, provenance, doctorReceipt: receipt.doctorReceipt, receiptPath: path.join(plan.templateDir, TEMPLATE_PUBLISH_RECEIPT_NAME), applied: { added: receipt.added, updated: receipt.updated, orphansMoved: moved, orphansKept: kept.map((k) => k.rel) } };
 }
 /** buildPublishHistory(templateDir, plan) -> {rel: [sha256, ...]} — WP-SYNC-R7 item 1: the cumulative per-path history the
  *  template receipt keeps: what the previous receipt knew (its `history` and its `files`), the bytes this publish replaces
@@ -8987,9 +9239,10 @@ function verifyFromPlan(plan) {
   };
 }
 
-/** parsePublishTemplateArgs(argv) -> {mode, templateDir, batchId, batchIdUnsafe, json, verbose, allowDirty, confirmRealTemplate, backupDir, error}. */
+/** parsePublishTemplateArgs(argv) -> {mode, templateDir, batchId, batchIdUnsafe, json, verbose, allowDirty, retireUnprovenOrphans,
+ *  skipDoctorReceipt, confirmRealTemplate, backupDir, error}. */
 function parsePublishTemplateArgs(argv) {
-  const a = { mode: 'plan', modes: 0, templateDir: null, batchId: null, batchIdUnsafe: false, json: false, verbose: false, allowDirty: null, retireUnprovenOrphans: null, confirmRealTemplate: false, backupDir: null, error: null };
+  const a = { mode: 'plan', modes: 0, templateDir: null, batchId: null, batchIdUnsafe: false, json: false, verbose: false, allowDirty: null, retireUnprovenOrphans: null, skipDoctorReceipt: null, confirmRealTemplate: false, backupDir: null, error: null };
   const setErr = (m) => { if (!a.error) a.error = m; };
   const val = (i, name) => { const v = argv[i + 1]; if (v === undefined || String(v).startsWith('--')) { setErr('missing value for ' + name); return null; } return v; };
   for (let i = 0; i < argv.length; i++) {
@@ -8998,15 +9251,16 @@ function parsePublishTemplateArgs(argv) {
     if (x === '--confirm-real-template') { a.confirmRealTemplate = true; continue; }
     if (x === '--json') { a.json = true; continue; }
     if (x === '--verbose') { a.verbose = true; continue; }
-    if (x === '--template-dir' || x === '--batch-id' || x === '--batch' || x === '--allow-dirty' || x === '--retire-unproven-orphans' || x === '--backup-dir') {
+    if (x === '--template-dir' || x === '--batch-id' || x === '--batch' || x === '--allow-dirty' || x === '--retire-unproven-orphans' || x === '--skip-doctor-receipt' || x === '--backup-dir') {
       const v = val(i, x);
       if (v == null) continue;
       i++;
       if (x === '--template-dir') a.templateDir = v;
       else if (x === '--backup-dir') a.backupDir = v;
-      else if (x === '--allow-dirty' || x === '--retire-unproven-orphans') {
+      else if (x === '--allow-dirty' || x === '--retire-unproven-orphans' || x === '--skip-doctor-receipt') {
         if (!validAllowDirtyReason(v)) setErr(x + ' needs a reason of 3-500 characters (it is recorded in the receipt)');
         else if (x === '--allow-dirty') a.allowDirty = v.trim();
+        else if (x === '--skip-doctor-receipt') a.skipDoctorReceipt = v.trim();
         else a.retireUnprovenOrphans = v.trim();
       } else { a.batchId = v; a.batchIdUnsafe = !isSafeBatchId(v); }
       continue;
@@ -9014,7 +9268,7 @@ function parsePublishTemplateArgs(argv) {
     setErr('unknown argument ' + x);
   }
   if (a.modes > 1) setErr('choose one of --plan, --apply, --verify');
-  if (a.mode !== 'apply' && (a.allowDirty != null || a.retireUnprovenOrphans != null || a.confirmRealTemplate || a.backupDir != null)) setErr('--allow-dirty, --retire-unproven-orphans, --confirm-real-template and --backup-dir only apply to --apply');
+  if (a.mode !== 'apply' && (a.allowDirty != null || a.retireUnprovenOrphans != null || a.skipDoctorReceipt != null || a.confirmRealTemplate || a.backupDir != null)) setErr('--allow-dirty, --retire-unproven-orphans, --skip-doctor-receipt, --confirm-real-template and --backup-dir only apply to --apply');
   if (a.batchIdUnsafe && a.mode !== 'apply') setErr(unsafeBatchIdReason(a.batchId)); // with --apply it is a refusal (exit 4)
   return a;
 }
@@ -9044,6 +9298,7 @@ function formatPublishPlan(plan, verbose) {
   publishList(out, 'foreign (left alone)', plan.foreign, verbose ? Infinity : 8, (x) => x.rel + ' — ' + x.why);
   publishList(out, 'never published (manifest claims, floor refuses)', plan.neverPublishClaimed, cap, (x) => x.rel + ' — ' + x.why);
   publishList(out, 'uncommitted published paths', g.dirtyPaths || [], cap);
+  publishList(out, 'test load(s) behind an existence check (portable: skipped where the module is absent — check each is meant to be optional)', plan.guardedTestLoads || [], cap, (x) => x.test + ':' + x.line + ' -> ' + x.target + (x.where === 'outside-claude' ? ' (outside .claude/)' : ' (not published)'));
   if (plan.applyWouldRefuse && plan.applyWouldRefuse.length) publishList(out, '--apply would REFUSE', plan.applyWouldRefuse, Infinity);
   out.push(plan.inSync ? '  ⇒ the template matches the development tree' : '  ⇒ the template DIFFERS from the development tree');
   return out.join('\n');
@@ -9069,6 +9324,9 @@ function formatPublishApply(r, verbose) {
   }
   if (r.noop) out.push('  ⇒ nothing to publish (files identical, provenance current) — nothing was written');
   else out.push('  applied: ' + r.applied.added.length + ' added, ' + r.applied.updated.length + ' updated, ' + r.applied.orphansMoved.length + ' orphan(s) moved into the backup, ' + r.applied.orphansKept.length + ' kept · backup + receipt: ' + r.backupDir);
+  const dr = r.doctorReceipt;
+  if (dr && dr.skipped) out.push('  doctor receipt: SKIPPED by --skip-doctor-receipt ("' + dr.skipped + '"; receipt state: ' + dr.state + ') — recorded in the publish receipt');
+  else if (dr && dr.state === 'green') out.push('  doctor receipt: green full doctor finished ' + dr.finished_at + ' on exactly these ' + dr.published_count + ' published file(s)' + (dr.warning ? ' — WARNING: ' + dr.warning : ''));
   if (r.verify) out.push(formatPublishVerify(r.verify));
   return out.join('\n');
 }
@@ -9082,8 +9340,12 @@ function publishTemplateCli(argv, env) {
   const opts = {
     devDir: env.devDir, templateDir: a.templateDir ? path.resolve(a.templateDir) : env.defaultTemplateDir, realTemplateDir: env.defaultTemplateDir,
     batchId: a.batchId || ('publish-' + Date.now()), nowIso: new Date().toISOString(), allowDirty: a.allowDirty, retireUnprovenOrphans: a.retireUnprovenOrphans,
-    confirmRealTemplate: a.confirmRealTemplate, backupDir: a.backupDir ? path.resolve(a.backupDir) : null, hooks: env.hooks || null,
+    skipDoctorReceipt: a.skipDoctorReceipt, confirmRealTemplate: a.confirmRealTemplate, backupDir: a.backupDir ? path.resolve(a.backupDir) : null, hooks: env.hooks || null,
   };
+  if (a.mode === 'apply' && a.skipDoctorReceipt != null) {
+    console.error('WARNING: publish-template --skip-doctor-receipt "' + a.skipDoctorReceipt + '": publishing WITHOUT proof that the full doctor is green on these bytes.'
+      + ' The reason and the receipt state are recorded in the template\'s publish receipt. Run "node .claude/forge-bin/forge-doctor.cjs --receipt" as soon as you can.');
+  }
   if (a.mode === 'apply') {
     const r = applyPublishTemplate(opts);
     console.log(a.json ? publishJson(r) : formatPublishApply(r, a.verbose));
@@ -9211,10 +9473,27 @@ if (require.main === module) {
   function quiesceOptsFromEnv(base) {
     const o = Object.assign({}, base);
     if (process.env.FORGE_SYNC_TEST_HOOKS === '1') {
-      if (process.env.FORGE_SYNC_TEST_PROCESS_LIST != null) { const list = JSON.parse(process.env.FORGE_SYNC_TEST_PROCESS_LIST); o.listProcesses = () => list; }
-      if (process.env.FORGE_SYNC_TEST_PROJECTS_ROOT) o.projectsRoot = process.env.FORGE_SYNC_TEST_PROJECTS_ROOT;
+      if (process.env.FORGE_SYNC_TEST_PROCESS_LIST != null) { const list = JSON.parse(process.env.FORGE_SYNC_TEST_PROCESS_LIST); o.listProcesses = () => list; o.testSeams = true; }
+      if (process.env.FORGE_SYNC_TEST_PROJECTS_ROOT) { o.projectsRoot = process.env.FORGE_SYNC_TEST_PROJECTS_ROOT; o.testSeams = true; }
     }
     return o;
+  }
+  /** templateLockRefusal() -> null, or why a real install / sync-all refuses: FB-SYNC-C-F7, publish-template holds the
+   *  template's own lock while it writes, so an install that read the template then could deliver a mix of old and new files. */
+  function templateLockRefusal() {
+    const ls = readLockStatus(TEMPLATE);
+    if (!ls.present || !(ls.state === 'fresh' || ls.state === 'live-owner-old')) return null;
+    return 'the template is being published right now (' + ls.path + ', pid ' + (ls.pid == null ? 'unknown' : ls.pid) + ', ' + Math.round((ls.ageMs || 0) / 1000) + ' s old); run the install again once publish-template has finished. Nothing was written.';
+  }
+  /** quiesceSeamRefusal(target) -> null, or why a REAL (non-dry-run) install / sync-all refuses: FB-SYNC-C-F6, the idle
+   *  check of a real project can never be switched off through the test seams; they are honoured only for a target
+   *  inside the OS temp folder (where every test fixture lives). */
+  function quiesceSeamRefusal(target) {
+    if (!quiesceOptsFromEnv({}).testSeams) return null;
+    const tmp = foldCase(realProjectPath(os.tmpdir())), abs = foldCase(realProjectPath(target));
+    const rel = path.relative(tmp, abs);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return null;
+    return 'the idle check runs on test seams (FORGE_SYNC_TEST_PROCESS_LIST / FORGE_SYNC_TEST_PROJECTS_ROOT under FORGE_SYNC_TEST_HOOKS=1), which only a target inside the temp folder may use; ' + path.resolve(target) + ' is not. Unset them for a real run. Nothing was written.';
   }
 
   /** templateHistoryOpts — WP-SYNC-R7 item 1: the development tree THIS forge-sync.cjs lives in (only when it carries the
@@ -9292,9 +9571,14 @@ if (require.main === module) {
     // refusal or an automatic rollback. It carries pid + batch id + started_at. R4 / F09 + F11: the lock comes FIRST — a
     // stale lock left by a dead run is reclaimed by acquireLock's own two-phase reclaim (a live owner refuses with its pid
     // and age) — and the quiesce check then runs UNDER our lock (check-after-lock), recognising it as this run's own.
+    const seamWhy = flags.dryRun ? null : (templateLockRefusal() || quiesceSeamRefusal(pos[0]));
+    if (seamWhy) { console.error('forge-sync: REFUSING install — ' + seamWhy); process.exit(1); }
     const lock = flags.dryRun ? { ok: true, lockPath: null } : acquireLock(claudeDirOf(pos[0]), { batchId });
     if (!lock.ok) { console.error('forge-sync: ' + lock.reason); process.exit(1); }
-    if (lock.reclaimedStale) console.warn('forge-sync: reclaimed a stale lock left by a run that is no longer alive (pid ' + (lock.reclaimedFrom && lock.reclaimedFrom.pid) + ', ' + Math.round(((lock.reclaimedFrom && lock.reclaimedFrom.ageMs) || 0) / 3600000) + ' h old)');
+    if (lock.reclaimedStale) console.warn('forge-sync: reclaimed a stale lock left by a run that is no longer alive (pid ' + (lock.reclaimedFrom && lock.reclaimedFrom.pid) + ', ' + Math.round(((lock.reclaimedFrom && lock.reclaimedFrom.ageMs) || 0) / 60000) + ' min old)');
+    // FIX-SYNC C-F1: no SIGINT/SIGTERM handler on purpose — the install is synchronous, so a JS handler would only queue the
+    // signal and make Ctrl+C a no-op until the install ends. A killed run leaves its lock; acquireLock reclaims a dead owner's
+    // lock on this host after a short grace (LOCK_DEAD_OWNER_GRACE_MS).
     let exitCode = 1;
     try {
       // a real install proves the target idle. Not idle and no recorded override -> refuse, nothing written.
@@ -9407,6 +9691,8 @@ if (require.main === module) {
         if (forced.length) console.log('  ' + path.basename(p) + ': ' + forced.join(', '));
       }
     }
+    const seamWhyAll = flags.dryRun ? null : (templateLockRefusal() || quiesceSeamRefusal(rootDir)); // FB-SYNC-C-F6 / C-F7
+    if (seamWhyAll) { console.error('forge-sync: REFUSING sync-all — ' + seamWhyAll); process.exit(1); }
     const lock = flags.dryRun ? { ok: true, lockPath: null } : acquireLock(rootDir, { batchId }); // M2
     if (!lock.ok) { console.error('forge-sync: ' + lock.reason); process.exit(1); }
     let exitCode = 1;
@@ -9447,6 +9733,11 @@ if (require.main === module) {
     try { r = rollbackProject(pos[0], flags.batchId || null, { centralBackupRoot, centralBackupRootExplicit, forceRollbackNewer: flags.forceRollbackNewer, allowLegacyManifest: !!flags.allowLegacyManifest }); }
     finally { releaseLock(lock); }
     if (!r.ok) { console.error('rollback failed: ' + r.reason); process.exit(1); }
+    if (r.alreadyRolledBack) { // FIX-SYNC B-F2
+      console.log('rollback ' + pos[0] + ': batch ' + r.batchId + ' was already rolled back, nothing to do (every file of it is at its pre-batch state) — to undo an earlier batch, pass --batch <id>');
+      process.exit(0);
+    }
+    if (r.journalSaveError) console.warn('  note: ' + r.journalSaveError); // FIX-SYNC B-F8
     console.log('rolled back ' + pos[0] + ' (batch ' + r.batchId + ', source ' + r.source + '): ' + r.restored.length + ' file(s) restored, version ' + r.versionAction + ', receipt ' + r.receiptAction + ', settings.json ' + (r.settingsAction || 'none'));
     if (r.binding === 'legacy-unbound') console.log('  note: this batch had a legacy-unbound manifest (older forge-sync) — restored because --allow-legacy-manifest was given');
     if (r.quarantined && r.quarantined.length) console.log('  moved into the batch backup (created by this batch, changed since — never deleted): ' + r.quarantined.map((q) => q.rel).join(', '));
@@ -9489,10 +9780,11 @@ if (require.main === module) {
     else if (!ls.present) console.log('lock-status ' + path.resolve(pos[0]) + ': no .forge-sync.lock — no sync is running');
     else {
       const mins = Math.round(ls.ageMs / 60000);
-      // an OLD lock whose process is still alive is a RUNNING sync, not a stale lock
+      // R4 / F11: an OLD lock whose process is still alive is a RUNNING sync, not a stale lock
       const label = ls.fresh ? 'FRESH lock — a sync is running, maintenance mode is on'
         : (ls.liveOwnerOld ? 'OLD lock with a LIVE owner (live-owner-old) — a sync is still running after more than 6 h; never reclaimed'
-          : (ls.stale ? 'STALE lock (older than 6 h, owner gone) — ignored by the hooks and the gateway; the next sync reclaims it' : 'OLD lock whose owner cannot be checked (unknown-owner-old) — not reclaimed automatically'));
+          : (ls.deadOwner ? 'STALE lock (its process on this machine is no longer running — a killed run left it) — the next sync reclaims it at once' // FIX-SYNC C-F1
+            : (ls.stale ? 'STALE lock (older than 6 h, owner gone) — ignored by the hooks and the gateway; the next sync reclaims it' : 'OLD lock whose owner cannot be checked (unknown-owner-old) — not reclaimed automatically')));
       console.log('lock-status ' + path.resolve(pos[0]) + ': ' + label);
       console.log('  age: ' + mins + ' min' + (ls.startedAt ? ' (since ' + ls.startedAt + ')' : ' (from the file time — the lock body is unreadable)'));
       console.log('  pid: ' + (ls.pid == null ? 'unknown' : ls.pid + ' — ' + (ls.pidAlive === true ? 'still running' : ls.pidAlive === false ? 'no longer running' : 'could not tell')));

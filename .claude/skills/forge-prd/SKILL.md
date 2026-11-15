@@ -15,11 +15,13 @@ A **Forge PRD** is a structured product-requirements document the Lead writes be
 - Not needed when the task is a small, well-understood change or a PRD for this exact scope already exists — check `.claude/forge-prd/index.jsonl` first.
 
 ## How (short)
-The Lead writes the PRD content itself (real analysis, no filler) as JSON with `prd_id`, `title`, `project` and `sections` (goal … roadmap, plus `acceptance_criteria` entries `{id, text, owner, required_tests}`), then runs:
+The Lead writes the PRD content itself (real analysis, no filler) as JSON with `prd_id`, `title`, `project`, an optional `domain` (the forge-router slug) and `sections` (goal … roadmap, plus `acceptance_criteria` entries `{id, text, owner, required_tests}`), saves it with the Write tool to `_scratch/prd-<prd_id>.json` and runs:
    ```
-   node .claude/forge-bin/forge-prd.cjs write '<prd-json>' --run <run_id> --tickets
+   node .claude/forge-bin/forge-prd.cjs write --file _scratch/prd-<prd_id>.json --run <run_id> --tickets
    ```
-   - `--tickets` auto-creates one ticket per `acceptance_criteria` entry (`.claude/forge-tickets/tk-<prd_id>-<n>`, `status: "open"`) — these feed the Ticket Board and the review gates the same as any other ticket.
+   - `--file <path>` (or `-` for stdin) works the same from Git Bash and PowerShell 5.1. An inline JSON argument still works, but PowerShell 5.1 strips its inner double quotes and a single-quoted Git Bash argument breaks on the first apostrophe.
+   - `--tickets` auto-creates one ticket per `acceptance_criteria` entry (`.claude/forge-tickets/tk-<prd_id>-<criterion id>`, or `tk-<prd_id>-<n>` for an `ac-<n>` id or a plain string, `status: "open"`) — these feed the Ticket Board and the review gates the same as any other ticket. Give each criterion its own id, so reordering the list keeps every ticket on its criterion.
+   - `domain` adds that domain's baseline from `config/orchestration/domain-presets.json` as a "Domain Baseline" section. It is advisory: copy a requirement into `acceptance_criteria` to make it gate.
    - `--run <run_id>` logs `prd_generated` (and one `ticket_created` per ticket) to that run's dashboard events.
 The JSON shape, the dry-run `render` command and what gets written where: `references/prd-format.md`.
 

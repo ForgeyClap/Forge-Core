@@ -596,6 +596,28 @@ function selectKnowledgeCards(profiel, root) {
   }).sort((a, b) => b.relevance - a.relevance);
 }
 
+/** packFor(root, missie, profiel) -> {name, agents, playbook, presets, signals} | null — WP-AG5 (R-0239, contract 9): the
+ *  agent pack (.claude/config/packs/*.json, read through forge-pack.cjs) whose signals the request names most (the pack
+ *  name counts as one more hit); a tie goes to the pack whose projectTypes hold the primary domain. No hit at all: the
+ *  pack of a classified (not guessed) primary domain, else null. forge-pack.cjs absent (a copy of this file alone): null, never a crash. */
+function packFor(root, missie, profiel) {
+  let packs = [];
+  try { packs = require('./forge-pack.cjs').loadPacks(root).filter((e) => e.pack); } catch { return null; }
+  const tekst = String(missie || '');
+  const hit = (s) => new RegExp((/^\w/.test(s) ? '\\b' : '') + String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/\w$/.test(s) ? '\\b' : ''), 'i').test(tekst);
+  // a guessed domain (classification_confidence none) is no evidence for a pack
+  const dom = profiel && profiel.classification_confidence !== 'none' ? profiel.primary_domain : null;
+  const scored = packs.map((e) => {
+    const signals = (Array.isArray(e.pack.signals) ? e.pack.signals : []).filter((s) => typeof s === 'string' && s.trim() && hit(s.trim()));
+    const ownDomain = Array.isArray(e.pack.projectTypes) && e.pack.projectTypes.includes(dom);
+    return { e, signals, score: signals.length + (hit(e.name) ? 1 : 0), ownDomain };
+  }).sort((a, b) => b.score - a.score || (b.ownDomain - a.ownDomain) || a.e.name.localeCompare(b.e.name));
+  const best = scored.find((s) => s.score > 0) || scored.find((s) => s.ownDomain);
+  if (!best) return null;
+  const p = best.e.pack;
+  return { name: best.e.name, agents: p.agents.slice(), playbook: p.playbook || null, presets: [best.e.name + '-all', 'process'], signals: best.signals };
+}
+
 /** analyzeMission — F-14 (Codex herreview): het ENE uitvoerbare entrypoint dat de hele keten in één
  *  aanroep levert, zodat de router niet vijf losse functienamen in prose hoeft na te leven. Elke
  *  omission-kaart is gegarandeerd validator-geldig (de keten levert nooit kaarten af die zijn eigen
@@ -610,6 +632,7 @@ function analyzeMission(missie, ctx) {
   return {
     profile: profiel,
     playbook: (cat.domains[profiel.primary_domain] && cat.domains[profiel.primary_domain].playbook) || null,
+    pack: packFor(basis, missie, profiel),
     lenses: evaluateLenses(profiel),
     omissions,
     omissions_valid: validatie.every((v) => v.ok === true),

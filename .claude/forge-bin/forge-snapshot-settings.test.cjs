@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-snapshot-settings.test.cjs — real tests for the settings.json MERGE helper. This is the LOAD-BEARING
 // safety suite: it proves pre-existing hooks/keys survive the merge byte-for-byte, using a FIXTURE file
 // shaped like the real global ~/.claude/settings.json (never the real file itself — this suite never reads
@@ -123,6 +127,22 @@ t('hasExactHook finds an exact matcher+command match and rejects a near-miss', (
 console.log('\n5) CLI (real spawned subprocess, real filesystem)');
 const CLI = path.join(__dirname, 'forge-snapshot-settings.cjs');
 function runCLI(argv) { return spawnSync(process.execPath, [CLI, ...argv], { encoding: 'utf8' }); }
+
+t('FB-MEMORY-F6: hook timeouts are written in SECONDS (default 15), never 5000', () => {
+  const { settings } = mod.mergeSnapshotHooks(null, { markerCommand: 'node marker.cjs', reinjectCommand: 'node reinject.cjs' });
+  const all = settings.hooks.PreCompact.concat(settings.hooks.SessionStart).map((e) => e.hooks[0].timeout);
+  assert.deepStrictEqual(all, [15, 15, 15]);
+  assert.strictEqual(mod.mergeSnapshotHooks(null, { markerCommand: 'm', reinjectCommand: 'r', timeoutSec: 30 }).settings.hooks.PreCompact[0].hooks[0].timeout, 30);
+  assert.throws(() => mod.mergeSnapshotHooks(null, { markerCommand: 'm', reinjectCommand: 'r', timeoutSec: 5000 }), /seconds/);
+});
+
+t('FB-MEMORY-F6: CLI --timeout-sec above 60 is refused (exit 2), nothing written', () => {
+  const dir = freshDir('settings-cli-timeout');
+  const target = path.join(dir, 'settings.json');
+  const r = runCLI(['apply', '--target', target, '--marker-command', 'm', '--reinject-command', 'r', '--timeout-sec', '5000']);
+  assert.strictEqual(r.status, 2, r.stderr);
+  assert.ok(!fs.existsSync(target));
+});
 
 t('CLI apply creates a minimal file when the target is absent', () => {
   const dir = freshDir('settings-cli-fresh');

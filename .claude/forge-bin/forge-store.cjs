@@ -118,6 +118,7 @@ const SECRET_PATTERNS = [
   /sk_(?:live|test)_[A-Za-z0-9]{10,}/g,                              // Stripe secret key (underscore)
   /rk_(?:live|test)_[A-Za-z0-9]{10,}/g,                              // Stripe restricted key
   /gh[oprsu]_[A-Za-z0-9]{20,}/g,                                      // GitHub tokens (ghp_/gho_/ghr_/ghs_/ghu_)
+  /github_pat_[A-Za-z0-9_]{40,}/g,                                    // GitHub fine-grained token (FB-CONFIG-2-F7; forge-config-scan knows it too)
   /xox[baprs]-[A-Za-z0-9-]+/g,                                        // Slack bot/user/app/refresh tokens
   /AKIA[0-9A-Z]{16}/g,                                                // AWS access key id
   /AIza[0-9A-Za-z_-]{35}/g,                                           // Google API key
@@ -144,14 +145,19 @@ function redactString(s) {
 // Separator/anchor-bounded so innocent keys like "author"/"description" never match.
 const SECRET_KEY_RE = /(^|[_.\- ])(passwd|password|pwd|secret|secret[_-]?key|token|access[_-]?token|refresh[_-]?token|session[_-]?token|api[_-]?key|apikey|client[_-]?secret|access[_-]?key|private[_-]?key|credential|credentials|authorization|bearer)($|[_.\- ])/i;
 function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+// FB-CONFIG-2-F1: a lower-to-upper camelCase boundary counts as a separator (dbPassword, githubToken)
+function isSecretKey(k) { return !!k && SECRET_KEY_RE.test(String(k).replace(/([a-z0-9])([A-Z])/g, '$1_$2')); }
 function redactValue(v, keyHint) {
+  const secret = isSecretKey(keyHint);
   if (typeof v === 'string') {
-    if (keyHint && SECRET_KEY_RE.test(String(keyHint)) && v.trim()) return '***REDACTED***';
+    if (secret && v.trim()) return '***REDACTED***';
     return redactString(v);
   }
-  if (Array.isArray(v)) return v.map((x) => redactValue(x));
-  if (isPlainObject(v)) { const out = {}; for (const k of Object.keys(v)) out[k] = redactValue(v[k], k); return out; }
-  return v; // numbers/booleans/null pass through unchanged
+  if (typeof v === 'number' && secret) return '***REDACTED***'; // a numeric PIN/password is still a credential
+  // the secret key's hint reaches every leaf below it: token:['x'], credentials:{pass:'y'}
+  if (Array.isArray(v)) return v.map((x) => redactValue(x, secret ? keyHint : undefined));
+  if (isPlainObject(v)) { const out = {}; for (const k of Object.keys(v)) out[k] = redactValue(v[k], secret ? keyHint : k); return out; }
+  return v; // booleans/null (and numbers under an ordinary key) pass through unchanged
 }
 
 // ---- redactText(str) —: redactValue()'s key-name heuristic
@@ -225,29 +231,64 @@ const AUTH_HEADER_RE = new RegExp(AUTH_HEADER_KEY_PART + '(?!["\'])(' + AUTH_HEA
 // curl command or a log line). Deliberately narrow — ONLY these two scheme words, not the full
 // AUTH_HEADER_SCHEME list above — because unlike the labelled form, there is no "Authorization:" anchor to
 // rule out an ordinary English sentence; "Token"/"Digest" in particular would collide head-on with
-// TEXT_KEY_TERM's own, separately-tuned "token" handling (KEY_VALUE_BARE_RE's 12-char floor) and
+// TEXT_KEY_TERM's own, separately-tuned "token" handling (KEY_VALUE_BARE_RE's 12-char floor, N2 fix) and
 // reintroduce exactly the prose false positives that floor exists to prevent. Only fires when the value
 // right after the scheme word is actually TOKEN-SHAPED (isTokenShapedBareValue — mixes letters and digits),
 // so "Basic setup" and "bearer of news" (neither "setup" nor "of"/"news" mixes letters and digits) are left
 // untouched, and the pre-existing "the bearer had a bag" test stays byte-identical for the same reason.
 const AUTH_BARE_SCHEME = '(?:Bearer|Basic)';
-// Verify Boss round 2: '=' belongs to the value too (base64 padding), and a sentence-final period is split
+// Verify Boss round 2 (F3): '=' belongs to the value too (base64 padding), and a sentence-final period is split
 // off in redactText() below so it stays in the text instead of being swallowed or blocking the decode check.
 const AUTH_BARE_RE = new RegExp('(?<![A-Za-z0-9])(' + AUTH_BARE_SCHEME + ')(\\s+)([A-Za-z0-9+/_.=\\-]{1,4096})(?![A-Za-z0-9+/_.=\\-])', 'gi');
 const TEXT_REDACT_MAX_CHARS = 50000; // defensive cap — every real caller today already bounds its own text far below this
+// FB-CONFIG-2-F1: a camelCase label ("dbPassword=x") has a letter right before the key term, so KEY_PART's
+// (?<![A-Za-z0-9]) never fires. The 'i' flag makes a case test impossible inside those regexes (and Node 18 has no
+// (?-i:) modifier), so a private-use marker is put at each real lower-to-UPPER boundary that starts a labelled
+// term; the lookbehind sees a non-alphanumeric, and the marker is removed again at the end. A text that already
+// holds the marker character is left to the old passes unchanged.
+const CAMEL_MARK = '';
+const CAMEL_BOUNDARY_RE = /(?<=[a-z0-9])(?=[A-Z])/g;
+const CAMEL_LABEL_RE = new RegExp('^' + TEXT_KEY_TERM + '["\']?\\s*[:=]', 'i');
+function markCamelLabels(s) {
+  if (s.includes(CAMEL_MARK)) return s;
+  return s.replace(CAMEL_BOUNDARY_RE, (_m, off) => (CAMEL_LABEL_RE.test(s.slice(off, off + 64)) ? CAMEL_MARK : ''));
+}
+// ---- prefix-less base64 keys (WP-SCRIBE-REDACT): a Roblox Open Cloud key is one long base64 blob with no
+// known prefix, so no SECRET_PATTERNS entry and no key=value pass saw it (an owner paste reached the scribe ledger in
+// plain text). Two shapes: a BARE run of 120+ base64/base64url chars, and a 40+ char run right after a key label
+// ("api key:", "api sleutel:", "secret ", "wachtwoord="). Both only fire when the run mixes upper case, lower case and
+// digits (git SHAs, sha256/sha512 hex, UUIDs and lowercase slugs never do); the bare form also needs a 32+ char stretch
+// without '/' so a long path of short segments stays. Upper-bounded and anchored on both sides (linear, ReDoS-safe).
+const B64_CHARS = 'A-Za-z0-9+/_\\-';
+const B64_BARE_RE = new RegExp('(?<![' + B64_CHARS + '=])[' + B64_CHARS + ']{120,8192}={0,2}(?![' + B64_CHARS + '=])', 'g');
+const B64_LABEL_RE = new RegExp('(?<![A-Za-z0-9])((?:api[ _.\\-]?)?(?:key|sleutel|secret|token|password|wachtwoord)["\']?(?:[^\\S\\r\\n]{0,4}[:=][^\\S\\r\\n]{0,4}|[^\\S\\r\\n]{1,4}))([' + B64_CHARS + ']{40,8192}={0,2})(?![' + B64_CHARS + '=])', 'gi');
+// WP-REDACT-SLUG: random base64url holds '-' and '_' at about 2 of 64 chars (~3 %); a dash-joined slug
+// such as a Claude project folder name (C--Users-YOU-...-root-Q3kd9Z) holds far more. Above 10 % it is words, not a
+// key (redacting it broke the owner-origin transcript check).
+function isMixedToken(v) {
+  if (!(/[A-Z]/.test(v) && /[a-z]/.test(v) && /[0-9]/.test(v))) return false;
+  let sep = 0;
+  for (let i = 0; i < v.length; i++) { const c = v.charCodeAt(i); if (c === 45 || c === 95) sep++; }
+  return sep <= v.length * 0.1;
+}
+function redactBase64Keys(s) {
+  return s
+    .replace(B64_LABEL_RE, (m, label, val) => (isMixedToken(val) ? label + '***REDACTED***' : m))
+    .replace(B64_BARE_RE, (m) => (isMixedToken(m) && m.split('/').some((seg) => seg.length >= 32) ? '***REDACTED***' : m));
+}
 function redactText(s) {
   if (typeof s !== 'string') return s == null ? '' : redactText(String(s));
   try {
     const truncated = s.length > TEXT_REDACT_MAX_CHARS;
-    let out = redactString(truncated ? s.slice(0, TEXT_REDACT_MAX_CHARS) : s);
+    let out = markCamelLabels(redactBase64Keys(redactString(truncated ? s.slice(0, TEXT_REDACT_MAX_CHARS) : s)));
     out = out.replace(KEY_VALUE_DQ_RE, (_m, kq1, key, kq2, sep, _val, close) => kq1 + key + kq2 + sep + '"***REDACTED***' + close);
     out = out.replace(KEY_VALUE_SQ_RE, (_m, kq1, key, kq2, sep, _val, close) => kq1 + key + kq2 + sep + "'***REDACTED***" + close);
-    // the UNQUOTED Authorization/Proxy-Authorization "<scheme> <token>" form, redacted as ONE unit
+    // W2-04: the UNQUOTED Authorization/Proxy-Authorization "<scheme> <token>" form, redacted as ONE unit
     // BEFORE the generic KEY_VALUE_PUNCT_RE pass below (which would otherwise only consume the scheme word).
     out = out.replace(AUTH_HEADER_RE, (_m, kq1, key, kq2, sep) => kq1 + key + kq2 + sep + '***REDACTED***');
     out = out.replace(KEY_VALUE_PUNCT_RE, (_m, kq1, key, kq2, sep) => kq1 + key + kq2 + sep + '***REDACTED***');
     out = out.replace(KEY_VALUE_BARE_RE, (m, key, sep, val) => isTokenShapedBareValue(val) ? key + sep + '***REDACTED***' : m);
-    // a bare "Bearer <token>"/"Basic <token>" with no "Authorization:" label at all. Runs last so it
+    // W2-04: a bare "Bearer <token>"/"Basic <token>" with no "Authorization:" label at all. Runs last so it
     // never fights with the labelled passes above.
     // Verify Boss F3: a letters-only Basic value (no digit, so not "token-shaped") is still a credential when
     // it is base64 that decodes to printable "user:password".
@@ -261,6 +302,7 @@ function redactText(s) {
       const isCredential = isTokenShapedBareValue(core) || (/^basic$/i.test(scheme) && decodesToBasicCredential(core));
       return isCredential ? '***REDACTED***' + val.slice(core.length) : m;
     });
+    out = out.split(CAMEL_MARK).join('');
     return truncated ? out + '…[truncated]' : out;
   } catch { return '[redaction failed]'; }
 }

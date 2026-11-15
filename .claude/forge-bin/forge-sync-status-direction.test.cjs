@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-sync-status-direction.test.cjs — WP A0.
  *
@@ -82,9 +86,15 @@ test('dev tree with template-only edits: names them as TEMPLATE AHEAD and exits 
   assert.strictEqual(r.code, 1, r.out);
 });
 
-test('an installed project (no dev-tree marker) keeps the old "files behind — run: forge-sync install" report', () => {
+// FIX-SYNC B-F10: an installed project is judged the way install judges it. lag.cjs was edited here with no
+// receipt baseline, so install refuses it as unknown drift; status names it as BLOCKED with the steps that clear it and never
+// says "run: forge-sync install" (that install would only refuse).
+test('an installed project (no dev-tree marker) reports a file install would refuse as BLOCKED, not "run: forge-sync install"', () => {
   const r = status(fixture('installed', { marker: false }), false);
-  assert.match(r.out, /DRIFT \(1 files behind\) — run: forge-sync install/, r.out);
+  assert.match(r.out, /BLOCKED \(1 file\(s\) changed in this project/, r.out);
+  assert.match(r.out, /unknown drift\): forge-bin\/lag\.cjs/, r.out);
+  assert.match(r.out, /--accept-template/, r.out);
+  assert.doesNotMatch(r.out, /run: forge-sync install/, r.out);
   assert.doesNotMatch(r.out, /DEVELOPMENT TREE/, r.out);
   assert.strictEqual(r.code, 1, r.out);
 });

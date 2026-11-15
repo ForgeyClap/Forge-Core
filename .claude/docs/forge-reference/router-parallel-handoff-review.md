@@ -35,7 +35,7 @@ Explicitly load the matching `forge-*` playbook by name (don't rely on auto-trig
 ## Parallel by default + watchdog (WP-LANEWATCH, 2026-10-10)
 Added; not part of the verbatim block above.
 
-- **Parallel is the default.** When a mission has independent parts, start those lanes together (background Agent-tool subagents), up to **8** at once. Do not ask the owner whether to parallelize; just do it. Dependent steps still run in order.
+- **Parallel is the default.** When a mission has independent parts, start those lanes together (background Agent-tool subagents), as many at once as `node .claude/forge-bin/forge-lane-budget.cjs` reports. The budget tapers with your 5-hour and weekly usage, down to `lanes.min` (default 1) at `lanes.stop-at` (default 80 %); read-only lanes count too, and a Workflow fan-out (for example `forge-verify.js` with `maxParallel`) stays within it. Do not ask the owner whether to parallelize; just do it. Dependent steps still run in order.
 - **One writer per hotspot.** Two running lanes never write the same file. Give each lane its own files, or use the hotspot lock / a worktree (Step 4 above).
 - **Arm the watchdog whenever more than one lane runs.** Start it as a Monitor:
   `node .claude/forge-bin/forge-lane-watchdog.cjs --watch 60 --ids <running agentIds, comma-separated>`

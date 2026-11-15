@@ -10,12 +10,19 @@ license: MIT
   Pinned commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b (tag v7.0.1, also main on 2026-11-02)
   Upstream path: skills/brainstorming/
   License: MIT (c) 2025 Jesse Vincent -- full text in LICENSE next to this file
-  Forge vendor note: frontmatter license: MIT key and this provenance block added; 2 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; the Show-don't-tell paragraph, the playback check and the Visual Companion section rewritten to say the browser companion is not shipped (its local HTTP/WebSocket server scripts and its guide are excluded) and to show visuals as text or a static file instead; description shortened for the listing budget; not shipped: scripts/server.cjs, scripts/start-server.sh, scripts/stop-server.sh, scripts/helper.js, scripts/frame-template.html, visual-companion.md (see VENDORED-SKILLS.md); v7.0.0 replaced spec-document-reviewer-prompt.md with builder-check-prompt.md, so the old file is gone here too; everything else verbatim.
+  Forge vendor note: frontmatter license: MIT key and this provenance block added; 2 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; the Show-don't-tell paragraph, the playback check and the Visual Companion section rewritten to say the browser companion is not shipped (its local HTTP/WebSocket server scripts and its guide are excluded) and to show visuals as text or a static file instead; description shortened for the listing budget; not shipped: scripts/server.cjs, scripts/start-server.sh, scripts/stop-server.sh, scripts/helper.js, scripts/frame-template.html, visual-companion.md (see VENDORED-SKILLS.md); v7.0.0 replaced spec-document-reviewer-prompt.md with builder-check-prompt.md, so the old file is gone here too; a marked "Forge addendum" blockquote under the H1 (audit SK-6-F5: under Forge autonomy the standing rule is the opt-out and the HARD-GATE becomes a recorded decision); everything else verbatim.
   Previous pin: 5bf4e78011075bcfc0dc295f0724994cd123ee71; upgraded 2026-11-02 (WP Q3-SKILLS).
   Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by skill-boss, 2026-11-02 -- clean; every upstream file git-blob-hash-verified against the pinned commit's tree before copying.
 -->
 
 # Brainstorming
+
+> **Forge addendum (not upstream):** when the owner works autonomously under Forge (the standing
+> autonomy rule, or "niet vragen"), that counts as opting out of the questions. Lay out the approaches, pick
+> one and record the pick with its reason in the plan or the mission blueprint; the HARD-GATE below then
+> becomes that recorded decision, not a wait for approval. Hard gates (push, deploy, spend, outbound,
+> credentials, production, destructive actions) still wait for the owner. Forge's own short form is
+> `forge-brainstorm`.
 
 You are very good at building. You build what you believe your human
 partner wants, and that belief is usually thinner than it feels. This

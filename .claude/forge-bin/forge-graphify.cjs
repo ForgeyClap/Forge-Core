@@ -7,7 +7,11 @@
 //
 // Usage: node forge-graphify.cjs which | version | smoke | check-skill [--skill-dir D] | fix-skill [--skill-dir D]
 //        node forge-graphify.cjs run -- <graphify args...>
-// Exit codes: 0 ok, 1 check/smoke failed, 2 graphify not found or bad usage.
+//        node forge-graphify.cjs ensure [--root D] [--json] [--wait]   (fresh|built|building|skipped|unavailable, always exit 0)
+//          without --wait it starts this file again, detached, as `ensure --wait --found <json>` and returns at once;
+//          --found must be one of candidates(). A failed --wait build is recorded in graphify-out/.forge-build.last and
+//          later calls answer unavailable (no new build) until a code edit or 6 hours have passed.
+// Exit codes: 0 ok, 1 check/smoke failed, 2 graphify not found or bad usage (ensure: 2 only for bad usage).
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -24,7 +28,8 @@ function parseVersion(text) {
 
 function defaultRun(cmd, args, opts) {
   const o = opts || {};
-  return spawnSync(cmd, args, { encoding: 'utf8', windowsHide: true, shell: false, timeout: o.timeout || PROBE_TIMEOUT_MS, cwd: o.cwd });
+  // the timeout kills only this child (its own pid), never anything by name
+  return spawnSync(cmd, args, { encoding: 'utf8', windowsHide: true, shell: false, timeout: o.timeout || PROBE_TIMEOUT_MS, cwd: o.cwd, stdio: o.stdio });
 }
 
 function uvToolPython(env, home, platform) {
@@ -58,10 +63,11 @@ function locate(deps) {
   const platform = d.platform || process.platform;
   const exists = d.exists || ((p) => { try { return fs.statSync(p).isFile(); } catch (e) { return false; } });
   const run = d.run || defaultRun;
+  const timeout = d.probeTimeout || PROBE_TIMEOUT_MS;
   const tried = [];
   for (const c of candidates({ env, home, platform })) {
     if (!exists(c.cmd)) { tried.push({ cmd: c.cmd, result: 'missing' }); continue; }
-    const r = run(c.cmd, c.args.concat(['--version']), { timeout: PROBE_TIMEOUT_MS });
+    const r = run(c.cmd, c.args.concat(['--version']), { timeout });
     const version = r && r.status === 0 ? parseVersion((r.stdout || '') + '\n' + (r.stderr || '')) : null;
     if (version) return { ok: true, cmd: c.cmd, args: c.args, source: c.source, version, tried };
     tried.push({ cmd: c.cmd, result: r && r.error ? 'spawn error: ' + r.error.code : 'exit ' + (r ? r.status : '?') });
@@ -160,7 +166,194 @@ function smoke(deps) {
   }
 }
 
-const USAGE = 'usage: forge-graphify.cjs which | version | smoke | check-skill | fix-skill [--skill-dir D] | run -- <args>  (-h/--help prints this)';
+// ---- ensure(): keep <root>/graphify-out/graph.json current with a code-only build (`graphify update`, no LLM) ----
+// Mirrors graphify's own skip set (graphify/detect.py _SKIP_DIRS and _is_noise_dir, 0.8.x) plus Forge's _scratch, so code
+// graphify never reads cannot make the graph look stale.
+const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.turbo', 'graphify-out', '_scratch',
+  'venv', '.venv', 'env', '.env', '__pycache__', 'target', 'out', 'coverage', 'site-packages', 'lib64', '.pytest_cache',
+  '.mypy_cache', '.ruff_cache', '.tox', '.eggs', 'lcov-report', 'visual-tests', 'visual-test', '__snapshots__', 'snapshots',
+  'storybook-static', 'dist-protected', '.nuxt', '.angular', '.idea', '.cache', '.parcel-cache', '.svelte-kit', '.terraform',
+  '.serverless', '.graphify', '.worktrees']);
+const IGNORE_REL = new Set(['.claude/forge-runs']);
+function noiseDir(name, parentRel) {
+  if (IGNORE_DIRS.has(name) || /(_venv|_env|\.egg-info)$/.test(name)) return true;
+  return name === 'worktrees' && path.posix.basename(parentRel).startsWith('.'); // .claude/worktrees, like graphify
+}
+const SHORT_PROBE_MS = 5000; // the start brief must not hang on a slow `graphify --version`
+const STAMP_NAME = '.forge-graph-stamp';
+const CODE_EXT = new Set(['.js', '.cjs', '.mjs', '.jsx', '.ts', '.tsx', '.py', '.go', '.rs', '.java', '.kt', '.cs', '.c', '.h',
+  '.cpp', '.hpp', '.rb', '.php', '.swift', '.scala', '.lua', '.sh', '.ps1', '.vue', '.svelte']);
+const MIN_CODE_FILES = 3;
+const SCAN_MAX_ENTRIES = 50000; // shortcut: a huge tree is judged on the first 50k entries; raise if graphs go stale unseen
+const LOCK_TTL_MS = 15 * 60 * 1000;
+const LOCK_NAME = '.forge-build.lock';
+const LAST_NAME = '.forge-build.last'; // {failed, newest, reason, at} of the last failed --wait build; removed by a good one
+const RETRY_AFTER_MS = 6 * 3600 * 1000; // a failed build is tried again after a code edit or after 6 hours
+
+function mtimeIfFile(p) { try { const s = fs.statSync(p); return s.isFile() ? s.mtimeMs : null; } catch (e) { return null; } }
+
+/** Folder rules from the root .gitignore, read line by line: plain names match anywhere, names with a slash match from the
+ *  root. shortcut: wildcard and negated lines are skipped (only a trailing slash-star or slash-double-star is stripped);
+ *  use a real gitignore matcher if graphs go stale because of an unusual ignore file. */
+function gitignoreDirs(root) {
+  const names = new Set(); const rels = new Set();
+  let text = '';
+  try { text = fs.readFileSync(path.join(root, '.gitignore'), 'utf8'); } catch (e) { return { names, rels }; } // no .gitignore: nothing extra
+  for (const raw of text.split(/\r?\n/)) {
+    let line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+    line = line.replace(/\/\*\*?$/, '').replace(/\/+$/, '');
+    if (!line || /[*?[\\]/.test(line)) continue;
+    const anchored = line.startsWith('/');
+    line = line.replace(/^\/+/, '');
+    if (!line) continue;
+    if (anchored || line.includes('/')) rels.add(line); else names.add(line);
+  }
+  return { names, rels };
+}
+
+function scanCode(root) {
+  const gi = gitignoreDirs(root);
+  const skipDir = (name, rel, parentRel) => noiseDir(name, parentRel) || IGNORE_REL.has(rel) || gi.names.has(name) || gi.rels.has(rel);
+  let count = 0; let newest = 0; let seen = 0;
+  const stack = [''];
+  while (stack.length && seen < SCAN_MAX_ENTRIES) {
+    const rel = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch (e) { continue; } // unreadable dir: skip it
+    for (const ent of entries) {
+      if (++seen > SCAN_MAX_ENTRIES) break;
+      const childRel = rel ? rel + '/' + ent.name : ent.name;
+      if (ent.isDirectory()) { if (!skipDir(ent.name, childRel, rel)) stack.push(childRel); continue; }
+      if (!ent.isFile() || !CODE_EXT.has(path.extname(ent.name).toLowerCase())) continue;
+      count++;
+      const m = mtimeIfFile(path.join(root, childRel));
+      if (m !== null && m > newest) newest = m;
+    }
+  }
+  return { count, newest };
+}
+
+function sameDir(a, b) { return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase(); }
+// signal 0 only asks whether the pid exists; it stops nothing. EPERM = exists but belongs to someone else.
+function pidAlive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } }
+function readJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; } } // missing or broken file: no data
+function hasMarker(root) {
+  try { if (fs.statSync(path.join(root, '.claude')).isDirectory()) return true; } catch (e) { /* no .claude folder: try .git */ }
+  try { fs.statSync(path.join(root, '.git')); return true; } catch (e) { return false; } // .git may be a folder or a worktree file
+}
+function makeOutDir(outDir) {
+  if (fs.existsSync(outDir)) return; // graphify's own folder (or a damaged one) is left alone
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, '.gitignore'), '*\n'); // the graph output never becomes committable
+}
+function writeLock(outDir, pid, now) { makeOutDir(outDir); fs.writeFileSync(path.join(outDir, LOCK_NAME), JSON.stringify({ pid, started: now })); }
+function releaseOwnLock(outDir, pid) {
+  const lock = path.join(outDir, LOCK_NAME);
+  const l = readJson(lock);
+  if (l && l.pid === pid) fs.unlinkSync(lock); // only the lock this builder holds
+}
+
+/** ensure(opts) -> {status, reason, out_dir, graph, report}. Without wait: start a detached node wrapper
+ *  (`ensure --wait`) and return at once. With wait: run `graphify update .` (cwd = root) under a timeout; on exit 0 write
+ *  a stamp with the newest code mtime seen BEFORE the build, because graphify leaves graph.json untouched when the
+ *  topology did not change. Fails open: every problem becomes a status, never a throw. */
+function ensure(opts) {
+  const o = opts || {};
+  const root = path.resolve(o.root || process.cwd());
+  const env = o.env || process.env;
+  const outDir = path.join(root, 'graphify-out');
+  const graph = path.join(outDir, 'graph.json');
+  const reportPath = path.join(outDir, 'GRAPH_REPORT.md');
+  const done = (status, reason) => ({ status, reason, out_dir: outDir, graph, report: mtimeIfFile(reportPath) !== null ? reportPath : null });
+  try {
+    if (String(env.FORGE_GRAPHIFY || '').toLowerCase() === 'off') return done('skipped', 'FORGE_GRAPHIFY=off');
+    if (sameDir(root, o.home || os.homedir())) return done('skipped', 'root is the home folder');
+    if (sameDir(root, path.parse(root).root)) return done('skipped', 'root is a drive root');
+    if (!hasMarker(root)) return done('skipped', 'no project marker (no .claude folder or .git in the root)');
+    const src = scanCode(root);
+    if (src.count < MIN_CODE_FILES) return done('skipped', 'only ' + src.count + ' code files (need ' + MIN_CODE_FILES + ')');
+    const gm = mtimeIfFile(graph);
+    const stamp = readJson(path.join(outDir, STAMP_NAME));
+    const stamped = stamp && typeof stamp.newest === 'number' ? stamp.newest : 0;
+    if (gm !== null && gm >= src.newest) return done('fresh', 'graph.json is newer than the newest code file');
+    if (gm !== null && stamped >= src.newest) return done('fresh', 'the last good build covers the newest code file (graph unchanged)');
+    const now = o.now === undefined ? Date.now() : o.now;
+    if (!o.wait) {
+      const l = readJson(path.join(outDir, LOCK_NAME));
+      const age = l && typeof l.started === 'number' ? now - l.started : -1;
+      // a lock without a pid comes from a spawn that failed: dead, like a lock whose pid is gone
+      if (age >= 0 && age < LOCK_TTL_MS && typeof l.pid === 'number' && (o.isAlive || pidAlive)(l.pid)) return done('building', 'a background build is already running');
+      const f = readJson(path.join(outDir, LAST_NAME));
+      const since = f && typeof f.at === 'number' ? now - f.at : -1;
+      if (f && f.failed === true && typeof f.newest === 'number' && src.newest <= f.newest && since >= 0 && since < RETRY_AFTER_MS) {
+        return done('unavailable', 'the last graph build failed (' + String(f.reason).slice(0, 200) + '); it is tried again after a code edit or in 6 hours');
+      }
+    }
+    const found = o.found || (o.locate || locate)({ env, run: o.run, home: o.home, exists: o.exists, platform: o.platform, probeTimeout: o.wait ? PROBE_TIMEOUT_MS : SHORT_PROBE_MS });
+    if (!found || !found.ok) return done('unavailable', (found && found.reason) || 'graphify not found');
+    if (o.wait) {
+      try { writeLock(outDir, process.pid, now); } catch (e) { /* lock is best effort: the build still runs */ }
+      const r = (o.run || defaultRun)(found.cmd, found.args.concat(['update', '.']), { timeout: o.buildTimeout || BUILD_TIMEOUT_MS, cwd: root, stdio: 'ignore' });
+      if (r && r.status === 0 && mtimeIfFile(graph) !== null) {
+        try { fs.writeFileSync(path.join(outDir, STAMP_NAME), JSON.stringify({ newest: src.newest, built: Date.now() })); }
+        catch (e) { /* no stamp: the next call builds once more, nothing breaks */ }
+        try { fs.unlinkSync(path.join(outDir, LAST_NAME)); } catch (e) { /* no failure on record: nothing to clear */ }
+        return done('built', 'graphify update finished');
+      }
+      const why = r && r.error ? r.error.code || r.error.message : r && r.status === 0 ? 'exit 0 but no graph.json' : 'exit ' + (r ? r.status : '?');
+      const reason = 'graphify update failed (' + why + ')';
+      // recorded so the next start does not launch the same doomed build again (see the !o.wait branch above)
+      try { fs.writeFileSync(path.join(outDir, LAST_NAME), JSON.stringify({ failed: true, newest: src.newest, reason, at: now })); }
+      catch (e) { /* no record: the next call simply tries once more */ }
+      return done('unavailable', reason);
+    }
+    const spawn = o.spawn || require('child_process').spawn;
+    const wrapperArgs = [__filename, 'ensure', '--root', root, '--wait', '--found', JSON.stringify({ cmd: found.cmd, args: found.args })];
+    const child = spawn(process.execPath, wrapperArgs, { cwd: root, detached: true, stdio: 'ignore', windowsHide: true, shell: false });
+    if (child && typeof child.on === 'function') child.on('error', () => {}); // fail open: a late spawn error must not crash the caller
+    if (child && typeof child.unref === 'function') child.unref();
+    try { writeLock(outDir, child && child.pid, now); }
+    catch (e) { /* lock is best effort: without it the next call may start one more build */ }
+    return done('building', 'background build started (graphify update)');
+  } catch (e) {
+    return done('unavailable', 'graphify ensure failed: ' + e.message);
+  } finally {
+    if (o.wait) { try { releaseOwnLock(outDir, process.pid); } catch (e) { /* lock already gone or unreadable: nothing to release */ } }
+  }
+}
+
+const USAGE = 'usage: forge-graphify.cjs which | version | smoke | check-skill | fix-skill [--skill-dir D] | run -- <args> | ensure [--root D] [--json] [--wait] [--found <json>]  (-h/--help prints this)';
+
+/** --found '{"cmd":"...","args":[...]}' is how the background wrapper gets the graphify its caller located. Only a value
+ *  that is one of candidates() for this process (same env, home and platform) is accepted, so the flag can never run an
+ *  arbitrary program: the wrapper is a bare `node` command line anyone can call. */
+function parseFound(text) {
+  let f;
+  try { f = JSON.parse(text); } catch (e) { return null; }
+  if (!f || typeof f.cmd !== 'string' || !f.cmd || !Array.isArray(f.args) || !f.args.every((a) => typeof a === 'string')) return null;
+  const key = (c) => path.resolve(c.cmd).toLowerCase() + '|' + JSON.stringify(c.args);
+  const known = candidates({ env: process.env, home: os.homedir(), platform: process.platform });
+  if (!known.some((c) => key(c) === key(f))) return null;
+  return { ok: true, cmd: f.cmd, args: f.args, source: 'wrapper', version: null };
+}
+
+function ensureCli(argv) {
+  const flags = { root: null, json: false, wait: false, found: null };
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--json') flags.json = true;
+    else if (a === '--wait') flags.wait = true;
+    else if (a === '--root' && argv[i + 1] && !argv[i + 1].startsWith('--')) flags.root = argv[++i];
+    else if (a === '--found' && i + 1 < argv.length) {
+      flags.found = parseFound(argv[++i]);
+      if (!flags.found) { console.error(USAGE); return 2; }
+    } else { console.error(USAGE); return 2; }
+  }
+  const r = ensure({ root: flags.root || process.cwd(), wait: flags.wait, found: flags.found || undefined });
+  console.log(flags.json ? JSON.stringify(r) : 'graphify: ' + r.status + ' (' + r.reason + ')' + (r.status === 'fresh' || r.status === 'built' ? ' ' + r.graph : ''));
+  return 0;
+}
 
 function argValue(argv, flag) { const i = argv.indexOf(flag); return i >= 0 && argv[i + 1] ? argv[i + 1] : null; }
 
@@ -168,6 +361,7 @@ function main(argv) {
   const cmd = argv[0];
   if (cmd === '--help' || cmd === '-h' || cmd === 'help') { console.log(USAGE); return 0; }
   const skillDir = argValue(argv, '--skill-dir') || path.join(os.homedir(), '.claude', 'skills', 'graphify');
+  if (cmd === 'ensure') return ensureCli(argv);
   if (cmd === 'smoke') {
     const r = smoke({});
     for (const s of r.steps) console.log('  ' + JSON.stringify(s));
@@ -198,5 +392,5 @@ function main(argv) {
   return 2;
 }
 
-module.exports = { parseVersion, candidates, locate, normalizeSkillText, checkSkill, fixSkill, smoke, main };
+module.exports = { parseVersion, candidates, locate, normalizeSkillText, checkSkill, fixSkill, smoke, ensure, main };
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

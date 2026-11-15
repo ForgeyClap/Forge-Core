@@ -1,4 +1,4 @@
-# Owner Governance Precedence (WAVE B / B4)
+# Forge — Owner Governance Precedence (WAVE B / B4)
 
 The single, authoritative ordering for every "which rule wins" question Forge asks at run time.
 Referenced by `forge-router` (`skills/forge-router/SKILL.md`, Step 0-owner) and `commands/forge.md`
@@ -104,7 +104,13 @@ before intake — never re-derive this ordering elsewhere; point back to this fi
   it is not itself consulted as a lookup table.
 - Nothing in tiers 3-5 may ever promote itself to "active" on its own. A standing rule reaches
   `status:"active"` only via real evidence seeded by Build Boss, or an explicit owner **`/forge
-  remember`** (`forge-standing.cjs::remember()`) — the only sanctioned auto-active write path. A staged
+  remember`** (`forge-standing.cjs::remember()`) — the only sanctioned auto-active write path.
+  **What is enforced today (corrected 2026-11-13, audit CF-4-F2):** `remember()` does not check who calls it.
+  Any agent with a shell can run `forge-standing.cjs remember "<text>"`, and the rule is stored active, with
+  confidence high and the source label "owner /forge remember", whoever wrote it. The "owner" in that label is a
+  claim, not a proof: one stored rule that starts "Lead rule" already carries it. Until `remember()` records
+  the real origin (source "lead" unless a hook-captured owner prompt is named), treat a standing rule's source
+  label as unverified and check the scribe inbox for the owner's own words. A staged
   `forge-reflect`/`FORGE_PREF_CANDIDATES.json` candidate is NEVER auto-promoted, regardless of its own
   status field (see `forge-prefs.cjs::listCandidates()` — STAGE-ONLY, no promote path exists in that
   module at all).

@@ -39,7 +39,13 @@ function eolDrift(root) {
     const before = git(root, ['cat-file', '-p', 'HEAD:' + rel], true);
     if (before === null) continue;
     const a = eolStyle(before), b = eolStyle(now);
-    if (a !== b && a !== 'none' && b !== 'none') drift.push({ file: rel, before: a, after: b });
+    if (a === b || a === 'none' || b === 'none') continue;
+    // FB-INSTALL-1-F7: git diff runs the clean filter (core.autocrlf, .gitattributes eol), so it shows what git would
+    // store. Only when ignoring CR changes the diff do the stored line endings really change.
+    const plain = git(root, ['diff', '--numstat', 'HEAD', '--', rel]);
+    const noCr = git(root, ['diff', '--numstat', '--ignore-cr-at-eol', 'HEAD', '--', rel]);
+    if (plain !== null && noCr !== null && plain === noCr) continue;
+    drift.push({ file: rel, before: a, after: b });
   }
   return { applicable: true, drift };
 }

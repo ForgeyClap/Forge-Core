@@ -1,0 +1,9 @@
+{
+  "skill": "forge-android-app",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-android-app/SKILL.md", "why": "skill file must exist" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200, "why": "listing budget" },
+    { "id": "jdk-rule", "type": "contains", "path": ".claude/skills/forge-android-app/SKILL.md", "needle": "Capacitor 7 needs JDK 21", "why": "version pairing" },
+    { "id": "emu-kill", "type": "contains", "path": ".claude/skills/forge-android-app/SKILL.md", "needle": "emu kill", "why": "safe emulator stop" }
+  ]
+}

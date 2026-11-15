@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-skill-harvest-fast.test.cjs — SA-HARVEST-FAST: shared token bucket, batched GraphQL repo pre-pass,
 // parallel tree workers, Windows-safe state writes. Fake gh / clock only; every fixture lives in a fresh os.tmpdir() root.
 const nodeTest = require('node:test');
@@ -211,6 +215,19 @@ test('trees: --limit caps NEW tree calls and a rate-limit stop keeps the cursor 
   assert.strictEqual(st2.treeIndex, 6, 'two finished, stopped at the third');
 });
 
+test('trees: one repo whose tree call keeps answering 5xx is settled as server_error, the queue moves on (FB-SKILLTOOLS-F6)', async () => {
+  const c = clock(); const root = tmpRoot();
+  const repos = ['o/a', 'o/huge', 'o/b'];
+  const { gh: base } = treeWorld({ trees: { 'o/a': ['SKILL.md'], 'o/b': ['SKILL.md'] } }, c);
+  const gh = async (args, input) => (/^repos\/o\/huge\//.test(args[0]) ? { status: 502, headers: {}, body: 'Bad Gateway' } : base(args, input));
+  const lines = []; const seen = [];
+  const st = { treeIndex: 0 };
+  await T.treeQueue({ gh, sleep: c.sleep, now: c.now, log: (l) => lines.push(l) }, S.openStore(root), 'topics', st, repos, { workers: 1 }, (e, repo) => { seen.push([repo, e.status]); return 0; });
+  assert.strictEqual(st.treeIndex, 3, 'the cursor moves past the failing repo');
+  assert.deepStrictEqual(seen, [['o/a', 'ok'], ['o/huge', 'server_error'], ['o/b', 'ok']]);
+  assert.ok(!lines.some((l) => /stopped on rate limit/.test(l)), 'a server error is not logged as a rate limit');
+});
+
 test('enum: skillssh still resolves sitemap entries through the parallel tree path', async () => {
   const c = clock(); const root = tmpRoot();
   const pages = {
@@ -257,4 +274,19 @@ test('CLI: --workers is accepted from 1 to 8 and refused outside that range', ()
   assert.strictEqual(C.parseArgs(['enumerate', '--workers', '6']).workers, 6);
   assert.throws(() => C.parseArgs(['enumerate', '--workers', '0']), /between 1 and 8/);
   assert.throws(() => C.parseArgs(['enumerate', '--workers', '9']), /between 1 and 8/);
+});
+
+test('FB-SKILLTOOLS-F3: forEachLine keeps a multi-byte character that straddles the 1 MiB read boundary', () => {
+  const root = tmpRoot();
+  try {
+    const f = path.join(root, 'big.jsonl');
+    const s = 'a'.repeat((1 << 20) - 1 - 6) + '€€€'; // '{"s":"' is 6 bytes, so the first euro sign spans bytes 1048575-1048577
+    fs.writeFileSync(f, JSON.stringify({ s }) + '\n' + JSON.stringify({ s: 'ü' }) + '\n', 'utf8');
+    const seen = [];
+    const bad = S.forEachLine(f, (o) => seen.push(o.s));
+    assert.strictEqual(bad, 0);
+    assert.strictEqual(seen.length, 2);
+    assert.ok(seen[0] === s, 'line read back differs from the line written (U+FFFD at the chunk boundary)');
+    assert.strictEqual(seen[1], 'ü');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

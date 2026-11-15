@@ -31,7 +31,7 @@ Forge changes: credential commands, live-doc fetches, `npx` package runs and bun
 Full text of every rule: `references/hard-rules.md`. Building the tool server itself (naming, schemas, annotations, pagination, transport, auth, 10-question eval): `references/mcp-builder.md`.
 
 ## Team (conditional)
-Lead: `architect` (or `build-boss` when the agent is one slice of a larger app). Full roster: `references/team-and-tools.md`.
+Lead: `build-boss`; `architect` is an optional read-only design advisor (not a Boss). Full roster: `references/team-and-tools.md`.
 
 ## Skills / commands / MCP
 Skills, commands, MCP and opt-in dependencies: `references/team-and-tools.md`.

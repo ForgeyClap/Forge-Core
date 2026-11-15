@@ -161,7 +161,7 @@ export function toGatewayProject(row: ProjectRow, status: StatusKey, conversatio
 }
 
 /**
- * cc-finish fix-cert-fabrication — UPDATED by fix-cert-rest (item 3): whether a project's
+ * cc-finish fix-cert-fabrication (F3) — UPDATED by fix-cert-rest (item 3): whether a project's
  * `agentCount`/`missionCount` are a REAL measurement, or `useGatewayDataset`'s placeholder `0` for
  * every project that is not the active one.
  *

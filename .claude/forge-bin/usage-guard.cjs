@@ -73,10 +73,10 @@
  * guard reads and where it sends it — followed by the one command that switches it off.
  *
  * SAFE DEFAULTS (security fixes wp20):
- *  - a settings file forge-config refuses as malformed, or a missing forge-config.cjs, is UNREADABLE — never a
+ *  - M3: a settings file forge-config refuses as malformed, or a missing forge-config.cjs, is UNREADABLE — never a
  *    silent "on". The thresholds fall back to the defaults (with a note), but `start` refuses in one plain line and
  *    exits 3 ("instellingen onleesbaar — usage guard start niet; ..."); `--force` overrides once.
- *  - the guard can only measure with ~/.claude/.credentials.json (on macOS Claude Code keeps the login in the
+ *  - M6: the guard can only measure with ~/.claude/.credentials.json (on macOS Claude Code keeps the login in the
  *    Keychain). Without that file `start` prints one honest line and exits 3 without spawning; `status`/`check` say
  *    the same instead of a raw file error.
  *  - L2: a RUNNING watcher re-reads the `usage-guard` switch before every check (watchStep). Switched off (or
@@ -293,7 +293,7 @@ function loadGuardConfig(opts) {
 
 /** readGuardSwitch(opts) -> { on: boolean, unreadable: boolean } — the owner's `usage-guard` switch as it is NOW
  *  (L2: a running watcher re-reads it before every check). forge-config.cjs is soft-required through
- *  loadGuardConfig; its seams FORGE_CONFIG_HOME / FORGE_PROJECT_ROOT are read at call time. Unreadable -> OFF.
+ *  loadGuardConfig; its seams FORGE_CONFIG_HOME / FORGE_PROJECT_ROOT are read at call time. Unreadable -> OFF (M3).
  *  Never throws. */
 function readGuardSwitch(opts) {
   const o = opts || {};
@@ -317,7 +317,7 @@ function readGuardSwitch(opts) {
  *  `detectLang` (--lang flag > the `language` setting in the global config file > .forge-setup.json's
  *  project marker > 'en') — never a re-implementation of that resolution order, and never a hard
  *  dependency: a missing/unreadable forge-config.cjs (or any thrown error) falls back to 'en', matching
- *  this file's own safe-default convention elsewhere. opts.configModule (test seam) mirrors
+ *  this file's own safe-default convention elsewhere (M3/M6). opts.configModule (test seam) mirrors
  *  loadGuardConfig/readGuardSwitch above. Never throws. */
 function resolveGuardLanguage(opts) {
   const o = opts || {};
@@ -1010,6 +1010,28 @@ function triggerCanResumeByModelSwitch(triggers, windows, modelHint) {
     return modelHint ? !sameModel(t.model, modelHint) : false; // unknown -> only a confident, DIFFERENT hint clears it
   });
 }
+/** pauseScope(crossed) -> 'model:<names>' | 'all' — LEAD-U1: which models a pause binds. Only when EVERY
+ *  crossed window carries a model is the pause per-model ('model:Fable', several names sorted and comma-joined); any
+ *  all-models window (session, weekly_all) or no trigger at all -> 'all'. Written into the state so the session hook
+ *  can tell a per-model pause from an account-wide one. Pure, never throws. */
+function pauseScope(crossed) {
+  const cs = Array.isArray(crossed) ? crossed : [];
+  if (!cs.length || !cs.every((c) => c && c.model)) return 'all';
+  return 'model:' + Array.from(new Set(cs.map((c) => String(c.model)))).sort().join(',');
+}
+/** pauseAppliesToModel(state, sessionModel) -> boolean — LEAD-U1: does this paused state bind a session that
+ *  runs on `sessionModel` (a raw id such as claude-opus-5-5)? A per-model limit at 100% means THAT model is blocked,
+ *  not this session. Only false when the state is not paused, or when every trigger carries a model and none of them
+ *  is the session model. FAIL SAFE: an unknown session model, a trigger without a model (all-models, or an old build)
+ *  or no triggers at all keep the pause in force. The global session hook carries a verbatim copy (it cannot require
+ *  project code). Pure, never throws. */
+function pauseAppliesToModel(state, sessionModel) {
+  if (!state || state.mode !== 'paused') return false;
+  const ts = Array.isArray(state.trigger) ? state.trigger : [];
+  if (!ts.length || !ts.every((t) => t && t.model)) return true;
+  if (typeof sessionModel !== 'string' || !normalizeModelToken(sessionModel)) return true;
+  return ts.some((t) => sameModel(String(t.model), sessionModel));
+}
 /** watcherHealth — a live PID is NOT proof the watcher is doing its job: on 2026-08-03 the process was
  *  alive while its last real check was 80 minutes old (it had silently stopped ticking). Freshness is
  *  judged against 3 intervals; no timestamp at all is honest uncertainty, never a green light. */
@@ -1134,9 +1156,15 @@ async function runOverrideOn() {
     console.error('  run: node .claude/forge-bin/usage-guard.cjs override-on --owner-approval <token> --reason "<why>"');
     process.exit(3);
   }
+  const foreign = foreignWatcher();
+  if (foreign) {
+    console.error('usage-guard override-on REFUSED — the running watcher (PID ' + foreign.pid + ') runs from another copy (' + foreign.script + ') and reads its override grant there, so an override set in this copy would never reach it; no change made');
+    console.error('  run override-on from that copy, or stop the watcher and start it again from this project');
+    process.exit(3);
+  }
   const rawUntil = argv('until', null) || null;
   if (rawUntil && !Number.isFinite(Date.parse(rawUntil))) console.error('ignoring invalid --until "' + rawUntil + '" (not a parseable date) — falling back to the default backstop expiry');
-  // `until` is mandatory at the storage layer (forge-ownergrant.cjs's readOverrideGrant reads a
+  // N12: `until` is mandatory at the storage layer (forge-ownergrant.cjs's readOverrideGrant reads a
   // missing/unparseable expiry as INVALID, never "unlimited") — resolveGrantUntil fills a bounded backstop
   // when the owner did not supply one; credit exhaustion stays the PRIMARY, expected re-arm path. Finding 5
   // 30 days is now a MAXIMUM, not merely a default — an explicit later --until is clamped down.
@@ -1147,7 +1175,7 @@ async function runOverrideOn() {
   // own documented claim that the clamp note prints on stdout).
   if (untilResolved.clamped) console.log('note: --until was later than the 30-day maximum a single override may cover — clamped to ' + until + ' (renew by running override-on again when it is close to expiring)');
   const reason = argv('reason', 'Eigenaar kocht usage credits — doorwerken op credits tot ze op zijn');
-  // bind the authoritative grant to the account it is being granted FOR — an unbound (project-wide)
+  // N10: bind the authoritative grant to the account it is being granted FOR — an unbound (project-wide)
   // grant used to survive an account switch and suppress a DIFFERENT account's protection (see
   // usage-guard-override.cjs's resolveOwnerOverride and forge-ownergrant.cjs's own header).
   const grantIdent = readAccountIdentity();
@@ -1223,7 +1251,7 @@ async function runOverrideOn() {
       } else {
         st.mode = 'ok'; st.pausedAgents = []; delete st.notice; delete st.pendingCheckup; delete st.resumePending; delete st.lastError;
       }
-      // stamp the account this override is being granted FOR, exactly like a real tick would — see
+      // N01: stamp the account this override is being granted FOR, exactly like a real tick would — see
       // detectAccountSwitch()'s own doc comment for why an unstamped state misreads a real switch as adoption.
       Object.assign(st, accountStamp(readAccountIdentity()));
       st.ownerOverride = guardOverride.cachedOverrideFrom({ active: true, at: new Date().toISOString(), reason, until });
@@ -1242,12 +1270,17 @@ async function runOverrideOn() {
 /** runOverrideOff() — the `override-off` command body (extracted for the SAME test-reachability reason as
  *  runOverrideOn() above). Always calls `process.exit(...)`. */
 async function runOverrideOff() {
-  // clear the AUTHORITATIVE grant record FIRST — the safety direction (re-arming the guard). N11
+  // V15/N11: clear the AUTHORITATIVE grant record FIRST — the safety direction (re-arming the guard). N11
   // MEASURED DEFECT (`V15-override-off-unlink-failure-status`): a FAILED removal used to still exit 0 and
   // report "re-armed" while the grant stayed active — now reported honestly as NOT re-armed, nonzero exit.
   const grantCleared = require('./forge-ownergrant.cjs').writeOverrideGrant({ active: false }, { projectRoot: TRUSTED_OWNERGRANT_ROOT });
   if (!grantCleared) {
     console.error('usage-guard override-off FAILED — could not clear the authoritative override-grant record on disk; protection is NOT re-armed; try again');
+    process.exit(1);
+  }
+  const foreign = foreignWatcher();
+  if (foreign) { // FB-USAGE-F2: this copy's grant is cleared, but the live watcher reads another copy's grant
+    console.error('usage-guard override-off: this copy\'s grant is cleared, but the running watcher (PID ' + foreign.pid + ') runs from another copy (' + foreign.script + ') and reads its grant there — protection is NOT re-armed for that watcher; run override-off from that copy');
     process.exit(1);
   }
   // GUARD-STATE-RACE: best-effort cache/pausedAgents bookkeeping below — the grant is ALREADY cleared
@@ -1435,7 +1468,7 @@ async function pc(method, p, body, opts) {
     return { status: 0, json: null, err: String(e.message), ...(wasAborted ? { aborted: true } : {}) };
   }
 }
-/** allAgents(opts) -> opts.signal threads through to every pc() call and stops enumerating further
+/** allAgents(opts) -> opts.signal threads through to every pc() call (V29) and stops enumerating further
  *  companies/agents the moment shutdown begins — "no subsequent operation after shutdown began" applies to
  *  the enumeration loop itself, not only the single in-flight request. */
 async function allAgents(opts) {
@@ -1444,7 +1477,7 @@ async function allAgents(opts) {
   if (!Array.isArray(comps.json)) return null; // runtime down / unreachable
   const out = [];
   for (const c of comps.json) {
-    if (o.signal && o.signal.aborted) break; // no further company/agent listing once shutdown began
+    if (o.signal && o.signal.aborted) break; // V29: no further company/agent listing once shutdown began
     if (ONLY_COMPANIES.length && !ONLY_COMPANIES.includes(c.name)) continue;
     const ag = await pc('GET', '/api/companies/' + c.id + '/agents', undefined, { signal: o.signal });
     for (const a of (Array.isArray(ag.json) ? ag.json : [])) out.push({ id: a.id, name: a.name, company: c.name, status: a.status });
@@ -1560,7 +1593,7 @@ async function doPause(u, crossed, ident, opts) {
   let stopIndex = toPause.length;
   for (let idx = 0; idx < toPause.length; idx++) {
     const a = toPause[idx];
-    // once shutdown has begun, no SUBSEQUENT pause request may be issued — the in-flight one is
+    // V29: once shutdown has begun, no SUBSEQUENT pause request may be issued — the in-flight one is
     // already aborted by pc()'s own combined signal; this stops the LOOP from starting yet another one for
     // the remaining agents.
     if (signal && signal.aborted) { stopIndex = idx; log('PAUSE aborted mid-round (shutdown) — ' + (toPause.length - idx) + ' agent(s) left unpaused for the next tick'); break; }
@@ -1619,7 +1652,7 @@ async function doPause(u, crossed, ident, opts) {
     if (fence && !fence()) return { fenced: true };
     try {
     writeState({
-      mode: 'paused', trigger: crossed, pauseAt: PAUSE_AT, weekPauseAt: WEEK_PAUSE_AT > 0 ? WEEK_PAUSE_AT : null, resumeAt: RESUME_AT,
+      mode: 'paused', trigger: crossed, scope: pauseScope(crossed), pauseAt: PAUSE_AT, weekPauseAt: WEEK_PAUSE_AT > 0 ? WEEK_PAUSE_AT : null, resumeAt: RESUME_AT,
       ...accountStamp(ident),
       // NEVER silently drop the owner's paid-credits override / last credit snapshot on a pause — the hook
       // reads ownerOverride to keep working; a fresh object without it defeated that (an accounting desktop app flapping).
@@ -1658,7 +1691,7 @@ async function doPause(u, crossed, ident, opts) {
     } catch (e) { if (e && e.code === 'EFENCED') return { fenced: true }; throw e; }
     return { fenced: false };
   });
-  // a lock refusal never wrote unlocked — say so plainly. The agents ABOVE were already paused via
+  // V15: a lock refusal never wrote unlocked — say so plainly. The agents ABOVE were already paused via
   // the real Paperclip API regardless (that already happened); only the STATE FILE bookkeeping is missing
   // this round, and the next tick re-evaluates from a fresh read.
   if (!pauseLock.ok) log('state-lock: PAUSE state write skipped (' + pauseLock.reason + ') — ' + paused.length + ' agent(s) WERE paused via the API but the state file could not record it this round');
@@ -1873,7 +1906,7 @@ async function tick(deps, opts) {
   // `sw`/`st` below still drive the REST of this tick's control flow (which trigger fired, is ownerOverride
   // active, etc.) from this pre-lock snapshot — a benign, self-correcting read for DECISION purposes (a rare
   // double-detected switch self-corrects on the very next tick); only the ACTUAL PERSISTENCE of each
-  // decision below is re-read fresh and serialized against every other writer via withLockedState().
+  // decision below (V15) is re-read fresh and serialized against every other writer via withLockedState().
   const rawState = D.readState();
   // Part V-D: resolved once per tick — see resolveGuardLanguage's own header for the exact
   // fallback chain (--lang > the owner's `language` setting > the project marker > English).
@@ -1970,7 +2003,7 @@ async function tick(deps, opts) {
         if (!wasPaused) { fresh.mode = 'ok'; delete fresh.lastError; } // nothing to reconcile — safe immediately
       }, 'OVERRIDE active write');
       if (wasPaused) {
-        // reconcile through the SAME resume path/retry semantics an ordinary usage-reset resume uses —
+        // N17: reconcile through the SAME resume path/retry semantics an ordinary usage-reset resume uses —
         // `st` still carries the pausedAgents list from BEFORE this tick's override decision. doResume() OWNS
         // the mode transition from here (see the note above) and logs the actual outcome itself
         // (RESUMED / RESUME PARTIAL, with real counts) — this branch never repeats or overclaims that outcome.
@@ -2026,7 +2059,7 @@ async function tick(deps, opts) {
       delete st.ownerOverride;
     }
   } else if (overrideNow.rejected) {
-    // a real, otherwise-active grant exists but failed account verification — never suppress this
+    // N10: a real, otherwise-active grant exists but failed account verification — never suppress this
     // tick, and log WHY using only non-secret, opaque account labels (never a fingerprint/uuid/token).
     D.log('OVERRIDE grant present but NOT honoured (' + overrideNow.rejected + ') — grant account '
       + (overrideNow.record.accountLabel || '(none)') + ' vs current account ' + (ident.fp || '(unknown)')
@@ -2087,6 +2120,10 @@ async function tick(deps, opts) {
       const reconciled = stateForAccount(fresh, ident, lang);
       reconciled.mode = 'ok'; reconciled.pauseAt = PAUSE_AT; reconciled.weekPauseAt = WEEK_PAUSE_AT > 0 ? WEEK_PAUSE_AT : null; reconciled.resumeAt = RESUME_AT; reconciled.nvidiaShiftAt = NVIDIA_SHIFT_AT;
       reconciled.percents = { session: u.session.pct, week: u.week.pct }; reconciled.lastCheckAt = new Date().toISOString();
+      // FB-USAGE-F3: keep the reset times fresh in ok mode too (the lane budget's week pace and reset rules read them);
+      // a side the endpoint did not report keeps its earlier value.
+      const prevResets = reconciled.resets && typeof reconciled.resets === 'object' ? reconciled.resets : {};
+      reconciled.resets = { session: u.session.resetsAt || prevResets.session || null, week: u.week.resetsAt || prevResets.week || null };
       delete reconciled.lastError; delete reconciled.corruptAt; delete reconciled.corruptReason;
       return reconciled;
     }, 'normal ok write');
@@ -2130,7 +2167,7 @@ async function tick(deps, opts) {
     // pauzedrempel, dan wordt de pauze op DAT venster voortgezet (verse trigger + vers ritme) in plaats
     // van hervat; agents die al gepauzeerd zijn raakt doPause niet opnieuw aan.
     if (!stillHigh || rhythmDue || modelSwitchedAway) {
-      // the same applicability filter as the "ok" branch above — a DIFFERENT model's window sitting
+      // N1: the same applicability filter as the "ok" branch above — a DIFFERENT model's window sitting
       // at/over pause-at must never force a re-pause on behalf of a model this session is not using.
       const nowAllCrossed = crossedWindows(u.windows, PAUSE_AT, WEEK_PAUSE_AT);
       const nowCrossed = nowAllCrossed.filter((w) => windowAppliesNow(w, modelHint))
@@ -2169,6 +2206,23 @@ async function tick(deps, opts) {
 }
 
 function pidAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+/** overrideStatusLabel(st, resolved) -> the status suffix. FB-USAGE-F4: OVERRIDE ACTIVE only when the authoritative
+ *  grant backs it (resolveOwnerOverride); a cached ownerOverride the grant does not back is named as stale. */
+function overrideStatusLabel(st, resolved) {
+  if (resolved && resolved.active === true) return ' · OVERRIDE ACTIVE (credits mode)';
+  const cached = st && st.ownerOverride && st.ownerOverride.active !== false;
+  if (!cached) return '';
+  return ' · cached override not backed by a grant (' + String((resolved && resolved.rejected) || 'no active grant') + ') — the guard pauses as normal';
+}
+/** foreignWatcher() -> {pid, script} | null. FB-USAGE-F2: the watcher is one global process, but it resolves the owner
+ *  override grant under the project of the COPY it runs from. A live pid record naming another copy's script means an
+ *  override-on/off in this copy cannot reach the running watcher. */
+function foreignWatcher() {
+  const rec = readPidRecord();
+  if (!rec.pid || !rec.script || !pidAlive(rec.pid)) return null;
+  const norm = (p) => { const r = path.resolve(String(p)); return process.platform === 'win32' ? r.toLowerCase() : r; };
+  return norm(rec.script) === norm(__filename) ? null : { pid: rec.pid, script: rec.script };
+}
 /** readPidRecord — the pid file is now {pid,startedAt,script}; a bare number is the legacy form and is
  *  still read (never break an already-running watcher), just without the extra identity evidence. */
 function readPidRecord() {
@@ -2453,16 +2507,44 @@ function releaseWatcherSlot(opts) {
   catch (e) { return { ok: false, removed: false, reason: e.message }; }
 }
 
+/** liftPauseOnSwitchOff(deps) -> Promise<{ lifted: boolean, reason?: string }> — LEAD-U2: the owner switched
+ *  the guard off, so a pause it left behind must not keep blocking every session until the reset (the hook reads only
+ *  `mode`). A paused state becomes mode 'ok' without notice/resumeAtEpoch/scope, with lastResumeAt and resumeReason,
+ *  through the same locked, fenced writer as every other state write. No pendingCheckup: nothing was resumed via the
+ *  API (unresolved journal pauses are reconciled by the ok branch once the guard is on again). A non-paused state is
+ *  not rewritten. Never throws. */
+async function liftPauseOnSwitchOff(deps) {
+  const D = Object.assign({ readState, writeState, log }, deps || {});
+  try {
+    if (D.readState().mode !== 'paused') return { lifted: false, reason: 'not-paused' };
+    let lifted = false;
+    const r = await withLockedState(D, (fresh) => {
+      if (fresh.mode !== 'paused') return fresh;
+      lifted = true;
+      fresh.mode = 'ok';
+      delete fresh.notice; delete fresh.resumeAtEpoch; delete fresh.scope;
+      fresh.lastResumeAt = new Date().toISOString();
+      fresh.resumeReason = 'guard switched off by the owner';
+      return fresh;
+    }, 'switch-off pause lift');
+    if (!r.ok) return { lifted: false, reason: r.reason };
+    if (lifted) D.log('usage-guard UIT — de pauze is opgeheven (mode ok) / usage guard OFF — pause lifted (mode ok)');
+    return { lifted };
+  } catch (e) {
+    D.log('switch-off pause lift failed: ' + ((e && e.message) || e));
+    return { lifted: false, reason: 'error' };
+  }
+}
 /** watchStep(ctx, deps) -> Promise<{ outcome: 'lost-slot'|'switched-off'|'ticked', seenOn: boolean }> — ONE
  *  iteration of the watch loop (L2, exported so the switch re-read is testable without a 30 s interval).
  *  ctx = { forced: started with --force, seenOn: the switch has been on at some check of this watcher }. Order: slot
- *  ownership, then the owner's switch (re-read NOW), then the real check. Switched off or unreadable -> one log line,
- *  the pid file is released and the process exits 0 — unless the watcher was forced on while the switch was off and
+ *  ownership, then the owner's switch (re-read NOW), then the real check. Switched off or unreadable -> one log line
+ *  (and one more when it lifts a pause it left behind, LEAD-U2), the pid file is released and the process exits 0 — unless the watcher was forced on while the switch was off and
  *  has not seen it on since (a forced start is not undone by its own first tick). deps inject every side effect. */
 async function watchStep(ctx, deps) {
   const D = Object.assign({
     stillOwnsSlot: () => true, readSwitch: readGuardSwitch, tick, log,
-    release: releaseWatcherSlot, exit: (code) => process.exit(code),
+    release: releaseWatcherSlot, exit: (code) => process.exit(code), liftPause: liftPauseOnSwitchOff,
   }, deps || {});
   const forced = !!(ctx && ctx.forced);
   let seenOn = !!(ctx && ctx.seenOn);
@@ -2477,6 +2559,7 @@ async function watchStep(ctx, deps) {
     D.log(sw.unreadable
       ? 'instellingen onleesbaar — usage guard stopt (veilige standaard: uit; herstel of reset met /forge config reset --yes) / settings unreadable — the watcher stops (safe default: off)'
       : 'usage-guard staat nu UIT in je instellingen — de watcher stopt en ruimt zijn pid-bestand op (aanzetten: /forge config set usage-guard aan) / usage guard switched OFF in your settings — the watcher stops');
+    await D.liftPause({ log: D.log });
     D.release();
     D.exit(0);
     return { outcome: 'switched-off', seenOn };
@@ -2507,7 +2590,7 @@ if (require.main === module) {
       console.log('gemeten elke ' + INTERVAL + 's (beste-poging — een taak kan tussen twee metingen door de limiet nog overschrijden; dit is geen ogenblikkelijke, gegarandeerde blokkade) / sampled every ' + INTERVAL + 's (best effort — a task can still cross the limit between samples; this is not an instant, guaranteed block)');
       for (const n of [GUARD_CFG.note, ...GUARD.warnings].filter(Boolean)) console.log('note: ' + n);
     }
-    // without the login file there is nothing to measure with — say so plainly instead of a raw file error.
+    // M6: without the login file there is nothing to measure with — say so plainly instead of a raw file error.
     if (!credentialsPresent()) {
       console.log(noCredentialsLine('no measurement'));
       process.exitCode = 1;
@@ -2546,7 +2629,11 @@ if (require.main === module) {
         + (swNow.switched
           ? pickLang(resolveGuardLanguage(), ' · ⚠ ACCOUNT SWITCH t.o.v. de opgeslagen state (' + swNow.from + ' -> ' + swNow.to + '): de cijfers/pauze/override hieronder zijn van het VORIGE account en worden bij de eerstvolgende watch-tick gereset', ' · ⚠ ACCOUNT SWITCH since the saved state (' + swNow.from + ' -> ' + swNow.to + '): the numbers/pause/override below belong to the PREVIOUS account and reset on the next watch tick')
           : (st.account ? '' : ' · state nog niet gestempeld (wordt bij de eerstvolgende tick geadopteerd)')));
-      const ovr = st.ownerOverride && st.ownerOverride.active !== false ? ' · OVERRIDE ACTIVE (credits mode)' : '';
+      // FB-USAGE-F4: ask the authoritative grant (same resolver as tick), never only the cached ownerOverride.
+      let ovrResolved = { active: false, rejected: 'unresolved' };
+      try { const snap = readCredentialSnapshot(); ovrResolved = guardOverride.resolveOwnerOverride({ projectRoot: TRUSTED_OWNERGRANT_ROOT, accountLabel: ident.fp, credentialGeneration: snap.generation, credentialFp: snap.credentialFp }); }
+      catch (e) { ovrResolved = { active: false, rejected: 'grant unreadable (' + ((e && e.code) || 'error') + ')' }; }
+      const ovr = overrideStatusLabel(st, ovrResolved);
       const cr = st.credits ? ' · credits used ' + fmtMoney(st.credits.used, st.credits.currency, st.credits.decimals) + '/' + fmtMoney(st.credits.limit, st.credits.currency, st.credits.decimals) : '';
       console.log('guard state: ' + (st.mode || 'ok') + ' · pauseAt ' + (st.pauseAt != null ? st.pauseAt : '?') + '%' + ovr + cr + (st.lastPauseAt ? ' · lastPause ' + st.lastPauseAt : '') + (st.lastResumeAt ? ' · lastResume ' + st.lastResumeAt : ''));
       const rec = readPidRecord();
@@ -2599,7 +2686,8 @@ if (require.main === module) {
       // but this explicit check gives a clean, honest message instead of a generic "CHECK FAILED" log
       // line. No --force here: a one-shot watch tick has no documented off-switch exception.
       const gateOnce = guardNetworkAllowed({});
-      if (!gateOnce.ok) { log(gateOnce.reason); return; }
+      // LEAD-U2: switched off -> also lift a pause a stopped watcher left behind (no network call).
+      if (!gateOnce.ok) { log(gateOnce.reason); await liftPauseOnSwitchOff(); return; }
       // GUARD-DISCLOSURE / V30 (Codex recheck wp-f4): `watch --once` used to call tick()
       // straight after the gate check, with NO disclosure at all — the ONE entry point that could make its
       // first request without ever telling the owner what it reads/sends first. Log it here, exactly like
@@ -2731,12 +2819,12 @@ if (require.main === module) {
       console.log('usage-guard staat UIT in je instellingen (aanzetten: /forge config set usage-guard aan) / usage guard is OFF in your settings');
       process.exit(3);
     }
-    // unreadable settings (malformed file / missing forge-config.cjs) are never read as "on".
+    // M3: unreadable settings (malformed file / missing forge-config.cjs) are never read as "on".
     if (GUARD_CFG.unreadable && !GUARD.force) {
       console.log('instellingen onleesbaar — usage guard start niet; herstel of reset met /forge config reset --yes / settings unreadable — usage guard not started; repair or reset with /forge config reset --yes');
       process.exit(3);
     }
-    // no login file = nothing to measure with (macOS: Keychain). Honest refusal, nothing spawned; --force cannot
+    // M6: no login file = nothing to measure with (macOS: Keychain). Honest refusal, nothing spawned; --force cannot
     // change that — a watcher without a login file could only ever log failed checks.
     if (!credentialsPresent()) {
       console.log(noCredentialsLine('not started'));
@@ -2768,7 +2856,7 @@ if (require.main === module) {
     extra.push('--grace-min', String(GRACE_MIN));
     if (DRY) extra.push('--dry-run');
     // L2: the child re-reads the switch before every check; a forced start must not be undone by its first tick.
-    // the SAME owner-approval token this parent just verified above is forwarded so the child's OWN
+    // V18: the SAME owner-approval token this parent just verified above is forwarded so the child's OWN
     // `watch --force` grant check (independent, defense-in-depth) also succeeds — the parent never assumes
     // its own verification carries over to a separate process without re-proving it there too.
     if (GUARD.force) { extra.push('--force'); const fwdToken = argv('owner-approval', null); if (fwdToken) extra.push('--owner-approval', fwdToken); }
@@ -2877,9 +2965,10 @@ module.exports = {
   fingerprintAccount, readAccountIdentity, detectAccountSwitch, stateForAccount,
   normalizeWindows, crossedWindows, thresholdFor, windowLabel, watcherHealth, fmtReset, stillHighTrigger,
   sameModel, normalizeModelToken, ALL_MODELS_KINDS, resolveActiveModelHint, windowAppliesNow, triggerCanResumeByModelSwitch,
+  pauseScope, pauseAppliesToModel, liftPauseOnSwitchOff,
   resolveGuardLanguage, pickLang,
   tick, doPause, doResume, accountStamp, ownsPid, readPosixCmdline, verdictFromCmdline, pidAlive, readCredentialFp,
-  credentialGeneration, readCredentialSnapshot,
+  credentialGeneration, readCredentialSnapshot, overrideStatusLabel,
   claimWatcherSlot, releaseWatcherSlot, incumbentStatus, readPidRecordFrom, STALE_LOCK_MS, cleanupStalePidFile,
   awaitChildClaim, journalAppend, unresolvedPausedAgents, rotateLogIfNeeded, compactJournalIfNeeded,
   computePressureLevel, buildPressureData, creditsExhausted,

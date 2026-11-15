@@ -1,0 +1,65 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "website",
+  "_doc": "The website pack (owner request R-0239, contract): 5 web-* SPECIALIST agents (never Bosses; the 12 permanent Bosses are unchanged) for websites, landing pages, SPAs and dashboards, built from the roles the owner projects really used (design, ux, a11y, dataviz, browser proof, responsive audit). forge-router sends website work to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Lanes open the presets website-all and process first (checked by forge-lane-skills.cjs --require website-all,process).",
+  "projectTypes": [
+    "website",
+    "landing",
+    "spa",
+    "dashboard"
+  ],
+  "signals": [
+    "website",
+    "landing page",
+    "homepage",
+    "hero",
+    "CTA",
+    "responsive",
+    "frontend",
+    "UI/UX",
+    "SPA",
+    "dashboard",
+    "webshop design",
+    "brand guideline"
+  ],
+  "playbook": "forge-website",
+  "agents": [
+    "web-art-director",
+    "web-frontend-engineer",
+    "web-content-writer",
+    "web-dataviz-engineer",
+    "web-qa-proof"
+  ],
+  "skills": [
+    "forge-craft",
+    "forge-ui-polish",
+    "frontend-design",
+    "forge-website",
+    "forge-testing",
+    "forge-debug",
+    "ponytail",
+    "test-driven-development",
+    "humanizer",
+    "forge-report",
+    "forge-long-form-writing",
+    "forge-fullstack",
+    "forge-verify",
+    "forge-a11y",
+    "forge-web-quality"
+  ],
+  "presets": {
+    "website-all": [
+      "forge-website",
+      "frontend-design",
+      "forge-craft",
+      "forge-ui-polish",
+      "forge-a11y",
+      "forge-web-quality"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

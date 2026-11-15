@@ -7,7 +7,7 @@
  *  1. The project STOP HOOK (registered in .claude/settings.json through forge-settings-merge.cjs). When Claude
  *     stops while a Forge run is active, it prints that run's outstanding obligations — the ones
  *     `forge-runcontract.cjs plan` marks overdue or due now — as a short ADVISORY message for the owner
- *     (`{"systemMessage": ...}` on stdout, exit 0). It never blocks a stop (two exceptions: I.7 and I.8 below), honours `stop_hook_active` (prints
+ *     (`{"systemMessage": ...}` on stdout, exit 0). It never blocks a stop (three exceptions: I.7, I.8 and I.9 below), honours `stop_hook_active` (prints
  *     nothing while Claude is already continuing because of a stop hook), and prints NOTHING when there is no
  *     active run or nothing is due. Budget: under 1 s (a failsafe timer exits silently at STOP_DEADLINE_MS).
  *     WP-SCRIBE-REPEAT: independent of a run, it also adds ONE line naming owner repeats (scribe items
@@ -27,13 +27,21 @@
  *     exact wait command (node .claude/forge-bin/forge-wait.cjs --session <id>): a headless session that ends its turn
  *     gets them killed. It also blocks under stop_hook_active, bounded by OPEN_SUB_MAX_BLOCKS (6) blocks per session;
  *     after that it is advisory only. See the "I.8 open-subagents" section for the honest limits.
+ *     I.9 RED-CONTRACT (R8B-F3, the third blocking part): only in a /forge build session (marker
+ *     <runs>/_hooks/forge-session/<sha256(session_id)[:16]>.json, written by forge-scribe-hook.cjs; absent = do nothing), the
+ *     stop is BLOCKED when the session's run is open with a contract NOT DONE, was failure-closed in this session over a
+ *     Lead-doable rule without a named blocker, or when the Lead wrote app files itself and there is no run. The reason (what
+ *     the model reads, unlike the advisory systemMessage) lists the open rules and the first exact command (NEXT:
+ *     forge-runcontract.cjs plan --run <id> plus the first due item). Also under stop_hook_active, at most RED_MAX_BLOCKS (3)
+ *     blocks per session, then advisory only. See the "I.9 red-contract" section for the honest limits.
  *
  *  2. The SHARED HELPERS the three hook call sites use, so they agree on one definition:
  *       findActiveRun(root)       — "the active run": the most recently appended run (events.jsonl mtime) among
  *                                   the newest MAX_CANDIDATES within ACTIVE_MAX_AGE_MS, that has a run_started
  *                                   event (or a run.json), is not finalized (no run-finalized.json) and is not
  *                                   closed (its last non-audit event is not run_completed). Doctor-receipt-only
- *                                   folders never qualify. Never throws.
+ *                                   folders never qualify. Never throws. The gate record and the Stop advisory
+ *                                   first use the session's own active-run pointer (sessionActiveRun).
  *       obligationsFor(root, id)  — forge-runcontract.cjs planFor() condensed to <= OBLIGATION_MAX_LINES lines and
  *                                   <= OBLIGATION_MAX_CHARS characters. Fails open: a corrupt log, a missing
  *                                   checker or a throwing plan gives {ok:false, reason} plus ONE honest line.
@@ -51,12 +59,13 @@
  * OPT-OUT: env FORGE_STOP_OBLIGATIONS=off silences the Stop hook (removing its settings.json entry removes it);
  * env FORGE_RUN_REQUIRED_STOP=off silences only the I.7 run-required block;
  * env FORGE_OPEN_SUBAGENTS_STOP=off silences only the I.8 open-subagents block;
+ * env FORGE_RED_CONTRACT_STOP=off silences only the I.9 red-contract block;
  * env FORGE_GATE_RUN_EVENT=off stops the gate hook's gate_blocked record (its verdict is unaffected either way).
  * (A forge-config key would be the beginner-friendly switch; FORGE_CONFIG_SCHEMA.json is outside this work
  * package, so that is a recorded follow-up, not a silent gap.)
  *
- * MODEL: findActiveRun · obligationsFor · formatObligations · appendRunEvent · evaluateRunRequired · runStop(payload,
- * opts) -> {print, text, block, block_text, norun, open_subagents, reason, run_id, due_count, ms}. CLI: stdin (the Stop hook JSON) ->
+ * MODEL: findActiveRun · obligationsFor · formatObligations · appendRunEvent · evaluateRunRequired · evaluateRedContract ·
+ * runStop(payload, opts) -> {print, text, block, block_text, norun, open_subagents, red_contract, reason, run_id, due_count, ms}. CLI: stdin (the Stop hook JSON) ->
  * runStop -> stdout JSON ({"systemMessage"} and/or {"decision":"block","reason"}) or nothing -> exit 0, always.
  */
 const fs = require('fs');
@@ -189,6 +198,28 @@ function findActiveRun(root, opts) {
   }
 }
 
+/** sessionActiveRun(root, sessionId, opts) -> the findActiveRun() shape for THIS session. FB-CONTRACT-1-F5 (audit
+ *  with two sessions in one project, "the newest open run" is often the other session's run. The session's
+ *  own active-run pointer (forge-active-run.cjs) decides first; a pointer to a finalized or closed run means this session
+ *  has no open run. Only without a pointer does the project-wide findActiveRun() decide. Never throws. */
+function sessionActiveRun(root, sessionId, opts) {
+  try {
+    const A = typeof sessionId === 'string' && sessionId ? siblingModule(root, 'forge-active-run.cjs') : null;
+    const p = A && typeof A.readActiveRun === 'function' ? A.readActiveRun(root, sessionId, { now: opts && opts.now }) : null;
+    const id = p && typeof p.run === 'string' && RUN_ID_RE.test(p.run) ? p.run : null;
+    if (id) {
+      const runDir = path.join(runsDirOf(root), id);
+      if (fs.existsSync(path.join(runDir, 'run-finalized.json'))) return { run: null, reason: 'this session\'s run ' + id + ' is finalized', skipped: [] };
+      if (fs.statSync(path.join(runDir, 'events.jsonl')).size > MAX_EVENTS_BYTES) return { run: null, reason: 'this session\'s run ' + id + ': events log too large to read in a hook', skipped: [] };
+      const { events } = readEventsLenient(path.join(runDir, 'events.jsonl'));
+      const st = openStateOf(events);
+      if (st.closed) return { run: null, reason: 'this session\'s run ' + id + ' is closed (run_completed)', skipped: [] };
+      if (events.length) return { run: { run_id: id, runDir, events: events.length, last_event_at: st.lastEventMs === null ? null : new Date(st.lastEventMs).toISOString() }, reason: null, skipped: [] };
+    }
+  } catch { /* an unreadable pointer falls back to the project-wide lookup below */ }
+  return findActiveRun(root, opts);
+}
+
 /** loadRunContract(root, opts) — the project's own forge-runcontract.cjs, else this file's sibling copy; null if
  *  neither loads. opts.runcontract injects a module (tests; null = "absent"). */
 function loadRunContract(root, opts) {
@@ -247,7 +278,8 @@ function formatObligations(plan, due, opts) {
 }
 
 /** obligationsFor(root, runId, opts) -> {ok, run_id, due_count, lines, text, reason}. Never throws (fail-open:
- *  {ok:false} plus one honest line naming the command to run by hand). opts.mode 'stop'|'reinject'. */
+ *  {ok:false} plus one honest line naming the command to run by hand). opts.mode 'stop'|'reinject'; opts.plan reuses a
+ *  planFor() result for the same run (the Stop hook's I.9 already computed it). */
 function obligationsFor(root, runId, opts) {
   opts = opts || {};
   const fail = (reason, unavailable) => {
@@ -258,8 +290,8 @@ function obligationsFor(root, runId, opts) {
     if (!RUN_ID_RE.test(String(runId || ''))) return fail('invalid run id');
     const rc = loadRunContract(root, opts);
     if (!rc || typeof rc.planFor !== 'function') return fail('forge-runcontract.cjs planFor is not available', true);
-    let plan;
-    try { plan = rc.planFor({ run_id: runId }, { root }); } catch (e) { return fail(short(e)); }
+    let plan = opts.plan && opts.plan.run_id === runId ? opts.plan : null; // I.9 already computed it for this run
+    if (!plan) { try { plan = rc.planFor({ run_id: runId }, { root }); } catch (e) { return fail(short(e)); } }
     if (!plan || !Array.isArray(plan.obligations)) return fail('the plan has no obligations list');
     const due = plan.obligations.filter((o) => o && (o.due === 'overdue' || o.due === 'due-now'));
     const lines = formatObligations(plan, due, opts);
@@ -326,7 +358,7 @@ function recordGateBlock(rawOrPayload, runResult, opts) {
     if (!(budget >= RECORD_MIN_MS)) return { recorded: false, reason: 'no time budget left (' + Math.round(elapsed) + 'ms spent)' };
     const root = opts.projectRoot ? path.resolve(opts.projectRoot) : DEFAULT_ROOT;
     if (!root) return { recorded: false, reason: 'no project root (a plugin copy outside any project)' };
-    const act = findActiveRun(root, { now: opts.now });
+    const act = sessionActiveRun(root, payload.session_id, { now: opts.now });
     if (!act.run) return { recorded: false, reason: 'no active run (' + act.reason + ')' };
     const input = payload.tool_input;
     const command = input && typeof input === 'object' && typeof input.command === 'string' ? input.command : '';
@@ -483,9 +515,14 @@ function runTouchedSince(dirs, sinceMs) {
   cands.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const c of cands.slice(0, NORUN_MAX_RUN_DIRS)) {
     if (c.size > MAX_EVENTS_BYTES) return { covered: true, run_id: c.name, reason: 'run log ' + c.name + ' changed in this session (too large to read in a hook)' };
-    const st = openStateOf(readEventsLenient(path.join(c.dir, 'events.jsonl')).events);
+    const evs = readEventsLenient(path.join(c.dir, 'events.jsonl')).events;
+    const st = openStateOf(evs);
     if (!st.genuine && !hasRunJson(c.dir)) continue;
-    if ((st.lastEventMs === null ? c.mtimeMs : st.lastEventMs) >= sinceMs) return { covered: true, run_id: c.name, reason: 'run ' + c.name + ' was started or updated in this session' };
+    // FB-CONTRACT-1-F5: a hook-written event (gate_blocked, session_resumed) is not the session updating the run
+    const work = evs.filter((e) => !HOOK_EVENT_TYPES.has(e.event_type));
+    if (!work.length) continue;
+    const lastWork = openStateOf(work).lastEventMs;
+    if ((lastWork === null ? c.mtimeMs : lastWork) >= sinceMs) return { covered: true, run_id: c.name, reason: 'run ' + c.name + ' was started or updated in this session' };
   }
   return { covered: false, run_id: null, reason: null };
 }
@@ -525,8 +562,8 @@ function runRequiredMessage(n, nowMs) {
     '[forge] No mission run / geen missie-run: ' + n + ' subagents finished in this session, but no Forge run was started or updated during it.',
     'EN: the Mission ledger rule (CLAUDE.md) says tasks exist BEFORE the work, and completion is proven only by the finalize receipt (run-finalized.json). Do this now, then carry on:',
     'NL: de Mission-ledger-regel (CLAUDE.md) zegt: taken bestaan VOOR het werk, en klaar is pas bewezen met het finalize-bewijs (run-finalized.json). Doe dit nu en ga daarna verder:',
-    '  1. ' + le + 'run_started \'{"agent":"lead","task":"<mission in one line>"}\'',
-    '  2. one per lane / een per lane: ' + le + 'agent_work_package_created \'{"agent":"<boss>","wp_id":"WP-1","task":"<lane>"}\'',
+    '  1. ' + le + 'run_started \'{"agent":"lead","task":"<mission in one line>"}\'   # Git Bash; PowerShell 5.1 drops the quotes: put the JSON in a file and pass --file <payload.json>',
+    '  2. one per lane / een per lane: ' + le + 'agent_work_package_created \'{"agent":"<boss>","wp_id":"WP-1","task":"<lane>"}\'   # PowerShell: --file <payload.json>',
     '  3. node .claude/forge-bin/forge-runcontract.cjs plan --run <run_id>   (follow its sequence; it ends with check --finalize)',
     'Work already done / werk dat al klaar is: log it honestly with "retro":true in the JSON; log-event stamps the real time, so never back-date / nooit terugdateren.',
     '<run_id> e.g. forge-' + day + '-<short-name>. This fires once per session; opt-out: FORGE_RUN_REQUIRED_STOP=off.',
@@ -616,20 +653,232 @@ function openSubagentsStop(payload, root, opts) {
 }
 // ---- end I.8 open-subagents ----
 
-/** runStop(payload, opts) -> {print, text, block, block_text, norun, reason, run_id, due_count, repeats, ms}. Never throws. */
+// ---- I.9 red-contract (R8B-F3): a /forge build session ends its turn over a red run contract ----
+// Round 8b: Leads on the GOAT router model skipped the /forge procedure (no plan, no memory/prefs, no work packages); the
+// android Lead wrote the app itself and closed its run "partial" over 9 red rules, and Forge only recorded and advised
+// (an advisory systemMessage reaches the owner, never the model). I.9 acts only in a /forge build session: a marker
+// <runs>/_hooks/forge-session/<sha256(session_id)[:16]>.json {kind:'forge-build', created_at} written by
+// forge-scribe-hook.cjs; a missing or unparsable marker means "not a /forge build session" and I.9 does nothing. The
+// session's run is the active-run pointer (forge-active-run.cjs) when that run was touched since the marker, else the
+// newest genuine run touched since then. It BLOCKS (the reason is what the model reads) when (i) that run is open and its
+// contract is NOT DONE, (ii) it was failure-closed in this session while a Lead-doable rule (forge-runcontract.cjs
+// LEAD_DOABLE_RULES) is open and the close names no blocker, or (iii) the Lead itself (tool-log agent_id null) wrote app
+// files (outside .claude/, .forge/, _scratch/) and there is no run. (i) waits while a subagent of this session still runs
+// (an interactive Lead may end its turn then; I.8 owns waiting in a headless one). Like I.8 it also blocks under stop_hook_active, bounded
+// by RED_MAX_BLOCKS blocks per session (counter written BEFORE blocking; after the cap, or when it cannot be written, it is
+// advisory only). Honest limits: the checker's plan must finish inside the settings.json Stop hook timeout (STOP_DEADLINE_MS
+// only bounds the stdin read; a hook killed by that timeout blocks nothing: fail-open); the session window starts at the
+// marker's created_at; two /forge sessions in one project share the fallback run pointer (session null), so I.9 can name
+// the other session's run (still capped at RED_MAX_BLOCKS). Fail-open on every error.
+const RED_MAX_BLOCKS = 3;
+const RED_STATE_DIR = 'red-contract-stop';        // <active runs>/_hooks/red-contract-stop/<sha256(session)[:24]>.json
+const SESSION_MARKER_DIR = 'forge-session';        // <runs>/_hooks/forge-session/<sha256(session)[:16]>.json (read only)
+const MARKER_MAX_BYTES = 4096;
+const MARKER_SKEW_MS = 5 * 60 * 1000;              // clock slack before the marker's created_at
+const LEAD_WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+const NOT_APP_PREFIXES = ['.claude/', '.forge/', '_scratch/'];
+const LIST_MAX_CHARS = 300;
+
+/** readSessionMarker(dirs, sid) -> {created_ms} | null: the /forge build-session marker, or null (absent, unparsable,
+ *  another kind, another session's hash, no valid created_at). */
+function readSessionMarker(dirs, sid) {
+  const sha = crypto.createHash('sha256').update(sid, 'utf8').digest('hex').slice(0, 16);
+  for (const d of dirs) {
+    const f = path.join(d, '_hooks', SESSION_MARKER_DIR, sha + '.json');
+    let j;
+    try { if (fs.statSync(f).size > MARKER_MAX_BYTES) continue; j = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^\uFEFF/, '')); } catch { continue; }
+    if (!j || typeof j !== 'object' || Array.isArray(j) || j.kind !== 'forge-build') continue;
+    if (j.session_sha !== undefined && j.session_sha !== sha) continue;
+    const ms = typeof j.created_at === 'string' ? Date.parse(j.created_at) : NaN;
+    if (Number.isFinite(ms)) return { created_ms: ms };
+  }
+  return null;
+}
+/** appTarget(t) -> the project-relative path of an app file, or null (absolute = outside the project, or a Forge/scratch path). */
+function appTarget(t) {
+  if (typeof t !== 'string' || !t || path.isAbsolute(t) || /^[A-Za-z]:/.test(t)) return null;
+  const rel = t.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '');
+  if (!rel || rel === '.' || rel.startsWith('../')) return null;
+  const low = rel.toLowerCase();
+  return NOT_APP_PREFIXES.some((p) => low === p.slice(0, -1) || low.startsWith(p)) ? null : rel;
+}
+/** leadAppWrites(dirs, sid, sinceMs) -> {count, sample}: Write/Edit calls by the Lead itself (agent_id null) on app files,
+ *  from the session's own tool log (forge-toolhook <runs>/_toollog/<session>(.1).jsonl). */
+function leadAppWrites(dirs, sid, sinceMs) {
+  const sample = [];
+  let count = 0;
+  for (const d of dirs) for (const n of [sid + '.1.jsonl', sid + '.jsonl']) {
+    let raw;
+    try { const f = path.join(d, '_toollog', n); if (fs.statSync(f).size > NORUN_MAX_LOG_BYTES) continue; raw = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    for (const line of raw.split(/\r?\n/)) {
+      if (!line.includes('"path"')) continue;
+      let r; try { r = JSON.parse(line.replace(/^\uFEFF/, '')); } catch { continue; }
+      if (!r || r.session !== sid || r.agent_id !== null || !LEAD_WRITE_TOOLS.has(r.tool) || r.target_kind !== 'path' || r.ok === false) continue;
+      const ms = typeof r.ts === 'string' ? Date.parse(r.ts) : NaN;
+      const rel = appTarget(r.target);
+      if (!Number.isFinite(ms) || ms < sinceMs || !rel) continue;
+      count++;
+      if (sample.length < 3 && !sample.includes(rel)) sample.push(rel);
+    }
+  }
+  return { count, sample };
+}
+/** runTouched(dir, sinceMs) — a genuine run (run_started or run.json) whose log changed at or after sinceMs. */
+function runTouched(dir, sinceMs) {
+  const f = path.join(dir, 'events.jsonl');
+  let st; try { st = fs.statSync(f); } catch { return false; }
+  if (!st.isFile() || st.mtimeMs < sinceMs - NORUN_CLOCK_SKEW_MS) return false;
+  if (st.size > MAX_EVENTS_BYTES) return true;
+  const s = openStateOf(readEventsLenient(f).events);
+  return (s.genuine || hasRunJson(dir)) && (s.lastEventMs === null ? st.mtimeMs : s.lastEventMs) >= sinceMs;
+}
+/** sessionRunOf(root, dirs, sid, sinceMs, now) -> {run_id, dir} | null — the pointer's run when it was touched in this
+ *  session, else the newest genuine run touched since sinceMs. */
+function sessionRunOf(root, dirs, sid, sinceMs, now) {
+  const A = siblingModule(root, 'forge-active-run.cjs');
+  if (A && typeof A.readActiveRun === 'function') {
+    const p = A.readActiveRun(root, sid, { now });
+    const id = p && runName(p.run);
+    if (id) for (const d of dirs) if (runTouched(path.join(d, id), sinceMs)) return { run_id: id, dir: path.join(d, id) };
+  }
+  const t = runTouchedSince(dirs, sinceMs);
+  if (!t.covered || !t.run_id) return null;
+  const d = dirs.find((x) => isDir(path.join(x, t.run_id)));
+  return d ? { run_id: t.run_id, dir: path.join(d, t.run_id) } : null;
+}
+function lastRunCompleted(dir) {
+  const evs = readEventsLenient(path.join(dir, 'events.jsonl')).events;
+  for (let i = evs.length - 1; i >= 0; i--) if (evs[i].event_type === 'run_completed') return evs[i];
+  return null;
+}
+function idList(ids) { return oneLine(ids.join(', '), LIST_MAX_CHARS); }
+function firstDue(plan, ids) {
+  const obs = Array.isArray(plan.obligations) ? plan.obligations : [];
+  const o = obs.find((x) => x && (!ids || ids.includes(x.id)) && x.severity === 'block' && (x.due === 'overdue' || x.due === 'due-now'))
+    || obs.find((x) => x && (!ids || ids.includes(x.id)));
+  return o ? oneLine(o.id + ': ' + (o.how || o.reason || ''), 240) : (plan.next && plan.next.text ? oneLine(plan.next.text, 240) : null);
+}
+const BLOCKER_LINE = 'A failure close (status failed/partial) over Lead-doable rules is refused by log-event unless it carries a "blocker" field naming what the Lead cannot do itself (a hard gate, an owner-queue item, or a work package that failed after its one escalation).';
+function openRedMessage(plan, doable) {
+  const c = plan.contract || {};
+  const missing = Array.isArray(c.missing) ? c.missing : [];
+  const claimed = plan.state && plan.state.status === 'completed';
+  const next = firstDue(plan, null);
+  return [
+    '[forge] Run ' + plan.run_id + (claimed ? ' claims completion but its' : ' is still open and its') + ' run contract is NOT DONE (' + missing.length + ' missing: ' + idList(missing) + '). Do not end the turn yet.',
+    'EN: this is a /forge build session. Finish the procedure (memory, prefs, research, plan, skill map, work packages, verify, report) or close the run honestly.' + (doable.length ? ' The Lead can do these itself now: ' + idList(doable.map((x) => x.id)) + '.' : ''),
+    'NL: dit is een /forge-bouwsessie. Maak de procedure af (geheugen, voorkeuren, onderzoek, plan, skill-map, werkpakketten, verificatie, rapport) of sluit de run eerlijk af.' + (doable.length ? ' Dit kan de Lead nu zelf: ' + idList(doable.map((x) => x.id)) + '.' : ''),
+    'NEXT: ' + planCommand(plan.run_id),
+  ].concat(next ? ['then: ' + next] : [], [BLOCKER_LINE]).join('\n');
+}
+function failureCloseMessage(plan, doable, close) {
+  const word = ['status', 'outcome', 'verdict', 'result'].map((f) => close && typeof close[f] === 'string' ? close[f] : '').find(Boolean) || 'failed';
+  const next = firstDue(plan, doable.map((x) => x.id));
+  const c = plan.contract || {};
+  const other = (Array.isArray(c.missing) ? c.missing : []).concat(Array.isArray(c.warnings) ? c.warnings : []).filter((id) => !doable.some((x) => x.id === id));
+  return [
+    '[forge] Run ' + plan.run_id + ' was closed as "' + oneLine(word, 40) + '" in this session while rules the Lead can do itself are still open: ' + idList(doable.map((x) => x.id)) + '.',
+  ].concat(other.length ? ['(also open, not counted as Lead-doable: ' + idList(other) + ')'] : [], [
+    'EN: a failure close is for a real blocker, not for skipped steps. Do these, log them (that reopens the run), then close again; or, when something the Lead cannot do itself really stopped the run, log a new run_completed with a "blocker" field that names it.',
+    'NL: een faal-afsluiting is voor een echte blokkade, niet voor overgeslagen stappen. Doe deze, log ze (de run gaat dan weer open) en sluit opnieuw af; of log, als iets wat de Lead niet zelf kan de run echt stopte, een nieuwe run_completed met een "blocker"-veld dat het noemt.',
+    'NEXT: ' + planCommand(plan.run_id),
+  ], next ? ['then: ' + next] : []).join('\n');
+}
+function noRunMessage(w, sid, nowMs) {
+  const day = new Date(typeof nowMs === 'number' ? nowMs : Date.now()).toISOString().slice(0, 10);
+  return [
+    '[forge] This /forge build session wrote ' + w.count + ' app file(s) with the Lead itself (e.g. ' + idList(w.sample) + '), but no Forge run was started or updated in it.',
+    'EN: in a /forge build the run and its work packages exist BEFORE the work, and Bosses write the app. Mint the mission ledger now, then follow the plan:',
+    'NL: in een /forge-build bestaan de run en de werkpakketten VOOR het werk, en schrijven de Bosses de app. Maak het missie-logboek nu aan en volg daarna het plan:',
+    '  1. node .claude/forge-dashboard/log-event.cjs <run_id> run_started \'{"agent":"lead","task":"<mission in one line>"}\'   # Git Bash; PowerShell 5.1 drops the quotes: put the JSON in a file and pass --file <payload.json>',
+    '  2. node .claude/forge-bin/forge-active-run.cjs set <run_id> --session ' + sid,
+    'NEXT: node .claude/forge-bin/forge-runcontract.cjs plan --run <run_id>   (<run_id> e.g. forge-' + day + '-<short-name>; log work already done with "retro":true, never back-dated)',
+  ].join('\n');
+}
+/** evaluateRedContract(payload, root, opts) -> {fire, kind:'open-red'|'failure-close'|'no-run'|null, run_id, text, reason,
+ *  plan}. READ-ONLY. opts.env, opts.now, opts.runcontract (test seam, null = absent). Never throws. */
+function evaluateRedContract(payload, root, opts) {
+  opts = opts || {};
+  const res = (o) => Object.assign({ fire: false, kind: null, run_id: null, text: null, reason: null, plan: null }, o);
+  try {
+    const env = opts.env || process.env;
+    if (isOff(env.FORGE_RED_CONTRACT_STOP)) return res({ reason: 'disabled (FORGE_RED_CONTRACT_STOP=off)' });
+    const sid = payload && typeof payload === 'object' && typeof payload.session_id === 'string' ? payload.session_id : '';
+    if (!SESSION_RE.test(sid) || sid === 'unknown-session') return res({ reason: 'no usable session_id' });
+    if (!root || !isForgeProjectDir(root)) return res({ reason: 'not a Forge project' });
+    const dirs = runsDirsOf(root);
+    const mk = readSessionMarker(dirs, sid);
+    if (!mk) return res({ reason: 'no /forge session marker (not a /forge build session)' });
+    const since = mk.created_ms - MARKER_SKEW_MS;
+    const run = sessionRunOf(root, dirs, sid, since, opts.now);
+    if (!run) {
+      const w = leadAppWrites(dirs, sid, since);
+      if (!w.count) return res({ reason: 'no run, and the Lead wrote no app files in this /forge session' });
+      return res({ fire: true, kind: 'no-run', text: noRunMessage(w, sid, opts.now), reason: w.count + ' app file(s) written by the Lead, no run' });
+    }
+    const rc = loadRunContract(root, opts);
+    if (!rc || typeof rc.planFor !== 'function') return res({ run_id: run.run_id, reason: 'forge-runcontract.cjs planFor is not available' });
+    const plan = rc.planFor({ run_id: run.run_id }, { root });
+    if (!plan || !plan.state || !plan.contract) return res({ run_id: run.run_id, reason: 'the plan has no state or contract' });
+    const out = (o) => res(Object.assign({ run_id: run.run_id, plan }, o));
+    if (plan.finalized && plan.finalized.completion_proof) return out({ reason: 'finalized' });
+    const doable = typeof rc.leadDoableOf === 'function' ? rc.leadDoableOf(plan.contract) : [];
+    if (plan.state.status === 'closed-failed') {
+      if (typeof rc.leadDoableOf !== 'function' || typeof rc.failureCloseBlocker !== 'function') return out({ reason: 'closed as failed; this checker has no leadDoableOf/failureCloseBlocker' });
+      const close = lastRunCompleted(run.dir);
+      const closeMs = close ? Date.parse(close.ingested_at || close.timestamp) : NaN;
+      if (!Number.isFinite(closeMs) || closeMs < since) return out({ reason: 'closed as failed before this /forge session' });
+      if (rc.failureCloseBlocker(close)) return out({ reason: 'the failure close names a blocker' });
+      if (!doable.length) return out({ reason: 'the failure close leaves no Lead-doable rule open' });
+      return out({ fire: true, kind: 'failure-close', text: failureCloseMessage(plan, doable, close), reason: 'failure close over ' + doable.length + ' Lead-doable rule(s)' });
+    }
+    if (plan.contract.ok === true) return out({ reason: 'contract OK' });
+    // an interactive Lead may end its turn while its background subagents work (the harness wakes it); I.8 owns waiting
+    const W = siblingModule(root, 'forge-wait.cjs');
+    const running = W && typeof W.openAgents === 'function' ? W.openAgents(dirs, { session: sid, now: opts.now }) : [];
+    if (running.length) return out({ reason: running.length + ' subagent(s) of this session still running — the run is in progress' });
+    return out({ fire: true, kind: 'open-red', text: openRedMessage(plan, doable), reason: 'run open, contract NOT DONE' });
+  } catch (e) { return res({ reason: 'internal: ' + short(e) }); }
+}
+/** redContractStop(payload, root, opts) -> {block, text, advisory, reason, kind, run_id, plan}. The per-session counter is
+ *  written BEFORE blocking; at the cap, or when it cannot be written, the result is advisory only. */
+function redContractStop(payload, root, opts) {
+  opts = opts || {};
+  const ev = evaluateRedContract(payload, root, opts);
+  const base = { block: false, text: null, advisory: null, reason: ev.reason, kind: ev.kind, run_id: ev.run_id, plan: ev.plan };
+  if (!ev.fire) return base;
+  const advise = (why) => Object.assign(base, { advisory: ev.text + '\nAdvisory only: the ' + RED_MAX_BLOCKS + '-block cap for this session is reached. Opt-out: FORGE_RED_CONTRACT_STOP=off.', reason: why });
+  const dir = path.join(runsDirOf(root), '_hooks', RED_STATE_DIR);
+  const file = path.join(dir, sessionHash(payload.session_id) + '.json');
+  let blocks = 0;
+  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); blocks = Number.isInteger(j && j.blocks) && j.blocks > 0 ? j.blocks : 0; } catch { blocks = 0; }
+  if (blocks >= RED_MAX_BLOCKS) return advise('block cap reached (' + blocks + ')'); // REDCONTRACT-CAP
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ blocks: blocks + 1, ts: new Date(typeof opts.now === 'number' ? opts.now : Date.now()).toISOString(), kind: ev.kind, run: ev.run_id }) + '\n');
+  } catch (e) { return advise('block counter not written (' + short(e) + ') — not blocking'); }
+  return Object.assign(base, { block: true, text: ev.text + '\nBlocks at most ' + RED_MAX_BLOCKS + ' times per session (this is block ' + (blocks + 1) + '/' + RED_MAX_BLOCKS + '); opt-out: FORGE_RED_CONTRACT_STOP=off.', reason: ev.reason + ', block ' + (blocks + 1) + '/' + RED_MAX_BLOCKS });
+}
+// ---- end I.9 red-contract ----
+
+/** runStop(payload, opts) -> {print, text, block, block_text, norun, open_subagents, red_contract, reason, run_id, due_count,
+ *  repeats, ms}. Never throws. */
 function runStop(payload, opts) {
   opts = opts || {};
   const t0 = Date.now();
-  let rep = null, nr = null, os8 = null;
+  let rep = null, nr = null, os8 = null, r9 = null;
   const out = (o) => {
     const r = Object.assign({ print: false, text: null, reason: null, run_id: null, due_count: null }, o, { repeats: rep ? rep.count : 0 });
     if (os8 && os8.advisory) { r.print = true; r.text = (r.text ? r.text + '\n' : '') + os8.advisory; }
+    if (r9 && r9.advisory) { r.print = true; r.text = (r.text ? r.text + '\n' : '') + r9.advisory; }
     if (rep) { r.print = true; r.text = (r.text ? r.text + '\n' : '') + rep.line; } // the repeat line is always ONE line, last
-    const blocks = [nr, os8].filter((b) => b && b.block);
+    // I.7 already asks to mint a run: its text covers I.9's no-run case on the same stop
+    const blocks = [nr, os8, r9].filter((b) => b && b.block && !(b === r9 && r9.kind === 'no-run' && nr && nr.block));
     r.block = blocks.length > 0;
     r.block_text = r.block ? blocks.map((b) => b.text).join('\n\n') : null;
     r.norun = nr ? { reason: nr.reason, subagents: nr.subagents } : null;
     r.open_subagents = os8 ? { reason: os8.reason, count: os8.count, block: os8.block } : null;
+    r.red_contract = r9 ? { reason: r9.reason, kind: r9.kind, run_id: r9.run_id, block: r9.block } : null;
     r.ms = Date.now() - t0;
     return r;
   };
@@ -640,12 +889,15 @@ function runStop(payload, opts) {
     if (!root) return out({ reason: 'no project root (a plugin copy outside any project)' });
     // I.8 runs BEFORE the stop_hook_active check on purpose (see its section): bounded by its own per-session cap
     os8 = openSubagentsStop(payload, root, { env, now: opts.now });
+    // I.9 also runs BEFORE the stop_hook_active check, bounded by its own per-session cap (RED_MAX_BLOCKS)
+    r9 = redContractStop(payload, root, { env, now: opts.now, runcontract: opts.runcontract });
     if (payload && typeof payload === 'object' && payload.stop_hook_active === true) return out({ reason: 'stop_hook_active — already continuing because of a stop hook' });
     nr = runRequiredStop(payload, root, { env, now: opts.now });
     rep = repeatObligationLine(root, opts);
-    const act = findActiveRun(root, { now: opts.now });
+    const act = sessionActiveRun(root, payload && typeof payload === 'object' ? payload.session_id : null, { now: opts.now });
     if (!act.run) return out({ reason: act.reason });
-    const ob = obligationsFor(root, act.run.run_id, { mode: 'stop', runcontract: opts.runcontract });
+    if (r9.block && r9.run_id === act.run.run_id) return out({ reason: 'the I.9 block carries this run\'s obligations', run_id: act.run.run_id });
+    const ob = obligationsFor(root, act.run.run_id, { mode: 'stop', runcontract: opts.runcontract, plan: r9.plan });
     // an older checker without planFor (version skew in a synced project) is a tooling gap, not an obligation:
     // stay silent instead of repeating it at every stop; a plan that THROWS (e.g. a corrupt log) is surfaced
     if (!ob.ok && ob.unavailable) return out({ reason: ob.reason, run_id: act.run.run_id });
@@ -662,12 +914,13 @@ module.exports = {
   loadRunContract, resolveRoot, capLines, oneLine,
   evaluateRunRequired, runRequiredStop, runRequiredMessage, NORUN_MIN_SUBAGENTS, NORUN_EXCLUDED_TYPES, NORUN_LOOKBACK_MS, NORUN_STATE_DIR,
   evaluateOpenSubagents, openSubagentsStop, openSubagentsMessage, OPEN_SUB_MAX_BLOCKS, OPEN_SUB_STATE_DIR,
+  evaluateRedContract, redContractStop, readSessionMarker, leadAppWrites, appTarget, RED_MAX_BLOCKS, RED_STATE_DIR, SESSION_MARKER_DIR,
   ACTIVE_MAX_AGE_MS, MAX_CANDIDATES, OBLIGATION_MAX_LINES, OBLIGATION_MAX_CHARS, STOP_DEADLINE_MS,
   APPEND_TIMEOUT_MS, APPEND_ENV_VAR, HOOK_EVENT_TYPES, RECORD_BUDGET_END_MS, RECORD_MAX_MS, RECORD_MIN_MS,
 };
 
-// ---- CLI (Stop hook target — ALWAYS exits 0; prints {"systemMessage"}, the I.7 / I.8 {"decision":"block","reason"} (I.7 once
-// per session, I.8 at most OPEN_SUB_MAX_BLOCKS times), both in ONE object, or nothing) ----
+// ---- CLI (Stop hook target — ALWAYS exits 0; prints {"systemMessage"}, the I.7 / I.8 / I.9 {"decision":"block","reason"} (I.7
+// once per session, I.8 at most OPEN_SUB_MAX_BLOCKS times, I.9 at most RED_MAX_BLOCKS times), all in ONE object, or nothing) ----
 if (require.main === module) {
   let done = false;
   const finish = (obj) => {

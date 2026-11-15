@@ -5,7 +5,8 @@
  * beginners who never want to type a command. `/forge repair` runs this FOR the owner and acts on its
  * `next_step`; the owner never types it themselves.
  *
- * THE LADDER (stops at the first step that fixes or explains the problem):
+ * THE LADDER (stops at the first step that fixes or explains the problem; a port held by another program is
+ *   reported in step 1 and the ladder goes on without the dashboard, ending with exit 3):
  *   1. status  — is this a Forge project (.claude/forge-bin present)? Is the Command Center reachable
  *                (GET http://127.0.0.1:<CC_PORT or 4100>/api/health, short timeout)? Report reachable or
  *                not — this file never starts or stops anything itself. W1-07: this step reports the
@@ -29,7 +30,7 @@
  * doctor` probe. Every external tool this file calls is reused through spawnSync(process.execPath,
  * [argv...]) — a real argument array, never a shell string — so this stays a thin ladder over
  * forge-doctor.cjs / forge-snapshot.cjs rather than a second implementation of what they already do.
- * apart from that doctor, it deliberately never shells out to any other status helper that can read
+ * W1-07: apart from that doctor, it deliberately never shells out to any other status helper that can read
  * credentials, contact the network, or write/delete under a user's home directory.
  *
  * Every call to another tool or the network is an injectable seam (opts.healthFetch / opts.runDoctor /
@@ -62,7 +63,7 @@ const NODE = process.execPath;
 const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRoot === 'function' ? m : null; } catch { return null; } })();
 const DEFAULT_ROOT = forgePaths ? forgePaths.scriptRoot(__dirname) : path.resolve(__dirname, '..', '..');
 const HEALTH_TIMEOUT_MS = 1500;
-// a health response larger than this is treated as "not reachable" instead of buffered without bound.
+// W1-08: a health response larger than this is treated as "not reachable" instead of buffered without bound.
 const MAX_HEALTH_RESPONSE_BYTES = 64 * 1024;
 // forge-doctor.cjs has no quick/fast mode (checked: its --help says "Takes several minutes" and lists no
 // flag for a lighter run) — this is the "generous timeout" the work package asks for when that is so.
@@ -89,7 +90,7 @@ function looksLikeCommandCenterHealth(body) {
 
 /** defaultHealthFetch(url, timeoutMs) -> Promise<{ok, status, body} | {ok:false, error}>. One short-timeout
  *  GET, nothing else — this never sends a body, a different method, or any write.
- *  bounded on every axis — a wall-clock deadline that fires independent of socket activity (a slow
+ *  W1-08: bounded on every axis — a wall-clock deadline that fires independent of socket activity (a slow
  *  trickle of bytes could otherwise keep the socket-inactivity timeout from ever firing), a response-size
  *  cap so a streaming/oversized body is never buffered without bound, and the promise settles exactly once
  *  no matter which of request `error` / socket `timeout` / response `aborted` / response `close` before
@@ -252,13 +253,13 @@ async function runRepair(rawOpts) {
   const reachable = !!(health && health.ok && looksLikeCommandCenterHealth(health.body));
   const conflict = !!(health && health.ok && !reachable);
 
-  // status reports the project and the dashboard only — no other status helper is invoked here.
+  // W1-07: status reports the project and the dashboard only — no other status helper is invoked here.
   const dashboardText = reachable ? T.dashboardUp(url) : (conflict ? T.dashboardConflict(url) : T.dashboardDown(url));
   steps.push({ name: 'status', ok: reachable, detail: dashboardText });
-  if (!reachable) {
-    const next = conflict ? T.nextDashboardConflict(url) : T.nextDashboardDown(url);
-    return { steps, next_step: next, ok: false, exitCode: 3, lang };
-  }
+  // FB-INSTALL-2-F8: a port held by another program is not something Forge fixes, and its next step says Forge
+  // "continues without the dashboard", so the ladder does continue (doctor, refresh) and still ends with exit 3.
+  // A dashboard that is simply down stops here: starting it is the step that explains the problem.
+  if (!reachable && !conflict) return { steps, next_step: T.nextDashboardDown(url), ok: false, exitCode: 3, lang };
 
   // ---- step 2: doctor ----
   const runDoctor = opts.runDoctor || defaultRunDoctor;
@@ -283,7 +284,8 @@ async function runRepair(rawOpts) {
     return { steps, next_step: T.nextRefresh(snap.error || 'unknown error'), ok: false, exitCode: 3, lang };
   }
 
-  // ---- step 4: next step (healthy) ----
+  // ---- step 4: next step (healthy, or healthy apart from the port conflict) ----
+  if (conflict) return { steps, next_step: T.nextDashboardConflict(url), ok: false, exitCode: 3, lang };
   return { steps, next_step: T.nextHealthy, ok: true, exitCode: 0, lang };
 }
 

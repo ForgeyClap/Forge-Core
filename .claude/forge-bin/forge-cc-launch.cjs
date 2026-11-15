@@ -12,9 +12,9 @@
  * when it forwards it to a native executable (see forge.ps1's own `log-event` branch comment).
  *
  * Steps, in order:
- *   1. Resolve the port: process.env.CC_PORT when it parses as a number > 0, else 4100 — the EXACT same
- *      rule command-center/gateway/bin.mjs itself uses (see resolvePort), so this tool can never disagree
- *      with what the gateway will actually bind to.
+ *   1. Resolve the port: CC_PORT, then FORGE_GATEWAY_PORT (an integer 1-65535), else 4100 — the gateway's own
+ *      pinned-port reader (see resolvePort). An unpinned gateway started by hand may fall back to a free port
+ *      when 4100 is taken; this launcher does not follow it there, it reports the conflict (step 2).
  *   2. Health-check http://127.0.0.1:<port>/api/health with a short timeout (isAlreadyRunning).
  *      LAUNCH-1 fix (Codex adversarial-review finding, LOW): a successful HTTP
  *      response alone is NOT enough — ANY server answering on that port (a 404, an unrelated app)
@@ -77,13 +77,18 @@ function defaultRoot() {
 const PROJECT_ROOT = defaultRoot();
 const HEALTH_TIMEOUT_MS = 1500;
 
-/** resolvePort(env) -> number. Same rule as command-center/gateway/bin.mjs's own
- *  `Number(process.env.CC_PORT) > 0 ? Number(...) : 4100` — kept as a one-line mirror rather than a
- *  shared import because bin.mjs is an ES module in a separate repo (command-center/ is its own git
- *  repository, owner decision D1) and this file is a CommonJS tool in THIS repo. */
+/** resolvePort(env) -> number. FB-MISC-1-F10: the same reader as command-center/gateway/src/runtime-state.mjs
+ *  configuredGatewayPort(): CC_PORT, then FORGE_GATEWAY_PORT, each an integer from 1 to 65535; else 4100. A mirror,
+ *  not an import: the gateway is an ES module in a separate repo (command-center/ is its own git repository, owner
+ *  decision D1). Known difference: an UNPINNED gateway started by hand falls back to a free port when 4100 is taken
+ *  by another program; this launcher does not follow it there (it reports the conflict, see main). */
 function resolvePort(env) {
-  const n = Number((env || process.env).CC_PORT);
-  return n > 0 ? n : 4100;
+  const e = env || process.env;
+  for (const raw of [e.CC_PORT, e.FORGE_GATEWAY_PORT]) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n > 0 && n <= 65535) return n;
+  }
+  return 4100;
 }
 
 /** looksLikeCommandCenterHealth(body) -> true only when body is a parsed JSON object matching THIS
@@ -255,11 +260,13 @@ function pairingLink(url, code) {
 }
 
 /** gatewayEnv(baseEnv, projectRoot, pairing) -> a NEW env object for the gateway: the inherited env minus any stale
- *  FORGE_UI_* value (any case; Windows env is case-insensitive), plus the default project and the pairing env. */
+ *  FORGE_UI_* value and the Remote Bridge test-only loopback switch (any case; Windows env is case-insensitive), plus
+ *  the default project and the pairing env. */
 function gatewayEnv(baseEnv, projectRoot, pairing) {
   const env = {};
   for (const [key, value] of Object.entries(baseEnv || {})) {
-    if (key.toUpperCase().startsWith('FORGE_UI_')) continue;
+    const upper = key.toUpperCase();
+    if (upper.startsWith('FORGE_UI_') || upper === 'FORGE_REMOTE_BRIDGE_TEST_LOOPBACK') continue;
     env[key] = value;
   }
   if (projectRoot) env.FORGE_CC_DEFAULT_PROJECT = projectRoot;
@@ -325,8 +332,8 @@ async function main() {
     // fixed to port 4100, so the Command Center is not moved to another port — Forge leaves the other program
     // alone and continues without the dashboard.
     console.log('Port ' + port + ' is already in use by something that is not the Forge Command Center '
-      + '(its /api/health response does not match). The Command Center only works on its own fixed port, so '
-      + 'Forge leaves that program alone and continues without the dashboard.');
+      + '(its /api/health response does not match). Forge does not start a second program on a taken port from here, so '
+      + 'it leaves that program alone and continues without the dashboard.');
     process.exitCode = 1;
     return;
   }

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-gate-wrapper-selfdisable.test.cjs — (laptop-audit Part V-F). Real tests, through a real
 // spawned forge-gate-hook.cjs process (the exact path Claude Code uses — see forge-gate-hook.test.cjs, whose
 // hermetic spawnHook()/envFor() pattern this file mirrors), for the finding the fresh-laptop re-audit executed

@@ -74,6 +74,8 @@ function parseTestCounts(out) {
   if (failed == null) failed = num(/(\d+)\s+failing/i);        // mocha
   if (passed == null) passed = num(/#\s*pass\s+(\d+)/i);       // TAP
   if (failed == null) failed = num(/#\s*fail\s+(\d+)/i);       // TAP
+  if (passed == null) passed = num(/^\s*(?:ℹ\s*)?pass\s+(\d+)\s*$/im); // node:test spec reporter ('ℹ pass N', Node 24)
+  if (failed == null) failed = num(/^\s*(?:ℹ\s*)?fail\s+(\d+)\s*$/im);
   return { passed, failed, parseable: passed != null || failed != null };
 }
 

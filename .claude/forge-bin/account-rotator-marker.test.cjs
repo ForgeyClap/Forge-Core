@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // account-rotator-marker.test.cjs — WP SA-P1B-ROTATOR: the per-prompt lane-budget line can name the
 // session's real account only through env FORGE_ROTATOR_ACCOUNT (reader: forge-usage-source.cjs, via 'marker'). Pins:
 // `launch` puts the validated slot NAME (never a token) in the child env, overrides a stale inherited marker, never

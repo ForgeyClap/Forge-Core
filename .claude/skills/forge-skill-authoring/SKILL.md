@@ -126,7 +126,7 @@ Every step ends on a completion criterion. A step is done when its criterion hol
 
 ## Verification
 - `node .claude/forge-bin/forge-skill-evals.cjs run --skill <name>`: every assertion passes.
-- Activation: at least 8 triggers and 8 near misses, at least 95% correct, logged as `activation <n>/<m> (<date>)`.
+- Activation: at least 8 triggers and 8 near misses, at least 95% correct, logged as `activation <n>/<m> (<date>, fresh-session|judged)`; only a fresh-session score meets the target.
 - Provenance table present when text was adapted; no copied script, hook or install line.
 
 ## Provenance

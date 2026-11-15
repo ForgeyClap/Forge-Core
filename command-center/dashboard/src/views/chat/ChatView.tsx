@@ -428,7 +428,7 @@ export default function ChatView() {
       {teamPlan ? (
         <PlanCard plan={teamPlan} onStart={() => undefined} onAdjust={() => undefined} onLater={() => undefined} />
       ) : null}
-      <PermissionCards pending={permissions.pending} projectDir={project?.path ?? null} onAnswer={permissions.answer} />
+      <PermissionCards pending={permissions.pending} readError={permissions.readError} projectDir={project?.path ?? null} onAnswer={permissions.answer} />
       {chatError ? <ErrorCard key={chatError.code} error={chatError} onAction={handleErrorAction} /> : null}
     </div>
   ) : null;

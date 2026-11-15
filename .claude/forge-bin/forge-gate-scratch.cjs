@@ -98,7 +98,7 @@ function statOrFail(p) {
 
 /** realish(p) -> { real, ok }. Resolves the realpath of the longest existing ancestor + the missing tail (a
  *  link is judged by its target). ok:false means canonicalization itself FAILED — a permission error or an
- *  unreadable ancestor anywhere in the walk (via statOrFail), a symlink loop (ELOOP), or a dangling
+ *  unreadable ancestor anywhere in the walk (V04, via statOrFail), a symlink loop (ELOOP), or a dangling
  *  symlink/junction at the stopping point (the lstat succeeds — the link itself exists — but resolving it
  *  below throws) — codex-recheck I02/V04: NONE of that is ever proof of containment, so the caller must
  *  refuse the scratch exception rather than silently substituting the unresolved lexical path. VERIFIED
@@ -110,7 +110,7 @@ function realish(p) {
   for (;;) {
     const s = statOrFail(existing);
     if (s.kind === 'ok') break;
-    if (s.kind === 'error') return { real: null, ok: false }; // an access error is never "just missing"
+    if (s.kind === 'error') return { real: null, ok: false }; // V04: an access error is never "just missing"
     const parent = path.dirname(existing);
     if (parent === existing) break; // reached the filesystem root without finding an existing ancestor
     tail.unshift(path.basename(existing));
@@ -137,6 +137,8 @@ function resolveTarget(raw, ctx) {
   if (ctx.platform === 'win32' && ctx.shell === 'Bash') {      // Git Bash drive form /c/Users/... -> C:/Users/...
     const m = /^\/([A-Za-z])(\/|$)/.exec(p);
     if (m) p = m[1].toUpperCase() + ':/' + p.slice(3);
+    // FB-GATEHOOK-F7: Git Bash mounts /tmp on the user's temp folder (cygpath -w /tmp == os.tmpdir())
+    else if (/^\/tmp(\/|$)/.test(p) && typeof ctx.tmp === 'string' && ctx.tmp) p = ctx.tmp.replace(/\\/g, '/') + p.slice(4);
   }
   if (p.split(/[\\/]+/).includes('..')) return null;            // never reason about `..` (links make it physical)
   return path.resolve(ctx.cwd, p);

@@ -104,7 +104,7 @@ function memoryPath(root, name, read) {
 const PROJECT_ROOT_DEFAULT = defaultProjectRoot();
 const SCHEMA_PATH_DEFAULT = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json');
 const FILE_NAME = 'FORGE_CONFIG.json';
-const TYPES = ['bool', 'int', 'number', 'enum', 'int-or-auto'];
+const TYPES = ['bool', 'int', 'number', 'enum', 'int-or-auto', 'string'];
 const SCOPES = ['global', 'project'];
 const FLAGS = ['C', 'N', '$', 'U', 'X', 'D'];
 const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
@@ -167,6 +167,8 @@ function typeOk(spec, v) {
     case 'number': return typeof v === 'number' && Number.isFinite(v) && v >= spec.min && v <= spec.max;
     case 'enum': return Array.isArray(spec.allowed) && spec.allowed.includes(v);
     case 'int-or-auto': return v === 'auto' || (Number.isInteger(v) && v >= spec.min && v <= spec.max);
+    // BRAIN-PATH-1: a free text value; absolute_path = a full folder path, or empty for the default
+    case 'string': return typeof v === 'string' && (!spec.absolute_path || v === '' || path.isAbsolute(v));
     default: return false;
   }
 }
@@ -297,10 +299,11 @@ function detectLang(opts, P) {
 function synonyms(schema, which) { return schema.value_synonyms[which].map((s) => String(s).toLowerCase()); }
 function shortWord(spec, v, lang) {
   if (spec.type === 'bool') return v ? (lang === 'nl' ? 'aan' : 'on') : (lang === 'nl' ? 'uit' : 'off');
+  if (spec.type === 'string' && v === '') return lang === 'nl' ? '(leeg: standaard)' : '(empty: default)';
   return String(v);
 }
 function displayValue(spec, v, lang) {
-  if (spec.type === 'bool') return shortWord(spec, v, lang);
+  if (spec.type === 'bool' || spec.type === 'string') return shortWord(spec, v, lang);
   return typeof v === 'number' && spec.unit ? v + ' ' + spec.unit : String(v);
 }
 function toNumber(raw, spec) {
@@ -361,6 +364,11 @@ function parseValue(key, raw, schema, lang) {
   };
   if (raw === undefined || raw === null) return fail();
   const s = typeof raw === 'string' ? raw.trim() : raw;
+  if (spec.type === 'string') {
+    if (typeof s !== 'string') return fail();
+    if (spec.absolute_path && s !== '' && !path.isAbsolute(s)) return fail();
+    return s;
+  }
   if (spec.type === 'bool') {
     if (typeof s === 'boolean') return s;
     const w = String(s).toLowerCase();
@@ -655,9 +663,10 @@ function resolve(opts) {
         // a boolean project value that matches the schema's own (protective, everything-on-by-default)
         // default: that can only ever STRENGTHEN protection (turn a protective setting back ON locally),
         // never weaken a global ON. A project value that would move the effective value AWAY from the
-        // default is still ignored, exactly as before.
+        // default is still ignored, exactly as before. FB-CONFIG-1-F2: for a FLAGGED key (credentials, network,
+        // cost...) the protective side is its safe value (false), never the schema default.
         const projectVal = p.entries[key].value;
-        if (spec.type === 'bool' && projectVal === spec.default) {
+        if (spec.type === 'bool' && projectVal === (isFlagged(spec) ? safeValueOf(spec) : spec.default)) {
           if (e.value !== projectVal) strengthened.push(key);
           e = fileEntry(key, p, 'project');
         } else {
@@ -1163,6 +1172,7 @@ function exampleValue(spec, current, lang) {
   if (spec.type === 'bool') return shortWord(spec, !current, lang);
   if (spec.type === 'enum') return spec.allowed.find((a) => a !== current) || spec.allowed[0];
   if (spec.type === 'int-or-auto') return current === 'auto' ? String(spec.max) : 'auto';
+  if (spec.type === 'string') return spec.absolute_path ? (lang === 'nl' ? '"F:/Mijn vault"' : '"F:/My vault"') : '"' + String(current || spec.default) + '"';
   if (current !== spec.default) return String(spec.default);
   return String(spec.default !== spec.max ? spec.max : spec.min);
 }
@@ -1277,6 +1287,7 @@ function normText(s) {
 function valueWords(spec, lang) {
   if (spec.type === 'bool') return lang === 'nl' ? 'aan, uit' : 'on, off';
   if (spec.type === 'enum') return spec.allowed.join(', ');
+  if (spec.type === 'string') return spec.absolute_path ? (lang === 'nl' ? 'een volledig mappad' : 'a full folder path') : (lang === 'nl' ? 'tekst' : 'text');
   return (spec.type === 'int-or-auto' ? 'auto, ' : '') + spec.min + ' - ' + spec.max + (spec.unit ? ' ' + spec.unit : '');
 }
 function valueCandidates(spec, schema, hay) {
@@ -1292,7 +1303,7 @@ function valueCandidates(spec, schema, hay) {
       if (hit) out.push(hit);
       else if (spec.allowed.includes('off') && no.includes(VERB_BOOL[tok] || tok)) out.push('off');
     }
-  } else {
+  } else if (spec.type !== 'string') { // a free text value is never guessed from a sentence
     if (spec.type === 'int-or-auto' && tokens.includes('auto')) out.push('auto');
     for (const m of hay.matchAll(/(?:\s|\$)(\d+(?:[.,]\d+)?)(?=\s|%)/g)) out.push(m[1]);
   }

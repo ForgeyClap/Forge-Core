@@ -264,7 +264,8 @@ function completionClaimCoverage(events, runDir, dispatchHits) {
   if (hasRunCompleted) claims.push('run_completed event present');
   if (hasFinalReport) claims.push('final-report.md present');
   const hasClaim = claims.length > 0;
-  const realWorkCount = dispatchHits.length;
+  // FB-INSTALL-2-F9: only a FINISHED named-Boss agent is real work; a started one proves nothing was completed
+  const realWorkCount = dispatchHits.filter((h) => h.event_type === 'subagent_completed' || h.event_type === 'agent_completed').length;
   return { ok: !hasClaim || realWorkCount > 0, hasClaim, claims, realWorkCount };
 }
 

@@ -100,6 +100,10 @@ function protectedReason(ctx, rel) { // ROLLBACK-PROTECT-CHECK
   const lc = rel.toLowerCase();
   const segs = lc.split('/');
   if (!rel || segs.some((s) => s === '' || s === '.' || s === '..')) return 'not a plain relative path';
+  // FB-INSTALL-1-F9: a backslash (Windows separator) or a drive letter could step outside the project after path.join
+  if (/[\\:]/.test(rel)) return 'not a plain relative path';
+  const inside = path.relative(ctx.root, path.resolve(ctx.root, ...rel.split('/')));
+  if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return 'not a plain relative path';
   if (segs[0] === '.forge') return 'Forge state (.forge/)';
   if (segs[0] === '.git' || segs.includes('.git')) return 'git internals';
   if (segs[0] === '_scratch' && (segs[1] || '').startsWith('rollback-backup-')) return 'a rollback backup';

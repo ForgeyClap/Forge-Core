@@ -50,8 +50,10 @@ Former key `_doc` on `hooks.Stop[0]`:
 
 > ADVISORY Stop hook. When Claude stops while a Forge run is active, it shows the owner that run's outstanding obligations (what `node .claude/forge-bin/forge-runcontract.cjs plan --run <id>` marks overdue or due now) as a short systemMessage. This obligations hook never blocks a stop; it prints nothing while stop_hook_active is set, when no run is active, or when nothing is due, and finishes in well under 1 s (silent failsafe at 900 ms). Opt out: env FORGE_STOP_OBLIGATIONS=off, or delete this entry — nothing else depends on it. The scribe stop hook in this same entry (forge-scribe-stop.cjs) is the one exception: it blocks a stop at most once per captured owner request per session (exit 2, three plain lines naming the open item and the command to plan, ack or defer it) and never twice in a row. Opt out: env FORGE_SCRIBE_STOP=off.
 
-**Added 2026-10-24 (I.7, not part of the verbatim prose above): the run-required check.**
-`forge-stop-obligations.cjs` now has one blocking part. When this session (the Stop payload's `session_id`) has at
+**Since 2026-10-24 the verbatim prose above is out of date: `forge-stop-obligations.cjs` has three blocking
+parts (I.7, I.8 and I.9 below).** The rest of the hook stays advisory.
+
+**Added 2026-10-24 (I.7, not part of the verbatim prose above): the run-required check.** When this session (the Stop payload's `session_id`) has at
 least 3 finished subagents in `.claude/forge-runs/_hooks/subagent-stop.jsonl` (distinct `agent_id`; the read-only
 research types `Explore`, `Plan` and `claude-code-guide` are not counted) and no real run was started or updated
 during the session, it blocks the stop ONCE per session (`{"decision":"block","reason":...}`). The reason names
@@ -64,6 +66,21 @@ never fires in a folder without `.claude/forge-bin` or `.forge`, never while `st
 on any error. It never reads the transcript or any prompt or message text. The once-per-session marker is
 `_hooks/run-required-stop/<hash>.json`, named by a hash of the session id. Opt out: env
 `FORGE_RUN_REQUIRED_STOP=off` (or `FORGE_STOP_OBLIGATIONS=off`, which silences the whole hook).
+
+**Added 2026-11-07 (I.8): the open-subagents check.** In a headless session (`CLAUDE_CODE_ENTRYPOINT` starting
+with `sdk`, or env `FORGE_OPEN_SUBAGENTS_STOP=on`), when subagents of this session started in the last 2 hours
+(`_hooks/subagent-start.jsonl`) and never stopped (no `subagent-stop.jsonl` line with the same `agent_id`), it
+blocks the stop with an NL + EN reason and the wait command `node .claude/forge-bin/forge-wait.cjs --session <id>`,
+because a headless session that ends its turn gets its subagents killed. It also blocks while `stop_hook_active`
+is set, at most 6 times per session; after that it is advisory only. Opt out: env `FORGE_OPEN_SUBAGENTS_STOP=off`.
+
+**Added 2026-11-08 (I.9): the red-contract check.** Only in a `/forge` build session (a marker under
+`_hooks/forge-session/`, written by `forge-scribe-hook.cjs`; no marker means it does nothing), it blocks the stop
+when the session's run is open with a contract that is not done, was closed as failed in this session over a rule
+the Lead could still do without a named blocker, or when the Lead wrote app files itself and there is no run. The
+reason lists the open rules and the first exact command (`forge-runcontract.cjs plan --run <id>` plus the first
+due item). It also blocks while `stop_hook_active` is set, at most 3 times per session, then advisory only. Opt
+out: env `FORGE_RED_CONTRACT_STOP=off`.
 
 ### UserPromptSubmit (no matcher) -> forge-scribe-hook.cjs (timeout 5)
 
@@ -138,3 +155,57 @@ the whole `"StopFailure": [ ... ]` entry from `.claude/settings.json`; nothing e
 (`forge-settings-merge.cjs unmerge`) removes it together with the other Forge hooks, and leaves a StopFailure
 hook of your own in place. The source of this entry is `config/orchestration/rotator-hooks.fragment.json`, and
 `forge-settings-merge.test.cjs` (section 17) fails when the two drift apart.
+
+## 4. Hooks added 2026-11-01 (resume brief, Agent-tool proof, subagent start)
+
+All three are fail-open: they always exit 0, never block, and stop themselves inside their timeout. The full
+inventory of every live entry, with its off switch, is the table at the top of
+`.claude/config/orchestration/HOOKS_OPT_IN.md`.
+
+### SessionStart, matcher `startup|resume|clear` -> `forge-resume-brief.cjs` (timeout 10)
+
+Prints a short brief (at most 2,000 characters) that Claude Code adds to a new, resumed or cleared session: the
+newest run folder without `run-finalized.json` and its unfinished work packages (first 8 ids and the total), the
+open scribe items (count and the first 5 lines), and a fixed four-line instruction to continue. Source `compact`
+prints nothing (forge-snapshot-reinject.cjs owns it). Only ids, counts and the first 80 characters of a scribe
+line are printed; secret-shaped tokens are masked. Registered from
+`config/orchestration/resume-brief.fragment.json`. Opt out: env `FORGE_RESUME_BRIEF=off`, or delete the entry.
+
+### PreToolUse and PostToolUse, matcher `Agent` -> `forge-agent-tool-hook.cjs` (timeout 5 each)
+
+Makes an Agent-tool dispatch provable. Before the call it records the harness's `tool_use_id` and the requested
+`subagent_type` (plus name, model, effort and background when present); after the call it records the dispatched
+agent's id from the tool response. Lines go to `.claude/forge-runs/_hooks/agent-tool.jsonl`;
+`forge-harness-match.cjs` joins them to the Lead's `subagent_started` events. Never the prompt, the description
+or any part of the response text. Workflow lanes do not fire it (no Agent tool call in the Lead session).
+Opt out: env `FORGE_AGENT_TOOL_HOOK=off`, or delete both entries.
+
+### SubagentStart -> `forge-subagent-start.cjs` (timeout 5)
+
+Records that a subagent started (`.claude/forge-runs/_hooks/subagent-start.jsonl`: agent id and type, the run
+when known, the skills its agent file preloads) and **injects context into every subagent** as
+`additionalContext`: the skills mapped for this run and this role (from `FORGE_DEFAULT_SKILLS.json` and the run's
+skill maps), minus what the agent file already preloads, and, for an agent without an agent file, the
+forge-conduct text. It is the one hook here that changes what an agent reads, so switch it off first when a
+subagent behaves oddly at start. Opt out: env `FORGE_SUBAGENT_START_HOOK=off`, or delete the entry.
+
+## 5. Compaction snapshot hooks (PreCompact and SessionStart `compact`)
+
+These three entries predate the move in section 1 and carried no prose key, so
+section 1 did not list them. Both scripts never block, always exit 0 and degrade silently in a project without
+a Forge install. They have no env off switch; the off switch is the owner setting `/forge config set snapshots off`
+(default on, read by both scripts): with it off the marker hook writes nothing and the re-inject hook prints
+nothing. To remove them entirely, delete the entries.
+
+### PreCompact, matchers `manual` and `auto` -> `forge-snapshot-marker.cjs` (timeout 15 each)
+
+Two entries, one per compaction type. Before the context compacts it writes the marker
+`.claude/.forge-snapshot-due.json` and regenerates `.claude/FORGE_SNAPSHOT.md` through `forge-snapshot.cjs`, so a
+machine-made snapshot exists even when the session ends instead of resuming. It prints nothing on stdout.
+
+### SessionStart, matcher `compact` -> `forge-snapshot-reinject.cjs` (timeout 15)
+
+Right after a compaction, when the marker exists, it prints a short block (about 600 tokens) from
+`FORGE_SNAPSHOT.md` (mission, current state, next actions, plus the obligations of the active run) that Claude
+Code adds back into the context, and then deletes the marker. A compact start without a marker (another copy
+already used it) prints only the active run's obligations block, when a run is active, and otherwise nothing.

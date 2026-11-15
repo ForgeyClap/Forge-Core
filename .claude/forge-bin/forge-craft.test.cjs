@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-craft.test.cjs — tests for the craft lens (modernization Phase I, work package I.3).
  * Proves on the REAL lens files: the expected deliverable types exist and validate; every stakeholder has a block
@@ -344,7 +348,9 @@ t('Verify Boss, Review Boss and UI Boss each carry the craft step in their body 
   for (const [agent, re] of [['verify-boss', /forge-craft\.cjs (lens|plan)/], ['review-boss', /quality\/lenses\//], ['ui-boss', /forge-craft\.cjs review-template/]]) {
     const txt = fs.readFileSync(path.join(ROOT, '.claude', 'agents', agent + '.md'), 'utf8');
     const end = txt.indexOf('\n---', 4);
-    ok(end > 0 && re.test(txt.slice(end)) && !/craft/i.test(txt.slice(0, end)), agent + ' craft step missing or in the frontmatter');
+    // the skills: preload list may name forge-craft; only the rest of the frontmatter must stay craft-free
+    const fm = txt.slice(0, end).replace(/^skills:[^\S\r\n]*\r?\n(?:[^\S\r\n]+-[^\r\n]*\r?\n?)*/m, '');
+    ok(end > 0 && re.test(txt.slice(end)) && !/craft/i.test(fm), agent + ' craft step missing or in the frontmatter');
   }
 });
 

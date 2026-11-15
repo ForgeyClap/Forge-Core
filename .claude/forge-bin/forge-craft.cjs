@@ -676,7 +676,7 @@ function lensFromSection(type, review, currentLens) {
   const s = arr(review && review.lenses).find((l) => isObj(l) && l.type === type);
   if (!s) return null;
   const sts = arr(s.stakeholders).filter((x) => isObj(x) && isText(x.id));
-  // which checks are owner data comes from the CURRENT lens file, never from the recorded form (a form can be edited
+  // R2: which checks are owner data comes from the CURRENT lens file, never from the recorded form (a form can be edited
   // before recording); no readable lens = no owner-data check, so a WAITING_ON_OWNER mark then counts as a DEFECT
   const ownerData = new Set(arr(currentLens && currentLens.checks).filter((c) => isObj(c) && c.owner_data === true).map((c) => c.id));
   return { type, first_ten_seconds: arr(s.first_ten_seconds).map((q) => q && q.question).filter(isText),

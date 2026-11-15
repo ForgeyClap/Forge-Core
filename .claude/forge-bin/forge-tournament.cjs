@@ -198,17 +198,19 @@ function score(input, rubric, opts) {
   // for that criterion — a real, per-criterion normalization basis, never an invented spread.
   const metricRange = {};
   for (const c of criteria) {
-    let min = Infinity, max = -Infinity, any = false;
+    let min = Infinity, max = -Infinity, any = false, nMetric = 0, nRubric = 0;
     for (const en of entries) {
-      if (en.rubricScores && Object.prototype.hasOwnProperty.call(en.rubricScores, c.key)) continue;
+      if (en.rubricScores && Object.prototype.hasOwnProperty.call(en.rubricScores, c.key)) { nRubric++; continue; }
       if (en.metrics && Object.prototype.hasOwnProperty.call(en.metrics, c.key)) {
         const v = Number(en.metrics[c.key]);
         if (!Number.isFinite(v)) throw new Error('forge-tournament: entry "' + en.id + '" metric "' + c.key + '" must be a finite number');
-        any = true;
+        any = true; nMetric++;
         if (v < min) min = v;
         if (v > max) max = v;
       }
     }
+    // one metrics entry has no range to normalize in; beside rubric-scored entries it would get a free full score
+    if (nMetric === 1 && nRubric > 0) throw new Error('forge-tournament: criterion "' + c.key + '" has metrics from only one entry while the others use rubricScores — give rubricScores for every entry (or metrics for at least two)');
     metricRange[c.key] = any ? { min, max } : null;
   }
 

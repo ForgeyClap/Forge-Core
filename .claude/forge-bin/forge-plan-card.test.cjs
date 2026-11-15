@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-plan-card.cjs (modernization WP 3.2). Every verdict is proven through the REAL CLI
  *  (spawnSync: exit code + stdout + files written), with a temp project root (FORGE_PROJECT_ROOT) and a temp config
  *  home (FORGE_CONFIG_HOME), so nothing touches this repo's .claude/forge-runs/ or the owner's FORGE_CONFIG.json.
@@ -112,6 +116,12 @@ const Q1 = { text: 'Which contact route?', choices: ['A phone button', 'A form',
   t('v9 an 8-char approval prefix is too short to count', short.r.status === 3);
   const changed = Object.assign(clone(BASE), { approval: { card: hash }, goal: BASE.goal + ' and a map' });
   t('v9 always + the card changed since the approval: asks again, and says so', (() => { const c = card(changed, ['--mode', 'always']); return c.r.status === 3 && c.j.reasons[0].includes('changed since'); })());
+
+  const qm = Object.assign(clone(BASE), { question: Q1 });
+  const qFirst = card(qm, ['--mode', 'always']);
+  const qAnswered = card(Object.assign(clone(qm), { question: Object.assign({}, Q1, { answer: 'A form' }), approval: { card: qFirst.j && qFirst.j.cardHash } }), ['--mode', 'always']);
+  t('v9b FB-SCRIBE-1-F8: answering the one question after approval keeps the card approved (answer is not in the hash)', !!qFirst.j && qAnswered.r.status === 0
+    && !!qAnswered.j && qAnswered.j.needsApproval === false && qAnswered.j.cardHash === qFirst.j.cardHash);
 
   const au = card(withGates([{ text: 'git push origin main', wp: 'A' }]), ['--mode', 'auto']);
   t('v10 auto + a gate item: exit 0, never stops, and says the gate still stops at the action itself', au.r.status === 0 && !!au.j && au.j.needsApproval === false

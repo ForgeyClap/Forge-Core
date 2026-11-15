@@ -26,14 +26,14 @@ Extra agents: alleen met permanente naam + rol + skill-bundle + model-mapping + 
 User → **Boss** (mission) → **Head Chef** (work packages) → **Skill Boss** (skills attached) + model-route check → subagents (each **self-reviews** before done) → **Test Boss** → **UI Boss**/**SEO Boss** (when relevant) → **Security Boss** → **Review Boss** (final) → fail? structured failure report → Boss → Head Chef assigns fixes → re-test → Review Boss again → repeat until genuine pass **or a truthful blocker** (max loops per forge.md; never fake a pass).
 
 ## Global skills (auto-attach, no manual reconnection)
-- Per-agent CORE skills: `config/agents/agent-skill-map.json` (always attached).
+- Per-agent default skills: `config/orchestration/FORGE_DEFAULT_SKILLS.json` is the one source (conduct + role baseline + agent domain), explained in `.claude/docs/default-skills.md`. Agent files preload them through `skills:`; `config/agents/agent-skill-map.json` is a mirror that the generator `forge-bin/forge-agent-skills-sync.cjs --write` keeps in step. Never hand-edit either.
 - Project-type bundles ON TOP: `config/skills/global-skills.json` — website / n8n / app-backend / research-planning / automation-integration. Boss detects the type in the Mission Blueprint; custom types get the closest bundle + reported gaps.
 - Missing skill? Skill Boss reports it + assigns a labeled safe fallback — never silently skip, never claim a skill loaded that didn't.
 
 ## Where things live
 Template (canonical): `~/.claude/forge/template/.claude/config/**` + `forge-bin/nvidia-provider.cjs` — synced to every project's `.claude/`. Fixes are ALWAYS template-first.
 
-## WP-dispatch · verify-binding · usage-pressure routing
+## v10 — WP-dispatch · verify-binding · usage-pressure routing
 Every large mission is now auto-split into `wp0..wpN` work packages by the Lead (no owner ask needed);
 every WP gets a bound verify pass (a registered Boss, role `<wp>-verify`, or `forge-verify.cjs --enforce`)
 before DONE; and near ~80% weekly usage the Lead reads `~/.claude/FORGE_USAGE_PRESSURE.json` (account-wide) and prefers the

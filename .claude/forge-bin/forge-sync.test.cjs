@@ -32,7 +32,7 @@ const { spawnSync, spawn } = require('child_process');
 const TMPH_REAL_TMPDIR = os.tmpdir();
 const TMPH_RUN_DIR = fs.mkdtempSync(path.join(TMPH_REAL_TMPDIR, 'forge-run-fsync-'));
 process.env.TEMP = TMPH_RUN_DIR; process.env.TMP = TMPH_RUN_DIR; process.env.TMPDIR = TMPH_RUN_DIR;
-process.env.FORGE_SYNC_TEST_HOOKS = '1'; // __throwAfter is gated behind this env var in production code
+process.env.FORGE_SYNC_TEST_HOOKS = '1'; // M11: __throwAfter is gated behind this env var in production code
 // a real CLI `install` now runs quiesce-check first. Every CLI child of this suite inherits a fake, empty process
 // list and an empty stand-in for ~/.claude/projects, so the suite never lists this machine's processes or reads its real
 // session folders (both seams are honoured ONLY under FORGE_SYNC_TEST_HOOKS=1). Section 94 overrides them per call.
@@ -757,12 +757,12 @@ console.log('\n23) B1: cumulative drift baseline survives 3 consecutive template
   const r1 = sync.safeSyncProject(tpl, p, { batchId: 'b23-1', nowIso: '2026-01-01T00:00:00.000Z' });
   t('sync 1 succeeds (all 3 files added)', r1.ok === true && r1.plan.toChange.length === 3);
 
-  fs.writeFileSync(path.join(tpl, 'forge-bin', 'a.cjs'), 'A2'); // only a.cjs changes
+  fs.writeFileSync(path.join(tpl, 'forge-bin', 'a.cjs'), 'A2'); // v2: only a.cjs changes
   const r2 = sync.safeSyncProject(tpl, p, { batchId: 'b23-2', nowIso: '2026-01-02T00:00:00.000Z' });
   t('sync 2 succeeds (only a.cjs changed)', r2.ok === true && r2.plan.toChange.length === 1 && r2.plan.toChange[0].rel === 'forge-bin/a.cjs');
   t('sync 2: b.cjs and c.cjs are NOT unknownDrift (never touched, still same)', r2.plan.unknownDrift.length === 0 && r2.plan.conflicts.length === 0);
 
-  // only b.cjs changes — the OLD bug erased b.cjs's baseline the moment a.cjs changed in sync 2
+  // v3: only b.cjs changes — the OLD bug erased b.cjs's baseline the moment a.cjs changed in sync 2
   fs.writeFileSync(path.join(tpl, 'forge-bin', 'b.cjs'), 'B2');
   const r3 = sync.safeSyncProject(tpl, p, { batchId: 'b23-3', nowIso: '2026-01-03T00:00:00.000Z' });
   t('sync 3: b.cjs is classified as a SAFE update (toChange), NOT unknownDrift (kills B1)', r3.ok === true && r3.plan.toChange.some((e) => e.rel === 'forge-bin/b.cjs') && !r3.plan.unknownDrift.includes('forge-bin/b.cjs'));
@@ -801,6 +801,22 @@ console.log('\n24) B2: forge-sync-receipt.json is backed up + restored on rollba
   const rb2 = sync.rollbackProject(p2, 'b24b', {});
   t('rollback 2 ok, receiptAction is removed', rb2.ok === true && rb2.receiptAction === 'removed');
   t('receipt file is gone (none existed before this sync)', !fs.existsSync(sync.receiptPath(p2)));
+
+  // FB-SYNC-B-F7: a removal that fails (file held open, ACL) is reported, never "removed" while the file is still there
+  const tpl3 = freshDir('t24c-tpl');
+  fs.mkdirSync(path.join(tpl3, 'forge-bin'), { recursive: true });
+  fs.writeFileSync(path.join(tpl3, 'forge-bin', 'y.cjs'), 'NEW');
+  const p3 = makeProject(freshDir('t24c-root'), 'proj', 0);
+  const r3c = sync.safeSyncProject(tpl3, p3, { batchId: 'b24c', nowIso: '2026-01-01T00:00:00.000Z' });
+  const held = [sync.receiptPath(p3), sync.versionFilePath(p3)].map((x) => path.resolve(x).toLowerCase());
+  const realRm = fs.rmSync;
+  fs.rmSync = function (p, o) { if (held.includes(path.resolve(String(p)).toLowerCase())) { const e = new Error('EBUSY: resource busy or locked'); e.code = 'EBUSY'; throw e; } return realRm.call(fs, p, o); };
+  let rb3;
+  try { rb3 = sync.rollbackProject(p3, 'b24c', {}); } finally { fs.rmSync = realRm; }
+  t('FB-SYNC-B-F7: a failed version/receipt removal -> ok:false partial, never "removed"', r3c.ok === true && rb3.ok === false && rb3.partial === true
+    && rb3.receiptAction !== 'removed' && rb3.versionAction !== 'removed' && rb3.failed.some((f) => /could not remove/.test(f.reason)));
+  const rb3b = sync.rollbackProject(p3, 'b24c', {});
+  t('FB-SYNC-B-F7: a retry once the file is free completes the rollback (the journal did not mark it done)', rb3b.ok === true && !fs.existsSync(sync.receiptPath(p3)) && !fs.existsSync(sync.versionFilePath(p3)));
 }
 
 console.log('\n25) B3: an EXISTING-BUT-UNREADABLE system file refuses the whole sync (never treated as "new")');
@@ -1057,6 +1073,23 @@ console.log('\n32) H3: decideValidationOutcome — already-red vs genuine regres
   t('clean pre + red post (tests regressed from green) -> ok:false (genuine regression)', o3.ok === false);
   const o4 = sync.decideValidationOutcome(redBefore, nodeCheckBroken, {});
   t('already-red pre BUT node_check itself is broken post -> ok:false (unconditional hard gate, never bypassed by already-red)', o4.ok === false);
+  // FB-SYNC-A-F3: the installer's own syntax gate result has no summary; an all-red baseline must never wave it through
+  const syntaxRed = { tool: 'installer-syntax-gate', exitCode: 1, ok: false, syntaxGate: { failures: ['.claude/forge-bin/x.cjs'] }, reason: '1 just-synced .cjs file(s) do not parse' };
+  const allRedBefore = { ok: false, summary: { ok: false, node_check: { ok: false }, tests: { ok: false } } };
+  const o4b = sync.decideValidationOutcome(allRedBefore, syntaxRed, {});
+  t('FB-SYNC-A-F3: already-red pre + the installer syntax gate failed -> ok:false with its reason (never alreadyRedSkipped)', o4b.ok === false && !o4b.alreadyRedSkipped && /do not parse/.test(o4b.reason || ''));
+  // FB-SYNC-A-F6: where hard links are unavailable (EPERM/ENOTSUP/EXDEV), a changed file is put back under its own name
+  {
+    const qd = freshDir('t32-quarantine-nolink');
+    const qf = path.join(qd, 'owner.txt');
+    fs.writeFileSync(qf, 'owner edit\n');
+    const realLink = fs.linkSync;
+    fs.linkSync = () => { const e = new Error('EPERM: operation not permitted, link'); e.code = 'EPERM'; throw e; };
+    let qr;
+    try { qr = sync.quarantineAndVerify(qf, 'f'.repeat(64)); } finally { fs.linkSync = realLink; }
+    t('FB-SYNC-A-F6: no hard links -> the changed file is back at its own name, no quarantine leftover', qr.removed === false && qr.keptAt === qf
+      && fs.readFileSync(qf, 'utf8') === 'owner edit\n' && !fs.readdirSync(qd).some((n) => /forge-quarantine/.test(n)) && !/another file now holds/.test(qr.reason));
+  }
   const o5 = sync.decideValidationOutcome(null, { ok: false, noEvidence: true, reason: 'no evidence' }, {});
   t('no-evidence post -> ok:false regardless of pre state', o5.ok === false);
   const o6 = sync.decideValidationOutcome(null, { ok: true, degraded: true }, {});
@@ -2437,10 +2470,11 @@ console.log('\n65) commit record is atomic + version stamp written last (audit #
   const pB = makeProject(freshDir('t65-root'), 'projB', 0);
   fs.writeFileSync(sync.versionFilePath(pB), JSON.stringify({ forge_version: 'OLD-0.0.0' }, null, 2) + '\n', 'utf8');
   fs.mkdirSync(sync.receiptPath(pB), { recursive: true }); // a directory here: rename-onto-dir always fails
-  let threw = null;
-  try { sync.safeSyncProject(tplB, pB, { batchId: 'b65b', nowIso: '2026-01-01T00:00:00.000Z' }); }
+  let threw = null, r65b = null;
+  try { r65b = sync.safeSyncProject(tplB, pB, { batchId: 'b65b', nowIso: '2026-01-01T00:00:00.000Z' }); }
   catch (e) { threw = e; }
-  t('65b a receipt that cannot be committed surfaces as a real error, never a silent success', threw !== null);
+  // FIX-SYNC B-F6: a failed commit is a FAILED, rolled-back result now — it used to escape as an uncaught throw, with no rollback
+  t('65b a receipt that cannot be committed surfaces as a real error, never a silent success (a failed, rolled-back result, never an uncaught throw)', threw === null && !!r65b && r65b.ok === false && r65b.commitFailed === true && r65b.rolledBack === true);
   const stamped = JSON.parse(fs.readFileSync(sync.versionFilePath(pB), 'utf8'));
   t('65b the project is NOT stamped with the new version when the receipt could not be written (the version stamp is the commit marker, written LAST)', stamped.forge_version === 'OLD-0.0.0');
 
@@ -2622,6 +2656,16 @@ console.log('\n67) resume-manifest-unie + omkeerbare scaffold-append + containme
   const gi2 = fs.readFileSync(path.join(pB2, '.gitignore'), 'utf8');
   t('67b2 een bestand dat de owner intussen bewerkte blijft ONaangeraakt (nooit een edit clobberen om de onze terug te draaien)',
     gi2.includes('owner-edit-after-seed') && gi2.includes('.claude/forge-runs/*/*'));
+
+  // (b2b) FB-SYNC-A-F5: a .gitignore that is not UTF-8 (UTF-16LE, Latin-1) is never appended to, so undo can never
+  // report "reverted" over bytes that are not the originals
+  for (const [label, bytes] of [['utf16', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('dist\n', 'utf16le')])], ['latin1', Buffer.from('caf\xe9/\n', 'latin1')]]) {
+    const pX = makeProject(freshDir('t67b2b-' + label), 'projX' + label, 0);
+    fs.writeFileSync(path.join(pX, '.gitignore'), bytes);
+    const sx = sync.seedProjectScaffold(tplB, pX);
+    t('67b2b FB-SYNC-A-F5 (' + label + '): a non-UTF-8 .gitignore is left byte-identical and the skip is reported', fs.readFileSync(path.join(pX, '.gitignore')).equals(bytes)
+      && /^skipped/.test(sx.gitignore) && sx.gitignorePrior === undefined);
+  }
 
   // (b3) de crash-case: een LATERE handmatige rollback (alleen het manifest) draait de scaffold ook terug
   const pB3 = makeProject(freshDir('t67b3-root'), 'projB3', 0);
@@ -3206,6 +3250,21 @@ console.log('\n79h) migrateOwnerStandingRules() — unit-level safety net behavi
     return Array.isArray(ids) && ids.length === 0;
   })());
 
+  // FB-SYNC-A-F4: a BOM-prefixed template is still read (its owner rule migrates); an unparseable one that may hold
+  // owner rules is held back (pending) instead of replaced while its content is unknown.
+  const bomDir = freshDir('t79h-bom');
+  const bomStandingDir = path.join(bomDir, '.claude', 'config', 'orchestration');
+  fs.mkdirSync(bomStandingDir, { recursive: true });
+  fs.writeFileSync(path.join(bomStandingDir, 'FORGE_STANDING_RULES.json'), '﻿' + JSON.stringify({ version: 1, rules: [standingRule({ id: 'own-bom', source: 'owner /forge remember' })] }, null, 2) + '\n');
+  const bomIds = sync.migrateOwnerStandingRules(bomDir);
+  t('79h2b FB-SYNC-A-F4: a BOM-prefixed template still migrates its owner rule', bomIds.join() === 'own-bom' && bomIds.pending === false);
+  const brokenOwnerDir = freshDir('t79h-broken-owner');
+  const brokenOwnerStandingDir = path.join(brokenOwnerDir, '.claude', 'config', 'orchestration');
+  fs.mkdirSync(brokenOwnerStandingDir, { recursive: true });
+  fs.writeFileSync(path.join(brokenOwnerStandingDir, 'FORGE_STANDING_RULES.json'), '{ "rules": [ { "id": "own-x", "source": "owner /forge remember", ');
+  const brokenIds = sync.migrateOwnerStandingRules(brokenOwnerDir);
+  t('79h2c FB-SYNC-A-F4: an unparseable template that names an owner rule is held back (pending), never replaced blind', brokenIds.length === 0 && brokenIds.pending === true);
+
   const noOwnerDir = freshDir('t79h-noowner');
   const noOwnerStandingDir = path.join(noOwnerDir, '.claude', 'config', 'orchestration');
   fs.mkdirSync(noOwnerStandingDir, { recursive: true });
@@ -3439,7 +3498,7 @@ console.log('\n79m) R6 fix — dry-run pending preview matches the real run; hon
     return { p, standingDir, userPath };
   }
 
-  // 79m1 (unit-level): migrateOwnerStandingRules(dir, {dryRun:true}) reports the SAME .pending a real
+  // 79m1 (R6a, unit-level): migrateOwnerStandingRules(dir, {dryRun:true}) reports the SAME .pending a real
   // call would, and writes NOTHING at all (not even mkdirSync) — the malformed user file stays untouched.
   {
     const { p, userPath } = projectWithOwnerRuleAndMalformedUser79m('t79m1-unit', 'owner-79m1');
@@ -3451,7 +3510,7 @@ console.log('\n79m) R6 fix — dry-run pending preview matches the real run; hon
     t('79m1 the malformed user file is still present and byte-identical after the dry-run', fs.existsSync(userPath) && fs.readFileSync(userPath, 'utf8') === '{ not valid json at all');
   }
 
-  // 79m2 (end-to-end via safeSyncProject dry-run): the DRY-RUN plan already shows the pending skip
+  // 79m2 (R6a, end-to-end via safeSyncProject dry-run): the DRY-RUN plan already shows the pending skip
   // and excludes FORGE_STANDING_RULES.json from toChange — matching what a REAL run on the identical
   // starting state does (proven against a separate, identical fixture copy).
   {
@@ -3483,7 +3542,7 @@ console.log('\n79m) R6 fix — dry-run pending preview matches the real run; hon
       realStandingAfter.rules.some((r2) => r2.id === 'owner-79m2'));
   }
 
-  // 79m3: printPlanSummary() gives the pending-migration skip its OWN honest label, separate from
+  // 79m3 (R6b): printPlanSummary() gives the pending-migration skip its OWN honest label, separate from
   // "skipped (symlink/unsafe)" — a genuine symlink/unsafe skip keeps the original label unchanged.
   {
     const plan = {
@@ -3506,7 +3565,7 @@ console.log('\n79m) R6 fix — dry-run pending preview matches the real run; hon
       lines.some((l) => /skipped \(symlink\/unsafe\)/.test(l) && l.includes('some/other/file.json:symlink')));
   }
 
-  // 79m4: the warning text at every call site advises fixing the JSON (with a copy-first safety
+  // 79m4 (R6c): the warning text at every call site advises fixing the JSON (with a copy-first safety
   // net), and NEVER suggests removing/deleting the file — it may hold the owner's own rules.
   {
     function assertSafeAdvice(label, warnings) {
@@ -4769,6 +4828,27 @@ console.log('\n94) WP-2c SYNC-02: quiesce-check — idle only when transcripts, 
   const busyCli = runCLI(['quiesce-check', p], cliEnv({ FORGE_SYNC_TEST_PROJECTS_ROOT: fakeCliRoot, FORGE_SYNC_TEST_PROCESS_LIST: JSON.stringify([{ pid: 6001, ppid: 1, cmd: 'node ' + abs + '\\x.cjs' }]) }));
   t('94i CLI quiesce-check exits 1 when a process names the project', busyCli.status === 1 && /BUSY/.test(busyCli.stdout));
   t('94i quiesce-check without a project is a usage error (exit 2)', runCLI(['quiesce-check']).status === 2);
+  // FB-SYNC-C-F6: the idle-check seams are named in the result, and a real install outside the temp folder refuses them
+  t('94i FB-SYNC-C-F6: a quiesce result taken through the test seams says so (testSeams:true)', !!okJson && okJson.testSeams === true);
+  {
+    const otherTmp = freshDir('t94-other-tmp'); // the child's temp folder does NOT hold the target project
+    const pS = projWp2c('t94-seam-target');
+    const { tpl: tplS } = tplHomeWp2c('t94-seam-tpl');
+    const seamCli = spawnSync(process.execPath, [CLI, 'install', pS], { encoding: 'utf8', env: Object.assign({}, process.env, { FORGE_SYNC_TEMPLATE_DIR: tplS, TEMP: otherTmp, TMP: otherTmp, TMPDIR: otherTmp }) });
+    t('94i FB-SYNC-C-F6: a real install outside the temp folder under the idle-check test seams is refused (exit 1, nothing written)', seamCli.status === 1 && /test seam/i.test(seamCli.stderr) && rfx(pS, '.claude/forge-bin/tool.cjs') === 'TOOL-V1');
+  }
+  // FB-SYNC-C-F7: while publish-template holds the template's lock, an install would read half old, half new files
+  {
+    const { tpl: tplL } = tplHomeWp2c('t94-tpl-locked');
+    const pL = projWp2c('t94-tpl-locked-target');
+    fs.writeFileSync(path.join(tplL, '.forge-sync.lock'), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString(), batch_id: 'publish-x' }));
+    const lockedCli = runCLIWithTemplate(['install', pL], tplL);
+    t('94i FB-SYNC-C-F7: install refuses while the template is locked by a publish (exit 1, nothing written)', lockedCli.status === 1 && /template is being published/i.test(lockedCli.stderr) && rfx(pL, '.claude/forge-bin/tool.cjs') === 'TOOL-V1');
+    const rootL = path.dirname(pL);
+    const lockedAll = runCLIWithTemplate(['sync-all', rootL], tplL);
+    t('94i FB-SYNC-C-F7: sync-all refuses too (exit 1)', lockedAll.status === 1 && /template is being published/i.test(lockedAll.stderr));
+    fs.unlinkSync(path.join(tplL, '.forge-sync.lock'));
+  }
   // (j) install refuses unless idle; --quiesce-override is a recorded exception
   const { tpl } = tplHomeWp2c('t94-tpl');
   const pI = projWp2c('t94-inst');
@@ -4820,6 +4900,10 @@ console.log('\n95) WP-2c SYNC-11: protect-manifest — everything not shipped is
   fs.rmSync(path.join(p, '.claude', 'config', 'forge-overrides.json'));
   // (b) the diff: bookkeeping is allowed, anything else is a violation
   t('95b nothing changed -> ok', sync.verifyProtect(p, m, null).ok === true);
+  if (process.platform === 'win32' && /^[A-Za-z]:/.test(path.resolve(p))) { // FB-SYNC-C-F2: the same folder, drive letter in the other case
+    const ap = path.resolve(p), flipped = (ap[0] === ap[0].toUpperCase() ? ap[0].toLowerCase() : ap[0].toUpperCase()) + ap.slice(1);
+    t('95b FB-SYNC-C-F2: verify-protect through a case-flipped drive letter is the same project (no "taken for" refusal)', (() => { try { return sync.verifyProtect(flipped, m, null).ok === true; } catch (e) { return false; } })());
+  }
   wfx(p, '.claude/forge-sync-receipt.json', '{"changed":true}');
   wfx(p, '.claude/FORGE_VERSION.json', '{"forge_version":"x"}');
   wfx(p, '.claude/settings.json', '{}');
@@ -4903,6 +4987,18 @@ console.log('\n95f) WP-2c: CLI protect-manifest + verify-protect (standalone, wi
   t('95f (a real install ran: seeds created, .gitignore appended, settings merged)', r.ok === true && /\.claude\/forge-runs/.test(rfx(p, '.gitignore')) && rfx(p, '.claude/FORGE_OWNER_PROFILE.json') !== null);
   const v1 = runCLIWithTemplate(['verify-protect', p, out, '--batch', 'b95f'], tpl);
   t('95g verify-protect --batch: the batch\'s own records explain every change (seeds, .gitignore append) -> exit 0', v1.status === 0 && /allowed\s+added .claude\/FORGE_OWNER_PROFILE\.json/.test(v1.stdout) && /appended \.gitignore/.test(v1.stdout));
+  // FB-SYNC-C-F5: a bare (unbound, hand-made) manifest.json in a batch folder is no allow-list, and never-touch memory
+  // and arbitrary migration targets are never allowed, even from a bound one
+  {
+    const forgedDir = path.join(p, '.claude', 'forge-backups', 'b95forged');
+    fs.mkdirSync(forgedDir, { recursive: true });
+    fs.writeFileSync(path.join(forgedDir, 'manifest.json'), JSON.stringify({ batchId: 'b95forged', files: [{ rel: 'agent-memory/boss/MEMORY.md', oldHash: 'b'.repeat(64), newHash: 'a'.repeat(64) }], migrations: [{ rel: 'skills/x/SKILL.md', postHash: 'c'.repeat(64), existed: true }] }));
+    const ef = sync.protectExpectationsFromBatch(p, 'b95forged');
+    t('95g FB-SYNC-C-F5: an unbound batch manifest gives no allowances (memory and migrations stay protected)', !ef.changedOk['.claude/agent-memory/boss/MEMORY.md'] && !ef.changedOk['.claude/skills/x/SKILL.md'] && !ef.sources.includes('manifest.json'), JSON.stringify(ef));
+    const eb = sync.protectExpectationsFromBatch(p, 'b95f');
+    t('95g FB-SYNC-C-F5: the real (bound) batch manifest still counts', eb.sources.includes('manifest.json') && !Object.keys(eb.changedOk).some((k) => /agent-memory\//.test(k)), JSON.stringify(eb.sources));
+    fs.rmSync(forgedDir, { recursive: true, force: true });
+  }
   const v2 = runCLIWithTemplate(['verify-protect', p, out], tpl);
   t('95g without --batch it uses the receipt\'s latest batch -> exit 0', v2.status === 0 && /via the receipt/.test(v2.stdout));
   const v3 = runCLIWithTemplate(['verify-protect', p, out, '--batch', 'no-such-batch'], tpl);
@@ -5170,7 +5266,7 @@ function pubDevRepoTemplate(rules, copyCli) {
   const devRoot = path.join(fs.mkdtempSync(path.join(TMPH_RUN_DIR, 'fsync-pubdev-cache-')), 'dev'), dev = path.join(devRoot, '.claude');
   writeTplManifest(dev, rules);
   for (const [rel, body] of Object.entries(PUB_DEV_FILES)) wfx(dev, rel, body);
-  if (copyCli) for (const f of ['forge-sync.cjs', 'forge-shipcheck.cjs', 'forge-shipcheck-refs.cjs']) fs.copyFileSync(path.join(path.dirname(CLI), f), path.join(dev, 'forge-bin', f));
+  if (copyCli) for (const f of ['forge-sync.cjs', 'forge-sync-publish-guard.cjs', 'forge-shipcheck.cjs', 'forge-shipcheck-refs.cjs']) fs.copyFileSync(path.join(path.dirname(CLI), f), path.join(dev, 'forge-bin', f));
   const g = pubGit(devRoot);
   g(['init', '-q']);
   wfx(dev, 'forge-bin/gone.cjs', 'GONE-V1\n'); wfx(dev, 'forge-bin/gone2.cjs', 'GONE2-V1\n'); wfx(dev, 'skills/oldskill/SKILL.md', '# old skill\n');
@@ -5488,7 +5584,8 @@ console.log('\n111) WP-2c part 2a: doctor timeout default, the lock body (pid + 
   t('111b the lock holds pid, batch_id and started_at (and the legacy ts)', acq.ok && body.pid === process.pid && body.batch_id === 'b111' && typeof body.started_at === 'string' && body.ts === body.started_at);
   // the lock now also carries a random ownership nonce, so only the run that took it can release
   // it. Still no secret in it: the nonce is random hex with no meaning outside this one lock file.
-  t('111b the lock body carries nothing else (pid, batch, times and a random ownership nonce)', Object.keys(body).sort().join(',') === 'batch_id,nonce,pid,started_at,ts' && /^[0-9a-f]{32}$/.test(body.nonce) && body.nonce === acq.nonce);
+  // FIX-SYNC C-F1: + the host name, so a lock whose pid is dead on THIS machine can be reclaimed without the 6 h wait
+  t('111b the lock body carries nothing else (pid, host, batch, times and a random ownership nonce)', Object.keys(body).sort().join(',') === 'batch_id,host,nonce,pid,started_at,ts' && body.host === os.hostname() && /^[0-9a-f]{32}$/.test(body.nonce) && body.nonce === acq.nonce);
   sync.releaseLock(acq);
   const acq2 = sync.acquireLock(d, { batchId: '../evil id' });
   t('111b an unsafe batch id is never written into the lock (null instead)', JSON.parse(fs.readFileSync(sync.lockPathFor(d), 'utf8')).batch_id === null);
@@ -6383,7 +6480,7 @@ else r4Section('131', () => {
 console.log('\n132) R4 F09: the quiesce check runs UNDER this run\'s own lock; an interpreter whose command line cannot be read is unknown; a working directory inside the project counts');
 r4Section('132', () => {
   const p = makeProject(freshDir('t132-root'), 'proj', null);
-  // an app file: this is an existing project, not a bare first-install scaffold (that case: forge-sync-fresh-quiesce.test.cjs)
+  // an app file: this is an existing project, not a bare first-install scaffold (that case: forge-sync-fresh-quiesce.test.cjs, F9)
   fs.writeFileSync(path.join(p, 'app.js'), '// app');
   const fakeRoot = freshDir('t132-claude-projects');
   const qo = (extra) => Object.assign({ nowMs: Date.now(), projectsRoot: fakeRoot, listProcesses: () => [], selfPid: 424242, parentPid: 424241 }, extra || {});
@@ -6937,7 +7034,8 @@ r4Section('143', () => {
   t('143g --accept-template without a value is a usage error', !!sync.parseArgs(['proj', '--accept-template']).argError && !!sync.parseArgs(['proj', '--accept-template', '--dry-run']).argError);
   const g1 = mkG('t143g1');
   const rg1 = sync.safeSyncProject(G.tpl, g1, { batchId: 'b143g1', nowIso: NOW_R7, refuseOnUnresolvedDrift: true, acceptTemplate: ['FORGE_SKILL_REGISTRY.md'] });
-  t('143g accepting ONE of two drifted files keeps the all-or-nothing install: refused, rolled back, the other file named', rg1.ok === false && rg1.refusedPartialDrift === true && rg1.rolledBack === true && JSON.stringify(rg1.plan.unknownDrift) === JSON.stringify(['config/orchestration/HOOKS_OPT_IN.md']) && rfx(g1, '.claude/FORGE_SKILL_REGISTRY.md') === '# registry, owner notes\n');
+  // FIX-SYNC B-F9: the refusal now comes before any write (nothing to roll back), instead of write + doctor + roll back
+  t('143g accepting ONE of two drifted files keeps the all-or-nothing install: refused before any write, the other file named', rg1.ok === false && rg1.refusedPartialDrift === true && rg1.nothingWritten === true && !fs.existsSync(path.join(g1, '.claude', 'forge-backups', 'b143g1')) && JSON.stringify(rg1.plan.unknownDrift) === JSON.stringify(['config/orchestration/HOOKS_OPT_IN.md']) && rfx(g1, '.claude/FORGE_SKILL_REGISTRY.md') === '# registry, owner notes\n');
   const g2 = mkG('t143g2');
   const rg2 = sync.safeSyncProject(G.tpl, g2, { batchId: 'b143g2', nowIso: NOW_R7, refuseOnUnresolvedDrift: true, acceptTemplate: ['FORGE_SKILL_REGISTRY.md', '.claude/config/orchestration/HOOKS_OPT_IN.md', 'forge-bin/tool.cjs'] });
   t('143g accepting both: the sync succeeds, exactly those files take the template version, project memory untouched', rg2.ok === true && rfx(g2, '.claude/FORGE_SKILL_REGISTRY.md') === '# registry V2\n' && rfx(g2, '.claude/config/orchestration/HOOKS_OPT_IN.md') === '# hooks opt-in V2\n' && rfx(g2, '.claude/FORGE_MEMORY.md') === '# project memory\n');
@@ -7045,7 +7143,8 @@ r4Section('147', () => {
   wfx(pb, '.claude/FORGE_SKILL_REGISTRY.md', '# registry, owner notes\n');
   const rb = sync.safeSyncProject(G.tpl, pb, { batchId: 'b147b', nowIso: NOW_R7, refuseOnUnresolvedDrift: true });
   const printedB = quiet(() => sync.printSafeSyncResult(pb, rb)).out.join('\n');
-  t('147b a drift-blocked (rolled back) install names its change report too', rb.refusedPartialDrift === true && !!(rb.report && rb.report.path) && printedB.includes('change report: ' + rb.report.path));
+  // FIX-SYNC B-F9: a drift-blocked install is refused before any write now — no batch, so no change report; the printed line says so
+  t('147b a drift-blocked install says it wrote nothing and names the drifted file (refused before the backup: no change report)', rb.refusedPartialDrift === true && rb.nothingWritten === true && !rb.report && /nothing was written/.test(printedB) && /FORGE_SKILL_REGISTRY\.md/.test(printedB));
   const pc = projWp2c('t147c', { doctorExit: null });
   r7Doctor(pc, [['a.test.cjs', 0]], [['a.test.cjs', 1]]);
   const cli = runCLIWithTemplate(['install', pc, '--batch-id', 'b147c'], tpl);
@@ -7615,7 +7714,7 @@ r4Section('156', () => {
 // =====================================================================================================================
 // WP-SYNC-R10 — the FINAL fix round for the Codex verification of R9/R8
 // (.claude/forge-research/overhaul-2026-10-09/codex-r7-sync-worktrees-rerun.md). Sections 157-164, one finding each; every
-// assertion marked was run against a pre-fix copy of forge-sync.cjs in an os.tmpdir() harness and FAILED there.
+// assertion marked [R10] was run against a pre-fix copy of forge-sync.cjs in an os.tmpdir() harness and FAILED there.
 // Fixture suites are generated files in os.tmpdir(); their run counters and markers live OUTSIDE the project unless a test
 // needs a file inside it on purpose. A grandchild process started by a test is killed by its exact PID only.
 // =====================================================================================================================
@@ -7932,7 +8031,7 @@ else r4Section('164', () => {
 // (forge-stop-obligations: exactly one Stop hook; forge-gate-secretprint: the forge-accounts deny rule) judged the OLD settings
 // and failed — in the doctor run AND alone — and every real project crossing that boundary was rolled back. Fix: the merge (its
 // undo record in the batch) runs BEFORE the doctor and the isolated re-run; in-run rollbacks restore settings.json byte-for-byte.
-// Sections 165-171; every fixture is os.tmpdir()-only. Assertions marked fail on the pre-fix forge-sync.cjs.
+// Sections 165-171; every fixture is os.tmpdir()-only. Assertions marked [R11] fail on the pre-fix forge-sync.cjs.
 // =====================================================================================================================
 const NOW_R11 = '2026-10-10T23:00:00.000Z';
 /** r11Suite(p, name, mode, aux) — a real suite file shaped like the shipped suites the real install tripped on. Before the sync
@@ -8107,7 +8206,8 @@ r4Section('169', () => {
   wfx(F.p, '.claude/forge-bin/drifted.cjs', 'EDITED HERE, NO BASELINE');
   const r = quiet(() => sync.safeSyncProject(F.tpl, F.p, { batchId: 'b169', nowIso: NOW_R11, refuseOnUnresolvedDrift: true })).r;
   t('169a refused as before: refusedPartialDrift, tool.cjs back on TOOL-V1, the drifted file kept', r.ok === false && r.refusedPartialDrift === true && rfx(F.p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && rfx(F.p, '.claude/forge-bin/drifted.cjs') === 'EDITED HERE, NO BASELINE');
-  t('169b [R11] settings.json (merged before the doctor) is back byte-for-byte and the result says so', (r.settingsMerge || {}).status === 'merged' && Buffer.compare(fs.readFileSync(F.sPath), OWNER_SETTINGS_BYTES) === 0 && !!r.settingsRestore && /restored byte-for-byte/.test(r.settingsRestore.action) && r.rolledBack === true);
+  // FIX-SYNC B-F9: the refusal now comes before the settings merge — settings.json is never touched, so there is nothing to put back
+  t('169b [R11] settings.json is byte-for-byte the owner\'s (refused before the merge: nothing merged, nothing to restore)', r.nothingWritten === true && r.settingsMerge === undefined && Buffer.compare(fs.readFileSync(F.sPath), OWNER_SETTINGS_BYTES) === 0 && r11Ledger(F.p, 'b169') === null);
 });
 
 r4Section('170', () => {
@@ -8142,7 +8242,7 @@ r4Section('171', () => {
 // =====================================================================================================================
 // WP-SYNC-R12: the Codex r8 settings-order findings R11-01..R11-06 (see
 // .claude/forge-research/overhaul-2026-10-09/codex-r8-settings-order.md). Sections 172-178; every fixture is os.tmpdir()-only, every
-// injection is an in-process (or `node -r` preload) wrapper that is removed again in a finally. Assertions marked fail on the
+// injection is an in-process (or `node -r` preload) wrapper that is removed again in a finally. Assertions marked [R12] fail on the
 // pre-fix forge-sync.cjs (proven with a scratch harness: pre-fix module + this test file).
 // =====================================================================================================================
 const mergeToolR12 = require('./forge-settings-merge.cjs');
@@ -8367,7 +8467,7 @@ r4Section('179', () => {
 //      tests left with a locked ACL (Node: EPERM on scandir) were unreadable BEFORE and AFTER the sync, and the install rolled back over
 //      567 "CHANGED" entries nothing had changed. Evidence source, probed first and printed: REAL (an icacls deny of List-folder on a
 //      scratch fixture — always removed again in `finally`, before the exit handler deletes the fixtures) or INJECTED (fs.readdirSync
-//      throws EPERM/scandir for exactly that folder; the CLI child gets the same through a `node -r` preload). Assertions marked
+//      throws EPERM/scandir for exactly that folder; the CLI child gets the same through a `node -r` preload). Assertions marked [R13]
 //      fail on the pre-R13 code; the unmarked ones are regression guards that held before too (the old code flagged everything).
 // =====================================================================================
 r4Section('180', () => {
@@ -8604,7 +8704,7 @@ r4Section('181', () => {
     const dN = dAt(IN, N0, Object.assign({}, N0));
     t('181c ...inside .claude/worktrees/<name>/ the same pair is "not comparable", its time not compared', dN.ok === true && nc(dN).length === 1 && nc(dN)[0].mtimeCompared === false);
     t('181c [R13B] protectUnreadableSame without a path is never "the same" (fail closed)', sync.protectUnreadableSame(U, Object.assign({}, U)).same === false);
-    // ---- a .git probe that fails (EPERM) is a checkout that cannot be identified — fail closed -------------------------
+    // ---- R13-02: a .git probe that fails (EPERM) is a checkout that cannot be identified — fail closed -------------------------
     const pE = projWp2c('t181e');
     const gitE = wfx(pE, '.claude/worktrees/agent-2/.git', 'gitdir: elsewhere/agent-2\n');
     wfx(pE, '.claude/worktrees/agent-2/src/a.txt', 'checkout content');
@@ -8623,7 +8723,7 @@ r4Section('181', () => {
     fs.unlinkSync(gitE);
     const sigAbsent = sync.worktreesChildrenSignature(wtRoot);
     t('181e [R13B] worktreesChildrenSignature tells "the .git probe failed" from "no .git" (R13: both "d", the same signature)', typeof sigUnknown === 'string' && sigUnknown !== sigAbsent);
-    // ---- the size is compared on its own; metadata recorded in one reading only is never "the same" ------------------
+    // ---- R13-03: the size is compared on its own; metadata recorded in one reading only is never "the same" ------------------
     const F = { kind: 'unreadable', error: 'EPERM: operation not permitted, open \'f\'', code: 'EPERM', syscall: 'open' };
     t('181f [R13B] no time in the "before" reading: a SIZE that changed (10 -> 11) is still a change (R13: same — the size was never compared)', dAt(IN, Object.assign({}, F, { size: 10 }), Object.assign({}, F, { mtimeMs: 1000, size: 11 })).ok === false);
     t('181f [R13B] no time in either reading: a size that changed is a change, with the reason', /size changed \(10 -> 11\)/.test(whyOf(dAt(IN, Object.assign({}, F, { size: 10 }), Object.assign({}, F, { size: 11 })), IN)));
@@ -8634,13 +8734,13 @@ r4Section('181', () => {
     t('181f a size in one reading only (same time) is a change', dAt(IN, Object.assign({}, F, { mtimeMs: 1000, size: 10 }), Object.assign({}, F, { mtimeMs: 1000 })).ok === false);
     const dLeg = dAt(IN, { kind: 'unreadable', error: U.error }, Object.assign({}, U));
     t('181f a pre-R13 "before" FOLDER entry against an R13 reading (the real 26H2 shape) stays "not comparable", time not compared', dLeg.ok === true && nc(dLeg).length === 1 && nc(dLeg)[0].mtimeCompared === false);
-    // ---- the failing operation must be known in BOTH readings ---------------------------------------------------------
+    // ---- R13-04: the failing operation must be known in BOTH readings ---------------------------------------------------------
     const NoOp = Object.assign({}, U, { syscall: null, error: 'EPERM' });
     const dNoOp = dAt(IN, NoOp, Object.assign({}, NoOp));
     t('181g [R13B] no operation recorded on either side (null/null) is a change, never a match (R13: same)', dNoOp.ok === false && /operation/.test(whyOf(dNoOp, IN)));
     t('181g [R13B] pre-R13 messages that name no operation ("EBUSY" both times) are a change (R13: same)', dAt(IN, { kind: 'unreadable', error: 'EBUSY' }, { kind: 'unreadable', error: 'EBUSY' }).ok === false);
     t('181g an operation known on one side only is a change', dAt(IN, NoOp, Object.assign({}, U)).ok === false);
-    // ---- install line, change report, receipt and verify CLI: inventoried / verified / NOT verified ---------------------
+    // ---- R13-05: install line, change report, receipt and verify CLI: inventoried / verified / NOT verified ---------------------
     const pH = projWp2c('t181h');
     const RH = '.claude/worktrees/wp-pw2/scratch/77aa/pd';
     const LH = path.join(pH, ...RH.split('/'));
@@ -8683,7 +8783,7 @@ r4Section('181', () => {
 
 // =====================================================================================
 // 182) WP-SYNC-R14: the Codex verification review of ccbe9e7 — four more fail-OPEN gaps in the protect check, each
-//      reproduced here. Assertions marked fail on the R13B code; unmarked ones are guards that held before too. Link,
+//      reproduced here. Assertions marked [R14] fail on the R13B code; unmarked ones are guards that held before too. Link,
 //      file and lstat reads are INJECTED (fs.readlinkSync / fs.readFileSync / fs.lstatSync throw EPERM for exactly one fixture path;
 //      a CLI child gets the same through a `node -r` preload); junctions are real (r3Junction, a visible SKIP where refused).
 //   R14-01 a failed readlink is an unreadable entry (code + operation 'readlink'), never {symlink, target:null}; a checkout whose .git
@@ -8772,7 +8872,7 @@ r4Section('182', () => {
       t('182b [R14] (CLI) verify-protect against it exits 1 and prints the PERMANENT-violation reason', vpK.status === 1 && /why \.claude\/worktrees\/agent-3: [^\n]*PERMANENT violation/.test(vpK.stderr));
       fs.rmdirSync(gitLink);
     }
-    // ---- app-code paths that cannot be read (and app links whose target cannot be read) ------------------------------
+    // ---- R14-02: app-code paths that cannot be read (and app links whose target cannot be read) ------------------------------
     const gb = (entries) => ({ head: 'h0', entries, count: Object.keys(entries).length, ignored: { count: 0, listHash: 'l0' }, submodules: {}, partial: [] });
     const withGit = (entries) => ({ schema: sync.PROTECT_SCHEMA, projectPath: 'x', shippedRels: [], entries: {}, git: gb(entries) });
     const legacy = { 'src/a.js': ' M unreadable', '(link) lib': 'link ?' };
@@ -8821,7 +8921,7 @@ r4Section('182', () => {
         fs.rmdirSync(linkApp);
       }
     }
-    // ---- links that hide never-touch paths from the inventory ---------------------------------------------------------
+    // ---- R14-03: links that hide never-touch paths from the inventory ---------------------------------------------------------
     const pR = projWp2c('t182d');
     wfx(pR, '.claude/worktrees/wp-c/config/forge-overrides.json', '{"overrides":[]}\n');
     if (r3Junction(path.join(pR, '.claude', 'worktrees', 'wp-c', 'config'), path.join(pR, '.claude', 'config'), '182d')) {
@@ -8879,7 +8979,7 @@ r4Section('182', () => {
       t('182d a link that is NOT at or above a never-touch path and points outside the project is recorded by its target, not refused', !!bP.m && (bP.m.entries['.claude/shared-docs'] || {}).kind === 'symlink' && typeof bP.m.entries['.claude/shared-docs'].target === 'string');
       fs.rmdirSync(path.join(pO, '.claude', 'shared-docs'));
     }
-    // ---- verified = compared and equal; app-code coverage next to "unchanged"; the scope headline -----------------------
+    // ---- R14-04: verified = compared and equal; app-code coverage next to "unchanged"; the scope headline -----------------------
     const B4 = { schema: sync.PROTECT_SCHEMA, projectPath: 'x', shippedRels: [], entries: {
       '.claude/a.md': { kind: 'file', size: 1, hash: 'h1' },
       '.claude/d': { kind: 'dir' },
@@ -8926,6 +9026,281 @@ r4Section('182', () => {
     fs.lstatSync = origLstat;
   }
 });
+
+// =====================================================================================================================
+// 183) FIX-SYNC: data-loss and rollback safety. One sub-section per
+// confirmed finding; every fixture is an os.tmpdir() folder of this run.
+// =====================================================================================================================
+/** doctorRedOn(p, marker) — a doctor stub (the --json contract of writeDoctorStub) that is RED only while forge-bin/tool.cjs
+ *  holds `marker`: the pre-sync run is green, the post-sync run of a batch that wrote the marker is red. */
+function doctorRedOn(p, marker) {
+  const src = [
+    '#!/usr/bin/env node',
+    'var fs = require("fs"), path = require("path");',
+    'var bad = false; try { bad = fs.readFileSync(path.join(__dirname, "tool.cjs"), "utf8").indexOf(' + JSON.stringify(marker) + ') !== -1; } catch (e) { bad = false; }',
+    'var o = { ok: !bad, checks: { node_check: { ok: !bad, total: 50, failed: bad ? 1 : 0 }, tests: { ok: !bad, suites: 5, passed: 20, failed: bad ? 1 : 0 } } };',
+    'if (process.argv.indexOf("--json") !== -1) console.log(JSON.stringify(o));',
+    'process.exit(bad ? 1 : 0);',
+  ].join('\n');
+  wfx(p, '.claude/forge-bin/forge-doctor.cjs', src);
+}
+
+r4Section('183a', () => {
+  console.log('\n183a) FIX-SYNC A-F1: a rollback from a shell that spells the drive letter in the other case finds its ledgers and its central backup');
+  if (process.platform !== 'win32') { console.log('  SKIP 183a — drive-letter case only exists on Windows'); return; }
+  const p = projWp2c('t183a');
+  const { tpl } = tplHomeWp2c('t183a-tpl');
+  wfx(p, '.claude/forge-bin/old-a.cjs', 'OLD-A as shipped');
+  const rec = sync.readReceipt(p);
+  rec.knownHashes['forge-bin/old-a.cjs'] = sync.sha256(path.join(p, '.claude', 'forge-bin', 'old-a.cjs'));
+  sync.writeReceipt(p, rec);
+  const r = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183a', nowIso: NOW_WP2C, retireOrphans: true })).r;
+  const abs = path.resolve(p);
+  const flip = (abs[0] === abs[0].toUpperCase() ? abs[0].toLowerCase() : abs[0].toUpperCase()) + abs.slice(1);
+  t('183a (setup) the sync merged settings.json and retired the orphan', r.ok === true && rfx(p, '.claude/forge-bin/old-a.cjs') === null && (r.settingsMerge || {}).status === 'created' && flip !== abs);
+  t('183a the central-backup project id is the same for both spellings of the drive letter', sync.projectId(flip) === sync.projectId(abs));
+  const rb = sync.rollbackProject(flip, 'b183a', {});
+  t('183a rollback with the other drive-letter case is NOT refused: files, orphan and settings.json all come back', rb.ok === true && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && rfx(p, '.claude/forge-bin/old-a.cjs') === 'OLD-A as shipped' && !fs.existsSync(path.join(p, '.claude', 'settings.json')));
+  // FIX-SYNC B-F2 limit: the rollback journal does not cover the retired-orphan ledger, so a batch that retired orphans never
+  // takes the "already rolled back" shortcut — a re-run goes through the normal path, which re-checks that ledger
+  t('183a a batch with a retired-orphan ledger never takes the "already rolled back" shortcut', sync.rollbackProject(p, 'b183a', {}).alreadyRolledBack !== true);
+});
+
+r4Section('183b', () => {
+  console.log('\n183b) FIX-SYNC A-F2: a forge-overrides.json with a BOM is read; a malformed one refuses the sync instead of switching every override off');
+  const p = projWp2c('t183b');
+  const { tpl } = tplHomeWp2c('t183b-tpl', { settings: false });
+  wfx(p, '.claude/forge-bin/tool.cjs', 'OWNER OWNS THIS ON PURPOSE');
+  t('183b (setup) without an overrides file nothing is unreadable', sync.preflight(tpl, p).unreadable.length === 0);
+  const ovr = path.join(p, '.claude', 'config', 'forge-overrides.json');
+  fs.mkdirSync(path.dirname(ovr), { recursive: true });
+  fs.writeFileSync(ovr, '﻿' + JSON.stringify({ overrides: ['forge-bin/tool.cjs'] }, null, 2));
+  t('183b a BOM-prefixed overrides file (PowerShell 5.1 writes one) is read: tool.cjs is an expected override', sync.readOverrideAllowlist(p).has('forge-bin/tool.cjs') && sync.preflight(tpl, p).expectedOverrides.includes('forge-bin/tool.cjs'));
+  fs.writeFileSync(ovr, '{ "overrides": ["forge-bin/tool.cjs"], }');
+  const pf = sync.preflight(tpl, p);
+  t('183b a trailing comma makes the overrides file UNREADABLE (it refuses the sync), never an empty list', pf.unreadable.some((u) => u.rel === 'config/forge-overrides.json'));
+  const r = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183b', nowIso: NOW_WP2C, forceOverwrite: true })).r;
+  t('183b ...so even --force-overwrite refuses, names the file, and the owner\'s tool.cjs is untouched', r.ok === false && r.refused === true && /forge-overrides\.json/.test(r.reason || '') && rfx(p, '.claude/forge-bin/tool.cjs') === 'OWNER OWNS THIS ON PURPOSE');
+  fs.writeFileSync(ovr, JSON.stringify({ overrides: 'forge-bin/tool.cjs' }));
+  t('183b an "overrides" value that is not a list refuses too', sync.preflight(tpl, p).unreadable.some((u) => u.rel === 'config/forge-overrides.json'));
+});
+
+r4Section('183c', () => {
+  console.log('\n183c) FIX-SYNC B-F1: an unknown or mistyped flag is a usage error (exit 2), never silently dropped');
+  t('183c parseArgs: --dryrun is "unknown flag --dryrun"', /unknown flag --dryrun/.test(sync.parseArgs(['proj', '--dryrun']).argError || ''));
+  t('183c parseArgs: --dry-run=true and a single-dash -n are usage errors too', !!sync.parseArgs(['proj', '--dry-run=true']).argError && /unknown flag -n/.test(sync.parseArgs(['proj', '-n']).argError || ''));
+  t('183c parseArgs: the known flags still parse without an error', sync.parseArgs(['proj', '--dry-run', '--json', '--batch-id', 'b1']).argError === null);
+  const p = projWp2c('t183c');
+  const { tpl } = tplHomeWp2c('t183c-tpl', { settings: false });
+  const cr = runCLIWithTemplate(['install', p, '--dryrun', '--batch-id', 'b183c'], tpl);
+  t('183c (CLI) install <project> --dryrun exits 2, names the flag and writes nothing', cr.status === 2 && /unknown flag --dryrun/.test(cr.stderr) && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && !fs.existsSync(path.join(p, '.claude', 'forge-backups', 'b183c')));
+});
+
+r4Section('183d', () => {
+  console.log('\n183d) FIX-SYNC B-F2: a batch that was already rolled back is not "newer" and is not rolled back again');
+  const p = projWp2c('t183d', { doctorExit: null });
+  doctorRedOn(p, 'TOOL-V3');
+  const { tpl } = tplHomeWp2c('t183d-tpl', { settings: false });
+  const r1 = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183d1', nowIso: '2026-10-10T12:00:00.000Z' })).r;
+  wfx(tpl, 'forge-bin/tool.cjs', 'TOOL-V3');
+  const r2 = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183d2', nowIso: '2026-10-10T13:00:00.000Z' })).r;
+  t('183d (setup) b1 synced TOOL-V2; b2 failed validation and was rolled back in-run (TOOL-V2 again)', r1.ok === true && r2.ok === false && r2.rolledBack === true && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V2');
+  const plain = sync.rollbackProject(p, null, {});
+  t('183d plain rollback picks b2 and says it was already rolled back — nothing restored, nothing claimed', plain.ok === true && plain.batchId === 'b183d2' && plain.alreadyRolledBack === true && plain.restored.length === 0 && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V2');
+  const cli = runCLIWithTemplate(['rollback', p, '--no-central-backup'], tpl);
+  t('183d (CLI) rollback prints "already rolled back, nothing to do" (exit 0)', cli.status === 0 && /already rolled back, nothing to do/.test(cli.stdout));
+  const m1 = JSON.parse(fs.readFileSync(path.join(p, '.claude', 'forge-backups', 'b183d1', 'manifest.json'), 'utf8'));
+  t('183d the rolled-back b2 no longer counts as a NEWER batch that touched b1\'s files', sync.findNewerOverlappingBatches(p, 'b183d1', m1, null).length === 0);
+  const rb1 = sync.rollbackProject(p, 'b183d1', {});
+  t('183d ...so rolling back b1 works without --force-rollback-newer (TOOL-V1)', rb1.ok === true && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1');
+});
+
+r4Section('183e', () => {
+  console.log('\n183e) FIX-SYNC B-F3: a stale rollback journal never makes a file count as restored that still holds the new bytes');
+  const { tpl } = tplHomeWp2c('t183e-tpl', { settings: false });
+  const p = projWp2c('t183e');
+  quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183e', nowIso: NOW_WP2C }));
+  const j = path.join(p, '.claude', 'forge-backups', 'b183e', 'rollback-journal.json');
+  fs.writeFileSync(j, JSON.stringify({ batchId: 'another-batch', status: 'in-progress', doneRels: ['forge-bin/tool.cjs'], versionRestored: false, receiptRestored: false }));
+  const rb = sync.rollbackProject(p, 'b183e', {});
+  t('183e a journal of ANOTHER batch is ignored: tool.cjs is really restored (TOOL-V1)', rb.ok === true && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1');
+  const p2 = projWp2c('t183e2');
+  quiet(() => sync.safeSyncProject(tpl, p2, { batchId: 'b183e2', nowIso: NOW_WP2C }));
+  fs.writeFileSync(path.join(p2, '.claude', 'forge-backups', 'b183e2', 'rollback-journal.json'), JSON.stringify({ batchId: 'b183e2', status: 'in-progress', doneRels: ['forge-bin/tool.cjs'], versionRestored: false, receiptRestored: false }));
+  const rb2 = sync.rollbackProject(p2, 'b183e2', {});
+  t('183e a journal of the SAME batch is re-checked per file: tool.cjs still held TOOL-V2, so it is restored, not skipped', rb2.ok === true && rfx(p2, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && rb2.restored.includes('forge-bin/tool.cjs'));
+});
+
+r4Section('183f', () => {
+  console.log('\n183f) FIX-SYNC B-F4: an empty or incomplete process listing is UNKNOWN, never idle');
+  const self = 424242;
+  const listing = (procs) => () => ({ status: 0, stdout: procs == null ? '' : JSON.stringify(procs), stderr: '' });
+  const threw = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
+  t('183f an empty listing (exit 0, no output — a failed Get-CimInstance) throws', !!threw(() => sync.listProcessesStructured({ platform: 'win32', spawnSyncImpl: listing(null), requirePid: self })));
+  const noSelf = threw(() => sync.listProcessesStructured({ platform: 'win32', spawnSyncImpl: listing([{ ProcessId: 4, ParentProcessId: 0, Name: 'System', CommandLine: null }]), requirePid: self }));
+  t('183f a listing that does not contain this process itself throws and names the pid', !!noSelf && noSelf.includes(String(self)));
+  let args = null;
+  const full = sync.listProcessesStructured({ platform: 'win32', spawnSyncImpl: (cmd, a) => { args = a.join(' '); return listing([{ ProcessId: self, ParentProcessId: 1, Name: 'node.exe', CommandLine: 'node x' }, { ProcessId: 4, ParentProcessId: 0, Name: 'System', CommandLine: null }])(); }, requirePid: self });
+  t('183f a listing that holds this process is returned as before', Array.isArray(full) && full.length === 2);
+  t('183f the PowerShell command stops on a Get-CimInstance error (-ErrorAction Stop), so a failed listing exits non-zero', /Get-CimInstance Win32_Process -ErrorAction Stop/.test(args || ''));
+  const p = makeProject(freshDir('t183f-root'), 'proj', null);
+  const q = sync.quiesceCheck(p, { nowMs: NOW_WP2C_MS, projectsRoot: freshDir('t183f-projects'), listProcesses: () => sync.listProcessesStructured({ platform: 'win32', spawnSyncImpl: listing(null), requirePid: self }), selfPid: self, parentPid: self - 1 });
+  t('183f quiesce-check: an empty listing makes the processes check unknown and the project NOT idle', q.idle === false && q.checks.processes.state === 'unknown');
+});
+
+r4Section('183g', () => {
+  console.log('\n183g) FIX-SYNC B-F6: a throw in the commit step after a passed validation rolls the batch back and reports it');
+  const p = projWp2c('t183g');
+  const { tpl } = tplHomeWp2c('t183g-tpl');
+  const origRename = fs.renameSync;
+  let tripped = 0, r = null, threw = null;
+  fs.renameSync = function (from, to) {
+    if (!tripped && /FORGE_VERSION\.json$/.test(String(to))) { tripped++; const e = new Error('EPERM: operation not permitted, rename (injected by section 183g)'); e.code = 'EPERM'; throw e; }
+    return origRename.apply(this, arguments);
+  };
+  try { r = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183g', nowIso: NOW_WP2C })).r; } catch (e) { threw = e.message; } finally { fs.renameSync = origRename; }
+  t('183g the throw never escapes safeSyncProject: a failed result (commitFailed)', threw === null && tripped === 1 && !!r && r.ok === false && r.commitFailed === true);
+  t('183g ...the batch is rolled back: tool.cjs TOOL-V1, the old receipt back, settings.json removed again, no version stamp', !!r && r.rolledBack === true && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && (sync.readReceipt(p) || {}).batchId !== 'b183g' && !fs.existsSync(path.join(p, '.claude', 'settings.json')) && !fs.existsSync(sync.versionFilePath(p)));
+  t('183g ...and the change report names the failed commit step', !!(r && r.report && r.report.path) && /commit step/.test(fs.readFileSync(r.report.path, 'utf8')));
+  const p2 = projWp2c('t183g2');
+  const ok1 = quiet(() => sync.safeSyncProject(tpl, p2, { batchId: 'b183g2', nowIso: NOW_WP2C })).r;
+  fs.rmSync(sync.versionFilePath(p2));
+  const r3 = quiet(() => sync.safeSyncProject(tpl, p2, { batchId: 'b183g3', nowIso: NOW_WP2C })).r;
+  const vf = JSON.parse(rfx(p2, '.claude/FORGE_VERSION.json') || '{}');
+  t('183g the self-healing promise: receipt written but no stamp -> the next install (a file no-op) re-stamps FORGE_VERSION.json', ok1.ok === true && r3.noop === true && r3.ok === true && vf.forge_version === sync.templateVersion(tpl));
+});
+
+r4Section('183h', () => {
+  console.log('\n183h) FIX-SYNC B-F8: a rollback journal that cannot be written does not stop the restore of the other files');
+  const p = projWp2c('t183h');
+  const { tpl } = tplHomeWp2c('t183h-tpl', { settings: false });
+  const r = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183h', nowIso: NOW_WP2C })).r;
+  t('183h (setup) the batch wrote tool.cjs (update) and skills/demo/SKILL.md (created)', r.ok === true && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V2' && rfx(p, '.claude/skills/demo/SKILL.md') === '# demo v2\n');
+  const origWrite = fs.writeFileSync;
+  let blocked = 0, rb = null, threw = null;
+  fs.writeFileSync = function (f) {
+    if (/rollback-journal\.json/.test(String(f))) { blocked++; const e = new Error('ENOSPC: no space left on device (injected by section 183h)'); e.code = 'ENOSPC'; throw e; }
+    return origWrite.apply(this, arguments);
+  };
+  try { rb = sync.rollbackProject(p, 'b183h', {}); } catch (e) { threw = e.message; } finally { fs.writeFileSync = origWrite; }
+  t('183h every file is restored although no journal write succeeded', threw === null && blocked > 0 && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && rfx(p, '.claude/skills/demo/SKILL.md') === null);
+  t('183h ...the rollback is ok and says the journal was not saved', !!rb && rb.ok === true && /ENOSPC/.test(String(rb.journalSaveError || '')));
+});
+
+r4Section('183i', () => {
+  console.log('\n183i) FIX-SYNC B-F9: install refuses unresolved drift BEFORE the backup, the writes and the doctor runs');
+  const p = projWp2c('t183i', { doctorExit: null });
+  const marker = path.join(freshDir('t183i-aux'), 'doctor-ran.txt');
+  writeDoctorStub(p, 0, 'require("fs").appendFileSync(' + JSON.stringify(marker) + ', "ran\\n");');
+  const { tpl } = tplHomeWp2c('t183i-tpl');
+  wfx(tpl, 'forge-bin/drifted.cjs', 'DRIFT-TEMPLATE');
+  wfx(p, '.claude/forge-bin/drifted.cjs', 'EDITED HERE, NO BASELINE');
+  const r = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183i', nowIso: NOW_WP2C, refuseOnUnresolvedDrift: true })).r;
+  t('183i refused before any write: no backup folder, no doctor run, tool.cjs and the drifted file untouched, no settings.json', r.ok === false && r.refusedPartialDrift === true && !fs.existsSync(path.join(p, '.claude', 'forge-backups', 'b183i')) && !fs.existsSync(marker) && rfx(p, '.claude/forge-bin/tool.cjs') === 'TOOL-V1' && rfx(p, '.claude/forge-bin/drifted.cjs') === 'EDITED HERE, NO BASELINE' && !fs.existsSync(path.join(p, '.claude', 'settings.json')));
+  const printed = quiet(() => sync.printSafeSyncResult(p, r)).out.join('\n');
+  t('183i the reason and the printed line say nothing was written and name the drifted file', /nothing was written/.test(r.reason || '') && /BLOCKED/.test(printed) && /nothing was written/.test(printed) && /drifted\.cjs/.test(printed));
+});
+
+r4Section('183j', () => {
+  console.log('\n183j) FIX-SYNC B-F10: status counts only what install would change as "behind"; overrides and drift get their own lines');
+  const p = projWp2c('t183j');
+  const { tpl } = tplHomeWp2c('t183j-tpl', { settings: false });
+  quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183j', nowIso: NOW_WP2C }));
+  const ovr = wfx(p, '.claude/config/forge-overrides.json', JSON.stringify({ overrides: ['forge-bin/tool.cjs'] }));
+  wfx(p, '.claude/forge-bin/tool.cjs', 'MINE');
+  const st = runCLIWithTemplate(['status', p], tpl);
+  t('183j a declared override is not "behind": up to date, exit 0, the override listed', st.status === 0 && /up to date/.test(st.stdout) && !/files behind/.test(st.stdout) && /expected override/.test(st.stdout) && /forge-bin\/tool\.cjs/.test(st.stdout));
+  fs.rmSync(ovr);
+  const st2 = runCLIWithTemplate(['status', p], tpl);
+  t('183j unknown drift is BLOCKED (exit 1), named, with the steps install accepts — never "run: forge-sync install"', st2.status === 1 && /BLOCKED/.test(st2.stdout) && /forge-bin\/tool\.cjs/.test(st2.stdout + st2.stderr) && /--accept-template/.test(st2.stdout + st2.stderr) && !/run: forge-sync install/.test(st2.stdout));
+  wfx(tpl, 'forge-bin/other.cjs', 'NEW FILE');
+  const st3 = runCLIWithTemplate(['status', p], tpl);
+  t('183j a file install would add still counts as behind (1), next to the blocked one', st3.status === 1 && /1 files behind/.test(st3.stdout));
+});
+
+r4Section('183k', () => {
+  console.log('\n183k) FIX-SYNC C-F1: a lock whose owner died on THIS host is reclaimed after a short grace, not after 6 hours');
+  const d = freshDir('t183k');
+  const lp = sync.lockPathFor(d);
+  const nowMs = Date.now();
+  const at = (min) => new Date(nowMs - min * 60000).toISOString();
+  const body = (min, host) => JSON.stringify({ pid: 999999, host, batch_id: 'x', started_at: at(min), ts: at(min), nonce: 'a'.repeat(32) });
+  fs.writeFileSync(lp, body(1, os.hostname()));
+  t('183k a 1-minute-old lock of a dead pid on this host is still held (grace)', sync.acquireLock(d, { pidAlive: () => false, now: nowMs }).held === true);
+  fs.writeFileSync(lp, body(5, os.hostname()));
+  const ls = sync.readLockStatus(d, { now: nowMs, pidAlive: () => false });
+  t('183k lock-status calls a 5-minute-old lock of a dead pid on this host stale (not fresh)', ls.present && ls.stale === true && ls.fresh === false && ls.state === 'stale');
+  const a = sync.acquireLock(d, { pidAlive: () => false, now: nowMs, batchId: 'b183k' });
+  t('183k ...and the next run reclaims it at once; the new lock names this host', a.ok === true && a.reclaimedStale === true && JSON.parse(fs.readFileSync(lp, 'utf8')).host === os.hostname());
+  sync.releaseLock(a);
+  fs.writeFileSync(lp, body(5, 'another-machine'));
+  t('183k a lock of ANOTHER host is never reclaimed on a pid check (its pid means nothing here)', sync.acquireLock(d, { pidAlive: () => false, now: nowMs }).held === true);
+  fs.writeFileSync(lp, body(5, os.hostname()));
+  t('183k a lock whose pid is alive is still held', sync.acquireLock(d, { pidAlive: () => true, now: nowMs }).held === true);
+  fs.rmSync(lp, { force: true });
+});
+
+r4Section('183l', () => {
+  console.log('\n183l) FIX-SYNC C-F3: a file over 2 GiB (readFileSync refuses it) is hashed in chunks, never "unreadable"');
+  const CHUNK = 1024 * 1024;
+  const text = Buffer.alloc(CHUNK + 16, 0x61); text[CHUNK - 1] = 0x0d; text[CHUNK] = 0x0a; text[40] = 0x0d; // a CRLF across the chunk edge, a lone CR
+  const p = projWp2c('t183l', { doctorExit: null });
+  const { tpl } = tplHomeWp2c('t183l-tpl', { settings: false });
+  const big = wfx(p, '.claude/capture.txt', text);
+  const appBig = wfx(p, 'capture.txt', text);
+  const tooLarge = new Set([path.resolve(big).toLowerCase(), path.resolve(appBig).toLowerCase()]);
+  const gitOk = PUB_GIT_OK;
+  if (gitOk) { const g = pubGit(p); g(['init', '-q']); wfx(p, 'src/a.js', 'a\n'); g(['add', 'src/a.js']); g(['commit', '-q', '-m', 'a']); }
+  const before = sync.buildProtectManifest(tpl, p, {});
+  const expectRaw = hashBuf(text);
+  const origRead = fs.readFileSync;
+  fs.readFileSync = function (f) {
+    if ((typeof f === 'string' || Buffer.isBuffer(f)) && tooLarge.has(path.resolve(String(f)).toLowerCase())) { const e = new RangeError('File size (2147483664) is greater than 2 GiB (simulated by section 183l)'); e.code = 'ERR_FS_FILE_TOO_LARGE'; throw e; }
+    return origRead.apply(this, arguments);
+  };
+  let after = null, hashBig = null;
+  try { hashBig = sync.sha256(big); after = sync.buildProtectManifest(tpl, p, {}); } finally { fs.readFileSync = origRead; }
+  t('183l sha256() still hashes a file readFileSync refuses (same hash as a whole read)', hashBig === expectRaw);
+  const eB = before.entries['.claude/capture.txt'] || {}, eA = (after && after.entries['.claude/capture.txt']) || {};
+  t('183l the protect entry under .claude is a file with the same hash, never unreadable', eA.kind === 'file' && eA.hash === expectRaw && eB.hash === expectRaw);
+  if (!gitOk) console.log('  SKIP 183l (git part) — git is not available here');
+  else {
+    const aB = (before.git && before.git.entries['capture.txt']) || '', aA = (after && after.git && after.git.entries['capture.txt']) || '';
+    t('183l the untracked app file gets the same eol-normalised hash in chunks as in one read (a CRLF across the chunk edge included)', /^\?\? eol:[0-9a-f]{64}$/.test(aB) && aA === aB);
+    const v = sync.diffProtectManifests(before, after, null);
+    t('183l ...so two identical readings are no violation', v.ok === true);
+  }
+});
+
+r4Section('183m', () => {
+  console.log('\n183m) FIX-SYNC C-F4: a forced rollback keeps a verified copy of the owner\'s edited settings.json before it restores');
+  const p = projWp2c('t183m');
+  const { tpl } = tplHomeWp2c('t183m-tpl');
+  const sPath = path.join(p, '.claude', 'settings.json');
+  fs.writeFileSync(sPath, OWNER_SETTINGS_BYTES);
+  const r = quiet(() => sync.safeSyncProject(tpl, p, { batchId: 'b183m', nowIso: NOW_WP2C })).r;
+  t('183m (setup) the sync merged settings.json', r.ok === true && (r.settingsMerge || {}).status === 'merged');
+  const LATER = Buffer.from('{\n  "ownerKey": "added by the owner after the sync",\n  "hooks": {}\n}\n');
+  fs.writeFileSync(sPath, LATER);
+  const rb = sync.rollbackProject(p, 'b183m', { forceRollbackNewer: true });
+  const qdir = path.join(p, '.claude', 'forge-backups', 'b183m', 'rollback-quarantine');
+  const kept = fs.existsSync(qdir) ? fs.readdirSync(qdir).filter((n) => /^settings\.json/.test(n)).map((n) => fs.readFileSync(path.join(qdir, n))) : [];
+  t('183m the forced rollback restores the pre-sync bytes', rb.ok === true && Buffer.compare(fs.readFileSync(sPath), OWNER_SETTINGS_BYTES) === 0);
+  t('183m ...and the owner\'s later bytes survive in the batch backup, named in the action', kept.some((b) => Buffer.compare(b, LATER) === 0) && /rollback-quarantine/.test(rb.settingsAction || ''));
+});
+
+// CF-5-F8: the never-touch floor and the release exclusions are two hand-kept lists of the same
+// per-project folders. Every NEVER_TOUCH_DIRS entry must be kept out of a release by some dist_forbidden pattern.
+{
+  const ex = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'release-exclusions.json'), 'utf8'));
+  const unforbidden = (pats) => { const res = pats.map((p) => new RegExp(p)); return [...sync.NEVER_TOUCH_DIRS].filter((d) => !res.some((re) => re.test('.claude/' + d + '/x.json'))); };
+  const missing = unforbidden(ex.dist_forbidden);
+  t('CF5F8a every forge-sync NEVER_TOUCH_DIRS entry is matched by a release-exclusions dist_forbidden pattern (.claude/<dir>/...)' + (missing.length ? ' — missing: ' + missing.join(', ') : ''), missing.length === 0);
+  const dropped = ex.dist_forbidden.filter((p) => !new RegExp(p).test('.claude/forge-scribe/x.json'));
+  t('CF5F8b the check has teeth: without the forge-scribe pattern it reports forge-scribe', unforbidden(dropped).includes('forge-scribe'));
+  const res = ex.dist_forbidden.map((p) => new RegExp(p));
+  t('CF5F8c dist_forbidden keeps .env.local out of a release and lets .env.example through', res.some((re) => re.test('.env.local')) && res.some((re) => re.test('app/.env.local')) && !res.some((re) => re.test('.env.example')));
+}
 
 // WP-TMP-HYGIENE: the private run folder is a direct forge-run-* child of the real temp dir, and every recorded
 // fixture of this run lives inside it — so the exit handler's single removal leaves the real temp dir as it found it.

@@ -33,7 +33,7 @@ function envDirOrNull(name, { mustExist }) {
   return resolved;
 }
 
-// gateway/src -> gateway -> command-center -> project root ("my project!")
+// gateway/src -> gateway -> command-center -> project root ("my project (v2)!")
 export const GATEWAY_DIR = path.resolve(__dirname, '..');
 export const COMMAND_CENTER_DIR = path.resolve(GATEWAY_DIR, '..');
 const DERIVED_PROJECT_ROOT = path.resolve(COMMAND_CENTER_DIR, '..');
@@ -246,7 +246,7 @@ function isDriveRoot(p) {
   return path.parse(p).root === p;
 }
 
-// ancestry test via path.relative() instead of a raw `startsWith(sep)` string check. The
+// F2 fix: ancestry test via path.relative() instead of a raw `startsWith(sep)` string check. The
 // old check compared `normHome.startsWith(normReal + path.sep)`, which silently NEVER matched when
 // normReal was itself a drive root — `c:\\` plus an extra separator doubles up to `c:\\\\`, which
 // normHome (a normal, single-separator path) can never start with, so a link resolving straight to
@@ -306,7 +306,7 @@ function checkScanRoot(raw) {
   if (UNC_RE.test(real)) {
     return { reason: '"' + resolved + '" resolves to a network/UNC path ("' + real + '") — too wide a trust boundary.' };
   }
-  // same reasoning as the typed-path drive-root check above, but for the REAL target — a
+  // F2 fix: same reasoning as the typed-path drive-root check above, but for the REAL target — a
   // junction/symlink whose typed path looks like an ordinary folder can still resolve to a drive
   // root ("C:\\"), which is exactly as wide as typing the drive root directly.
   if (isDriveRoot(real)) {
@@ -324,7 +324,7 @@ function checkScanRoot(raw) {
   if (homeRelation === 'contains') {
     return { reason: '"' + resolved + '" contains the home folder — too wide to scan.' };
   }
-  // return the RESOLVED real target, not the typed/link path — a link re-pointed after
+  // F2 fix: return the RESOLVED real target, not the typed/link path — a link re-pointed after
   // this validation ran must have no effect on what SYNC_SCAN_ROOTS actually scans.
   return { root: real };
 }

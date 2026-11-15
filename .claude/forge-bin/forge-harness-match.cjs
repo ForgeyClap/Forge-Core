@@ -26,8 +26,9 @@
  *   unmatched     no record although the harness recorded THIS run (records stamped with this run by the run pointer,
  *                 forge-active-run.cjs), a type mismatch, a record of another run, a lane missing from its journal, no
  *                 dispatch_id, or a dispatch_id with no correlatable shape.
- *   unverifiable  (kind) external-cli (runtime codex/cli/gateway…: no Claude Code hook sees it — not counted in the
- *                 match percentage) · harness-absent (no record and the hook recorded nothing for this run: not installed
+ *   unverifiable  (kind) external-cli (runtime codex/cli/gateway… WITH its own record — an exit_code or an existing
+ *                 log_path/output_path; no Claude Code hook sees it — not counted in the match percentage; without
+ *                 such a record the dispatch is unmatched, FB-VERIFY-1-F13) · harness-absent (no record and the hook recorded nothing for this run: not installed
  *                 or the pointer not set) · harness-pending (only the stop hook is live and the agent may still run) ·
  *                 journal-missing · type-absent (a record exists but carries no agent type).
  *   match_pct = matched / (every dispatch except external-cli) — so a harness gap lowers it honestly.
@@ -205,6 +206,17 @@ function findJournals(root, wfIds, opts) {
 }
 
 // ---------------------------------------------------------------------------------------------------- events
+const RUN_WINDOW_SLACK_MS = 60 * 1000;
+function mtimeOf(f) { try { return fs.statSync(f).mtimeMs; } catch { return -Infinity; } }
+/** runStartOf(events) -> ms of the run's first run_started (ts or timestamp), or null when none is readable. */
+function runStartOf(events) {
+  for (const e of events || []) {
+    if (!isObj(e) || e.event_type !== 'run_started') continue;
+    const ms = Date.parse(e.ts || e.timestamp || '');
+    if (Number.isFinite(ms)) return ms;
+  }
+  return null;
+}
 function readRunEvents(root, runId) {
   for (const d of [path.join(runsDirOf(root), runId), path.join(root, '.claude', 'forge-runs', runId)]) {
     const f = path.join(d, 'events.jsonl');
@@ -277,7 +289,12 @@ function matchAgentId(d, id, ctx) {
   const s = ctx.H.start.get(id), e = ctx.H.stop.get(id);
   if (!s && !e && ctx.sessionDirs) {
     const meta = findAgentMeta(ctx.sessionDirs(), id);
-    if (meta) return judgeType(d, 'agent-id', meta.agentType, { agent_id: id, sources: ['agent-meta'], finished: null });
+    // FB-VERIFY-1-F12: agent-<id>.meta.json carries no run, so it only proves THIS run's dispatch when it was written
+    // after run_started; with no run start known it counts only while the start/stop hooks recorded nothing.
+    const hooksSilent = !ctx.live.start && !(ctx.final && ctx.live.stop);
+    if (meta && (ctx.runStartMs ? mtimeOf(meta.file) >= ctx.runStartMs - RUN_WINDOW_SLACK_MS : hooksSilent)) {
+      return judgeType(d, 'agent-id', meta.agentType, { agent_id: id, sources: ['agent-meta'], finished: null });
+    }
   }
   if (!s && !e) {
     if (ctx.live.start) return itemOf(d, 'agent-id', 'unmatched', 'no SubagentStart/SubagentStop record carries this agent_id, although the SubagentStart hook recorded this run');
@@ -326,8 +343,25 @@ function matchWorkflow(d, id, ctx) {
   return best;
 }
 
+/** externalEvidence(ev, root) -> true when an external-runtime dispatch carries a record of its own: a finite
+ *  exit_code, or a log_path/output_path that exists on disk (relative paths resolve against the project root). */
+function externalEvidence(ev, root) {
+  if (typeof ev.exit_code === 'number' && Number.isFinite(ev.exit_code)) return true;
+  for (const k of ['log_path', 'output_path']) {
+    const p = ev[k];
+    if (typeof p !== 'string' || !p.trim() || p.includes('\0')) continue;
+    try { if (fs.statSync(path.resolve(root || process.cwd(), p.trim())).isFile()) return true; } catch { /* not there */ }
+  }
+  return false;
+}
+
 function matchOne(d, ctx) {
-  if (d.runtime && EXTERNAL_RUNTIMES.has(d.runtime)) return itemOf(d, 'external', 'unverifiable', 'runtime "' + d.runtime + '" runs outside Claude Code, so no harness hook can see it', { unverifiable_kind: 'external-cli' });
+  if (d.runtime && EXTERNAL_RUNTIMES.has(d.runtime)) {
+    // FB-VERIFY-1-F13: the runtime label is written by the Lead this check controls, so on its own it no longer
+    // takes a dispatch out of the percentage; it needs its own record (exit_code, or an existing log_path).
+    if (!externalEvidence(d.ev, ctx.root)) return itemOf(d, 'external', 'unmatched', 'runtime "' + d.runtime + '" claims a run outside Claude Code but the event carries no log_path (existing file) or exit_code to show it ran');
+    return itemOf(d, 'external', 'unverifiable', 'runtime "' + d.runtime + '" runs outside Claude Code, so no harness hook can see it', { unverifiable_kind: 'external-cli' });
+  }
   const id = d.dispatch_id;
   if (!id) return itemOf(d, 'none', 'unmatched', 'no dispatch_id on the event, so nothing can tie it to a real dispatch');
   if (TOOL_USE_RE.test(id)) return matchAgentTool(d, id, ctx);
@@ -404,13 +438,15 @@ function matchRun(opts) {
   const seenJ = new Set(explicit);
   const parsedFound = found.filter((f) => !seenJ.has(path.resolve(f))).map((f) => parseJournal(f, H.notes));
   for (const f of explicit) if (!fs.existsSync(f)) H.notes.push('--journal ' + f + ' does not exist');
-  const ctx = { H, runId, live: liveFor(H, runId), final: opts.final === true, journals: parsedExplicit.concat(parsedFound), explicitJournals: parsedExplicit, findJournals: findOn, sessionDirs };
+  const ctx = { H, runId, root, runStartMs: runStartOf(events), live: liveFor(H, runId), final: opts.final === true, journals: parsedExplicit.concat(parsedFound), explicitJournals: parsedExplicit, findJournals: findOn, sessionDirs };
   const items = dispatches.map((d) => matchOne(d, ctx));
   const orphans = orphansOf(ctx, items);
   return {
     tool: 'forge-harness-match', run_id: runId, root, final: ctx.final, events_file: eventsFile,
     summary: summarize(items, orphans.length, all.length - dispatches.length),
     items, orphans,
+    // FB-VERIFY-1-F13: what the runtime internal/native label removed, so a reader can see who was skipped
+    skipped_internal: all.filter((d) => d.runtime && INTERNAL_RUNTIMES.has(d.runtime)).slice(0, MAX_ORPHANS).map((d) => ({ agent: d.agent, dispatch_id: d.dispatch_id, runtime: d.runtime })),
     harness: {
       live: ctx.live, files: H.files.map((f) => ({ file: path.relative(root, f.file).split(path.sep).join('/'), kind: f.kind, records: f.records })),
       journals: ctx.journals.map((j) => ({ wf: j.wf, file: j.file, lanes: j.agents.length, source: seenJ.has(path.resolve(j.file)) ? 'explicit' : 'auto' })),

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // log-event-review-dispatch-warning.test.cjs — lesson fix.
 //
 // REAL INCIDENT: the Lead logged `subagent_started` for a reviewer with `role:"reviewer"` and
@@ -191,15 +195,26 @@ t('verify-boss start with wp_id -> warned (keyed start makes the verifier a work
   assert.strictEqual(val.verify && val.verify.verifier_dispatch_counts_as_work, true, JSON.stringify(val.verify));
   assert.ok(/wp_id/.test(val.verify.verifier_dispatch_warning), val.verify.verifier_dispatch_warning);
 });
-t('verify-boss start with verifies_wp and no role/task -> warned (unkeyed work dispatch)', () => {
+// SD-LEDGER: the unkeyed shape repeated, so under STRICT (the default) it is now REFUSED; the warning
+// remains under FORGE_STRICT_EVENTS=0 (full guard suite: log-event-verifier-start-guard.test.cjs).
+function withStrictOff(fn) {
+  const before = process.env.FORGE_STRICT_EVENTS;
+  process.env.FORGE_STRICT_EVENTS = '0';
+  try { return fn(); } finally { if (before === undefined) delete process.env.FORGE_STRICT_EVENTS; else process.env.FORGE_STRICT_EVENTS = before; }
+}
+t('verify-boss start with verifies_wp and no role/task -> refused under strict, warned under FORGE_STRICT_EVENTS=0', () => {
   const ev = verifierEvent({ verifies_wp: 'W2-X', route: 'verifier' });
-  const val = LE.validateForWrite(ev);
+  assert.strictEqual(RC.isReviewDispatch(ev), false, 'sanity: the contract really counts this as work');
+  const refused = LE.validateForWrite(Object.assign({}, ev));
+  assert.strictEqual(refused.ok, false, JSON.stringify(refused));
+  assert.strictEqual(refused.exitCode, 2);
+  const val = withStrictOff(() => LE.validateForWrite(Object.assign({}, ev)));
   assert.strictEqual(val.ok, true, JSON.stringify(val));
   assert.strictEqual(val.verify && val.verify.verifier_dispatch_counts_as_work, true, JSON.stringify(val.verify));
-  assert.strictEqual(RC.isReviewDispatch(ev), false, 'sanity: the contract really counts this as work');
 });
 t('"Verify Boss" spelling is recognised the same way', () => {
-  const val = LE.validateForWrite(verifierEvent({ agent: 'Verify Boss', verifies_wp: 'W2-X' }));
+  assert.strictEqual(LE.validateForWrite(verifierEvent({ agent: 'Verify Boss', verifies_wp: 'W2-X' })).ok, false, 'strict must refuse');
+  const val = withStrictOff(() => LE.validateForWrite(verifierEvent({ agent: 'Verify Boss', verifies_wp: 'W2-X' })));
   assert.strictEqual(val.verify && val.verify.verifier_dispatch_counts_as_work, true, JSON.stringify(val.verify));
 });
 t('the correct shape (no wp_id, role verify, review-only task) stays silent', () => {

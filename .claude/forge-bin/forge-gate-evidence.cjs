@@ -13,6 +13,8 @@
  * Resultaat: <run>/gate-evidence.json — een MANIFEST dat in git getrackt kan worden, terwijl de ruwe
  * outputs lokaal blijven (hun sha256 in het manifest maakt ze verifieerbaar). Exit 1 zodra één poort
  * een non-zero exit gaf: het manifest is nooit "groen" over een rode poort.
+ * EXIT: 0 all green and bindable · 1 a gate is red · 3 all green, but a gate ran on unstable code or a dirty tree (finalize
+ * cannot bind it: commit first and rerun; FB-FINALIZE-1-F4) · 2 usage error (also an unterminated quote in --gate).
  *
  * CLI:
  *   node forge-gate-evidence.cjs --run <run_id> [--root <projectRoot>] [--gates <gates.json>] [--json]
@@ -29,7 +31,7 @@
  *                  recorded as timed_out:true);
  *   output_file  = the wrapper's FULL log, which gate-evidence makes it write into this run's gate-output/ folder
  *                  (--log-dir is injected; a gate that passes its own --log-dir is refused), and
- *   output_sha256/output_bytes = the sha256 and size of that log's BYTES, read back like every other output;
+ *   output_sha256/output_bytes = the sha256 and size of that log's BYTES, read back like every other output (F03);
  *   runner       = {tool:'forge-testrun', script, options, summary, failing[]} — information only.
  * FAIL-CLOSED: a wrapper that reports no log, or a log outside this run's gate-output folder, makes the gate
  * unverified (exit -2 when it said 0); the wrapper's own report is then kept as <name>.txt for diagnosis. A gate
@@ -256,19 +258,31 @@ function runGate(gate, root, opts) {
 
 /** tokenize — splitst een inline --gate-commando in argv MET respect voor dubbele quotes. Een naïeve
  *  split op spaties brak elk pad met een spatie ("C:\Program Files\nodejs\node.exe", en deze
- *  projectmap heet zelf "my project!") — de eigen testsuite ving dat direct. Voor complexe
+ *  projectmap heet zelf "my project (v2)!") — de eigen testsuite ving dat direct. Voor complexe
  *  commando's blijft de --gates JSON-vorm de bedoelde route. */
 function tokenize(line) {
+  // FB-FINALIZE-1-F3: single quotes are quotes too (inside double quotes they stay literal, and the other way
+  // round); an unterminated quote returns null so the CLI refuses it instead of running a mangled command.
   const out = [];
-  let cur = '', inQ = false;
+  let cur = '', q = null, started = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
-    if (c === '"') { inQ = !inQ; continue; }
-    if (!inQ && /\s/.test(c)) { if (cur) { out.push(cur); cur = ''; } continue; }
+    if (q) { if (c === q) q = null; else cur += c; continue; }
+    if (c === '"' || c === "'") { q = c; started = true; continue; }
+    if (/\s/.test(c)) { if (cur || started) { out.push(cur); cur = ''; started = false; } continue; }
     cur += c;
   }
-  if (cur) out.push(cur);
+  if (q) return null;
+  if (cur || started) out.push(cur);
   return out;
+}
+/** bindable(g) — the per-gate code binding forge-runcontract's evidence digest requires (stable, and a clean committed
+ *  tree or a confirmed no-git root). A green gate that fails this is recorded but cannot back a finalize. */
+function bindable(g) {
+  const c = g && g.code;
+  if (!c || c.stable !== true) return false;
+  if (c.no_git === true) return c.commit == null && c.worktree_clean == null;
+  return typeof c.commit === 'string' && /^[0-9a-f]{40}$/i.test(c.commit.trim()) && c.worktree_clean === true;
 }
 
 /** gitState(root) -> {available:true, commit, parent, worktree_clean, dirty_files, ...} of
@@ -276,7 +290,7 @@ function tokenize(line) {
  *
  *  Bewust GEEN throw: bewijs verzamelen mag niet stuklopen omdat git ontbreekt. Maar het verschil tussen
  *  "schone boom op commit X" en "onbekend" moet in het manifest staan, niet worden weggelaten — dat
- *  weglaten was precies de klacht.
+ *  weglaten was precies de klacht (R3-08/R4-08/R5-10).
  *
  *  (2.1, 2026-09-26 laptop re-audit, review C VERDICT FAIL) — this used to run its OWN
  *  `git rev-parse HEAD` and treat ANY non-zero exit (dubious ownership, no commits yet, a poisoned
@@ -319,7 +333,7 @@ function gitState(root) {
   const eigenRuis = (p) => /\.claude\/forge-runs\/[^/]+\/gate-evidence\.json$/.test(p) || /\.claude\/FORGE_SNAPSHOT\.md$/.test(p)
     || /(^|\/)\.forge\/runs\/[^/]+\/gate-evidence\.json$/.test(p) || /(^|\/)\.forge\/memory\/FORGE_SNAPSHOT\.md$/.test(p);
   const bron = paden ? paden.filter((p) => !eigenRuis(p)) : null;
-  /** HEAD + een boolean is een grove maat. De vingerafdruk hasht de volledige status-uitvoer van
+  /** R9-03: HEAD + een boolean is een grove maat. De vingerafdruk hasht de volledige status-uitvoer van
    *  de vuile BRONbestanden, zodat een wijziging die de clean-vlag niet omzet toch zichtbaar is. */
   /** R10-05 (tiende herreview) — ALWEER EEN CLAIM DIE NIET KLOPTE. Ik beschreef dit als "hash van alle
    *  vuile bronbestanden", maar hij hashte alleen hun PADNAMEN. Wijzigt de inhoud van een bestand dat al
@@ -511,7 +525,7 @@ function record(runId, gates, opts) {
     gates_failed: failed.length,
     all_green: failed.length === 0,
     evidence_reverified_on_merge: !!opts.merge,
-    /** CODE-BINDING (drie keer dezelfde bevinding, drie reviewrondes lang):
+    /** CODE-BINDING (R3-08 / R4-08 / R5-10 — drie keer dezelfde bevinding, drie reviewrondes lang):
      *  het manifest bewees WELKE outputs bestaan, niet welke CODE die outputs heeft voortgebracht. De
      *  poorten draaiden steevast vlak vóór de commit, dus "8 poorten groen" was administratief groen in
      *  plaats van commit-gebonden groen — een lezer kon niet nagaan waarop het sloeg. Nu pint het
@@ -519,7 +533,7 @@ function record(runId, gates, opts) {
      *  geen fout maar wel een beperking: dan zegt de commit-sha niet het hele verhaal, en dat hoort
      *  zichtbaar te zijn in plaats van weggelaten. */
     code: (() => {
-      /** de top-level staat is voortaan een SAMENVATTING van wat de poorten zelf dragen, niet een
+      /** R7-07: de top-level staat is voortaan een SAMENVATTING van wat de poorten zelf dragen, niet een
        *  losse momentopname die over behouden records heen claimt. `uniform:false` betekent letterlijk:
        *  deze poorten zijn niet allemaal op dezelfde commit gedraaid — lees de per-poort-binding. */
       const commits = [...new Set(all.map((g) => (g.code && g.code.commit) || null).filter(Boolean))];
@@ -568,6 +582,7 @@ if (require.main === module) {
     if (idx === -1) { console.error('--gate verwacht "naam::commando args"'); process.exit(2); }
     const name = spec.slice(0, idx);
     const parts = tokenize(spec.slice(idx + 2).trim());
+    if (parts === null) { console.error('--gate "' + name + '": an unterminated quote / een niet-gesloten aanhalingsteken; use the --gates JSON form for complex commands'); process.exit(2); }
     if (!parts.length) { console.error('--gate "' + name + '" heeft geen commando'); process.exit(2); }
     gates.push({ name, cmd: parts[0], args: parts.slice(1) });
   }
@@ -579,7 +594,12 @@ if (require.main === module) {
   }
   if (!o.root && !PROJECT_ROOT_DEFAULT) { console.error('forge-gate-evidence: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); process.exit(2); }
   const { manifest, manifestFile } = record(o.run, gates, { root: o.root, merge: o.merge });
+  // FB-FINALIZE-1-F4: green but not bindable (unstable code or a dirty tree) is no finalize evidence: say so, exit 3
+  const unbound = manifest.all_green ? manifest.gates.filter((g) => !bindable(g)).map((g) => g.name) : [];
   if (o.json) console.log(JSON.stringify(manifest, null, 2));
-  else console.log('\n' + manifest.gates_total + ' poort(en) · ' + (manifest.all_green ? 'ALLE GROEN' : manifest.gates_failed + ' GEFAALD') + ' -> ' + path.relative(process.cwd(), manifestFile));
-  process.exit(manifest.all_green ? 0 : 1);
+  else {
+    console.log('\n' + manifest.gates_total + ' poort(en) · ' + (manifest.all_green ? (unbound.length ? 'GROEN, NIET BINDBAAR' : 'ALLE GROEN') : manifest.gates_failed + ' GEFAALD') + ' -> ' + path.relative(process.cwd(), manifestFile));
+    if (unbound.length) console.log('green, but not bindable / groen, maar niet bindbaar (unstable code or a dirty worktree): ' + unbound.join(', ') + ' — commit first and rerun / commit eerst en draai opnieuw');
+  }
+  process.exit(!manifest.all_green ? 1 : unbound.length ? 3 : 0);
 }

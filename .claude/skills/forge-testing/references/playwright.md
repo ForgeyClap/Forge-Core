@@ -35,6 +35,9 @@ Scope locators instead of indexing: `page.getByRole('row', { name: 'Invoice 42' 
 - `page.route()` to mock third-party APIs, simulate errors (500, timeout, offline) and slow responses.
 - Wait for a specific response (`page.waitForResponse(...)`) or a UI state, not for `networkidle`, which is
   unreliable on apps with polling, analytics or websockets.
+- Pitfall: create the `page.waitForResponse(...)` promise BEFORE the action that triggers the request, then
+  await it after; started afterwards it can miss a fast response and the test races.
+- Pitfall: `videosPath` is not a `use` option; record video with `use: { video: 'on' }` (or `retain-on-failure`).
 - Control time with the clock API (`page.clock`) for timers, countdowns and date-dependent UI.
 
 ## API tests

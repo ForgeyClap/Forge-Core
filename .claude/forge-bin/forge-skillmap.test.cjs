@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-skillmap.test.cjs — the skill-map reader behind skill delivery (category finding SK1).
  * Covers: known skill names from the project AND the user skills folder, the two real map shapes (per agent type and
@@ -103,6 +107,19 @@ try {
   t('D4 no path -> scanned:false', SM.skillsOpenedInTranscript(null).scanned === false && SM.skillsOpenedInTranscript(42).scanned === false);
   const b = SM.skillsOpenedInTranscript(tr, { maxBytes: 200 });
   t('D5 bounded: only the first maxBytes are read', b.scanned === true && b.skills.length <= 1, JSON.stringify(b));
+  // FB-SKILLTOOLS-F8 / FB-CONFIG-2-F4: a Workflow agent ends with a StructuredOutput tool call, so the canary sits in its input
+  const tdir = tmp('forge-sm-canary-');
+  const line = (content) => JSON.stringify({ type: 'assistant', message: { role: 'assistant', content } });
+  const trf = (name, lines) => { const f = path.join(tdir, name); fs.writeFileSync(f, lines.join('\n') + '\n'); return f; };
+  const so = (input) => [{ type: 'tool_use', id: 'toolu_1', name: 'StructuredOutput', input }];
+  const withCanary = trf('so-yes.jsonl', [line([{ type: 'text', text: 'Working on it.' }]), line(so({ summary: 'All fixed.\n' + SM.CONDUCT_CANARY, fixed: [] }))]);
+  const nested = trf('so-nested.jsonl', [line([{ type: 'text', text: 'Working on it.' }]), line(so({ report: { notes: ['x', 'done ' + SM.CONDUCT_CANARY] } }))]);
+  const without = trf('so-no.jsonl', [line([{ type: 'text', text: 'Earlier: ' + SM.CONDUCT_CANARY }]), line(so({ summary: 'All fixed.' }))]);
+  const otherTool = trf('bash-last.jsonl', [line([{ type: 'text', text: 'Done. ' + SM.CONDUCT_CANARY }]), line([{ type: 'tool_use', id: 'toolu_2', name: 'Bash', input: { command: 'echo ' + SM.CONDUCT_CANARY } }])]);
+  t('S1 last turn is a StructuredOutput call whose summary holds the canary -> true', SM.conductSeenInTranscript(withCanary) === true);
+  t('S2 canary nested deeper in the StructuredOutput input -> true', SM.conductSeenInTranscript(nested) === true);
+  t('S3 StructuredOutput without the canary -> false, an earlier text mention does not count', SM.conductSeenInTranscript(without) === false);
+  t('S4 a non-StructuredOutput tool_use is still skipped (the last real text decides)', SM.conductSeenInTranscript(otherTool) === true);
 } catch (e) {
   fail++; console.error('  FAIL threw: ' + (e && e.stack || e));
 } finally {

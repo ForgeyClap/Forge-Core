@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-runcontract.cjs. Uses os.mkdtemp fixtures (own temp root, never the real
  *  project's .claude/) — mirrors forge-verify.test.cjs's writeEvents() pattern. Covers BOTH the real
  *  production FORGE_HARD_RULES.json (proving the seeded non-negotiables actually work against a genuine
@@ -56,7 +60,9 @@ const ev = (o) => JSON.stringify(o);
 // override anywhere below.
 const note = (ruleId, extra) => ev(Object.assign({ event_type: 'agent_note', agent: 'orchestrator', note: 'override:' + ruleId + (extra ? ' — ' + extra : '') }));
 // the ONLY real override mechanism post-fix: a structured, attributed owner_override event.
-const ownerOverride = (ruleId, reason, by) => ev({ event_type: 'owner_override', rule: ruleId, reason, by: (by === undefined ? 'owner' : by) });
+// FB-CONTRACT-1-F2: it carries the writer-owned owner stamp an owner-only log-event path sets.
+const OWNER_STAMP = { owner_act: { via: 'command-center-confirm' } };
+const ownerOverride = (ruleId, reason, by) => ev({ event_type: 'owner_override', rule: ruleId, reason, by: (by === undefined ? 'owner' : by), _forge_verify: OWNER_STAMP });
 // a path that never resolves to a real file, so tests are hermetic against loadOwnerAllowlist()'s
 // FORGE_OWNER_PROFILE.json fallback read regardless of what the real project's copy contains today.
 const NO_OWNER_PROFILE = path.join(TMP, 'no-such-owner-profile.json');
@@ -96,11 +102,13 @@ t('run missing owner_prefs_loaded: the other 8 always-rules still satisfied', mi
 const overriddenEvents = missingPrefsEvents.concat([ownerOverride('owner-prefs-loaded', 'owner explicitly reviewed and waived the prefs echo for this smoke test run')]);
 writeRun('run-overridden-prefs', overriddenEvents, { 'final-report.md': '# Report\n' });
 const overriddenResult = RC.check({ run_id: 'run-overridden-prefs' }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
-t('overridden run: ok:true (a valid owner_override neutralizes the missing block-rule)', overriddenResult.ok === true);
-t('overridden run: missing[] is empty', overriddenResult.missing.length === 0);
-t('overridden run: overridden[] lists owner-prefs-loaded with the real reason/by', overriddenResult.overridden.length === 1 &&
-  overriddenResult.overridden[0].id === 'owner-prefs-loaded' && overriddenResult.overridden[0].by === 'owner' &&
-  /owner explicitly reviewed/.test(overriddenResult.overridden[0].reason));
+// FB-CONTRACT-1-F2 (fail closed): no owner-only writer path exists yet, so even a well-formed, stamped override
+// clears nothing; it is reported label-only with the real reason/by instead.
+t('overridden run: ok:false (no override clears a rule until an owner-only writer path exists)', overriddenResult.ok === false);
+t('overridden run: owner-prefs-loaded stays in missing[]', overriddenResult.missing.includes('owner-prefs-loaded') && overriddenResult.overridden.length === 0);
+t('overridden run: override_label_only lists owner-prefs-loaded with the real reason/by', overriddenResult.override_label_only.length === 1 &&
+  overriddenResult.override_label_only[0].id === 'owner-prefs-loaded' && overriddenResult.override_label_only[0].by === 'owner' &&
+  /owner explicitly reviewed/.test(overriddenResult.override_label_only[0].reason));
 
 // ---- web domain run WITHOUT responsive screenshot evidence -> NOT DONE ----
 writeRun('run-web-missing', completeEvents, { 'final-report.md': '# Report\n' });
@@ -184,7 +192,8 @@ t('finance-domain run WITH fixtures_waived: ok:true', financeWaived.ok === true)
 t('finance-domain run WITH fixtures_waived: correctness-critical-fixtures satisfied', financeWaived.satisfied.includes('correctness-critical-fixtures'));
 
 // ---- a non-web, non-correctness-critical domain (e.g. "n8n") never applies the web/fixtures rules ----
-writeRun('run-n8n-domain', completeEvents, { 'final-report.md': '# Report\n' });
+// CF-2-F1: a known domain's own required-evidence set is authoritative for evidence-satisfied, so the n8n run logs it
+writeRun('run-n8n-domain', completeEvents.concat([ev({ event_type: 'validate_workflow_passed', agent: 'Build Boss' }), ev({ event_type: 'workflow_imported_inactive', agent: 'Build Boss' })]), { 'final-report.md': '# Report\n' });
 const n8nResult = RC.check({ run_id: 'run-n8n-domain', domain: 'n8n' }, { root: TMP });
 t('n8n-domain run: ok:true (web/correctness-critical rules simply do not apply)', n8nResult.ok === true);
 t('n8n-domain run: web-responsive-evidence and correctness-critical-fixtures are absent from every bucket', (() => {
@@ -337,9 +346,10 @@ writeRun('fx-block-overridden', [
   ownerOverride('rule-must-signal', 'owner explicitly reviewed and waived this for the fixture'),
 ], { 'special-marker.txt': 'x' });
 const fxC = RC.check({ run_id: 'fx-block-overridden' }, { root: TMP, rulesPath: FIXTURE_RULES_PATH, ownerProfilePath: NO_OWNER_PROFILE });
-t('fixture: block rule missing BUT validly owner_override-ridden -> ok:true', fxC.ok === true);
-t('fixture: overridden[] lists rule-must-signal with the real reason/by', fxC.overridden.length === 1 && fxC.overridden[0].id === 'rule-must-signal' && fxC.overridden[0].by === 'owner');
-t('fixture: an overridden rule never also appears in missing[]', !fxC.missing.includes('rule-must-signal'));
+// FB-CONTRACT-1-F2 (fail closed): the well-formed override is recognised but label-only, so the rule stays missing
+t('fixture: block rule missing AND a well-formed owner_override -> still ok:false (label-only)', fxC.ok === false && fxC.overridden.length === 0);
+t('fixture: override_label_only lists rule-must-signal with the real reason/by', fxC.override_label_only.length === 1 && fxC.override_label_only[0].id === 'rule-must-signal' && fxC.override_label_only[0].by === 'owner');
+t('fixture: the label-only rule stays in missing[]', fxC.missing.includes('rule-must-signal'));
 
 // (c'') cannot_override rule missing (isolated DEFECT_RULES_PATH fixture) -> a validly-shaped,
 // validly-attributed owner_override STILL never clears it
@@ -355,7 +365,7 @@ writeRun('fx-prefix-collision', [
   ownerOverride('prefix-rule-longer', 'owner explicitly reviewed and waived the LONGER rule only'),
 ], {});
 const fxPrefix = RC.check({ run_id: 'fx-prefix-collision' }, { root: TMP, rulesPath: DEFECT_RULES_PATH, ownerProfilePath: NO_OWNER_PROFILE });
-t('fixture DEFECT 3: overriding "prefix-rule-longer" clears only that exact rule', fxPrefix.overridden.length === 1 && fxPrefix.overridden[0].id === 'prefix-rule-longer');
+t('fixture DEFECT 3: an override for "prefix-rule-longer" matches only that exact rule (label-only, FB-CONTRACT-1-F2)', fxPrefix.override_label_only.length === 1 && fxPrefix.override_label_only[0].id === 'prefix-rule-longer' && fxPrefix.overridden.length === 0);
 t('fixture DEFECT 3: the shorter "prefix-rule" (an exact string-prefix of the overridden id) remains genuinely missing', fxPrefix.missing.includes('prefix-rule'));
 
 // (d) artifact-present rule missing (no matching file), no override -> ok:false
@@ -439,10 +449,7 @@ t('DEFECT 2: isMeaningfulReason accepts a real explanation, even one that also m
 t('DEFECT 2: loadOwnerAllowlist fails CLOSED to an empty Set when nothing configures an owner id', RC.loadOwnerAllowlist({}, { ownerProfilePath: NO_OWNER_PROFILE }).size === 0);
 t('DEFECT 2: loadOwnerAllowlist reads owners_allowlist case-insensitively', RC.loadOwnerAllowlist({ owners_allowlist: ['Owner'] }, { ownerProfilePath: NO_OWNER_PROFILE }).has('owner') === true);
 t('DEFECT 3: findOwnerOverride requires an EXACT rule-id match — a longer id sharing a prefix never matches a shorter one', RC.findOwnerOverride([{ event_type: 'owner_override', rule: 'research-done-later', reason: 'a real reason with content', by: 'owner' }], 'research-done', new Set(['owner'])) === null);
-t('findOwnerOverride: a genuinely matching, well-formed event resolves with the real reason/by', (() => {
-  const res = RC.findOwnerOverride([{ event_type: 'owner_override', rule: 'research-done', reason: 'a real reason with content', by: 'owner' }], 'research-done', new Set(['owner']));
-  return res && res.reason === 'a real reason with content' && res.by === 'owner';
-})());
+t('findOwnerOverride: even a well-formed, stamped event resolves to null until an owner-only writer path exists (FB-CONTRACT-1-F2)', RC.findOwnerOverride([{ event_type: 'owner_override', rule: 'research-done', reason: 'a real reason with content', by: 'owner', _forge_verify: OWNER_STAMP }], 'research-done', new Set(['owner'])) === null);
 
 // ================================================================================================
 // PART 3 — CLI smoke tests (spawned child process, same hermetic TMP root)
@@ -647,7 +654,8 @@ const heavyWithPrdRes = RC.check({ run_id: 'run-heavy-with-prd' }, { root: TMP }
 // onbewijsbaar, dus die regel hoort hier te ontbreken. De assertie wordt daarom PRECIEZER, niet zwakker:
 // de bedoelde regel is echt satisfied, en het enige wat nog mist is exact independent-verification.
 t('5j (counterweight): a heavy run WITH a real prd_generated satisfies the sharpened rule', heavyWithPrdRes.satisfied.includes('prd-required-for-heavy-work'));
-t('5j (counterweight): and NOTHING else blocks it — the only remaining gap is the independent review', JSON.stringify(heavyWithPrdRes.missing) === JSON.stringify(['independent-verification']), JSON.stringify(heavyWithPrdRes.missing));
+// SD-T6: end-self-review is block now; this fixture records no self-review, so it is the second named gap.
+t('5j (counterweight): and NOTHING else blocks it — the only remaining gaps are the independent review and the end self-review', JSON.stringify(heavyWithPrdRes.missing.slice().sort()) === JSON.stringify(['end-self-review', 'independent-verification']), JSON.stringify(heavyWithPrdRes.missing));
 
 // ---- (5k) COUNTERWEIGHT (green before AND after): a LIGHT run keeps the cheap alternative — this
 // change must not make every small run owe a PRD ----
@@ -666,11 +674,13 @@ t('5k (counterweight): prd-required-for-heavy-work lands in NO bucket on a light
 const heavyOverridden = heavyNoPrd.concat([ownerOverride('prd-required-for-heavy-work', 'owner reviewed: this L3 run is 9 mechanical file moves against an already-approved plan, a PRD adds nothing')]);
 writeRun('run-heavy-overridden', heavyOverridden, { 'final-report.md': '# Report\n' });
 const heavyOverriddenRes = RC.check({ run_id: 'run-heavy-overridden' }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
-t('5l: a valid owner_override clears prd-required-for-heavy-work', heavyOverriddenRes.overridden.some((o) => o.id === 'prd-required-for-heavy-work') && !heavyOverriddenRes.missing.includes('prd-required-for-heavy-work'));
+// FB-CONTRACT-1-F2 (fail closed): the hatch exists (rule is not cannot_override, see below) but no override clears
+// it until an owner-only writer path exists; the override is reported label-only
+t('5l: a well-formed owner_override on prd-required-for-heavy-work is label-only, the rule stays missing', !heavyOverriddenRes.overridden.some((o) => o.id === 'prd-required-for-heavy-work') && heavyOverriddenRes.missing.includes('prd-required-for-heavy-work'));
 // en tegelijk het bewijs dat de escape hatch NIET universeel is: independent-verification draagt
 // cannot_override:true en blijft dus staan waar prd-required-for-heavy-work verdwijnt.
 t('5l: but the same hatch does NOT clear the un-overridable honesty-core rule', heavyOverriddenRes.missing.includes('independent-verification') && !heavyOverriddenRes.overridden.some((o) => o.id === 'independent-verification'));
-t('5l: the override is reported with the real reason/by, never silently dropped', heavyOverriddenRes.overridden.some((o) => o.id === 'prd-required-for-heavy-work' && o.by === 'owner' && /mechanical file moves/.test(o.reason)));
+t('5l: the override is reported with the real reason/by, never silently dropped', heavyOverriddenRes.override_label_only.some((o) => o.id === 'prd-required-for-heavy-work' && o.by === 'owner' && /mechanical file moves/.test(o.reason)));
 t('5l: prd-required-for-heavy-work is NOT flagged cannot_override (the escape hatch must exist)', RC.listRules({}).some((r) => r.id === 'prd-required-for-heavy-work' && r.cannot_override !== true));
 
 // ---- (5m/5n) THE FLEET BREAK-POINT: forge-sync.cjs ships config/orchestration/FORGE_HARD_RULES.json and
@@ -987,11 +997,11 @@ t('5r S6: CLI on a rules file with an unknown BLOCKING check type exits 3 (NOT D
   const finished = RC.check({ run_id: runId }, { root: TMP });
   t('RC-MANIFEST-STALE: a real wp_completed for the armed package restores evidence-satisfied/verify-checked', finished.ok === true);
 
-  // an owner-authenticated skip (not a self-attributed agent waiver) also clears it, without a completion event
+  // a well-formed, wp_id-bound owner skip does NOT clear it yet: no owner-only writer path exists (FB-CONTRACT-1-F2, fail closed)
   const skippedLines = completeEvents.concat([ev(Object.assign(JSON.parse(ownerOverride('manifest-complete', 'wp-1 dropped after scope change, owner reviewed', 'owner')), { wp_id: 'wp-1' }))]);
   writeRun(runId, skippedLines, { 'final-report.md': '# Report\n' });
   const skipped = RC.check({ run_id: runId }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
-  t('RC-MANIFEST-STALE: an owner-authenticated, wp_id-bound skip also clears it', skipped.ok === true);
+  t('RC-MANIFEST-STALE: a well-formed, wp_id-bound owner skip does not clear it until an owner-only writer path exists', skipped.ok === false);
 
   // an agent-attributed (non-owner) "skip" must NOT clear it — same fail-closed discipline as findOwnerOverride
   const fakeSkipLines = completeEvents.concat([ev({ event_type: 'owner_override', rule: 'manifest-complete', wp_id: 'wp-1', reason: 'I decided this is fine', by: 'Build Boss' })]);
@@ -1009,7 +1019,7 @@ t('5r S6: CLI on a rules file with an unknown BLOCKING check type exits 3 (NOT D
 // followed forge.md literally): RC-MANIFEST-STALE read the armed-but-never-"wp_completed" package as
 // unfinished and revoked evidence-satisfied + verify-checked even though the run had genuinely done
 // and evidenced the work. This fixture is the RED-before/GREEN-after proof for forge-manifest.cjs's
-// DONE_EVENT_TYPES/FAILED_EVENT_TYPES fix: commenting that fix out reproduces exactly the missing
+// DONE_EVENT_TYPES/FAILED_EVENT_TYPES fix (N2): commenting that fix out reproduces exactly the missing
 // evidence-satisfied/verify-checked pair this replay reported.
 // ================================================================================================
 {
@@ -1068,7 +1078,7 @@ t('5r S6: CLI on a rules file with an unknown BLOCKING check type exits 3 (NOT D
 // V21/V25 (2026-09-24 second Codex recheck, out-p7.md)
 // ================================================================================================
 
-// ---- manifest LOAD FAILURES must not read as "never armed" once manifest_armed is genuinely on
+// ---- V21: manifest LOAD FAILURES must not read as "never armed" once manifest_armed is genuinely on
 // record — corrupt/deleted-after-arm both stay red; only a genuinely never-armed run is not-applicable ----
 {
   const MANIFEST = require('./forge-manifest.cjs');
@@ -1102,7 +1112,7 @@ t('5r S6: CLI on a rules file with an unknown BLOCKING check type exits 3 (NOT D
     neverArmed.ok === true && (!neverArmed.rule_details['manifest-complete'] || neverArmed.rule_details['manifest-complete'].applicable !== true));
 }
 
-// ---- a caller --domain must not WEAKEN the declared run.json domain — the union of both domains'
+// ---- V25: a caller --domain must not WEAKEN the declared run.json domain — the union of both domains'
 // obligations applies, so a correctness-critical declared domain cannot be checked away by an override ----
 {
   const runId = 'run-v25-domain-union';
@@ -1115,7 +1125,9 @@ t('5r S6: CLI on a rules file with an unknown BLOCKING check type exits 3 (NOT D
 
   // counterweight: a real fixtures_waived event clears it under the union too — an override can still add
   // obligations without being able to erase what the run itself declared
-  const waivedEvents = completeEvents.concat([ev({ event_type: 'fixtures_waived', agent: 'orchestrator', note: 'real fixtures used, waiver logged' })]);
+  // CF-2-F1: the api domain's own evidence set (report artifact + contract) is authoritative, so the fixture logs it
+  const waivedEvents = completeEvents.concat([ev({ event_type: 'fixtures_waived', agent: 'orchestrator', note: 'real fixtures used, waiver logged' }),
+    ev({ event_type: 'report_generated', agent: 'Build Boss', path: 'final-report.md' }), ev({ event_type: 'webhook_auth_verified', agent: 'Build Boss' })]);
   writeRun(runId, waivedEvents, { 'final-report.md': '# Report\n', 'run.json': JSON.stringify({ domain: 'finance' }) });
   const waivedOverridden = RC.check({ run_id: runId, domain: 'api' }, { root: TMP });
   t('V25 counterweight: a real fixtures_waived event clears the union obligation regardless of the override', waivedOverridden.ok === true);
@@ -1398,6 +1410,204 @@ console.log('\nPART 10 — N6: isReviewDispatch() accepts mission (documented fi
     d({ event_type: 'custom_subagent_created', agent: 'V', role: 'reviewer', dispatch_role: null, task: 'review WP1' }) === true);
   t('R7 10s an undefined purpose alongside a pure-review role+task is UNCHANGED (no regression)',
     d({ event_type: 'custom_subagent_created', agent: 'V', role: 'reviewer', purpose: undefined, task: 'review WP1' }) === true);
+}
+
+// SD-T5 (default skills): a skill preloaded through the agent file's `skills:` is delivered. The SubagentStart
+// line records it as skills_preloaded; the stop line shows no open. Before SD-T5 this run was NOT DONE on skill-delivered.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rc-preload-'));
+  fs.mkdirSync(path.join(root, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), path.join(root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
+  fs.mkdirSync(path.join(root, '.claude', 'skills', 'forge-debug'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', 'skills', 'forge-debug', 'SKILL.md'), '# forge-debug\n');
+  const runDir = path.join(root, '.claude', 'forge-runs', 'rp1');
+  fs.mkdirSync(runDir, { recursive: true });
+  const T0 = '2026-11-08T10:00:00.000Z';
+  fs.writeFileSync(path.join(runDir, 'events.jsonl'), [
+    { event_type: 'run_started', agent: 'orchestrator', complexity: 'L2', timestamp: T0 },
+    { event_type: 'skill_map_created', agent: 'orchestrator', timestamp: '2026-11-08T10:01:00.000Z', map: { 'build-boss': ['forge-debug'] } },
+  ].map((e) => JSON.stringify(e)).join('\n') + '\n');
+  const hooks = path.join(root, '.claude', 'forge-runs', '_hooks');
+  fs.mkdirSync(hooks, { recursive: true });
+  fs.writeFileSync(path.join(hooks, 'subagent-start.jsonl'), JSON.stringify({ ts: '2026-11-08T10:02:00.000Z', event: 'SubagentStart', agent_id: 'p00001', agent_type: 'build-boss', run: 'rp1', skills_preloaded: ['forge-conduct', 'forge-debug'] }) + '\n');
+  fs.writeFileSync(path.join(hooks, 'subagent-stop.jsonl'), JSON.stringify({ ts: '2026-11-08T10:09:00.000Z', event: 'SubagentStop', agent_id: 'p00001', agent_type: 'build-boss', run: 'rp1', skills_opened: [], transcript_scanned: true }) + '\n');
+  const r = RC.check({ run_id: 'rp1' }, { root, ownerProfilePath: path.join(root, 'no-owner-profile.json') });
+  const det = (r.rule_details || {})['skill-delivered'] || {};
+  t('SD-T5: skill-delivered passes on a preload alone (skills_preloaded on the SubagentStart line, nothing opened) :: ' + String(det.reason).slice(0, 160),
+    !(r.missing || []).includes('skill-delivered') && det.ok === true);
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// SD-T6 (logic audit HIGH-90): replay the restaurant-v2 and android-v3 shapes. The Lead built the app itself
+// (file_changed on app files), only reviewers were dispatched, nothing was declared: both closed L1 CONTRACT OK. The
+// request-based floor makes them L2, so run-shape-declared applies (NOT DONE: no shape declared) and end-self-review,
+// now block, is missing too. A one-file Lead fix stays L1.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rc-floor-'));
+  fs.mkdirSync(path.join(root, '.claude', 'config', 'orchestration'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), path.join(root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'));
+  const at = (m) => new Date(Date.parse('2026-11-08T10:00:00.000Z') + m * 60000).toISOString();
+  const fc = (m, file) => ({ event_type: 'file_changed', agent: 'orchestrator', file, timestamp: at(m) });
+  const sub = (m, agent) => ({ event_type: 'subagent_started', agent, subagent_type: agent, timestamp: at(m) });
+  const runWith = (id, evs) => {
+    const dir = path.join(root, '.claude', 'forge-runs', id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'events.jsonl'), [{ event_type: 'run_started', agent: 'orchestrator', timestamp: at(0) }].concat(evs).map((e) => JSON.stringify(e)).join('\n') + '\n');
+    return RC.check({ run_id: id }, { root, ownerProfilePath: path.join(root, 'no-owner-profile.json') });
+  };
+  let r = runWith('restaurant-v2', [{ event_type: 'memory_loaded', agent: 'orchestrator', timestamp: at(1) }, { event_type: 'agent_work_package_created', agent: 'orchestrator', wp_id: 'WP-1', timestamp: at(2) },
+    fc(5, 'index.html'), fc(9, 'styles/site.css'), fc(12, 'scripts/menu.js'), fc(14, 'serve.mjs'), sub(20, 'verify-boss'), sub(25, 'review-boss'),
+    { event_type: 'run_completed', agent: 'orchestrator', timestamp: at(40) }]);
+  t('SD-T6: restaurant-v2 shape (Lead-built site, only reviewers dispatched) is L2 by the request floor :: ' + r.complexity + '/' + r.complexity_source, r.complexity === 'L2' && r.complexity_source === 'request-floor');
+  t('SD-T6: ... and NOT DONE on run-shape-declared', (r.missing || []).includes('run-shape-declared') && r.ok === false);
+  t('SD-T6: ... and end-self-review is block now (missing, not a warning)', (r.missing || []).includes('end-self-review') && !(r.warnings || []).includes('end-self-review'));
+  r = runWith('android-v3', [fc(3, 'app/src/main/java/game/MainActivity.kt'), fc(8, 'app/src/main/res/layout/main.xml'), fc(10, 'app/build.gradle'), sub(15, 'verify-boss'),
+    { event_type: 'check_passed', agent: 'orchestrator', timestamp: at(18) }, { event_type: 'run_completed', agent: 'orchestrator', timestamp: at(22) }]);
+  t('SD-T6: android-v3 shape is NOT DONE on run-shape-declared :: ' + r.complexity, r.complexity === 'L2' && (r.missing || []).includes('run-shape-declared'));
+  r = runWith('small-fix', [fc(3, 'src/fix.js'), { event_type: 'run_completed', agent: 'orchestrator', timestamp: at(6) }]);
+  t('SD-T6: a one-file Lead fix stays L1 and is not judged by run-shape-declared :: ' + r.complexity, r.complexity === 'L1' && !(r.missing || []).includes('run-shape-declared'));
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ---- CF-2-F1: evidence-satisfied must not be met by one generic event when the run's
+// domain has its own required-evidence.json set (a browser screenshot is not an .apk + device run) ----
+{
+  const genericOnly = completeEvents.concat([ev({ event_type: 'browser_screenshot_captured', agent: 'UI Boss', screenshot_path: 'artifacts/page.png' })]);
+  for (const d of ['mobile', 'game', 'payments', 'electron']) {
+    writeRun('run-cf2-' + d, genericOnly, { 'final-report.md': '# Report\n', 'run.json': JSON.stringify({ domain: d }) });
+    const r = RC.check({ run_id: 'run-cf2-' + d }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
+    t('CF-2-F1: ' + d + ' run with only generic evidence events: evidence-satisfied is missing', r.missing.includes('evidence-satisfied') && !r.satisfied.includes('evidence-satisfied'));
+  }
+  // an unknown domain (no required-evidence.json entry) keeps the generic list
+  writeRun('run-cf2-unknown', genericOnly, { 'final-report.md': '# Report\n', 'run.json': JSON.stringify({ domain: 'no-such-domain-xyz' }) });
+  const u = RC.check({ run_id: 'run-cf2-unknown' }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
+  t('CF-2-F1: an unknown domain still accepts a generic evidence event', u.satisfied.includes('evidence-satisfied'));
+}
+
+// ---- FB-CONTRACT-1-F2: the owner id is a public string, so an agent could log an
+// owner_override that clears a block rule. Without the writer-owned owner stamp it is label-only ----
+{
+  const noResearch = completeEvents.filter((line) => !line.includes('"research_done"'));
+  const forged = ev({ event_type: 'owner_override', agent: 'Build Boss', rule: 'research-done', reason: 'owner said research was not needed for this run', by: 'owner' });
+  writeRun('run-f2-forged', noResearch.concat([forged]), { 'final-report.md': '# Report\n' });
+  const r = RC.check({ run_id: 'run-f2-forged' }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
+  t('FB-CONTRACT-1-F2: an unstamped owner_override (allowlisted by) does NOT clear research-done', r.ok === false && r.missing.includes('research-done') && !r.overridden.some((o) => o.id === 'research-done'));
+  t('FB-CONTRACT-1-F2: ... it is reported as label-only, not dropped', Array.isArray(r.override_label_only) && r.override_label_only.some((o) => o.id === 'research-done' && o.by === 'owner'));
+  t('FB-CONTRACT-1-F2: findOwnerOverride() refuses the unstamped event', RC.findOwnerOverride([JSON.parse(forged)], 'research-done', new Set(['owner'])) === null);
+  writeRun('run-f2-stamped', noResearch.concat([ownerOverride('research-done', 'owner said research was not needed for this run')]), { 'final-report.md': '# Report\n' });
+  const s = RC.check({ run_id: 'run-f2-stamped' }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
+  t('FB-CONTRACT-1-F2: a stamped owner_override does not clear the rule either: no stamp is trusted until an owner-only writer path exists', s.ok === false && s.missing.includes('research-done') && !s.overridden.some((o) => o.id === 'research-done') && s.override_label_only.some((o) => o.id === 'research-done'));
+}
+
+// ---- FB-CONTRACT-1-F2 rework (verify FAIL 2026-11-12): log-event.cjs validateForWrite() keeps a caller-supplied
+// _forge_verify.owner_act, so an agent can stamp its own override. Logged through the real writer, it clears nothing ----
+{
+  const L = require(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'));
+  const noResearch = completeEvents.filter((line) => !line.includes('"research_done"')).map((line) => Object.assign({ run_id: 'run-f2-logged' }, JSON.parse(line)));
+  const forged = { run_id: 'run-f2-logged', event_type: 'owner_override', agent: 'Build Boss', rule: 'research-done',
+    reason: 'owner said research was not needed for this run', by: 'owner', _forge_verify: { owner_act: { via: 'forged-by-agent' } } };
+  const v = L.validateForWrite(forged);
+  const dir = path.join(TMP, '.claude', 'forge-runs', 'run-f2-logged');
+  const w = v.ok ? L.appendChainedLocked(dir, noResearch.concat([forged])) : { ok: false };
+  fs.writeFileSync(path.join(dir, 'final-report.md'), '# Report\n', 'utf8');
+  const stored = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.event_type === 'owner_override');
+  t('FB-CONTRACT-1-F2 rework: the writer accepts the caller-stamped override (the gap this guards)', v.ok === true && w.ok === true && stored.length === 1);
+  const r = RC.check({ run_id: 'run-f2-logged' }, { root: TMP, ownerProfilePath: NO_OWNER_PROFILE });
+  t('FB-CONTRACT-1-F2 rework: a caller-stamped override logged through log-event does NOT clear research-done', r.ok === false && r.missing.includes('research-done') && !r.overridden.some((o) => o.id === 'research-done'));
+  t('FB-CONTRACT-1-F2 rework: ... it is reported as label-only', Array.isArray(r.override_label_only) && r.override_label_only.some((o) => o.id === 'research-done'));
+  t('FB-CONTRACT-1-F2 rework: findOwnerOverride() refuses the stored event', RC.findOwnerOverride(stored, 'research-done', new Set(['owner'])) === null);
+}
+
+// ---- FB-CONTRACT-1-F3: PowerShell 5.1 strips the quotes of inline single-quoted JSON, so the
+// printed run_completed and review_completed commands must name the shell-safe --file route on the same line ----
+{
+  const rules = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), 'utf8'));
+  const regStep = (rules.completion_sequence || []).find((s) => s.id === 'run-completed');
+  const defStep = RC.DEFAULT_COMPLETION_SEQUENCE.find((s) => s.id === 'run-completed');
+  t('FB-CONTRACT-1-F3: the registry run-completed command names --file', !!regStep && /--file/.test(regStep.command));
+  t('FB-CONTRACT-1-F3: the built-in run-completed command names --file', !!defStep && /--file/.test(defStep.command));
+  const src = fs.readFileSync(path.join(__dirname, 'forge-runcontract.cjs'), 'utf8').split('\n')
+    .filter((l) => /log-event\.cjs/.test(l) && /review_completed '"|run_completed \\'\{/.test(l) && !/--file/.test(l));
+  t('FB-CONTRACT-1-F3: no inline-JSON log-event instruction in forge-runcontract.cjs lacks the --file route', src.length === 0);
+  // rework (verify FAIL 2026-11-12): the shell note after the review_completed one-liner is a '# ' comment, so the
+  // printed command still parses in Git Bash (a ' (Git Bash; ...)' parenthesis made bash -n exit 2)
+  const reason = RC.missingCompletionReason({ runId: 'run-x', noGit: true });
+  const oneLiner = reason.slice(reason.indexOf('node .claude/forge-dashboard/log-event.cjs'));
+  t('FB-CONTRACT-1-F3 rework: the review_completed one-liner ends in a "   # Git Bash; ..." comment', /'\s{3}# Git Bash; [^']*--file <payload\.json>$/.test(oneLiner) && !/\(Git Bash/.test(oneLiner));
+  const hasBash = spawnSync('bash', ['--version'], { encoding: 'utf8' }).status === 0;
+  if (hasBash) {
+    const bn = spawnSync('bash', ['-n', '-c', oneLiner], { encoding: 'utf8' });
+    t('FB-CONTRACT-1-F3 rework: bash -n parses the printed review_completed one-liner', bn.status === 0);
+  } else console.log('  skip bash -n parse check (no bash on PATH)');
+}
+
+// ---- CORE-1-F13: check --finalize refuses a run that no task-history entry and no agent-ledger row
+// names, in a project that keeps those memory files (a project without them has nothing to check: n/a) ----
+{
+  t('CORE-1-F13: memoryRecordOf is exported', typeof RC.memoryRecordOf === 'function');
+  if (typeof RC.memoryRecordOf === 'function') {
+    const mr = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rc-memrec-'));
+    fs.mkdirSync(path.join(mr, '.claude'), { recursive: true });
+    const none = RC.memoryRecordOf(mr, 'run-a');
+    t('CORE-1-F13: no memory files at all -> n/a, never a refusal', none.applicable === false && none.ok === true);
+    fs.writeFileSync(path.join(mr, '.claude', 'FORGE_TASK_HISTORY.md'), '# history\n- run-b: other work\n');
+    fs.writeFileSync(path.join(mr, '.claude', 'FORGE_AGENT_LEDGER.md'), '| run | agent |\n|---|---|\n| run-b | Build Boss |\n');
+    const miss = RC.memoryRecordOf(mr, 'run-a');
+    t('CORE-1-F13: neither file names the run -> refused, both files named in the reason', miss.applicable === true && miss.ok === false && /FORGE_TASK_HISTORY\.md/.test(miss.reason) && /FORGE_AGENT_LEDGER\.md/.test(miss.reason));
+    t('CORE-1-F13: a run id that is only a prefix of another (run-b vs run-bx) does not count', RC.memoryRecordOf(mr, 'run-bx').ok === false);
+    fs.appendFileSync(path.join(mr, '.claude', 'FORGE_AGENT_LEDGER.md'), '| run-a | Verify Boss |\n');
+    const okLedger = RC.memoryRecordOf(mr, 'run-a');
+    t('CORE-1-F13: a ledger row naming the run is enough', okLedger.ok === true && okLedger.applicable === true);
+    fs.rmSync(mr, { recursive: true, force: true });
+    // the opt-in .forge layout keeps the memory files in .forge/memory/ (forge-paths memoryFile), not in .claude/
+    const fm = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rc-memrec-forge-'));
+    fs.mkdirSync(path.join(fm, '.claude'), { recursive: true });
+    fs.mkdirSync(path.join(fm, '.forge', 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(fm, '.forge', 'memory', 'FORGE_TASK_HISTORY.md'), '# history\n- run-b: other work\n');
+    const savedStateDir = process.env.FORGE_STATE_DIR; delete process.env.FORGE_STATE_DIR;
+    try {
+      const fMiss = RC.memoryRecordOf(fm, 'run-a');
+      t('CORE-1-F13: .forge layout, .forge/memory history without the run -> refused (not n/a)', fMiss.applicable === true && fMiss.ok === false);
+      fs.appendFileSync(path.join(fm, '.forge', 'memory', 'FORGE_TASK_HISTORY.md'), '- run-a: done\n');
+      { const fOk = RC.memoryRecordOf(fm, 'run-a'); t('CORE-1-F13: .forge layout, .forge/memory history naming the run -> ok and applicable', fOk.applicable === true && fOk.ok === true); }
+    } finally { if (savedStateDir !== undefined) process.env.FORGE_STATE_DIR = savedStateDir; }
+    fs.rmSync(fm, { recursive: true, force: true });
+  }
+  // the CLI path: a green contract with a memory record missing ends in FINALIZE REFUSED, exit 3, no receipt
+  const fr = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-rc-memfin-'));
+  for (const d of ['forge-dashboard', 'forge-bin', 'config/orchestration']) fs.mkdirSync(path.join(fr, '.claude', d), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'), path.join(fr, '.claude', 'forge-dashboard', 'log-event.cjs'));
+  for (const f of ['forge-runcontract.cjs', 'forge-finalize.cjs']) fs.copyFileSync(path.join(__dirname, f), path.join(fr, '.claude', 'forge-bin', f));
+  fs.writeFileSync(path.join(fr, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json'), JSON.stringify({ owners_allowlist: ['owner'],
+    rules: [{ id: 'has-start', rule: 'run has a start event', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }] }));
+  const outText = 'suite: 3 passed, 0 failed\n';
+  fs.mkdirSync(path.join(fr, 'gate-output'), { recursive: true });
+  fs.writeFileSync(path.join(fr, 'gate-output', 'suite.txt'), outText);
+  const sha = require('crypto').createHash('sha256').update(outText).digest('hex');
+  const RUNF = 'memfin-run';
+  fs.mkdirSync(path.join(fr, '.claude', 'forge-runs', RUNF), { recursive: true });
+  fs.writeFileSync(path.join(fr, '.claude', 'forge-runs', RUNF, 'gate-evidence.json'), JSON.stringify({ run_id: RUNF, gates: [{ name: 'suite', command: 'node test', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: sha, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }] }));
+  const lg = (type, extra) => spawnSync(process.execPath, [path.join(fr, '.claude', 'forge-dashboard', 'log-event.cjs'), RUNF, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra))], { encoding: 'utf8' });
+  lg('run_started', { note: 's' });
+  lg('run_completed', { command: 'x', output: 'klaar' });
+  fs.writeFileSync(path.join(fr, '.claude', 'FORGE_TASK_HISTORY.md'), '# history\n(nothing about this run)\n');
+  const rcBin = path.join(fr, '.claude', 'forge-bin', 'forge-runcontract.cjs');
+  const r1 = spawnSync(process.execPath, [rcBin, 'check', '--run', RUNF, '--root', fr, '--finalize'], { encoding: 'utf8' });
+  t('CORE-1-F13: CLI --finalize on a green contract without a memory record is refused (exit 3, FINALIZE REFUSED)', r1.status === 3 && /FINALIZE REFUSED/.test(r1.stdout) && /FORGE_TASK_HISTORY\.md/.test(r1.stdout));
+  t('CORE-1-F13: and no receipt was written', !fs.existsSync(path.join(fr, '.claude', 'forge-runs', RUNF, 'run-finalized.json')));
+  fs.appendFileSync(path.join(fr, '.claude', 'FORGE_TASK_HISTORY.md'), '- ' + RUNF + ': done, evidence in final-report.md\n');
+  const r2 = spawnSync(process.execPath, [rcBin, 'check', '--run', RUNF, '--root', fr, '--finalize'], { encoding: 'utf8' });
+  t('CORE-1-F13: with a task-history entry naming the run the same CLI call finalizes (exit 0)', r2.status === 0 && /FINALIZED @/.test(r2.stdout));
+  fs.rmSync(fr, { recursive: true, force: true });
+}
+
+// FIX-INTEGRATE-2 verifier note: the fallback critical-domain list (used when forge-fixtures.cjs cannot be
+// loaded) drifted from the fixtures catalog (payments, ecommerce were missing), so a payments run lost its rule there.
+{
+  const FX = require('./forge-fixtures.cjs');
+  const fb = RC.CRITICAL_DOMAINS_FALLBACK;
+  t('verifier note: CRITICAL_DOMAINS_FALLBACK equals forge-fixtures CRITICAL_DOMAINS (got ' + JSON.stringify(fb) + ')',
+    Array.isArray(fb) && JSON.stringify(fb.slice().sort()) === JSON.stringify(FX.CRITICAL_DOMAINS.slice().sort()));
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

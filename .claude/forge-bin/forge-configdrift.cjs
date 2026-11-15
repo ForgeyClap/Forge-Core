@@ -70,6 +70,7 @@
  *   sources(root)                      -> [{id, kind, path}] — the declared governance surface
  *   snapshot(root, opts)               -> {generated_at, root, entries:[{id, kind, path, exists, sha256, semantic_sha256, bytes}]}
  *   writeBaseline(root, runId, opts)   -> {path, baseline} — writes <runDir>/config-baseline.json
+ *   ensureBaseline(root, runId, opts)  -> {written, path} — writeBaseline only when none exists (run start, resume-safe)
  *   readBaseline(root, runId, opts)    -> baseline | null
  *   announcementsFor(events, entries, root) -> Map(id -> [{event_type, agent, note}])
  *   checkDrift(root, runId, opts)      -> report (below)
@@ -296,6 +297,14 @@ function writeBaseline(root, runId, opts) {
   const p = path.join(dir, BASELINE_FILE);
   fs.writeFileSync(p, JSON.stringify(baseline, null, 2) + '\n', 'utf8');
   return { path: p, baseline };
+}
+
+/** ensureBaseline(root, runId, opts) -> {written, path}. FB-INSTALL-2-F7: the run-start call (where run_started is
+ *  logged). Writes only when no readable baseline exists, so a resume can never move the "before" moment. */
+function ensureBaseline(root, runId, opts) {
+  const p = path.join(runDirOf(root, runId, opts), BASELINE_FILE);
+  if (readBaseline(root, runId, opts)) return { written: false, path: p };
+  return { written: true, path: writeBaseline(root, runId, opts).path };
 }
 
 function readBaseline(root, runId, opts) {
@@ -634,7 +643,7 @@ function summarize(rep) {
 }
 
 module.exports = {
-  sources, snapshot, writeBaseline, readBaseline, checkDrift, summarize,
+  sources, snapshot, writeBaseline, ensureBaseline, readBaseline, checkDrift, summarize,
   announcementsFor, frontmatterBlock, canonicalJson, changedHow, hashSource, readEvents, ownerSettingsSince,
   bodyChangedPerGit,
   FIXED_SOURCES, ANNOUNCE_EVENT_TYPES, TYPE_ANNOUNCES, ANNOUNCE_PATH_FIELDS, BASELINE_FILE,

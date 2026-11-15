@@ -252,13 +252,13 @@ function runJson(args) { const r = runCli(args); let j = null; try { j = JSON.pa
   const { j: j2 } = runJson([noBuildNoTest, '--json', '--in-place', '--no-install']);
   t('G2 neither build nor test present: still not a pass', !!j2 && j2.verdict !== 'pass');
 
-  // with a REAL passing test script the gate still passes — the fix must not break the happy path
+  // G3: with a REAL passing test script the gate still passes — the fix must not break the happy path
   const withTest = caseDir();
   writePkg(withTest, { name: 'with-test', version: '1.0.0', scripts: { test: 'node -e "console.log(\'1 passed, 0 failed\')"' } });
   const { r: r3, j: j3 } = runJson([withTest, '--json', '--in-place', '--no-install']);
   t('G3 a project with a genuinely passing test script DOES pass (happy path intact)', !!j3 && j3.verdict === 'pass' && r3.status === 0, j3 && (j3.verdict + ' / exit ' + r3.status));
 
-  // the artifact + event must mirror the honest verdict, never a fabricated gate_passed
+  // G4: the artifact + event must mirror the honest verdict, never a fabricated gate_passed
   const runId = 'g4-not-verified';
   const noTest2 = caseDir();
   writePkg(noTest2, { name: 'no-test-2', version: '1.0.0' });
@@ -486,6 +486,31 @@ console.log('\nL) CRLF-fideliteit in een monorepo-subdir');
       t('L1 zonder worktree is de reden eerlijk (in-place)', /in place|IN PLACE/i.test(j.reason || ''), j.reason);
     }
   }
+}
+
+// ===================================================================================
+// GROUP N — node:test spec reporter (FB-LANES-F3). Node 24 prints 'ℹ pass N / ℹ fail N' even when
+// piped; none of the older regexes read it, so every `"test": "node --test"` project was not-verified (exit 3).
+// Real `node --test` runs, plus a literal fixture, so the parse is pinned on the real output shape.
+// ===================================================================================
+{
+  const green = caseDir();
+  writePkg(green, { name: 'nt-green', version: '1.0.0', scripts: { test: 'node --test' } });
+  fs.writeFileSync(path.join(green, 'a.test.cjs'), "const test = require('node:test'); test('one', () => {}); test('two', () => {});\n");
+  const { r, j } = runJson([green, '--json', '--in-place', '--no-install']);
+  t('N1 a green node --test project passes', !!j && j.verdict === 'pass' && r.status === 0, j && (j.verdict + ' / ' + j.reason + ' / exit ' + r.status));
+  t('N1 the spec reporter counts are read (2 passed, 0 failed)', !!j && !!j.testCounts && j.testCounts.passed === 2 && j.testCounts.failed === 0, j && JSON.stringify(j.testCounts));
+
+  const red = caseDir();
+  writePkg(red, { name: 'nt-red', version: '1.0.0', scripts: { test: 'node --test' } });
+  fs.writeFileSync(path.join(red, 'a.test.cjs'), "const test = require('node:test'); test('ok', () => {}); test('bad', () => { throw new Error('boom'); });\n");
+  const { j: jr } = runJson([red, '--json', '--in-place', '--no-install']);
+  t('N2 a red node --test project is blocked, and the fail count is read', !!jr && jr.verdict === 'blocked' && !!jr.testCounts && jr.testCounts.failed === 1, jr && (jr.verdict + ' / ' + JSON.stringify(jr.testCounts)));
+
+  const lit = caseDir();
+  writePkg(lit, { name: 'nt-literal', version: '1.0.0', scripts: { test: 'node -e "console.log(\'\\u2139 tests 12\\n\\u2139 pass 12\\n\\u2139 fail 0\')"' } });
+  const { j: jl } = runJson([lit, '--json', '--in-place', '--no-install']);
+  t('N3 the literal Node 24 summary lines parse to 12 passed / 0 failed', !!jl && !!jl.testCounts && jl.testCounts.passed === 12 && jl.testCounts.failed === 0 && jl.verdict === 'pass', jl && (jl.verdict + ' / ' + JSON.stringify(jl.testCounts)));
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

@@ -58,11 +58,15 @@ function isDisprovenEvent(e) {
  * Never throws; never true/'done'/'failed' for a non-object/null input (returns null).
  */
 const REVIEW_OUTCOME_FIELDS = ['review_verdict', 'verdict', 'status', 'result', 'outcome'];
-const POSITIVE_REVIEW_VERDICTS = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd']);
+// FB-FINALIZE-2-F3: Review Boss's own vocabulary (agents/review-boss.md) includes "APPROVED WITH MINOR
+// NOTES", and real ledgers carry PASS_WITH_NOTES / approved_with_notes / PASS-WITH-NOTES; MEDIUM/LOW notes do not block
+// (forge-code-review). Verdicts are compared with '_' and '-' read as spaces. forge-runcontract.cjs keeps its own mirror.
+const POSITIVE_REVIEW_VERDICTS = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd',
+  'pass with notes', 'passed with notes', 'pass with minor notes', 'approved with notes', 'approved with minor notes']);
 function reviewOutcome(e) {
   if (!e || typeof e !== 'object') return null;
   if (isDisprovenEvent(e)) return 'failed';
-  const norm = (a) => String(a == null ? '' : a).trim().toLowerCase();
+  const norm = (a) => String(a == null ? '' : a).trim().toLowerCase().replace(/[\s_-]+/g, ' ');
   const present = REVIEW_OUTCOME_FIELDS.filter((f) => e[f] !== undefined).map((f) => norm(e[f]));
   const hasOk = e.ok !== undefined;
   if (!present.length && !hasOk) return null; // no outcome asserted at all — caller uses its own default

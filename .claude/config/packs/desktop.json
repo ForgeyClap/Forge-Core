@@ -1,0 +1,49 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "desktop",
+  "_doc": "The desktop pack (owner request R-0239, contract): 2 desk-* SPECIALIST agents plus the existing specialist electron-pro by reference (never Bosses; the 12 permanent Bosses are unchanged) for Windows desktop apps (.exe, Electron), built from the roles the owner projects really used (the accounting desktop app: engine, shell, installer, ui). forge-router sends desktop work to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Lanes open the presets desktop-all and process first (checked by forge-lane-skills.cjs --require desktop-all,process).",
+  "projectTypes": [
+    "desktop",
+    "electron"
+  ],
+  "signals": [
+    "desktop app",
+    "electron",
+    ".exe",
+    "installer",
+    "electron-builder",
+    "NSIS",
+    "code signing",
+    "preload",
+    "contextIsolation",
+    "an accounting desktop app"
+  ],
+  "playbook": "forge-electron",
+  "agents": [
+    "desk-installer-engineer",
+    "desk-qa-tester",
+    "electron-pro"
+  ],
+  "skills": [
+    "forge-testing",
+    "forge-debug",
+    "ponytail",
+    "forge-electron",
+    "forge-release",
+    "forge-windows-shell",
+    "forge-verify"
+  ],
+  "presets": {
+    "desktop-all": [
+      "forge-electron",
+      "forge-release",
+      "forge-windows-shell",
+      "forge-testing"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

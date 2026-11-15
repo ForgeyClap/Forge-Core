@@ -49,7 +49,7 @@ or is explicitly marked in the Honesty footer's "unknown/missing" list — never
 **No context-window percentage is ever fabricated or estimated anywhere in this system.**
 
 ## Wiring
-Opt-in, already applied 2026-07-29 (project-local and global hooks; live record in `HOOKS_OPT_IN.md`). Details: `references/internals.md`.
+Opt-in, applied 2026-07-29 in the project-local `.claude/settings.json` only. The global `~/.claude/settings.json` carries no snapshot hook (checked 2026-11-13), so a project without the project-local hooks gets no snapshot on compaction; wiring them globally is an owner-gated settings write. Details: `references/internals.md`.
 
 ## When to use
 

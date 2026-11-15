@@ -38,10 +38,17 @@ after(() => {
   removeDataDirIfCreatedByTests();
 });
 
-test('buildAgentsRegistry finds the real 20 agent-md files (12 permanent Bosses + 8 specialists incl. scribe) and the 12 permanent Bosses', () => {
+test('buildAgentsRegistry finds every registered agent-md file (12 permanent Bosses + the registered specialists) and the 12 permanent Bosses', () => {
   const result = buildAgentsRegistry(PROJECT_ROOT);
   assert.equal(result.ok, true);
-  assert.equal(result.total_agents, 20); // scribe registered as a specialist (not a 13th Boss)
+  // the count follows agent-registry.json (agents + specialistAgents, `_` keys are notes) instead of a
+  // literal, which went stale when the Roblox pack registered 12 rbx-* specialists (20 -> 32). It stays a real
+  // check: the agent-md files and the registry must name exactly the same agents.
+  const reg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, '.claude', 'config', 'agents', 'agent-registry.json'), 'utf8'));
+  const registered = [...Object.keys(reg.agents || {}), ...Object.keys(reg.specialistAgents || {})].filter((k) => !k.startsWith('_'));
+  assert.equal(Object.keys(reg.agents || {}).length, 12, 'the registry keeps 12 permanent Bosses');
+  assert.deepEqual(result.agents.map((a) => a.slug).sort(), [...new Set(registered)].sort(), 'every agent-md file is registered, and every registered agent has a file');
+  assert.equal(result.total_agents, registered.length);
   assert.equal(result.permanent_boss_count, 12);
   assert.equal(result.sources.registry_present, true);
   assert.equal(result.sources.model_map_present, true);
@@ -70,14 +77,23 @@ test('review-boss is read-only-audit and claude-wins-skip-nvidia', () => {
   assert.equal(reviewBoss.usage_policy_bucket, 'claude-wins-skip-nvidia');
 });
 
-test('a non-Boss specialist agent (codex-reviewer) is correctly NOT a permanent Boss and not in the usage-policy map', () => {
+test('a non-Boss specialist agent (codex-reviewer) is correctly NOT a permanent Boss and sits in the Claude-first usage-policy list', () => {
   const result = buildAgentsRegistry(PROJECT_ROOT);
   const codexReviewer = result.agents.find((a) => a.slug === 'codex-reviewer');
   assert.ok(codexReviewer);
   assert.equal(codexReviewer.is_permanent_boss, false);
   assert.equal(codexReviewer.role, null);
   assert.equal(codexReviewer.class, 'exec-reviewer');
-  assert.equal(codexReviewer.usage_policy_bucket, 'not-applicable');
+  // 2026-11-13 (Forge audit CF-4-F1): every agent belongs to claudeWinsSkipNvidia or nvidiaForBulkOnly in
+  // agent-model-map.json, because nvidia-provider policyFor() returns 'unclassified' (no block) for a known agent
+  // in neither list. codex-reviewer is Claude-first.
+  assert.equal(codexReviewer.usage_policy_bucket, 'claude-wins-skip-nvidia');
+});
+
+test('every registered agent has a usage-policy bucket (none left not-applicable, audit CF-4-F1)', () => {
+  const result = buildAgentsRegistry(PROJECT_ROOT);
+  const unbucketed = result.agents.filter((a) => a.usage_policy_bucket === 'not-applicable').map((a) => a.slug);
+  assert.deepEqual(unbucketed, []);
 });
 
 // cc-fix-adapter T6a — real per-agent skills[] from agent-skill-map.json, previously read by
@@ -91,23 +107,24 @@ test('build-boss carries its real CORE skill list from agent-skill-map.json', ()
   // ~/.claude; they were remapped to the shipped Forge equivalents. This pin follows the real file.
   // two vendored public skills (mattpocock/skills, MIT) now ship with Forge and
   // are attached to build-boss; setup-pre-commit is user-invoked only (see agent-skill-map.json invocationNotes).
-  assert.deepEqual(buildBoss.skills, [
-    'forge-skill-testing',
-    'forge-debug',
-    'forge-code-review',
-    'forge-worktrees',
-    'resolving-merge-conflicts',
-    'setup-pre-commit',
-  ]);
+  // the pin went stale every time the map grew (forge-conduct,
+  // forge-testing, ponytail, forge-android-app). It now follows the real file exactly, which is what this test
+  // claims: the registry carries the map's list for build-boss, in order, nothing invented.
+  const realMap = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, '.claude', 'config', 'agents', 'agent-skill-map.json'), 'utf8'));
+  const realList = (realMap.skillMap || realMap.agents || realMap)['build-boss'];
+  assert.ok(Array.isArray(realList) && realList.length > 0, 'agent-skill-map.json must carry a build-boss list');
+  assert.ok(realList.includes('forge-debug') && realList.includes('forge-code-review'), 'build-boss keeps its core skills');
+  assert.deepEqual(buildBoss.skills, realList);
 });
 
-test('an agent with no entry in agent-skill-map.json gets an honest empty list, never a guess', () => {
+test('an agent with no entry in agent-skill-map.json gets an honest empty list, never a guess', (t) => {
   const result = buildAgentsRegistry(PROJECT_ROOT);
-  const unmapped = result.agents.find((a) => !Object.prototype.hasOwnProperty.call(
-    { boss: 1, 'head-chef': 1, 'review-boss': 1, 'test-boss': 1, 'ui-boss': 1, 'seo-boss': 1, 'security-boss': 1, 'skill-boss': 1, 'search-boss': 1, 'build-boss': 1, 'integration-boss': 1, 'docs-boss': 1 },
-    a.slug,
-  ));
-  assert.ok(unmapped, 'expected at least one non-Boss agent not present in agent-skill-map.json');
+  // 'unmapped' is now read from the real map (the map grew past the 12 Bosses, so a fixed Boss
+  // list no longer named an agent without an entry). When every agent has an entry there is nothing to test.
+  const realMap = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, '.claude', 'config', 'agents', 'agent-skill-map.json'), 'utf8'));
+  const mapped = realMap.agents || {};
+  const unmapped = result.agents.find((a) => !Object.prototype.hasOwnProperty.call(mapped, a.slug));
+  if (!unmapped) { t.skip('every agent in this project has an agent-skill-map.json entry'); return; }
   assert.deepEqual(unmapped.skills, []);
 });
 

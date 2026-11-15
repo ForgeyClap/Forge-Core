@@ -4,6 +4,8 @@ Use this template when dispatching a task reviewer subagent. The reviewer
 reads the task's diff once and returns two verdicts: spec compliance and
 code quality.
 
+> **Forge addendum (not upstream):** in a Forge project the reviewer is `review-boss` or `verify-boss`, never a `general-purpose` agent. Dispatch it with the triaged route's model and effort (Workflow `agent({agentType, model, effort})`), or with no opts so the Boss frontmatter route applies. A model without an effort is denied by the GOAT workflow guard.
+
 **Purpose:** Verify one task's implementation matches its requirements (nothing
 more, nothing less) and is well-built (clean, tested, maintainable)
 

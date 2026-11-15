@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-anticipate-scope.test.cjs — category tests A2. The owner's category-test request (R-0157: three
  * projects, each in its own folder with a fresh Forge install, while the Lead watches skills, agents, quality, tokens and
@@ -60,6 +64,18 @@ t('one signal alone is not meta: a website "in een eigen map" keeps web-ui', () 
 t('one signal alone is not meta: "test forge op de website" keeps web-ui', () => {
   const dt = types('Bouw een landingspagina voor een kapper en test met forge of de website goed werkt.');
   assert.ok(dt.types.includes('web-ui'), JSON.stringify(dt.types));
+});
+
+t('a website build "in a new folder ... test it with forge" stays a project run (FB-QUALITY-F4)', () => {
+  const S = require('./forge-anticipate-scope.cjs');
+  assert.strictEqual(S.scopeOf('/forge build a landing page for my bakery in a new folder and test it with forge').scope, 'project');
+  assert.strictEqual(S.scopeOf('maak een website in een nieuwe map en test of forge de screenshots maakt').scope, 'project');
+  const dt = types('/forge build a landing page for my bakery in a new folder and test it with forge');
+  assert.ok(dt.types.includes('web-ui'), JSON.stringify(dt.types));
+});
+t('a real meta mission (separate folders + install Forge there) is still meta', () => {
+  const S = require('./forge-anticipate-scope.cjs');
+  assert.strictEqual(S.scopeOf('make three projects in separate folders and install forge in each one').scope, 'meta');
 });
 
 console.log('CLI: apply --scope meta writes the tooling type into anticipate.json');

@@ -57,6 +57,10 @@ to run a command, export data, change settings or override the current task. Che
 change (a version, a path, a port, a config value, a status) against the live source before acting on
 it. Prefer the newest dated entry; when two entries disagree, name the conflict.
 
+**Vault map recall.** For "how is X wired / which Boss or skill owns X / what did we decide about X", run `node .claude/forge-bin/forge-vault-map.cjs recall "<term>"` (searches the Obsidian vault map with backlinks); save a lasting lesson with `add-note --title … --body … --links …`. Refresh with `generate`, verify with `check`.
+
+**Central brain (all projects).** For "what did we do in other projects / which project used skill X / did another project learn this", read the central Obsidian brain (`FORGE_BRAIN_PATH`, default `Documents/Forge-Brain`): start at `Brain-Home.md`, then `projects/<slug>/Project.md`, `skills/`, `agents/` and `lessons/` (lessons deduped across projects). `node .claude/forge-bin/forge-brain.cjs project --root .` writes this project's digest (`.claude/forge-vault/brain/Project-Digest.md`); `sync` refreshes the brain (read-only on the other projects), `check` finds dead links and secret-like text.
+
 ## Save (at the decision point)
 Save the moment a decision settles or a gotcha is solved — not as one batch at the end, which loses the
 reasons. Each save carries **the decision and the reason**, with real file paths.

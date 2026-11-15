@@ -17,9 +17,17 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_DIRS = [path.join(ROOT, '.claude', 'agents'), path.join(os.homedir(), '.claude', 'agents')];
 
 const SIGNALS = [
-  [/\b(re-?run|run|node |gh api|git |npm|probe|log-event|test file)/i, ['Bash']],
-  [/\b(write|create the file|edit|fix)\b/i, ['Write', 'Edit']],
+  [/\b(re-?run|run|node |gh api|git |npm|probe|log-event|test file)/gi, ['Bash']],
+  [/\b(write|create the file|edit|fix)\b/gi, ['Write', 'Edit']],
+  [/\bSkill tool\b|\bopen (these|the) skills?\b/gi, ['Skill']],
 ];
+// A match within the same clause, up to 6 words after a negation ("never edit", "never edit, create, delete or fix"),
+// is no need.
+const NEGATION_RE = /^(never|not|don't|dont|cannot|can't|no|without)$/i;
+function negated(text, index) {
+  const clause = text.slice(0, index).split(/[.;:!?\n]/).pop();
+  return clause.split(/[\s,]+/).filter(Boolean).slice(-6).some((w) => NEGATION_RE.test(w));
+}
 
 const ALL_RE = /^(\*|all|all tools)$/i;
 const unquote = (s) => s.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
@@ -93,7 +101,10 @@ function checkFit(name, needs, opts = {}) {
 
 function inferTools(text) {
   const out = new Set();
-  for (const [re, tools] of SIGNALS) if (re.test(text)) tools.forEach((t) => out.add(t));
+  const src = String(text || '');
+  for (const [re, tools] of SIGNALS) {
+    if ([...src.matchAll(re)].some((m) => !negated(src, m.index))) tools.forEach((t) => out.add(t));
+  }
   return [...out];
 }
 

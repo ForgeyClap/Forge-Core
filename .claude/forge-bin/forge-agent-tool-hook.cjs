@@ -28,13 +28,14 @@
  * NEVER the prompt, the description, or any part of the response text.
  * caller_agent_id is the payload's own agent_id: present only when a SUBAGENT made the Agent call (nested dispatch).
  *
- * LIVE-SESSION CONTRACT: a PreToolUse hook that exits 2 BLOCKS the Agent call — this one never does: exit 0, no stdout,
- * no decision JSON, own failsafe timer. Only tool_name Agent (or the older Task) is recorded; anything else is skipped.
+ * LIVE-SESSION CONTRACT: a PreToolUse hook that exits 2 BLOCKS the Agent call — this one never does: exit 0, no decision
+ * JSON (stdout is empty unless a dispatch-fit warning is sent as additionalContext, see below), own failsafe timer. Only tool_name Agent (or the older Task) is recorded; anything else is skipped.
  * Honours the forge-sync maintenance lock and env FORGE_AGENT_TOOL_HOOK=off.
  *
  * DISPATCH FIT (W2-REVIEWFIX 2026-11-06): on PreToolUse it also runs forge-dispatch-fit (infer the tools the prompt seems
  * to need, check them against the agent's tools: line) and prints a one-line ADVISORY warning on STDERR when one is
- * missing. Still exit 0, still empty stdout: it never blocks or refuses a dispatch. Off: env FORGE_DISPATCH_FIT=off.
+ * missing, and the same line on STDOUT as PreToolUse `additionalContext` JSON (no permissionDecision) so the model
+ * reads it (FB-GUARDS-2-F4). Still exit 0: it never blocks or refuses a dispatch. Off: env FORGE_DISPATCH_FIT=off.
  */
 const toolhook = require('./forge-toolhook.cjs');
 const SS = require('./forge-subagent-stop.cjs');
@@ -164,10 +165,14 @@ function run(raw, opts) {
   return res;
 }
 
-/** cli(raw) — the live hook: record the dispatch, print a dispatch-fit warning on STDERR (stdout stays empty, exit 0). */
+/** cli(raw) — the live hook: record the dispatch; a dispatch-fit warning goes to STDERR and, because stderr on a
+ *  PreToolUse exit 0 never reaches the model (FB-GUARDS-2-F4), also to stdout as PreToolUse additionalContext JSON
+ *  with no permission decision (the normal permission flow still runs; the dispatch is never blocked). Exit 0. */
 function cli(raw) {
   const r = run(raw);
-  if (r && r.fit_warning) { try { process.stderr.write(r.fit_warning + '\n'); } catch { /* never fail the turn */ } }
+  if (!r || !r.fit_warning) return '';
+  try { process.stderr.write(r.fit_warning + '\n'); } catch { /* never fail the turn */ }
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: r.fit_warning } });
 }
 
 module.exports = { run, fitWarning, buildRecord, salvage, agentIdOf, field, FILE_NAME, ENV_FLAG, FIT_ENV_FLAG, RESPONSE_ID_KEYS };

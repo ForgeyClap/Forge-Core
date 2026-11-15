@@ -61,7 +61,7 @@
       "evidence_required": "The list of commands with their exit codes or the file and line that defines each.",
       "severity": "block",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Coverage & accuracy", "quote": "Every documented command/path was actually verified against the real code" }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Coverage & accuracy", "quote": "Every documented command/path was actually verified against the real code" }
     },
     {
       "id": "exact-steps",
@@ -71,7 +71,7 @@
       "evidence_required": "The steps rewritten.",
       "severity": "block",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Clarity & usability", "quote": "Setup instructions give exact commands and exact file paths" }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Clarity & usability", "quote": "Setup instructions give exact commands and exact file paths" }
     },
     {
       "id": "fresh-machine",
@@ -91,7 +91,7 @@
       "evidence_required": "The heading outline.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Clarity & usability", "quote": "Structure lets a reader scan for the one command/section they need." }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Clarity & usability", "quote": "Structure lets a reader scan for the one command/section they need." }
     },
     {
       "id": "no-jargon",
@@ -101,7 +101,7 @@
       "evidence_required": "The terms explained or replaced.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Clarity & usability", "quote": "no invented shorthand or unexplained jargon" }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Clarity & usability", "quote": "no invented shorthand or unexplained jargon" }
     },
     {
       "id": "numbers-reconcile",
@@ -131,7 +131,7 @@
       "evidence_required": "The search command and its output (zero hits, or each hit fixed).",
       "severity": "block",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "No real secret value, token, or credential appears anywhere in the doc" }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Handoff completeness", "quote": "No real secret value, token, or credential appears anywhere in the doc" }
     },
     {
       "id": "formulas-not-values",
@@ -161,7 +161,7 @@
       "evidence_required": "Where each of those three appears.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "What was verified vs. assumed is stated explicitly." }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Handoff completeness", "quote": "What was verified vs. assumed is stated explicitly." }
     },
     {
       "id": "print-layout",
@@ -181,7 +181,7 @@
       "evidence_required": "The location of the open-items list.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Handoff completeness", "quote": "Any owner action still required (missing key, unresolved TODO) is called out, not buried." }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Handoff completeness", "quote": "Any owner action still required (missing key, unresolved TODO) is called out, not buried." }
     },
     {
       "id": "reflects-shipped",
@@ -191,7 +191,7 @@
       "evidence_required": "The differences found and how the text now covers them.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/docs-boss.md", "section": "Coverage & accuracy", "quote": "Deviations from the original plan are reflected, not silently ignored." }
+      "source": { "path": ".claude/docs/agents/docs-boss.md", "section": "Coverage & accuracy", "quote": "Deviations from the original plan are reflected, not silently ignored." }
     }
   ],
   "common_sloppy_defects": [

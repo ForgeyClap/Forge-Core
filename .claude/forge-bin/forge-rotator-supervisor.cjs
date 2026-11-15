@@ -12,9 +12,16 @@
  *      forge-rotator-hook.cjs for THIS session, or from a recognised error class in the result / stderr
  *   3. wait until the reset time (marker -> result text -> bounded backoff: 15 min + up to 10% load-spreading jitter,
  *      at most `rotator-max-waits` waits), inside a total wall-clock cap
- *   4. relaunch  claude -p "continue" --resume <session_id> --output-format json [owner args]   (fallback --continue)
+ *   4. relaunch  claude -p "continue" --resume <session_id> --output-format json [owner args]   (FB-ROTATOR-F5: the first
+ *      launch passes its own --session-id <uuid>, so the job always resumes ITS session; there is no --continue
+ *      fallback, which would pick the newest conversation in the folder, possibly the owner's live session)
  *   5. stop after `rotator-max-attempts` launches. Every step lands in a token-free JSON status file the dashboard
  *      can read: <runs>/_rotator/supervisor-<job>.json
+ * RUN BUDGET (CF-5-F4): the job resolves one dollar cap with forge-run-budget.cjs (wrapper "rotator" in
+ * FORGE_RUN_BUDGET.json, same rules as its `cap` command); every launch carries the CLI budget flag with what is left
+ * of that cap, the job logs a budget line and a budget verdict line, and a launch that used up its share ends the job
+ * as `stopped_by_budget` (exit 4), also when it exited 0. A launch that reports no total_cost_usd is charged its whole
+ * share (fail closed), so it is never relaunched with the full cap. Without a resolvable cap the job is refused.
  * Waiting and relaunching happen only while the owner setting `rotator-auto-resume` is on (default OFF); when off,
  * a limit ends the job with outcome `limit-hit:auto-resume-off` and the manual resume command.
  *
@@ -26,13 +33,18 @@
  * quoted and unsafe words REFUSED, never escaped; a .ps1 shim is refused (rules copied from
  * account-rotator-token.cjs::cmdArgsUnsafe/cmdWrapperArgv/binUnsafe, which Path A deliberately does not load).
  * SIGINT/SIGTERM/SIGBREAK, or `stop --job <id>`, end the job: no relaunch, the child gets a grace period, then its
- * exact PID tree is ended. Exit codes: 0 completed, 1 failed, 2 usage, 3 refused, 4 gave up / limit hit, 130 stopped.
+ * exact PID tree is ended. Exit codes: 0 completed, 1 failed, 2 usage, 3 refused, 4 gave up / limit hit / stopped by budget, 130 stopped.
  */
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const toolhook = require('./forge-toolhook.cjs');
 const hook = require('./forge-rotator-hook.cjs');
+// CF-5-F4 run budget: the same cap logic as `forge-run-budget.cjs cap --wrapper rotator`. Guarded: without it a job
+// is refused, because an unattended run that cannot read a cap must not start.
+let budget = null;
+try { budget = require('./forge-run-budget.cjs'); } catch { budget = null; }
 
 const STATUS_SCHEMA = 'forge-rotator-supervisor/1';
 const DEFAULTS = Object.freeze({ maxAttempts: 8, maxWaits: 6, maxWallMs: 24 * 3600e3, continuePrompt: 'continue' });
@@ -50,7 +62,8 @@ const MAX_STDOUT = 16 * 1024 * 1024;
 const MAX_STDERR = 64 * 1024;
 const MAX_HISTORY = 20;
 const MAX_PROMPT = 100000;
-const ENV_NAMES = Object.freeze(['FORGE_ROTATOR_CLAUDE_BIN', 'PATH', 'Path', 'FORGE_STATE_DIR', 'ComSpec']);
+const ENV_NAMES = Object.freeze(['FORGE_ROTATOR_CLAUDE_BIN', 'PATH', 'Path', 'FORGE_STATE_DIR', 'ComSpec', 'FORGE_RUN_BUDGET_USD']);
+const BUDGET_FLAG = budget ? budget.budgetArgs(1).args[0] : null;
 const JOB_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const RESERVED_RE = /^(-p|--print|--output-format|--resume|-r|--continue|-c|--session-id|--fork-session|--input-format)(=|$)/;
 const EXIT = Object.freeze({ completed: 0, failed: 1, usage: 2, refused: 3, gaveUp: 4, stopped: 130 });
@@ -110,15 +123,16 @@ function validateJob(o) {
   }
   for (const a of o.extraArgs) {
     if (typeof a !== 'string' || a.includes('\0')) return 'every claude argument must be a string without NUL bytes';
-    if (RESERVED_RE.test(a) || /^-[A-Za-z]*[prc][A-Za-z]*$/.test(a)) return 'the supervisor sets -p, --output-format, --resume and --continue itself; remove "' + a.slice(0, 40) + '"';
+    if (RESERVED_RE.test(a) || /^-[A-Za-z]*[prc][A-Za-z]*$/.test(a) || (BUDGET_FLAG && (a === BUDGET_FLAG || a.startsWith(BUDGET_FLAG + '=')))) return 'the supervisor sets -p, --output-format, --resume, --continue and the run budget itself; remove "' + a.slice(0, 40) + '"';
   }
   return null;
 }
-/** buildArgs(mode, o, sessionId) -> the exact claude argv for one launch. */
+/** buildArgs(mode, o, sessionId) -> the exact claude argv for one launch; o.budgetUsd (a positive number) adds the
+ *  run-budget flag pair rendered by forge-run-budget.cjs::budgetArgs(). */
 function buildArgs(mode, o, sessionId) {
-  if (mode === 'resume') return ['-p', o.continuePrompt, '--resume', sessionId, '--output-format', 'json', ...o.extraArgs];
-  if (mode === 'continue') return ['-p', o.continuePrompt, '--continue', '--output-format', 'json', ...o.extraArgs];
-  return ['-p', o.prompt, '--output-format', 'json', ...o.extraArgs];
+  const cap = budget && o.budgetUsd !== undefined ? budget.budgetArgs(o.budgetUsd).args : [];
+  if (mode === 'resume') return ['-p', o.continuePrompt, '--resume', sessionId, '--output-format', 'json', ...cap, ...o.extraArgs];
+  return ['-p', o.prompt, '--session-id', sessionId, '--output-format', 'json', ...cap, ...o.extraArgs];
 }
 
 // ---- spawning (real) ------------------------------------------------------------------------------------------
@@ -250,8 +264,9 @@ async function supervise(o, deps) {
     started_at: iso(t0), updated_at: iso(t0), finished_at: null, wall_deadline: iso(t0 + S.maxWallMs),
     auto_resume: S.autoResume, attempts: 0, max_attempts: S.maxAttempts, waits: 0, max_waits: S.maxWaits,
     session_id: null, resume_mode: 'fresh', last_class: null, detect_source: null,
-    resume_after: null, resume_after_source: null, wake_at: null, history: [],
+    resume_after: null, resume_after_source: null, wake_at: null, history: [], budget: null,
   };
+  let verdict = null; // the last forge-run-budget classifyOutcome() result, logged as the budget verdict line
   const save = () => { st.updated_at = iso(now()); try { fs.mkdirSync(path.dirname(file), { recursive: true }); hook.writeAtomic(file, JSON.stringify(st, null, 2) + '\n'); } catch { /* status is best effort */ } };
   if (S.configNote) log('settings note: ' + S.configNote);
   const ac = new AbortController();
@@ -264,21 +279,39 @@ async function supervise(o, deps) {
   const handlers = ['SIGINT', 'SIGTERM', 'SIGBREAK'].map((n) => [n, onSig(n)]);
   for (const [n, h] of handlers) { try { signals.on(n, h); } catch { /* signal not supported here */ } }
   const stopRequested = () => { try { return fs.existsSync(stopFile); } catch { return false; } };
+  // FB-ROTATOR-F1: a stop request is consumed. A stale one (left by an earlier job with this id) is removed before the
+  // first launch, and finish() removes the one that stopped this job, so a later run with the same --job id runs.
+  const clearStop = () => { try { fs.unlinkSync(stopFile); } catch (e) { if (!e || e.code !== 'ENOENT') log('could not remove the stop request ' + stopFile + ': ' + ((e && e.code) || e)); } };
+  clearStop();
   const finish = (outcome, code) => {
+    clearStop();
     for (const [n, h] of handlers) { try { signals.removeListener(n, h); } catch { /* ignore */ } }
     Object.assign(st, { phase: 'done', outcome, exit_code: code, finished_at: iso(now()), child_pid: null });
+    if (verdict) log('budget verdict: ' + verdict.status + ' — ' + verdict.reason);
     save();
     return { outcome, exitCode: code, status: st };
   };
   const deadline = t0 + S.maxWallMs;
   const bin = resolveBin(job, deps);
   if (!bin) { log('claude not found on PATH - pass --claude <path> or set FORGE_ROTATOR_CLAUDE_BIN'); return finish('refused', EXIT.refused); }
+  // CF-5-F4: one cap for the whole job (wrapper "rotator"); every relaunch gets only what is left of it.
+  const cap = budget ? budget.resolveCap({ wrapper: 'rotator' }, { root, env: { FORGE_RUN_BUDGET_USD: envGet(deps, 'FORGE_RUN_BUDGET_USD') }, configModule: deps.configModule }) : null;
+  if (!cap || !budget.budgetArgs(cap.cap_usd).ok) { log('no run budget could be resolved (forge-run-budget.cjs' + (budget ? '' : ' did not load') + ') - an unattended run without a cap is refused'); return finish('refused', EXIT.refused); }
+  st.budget = { cap_usd: cap.cap_usd, source: cap.source, clamped: cap.clamped, degraded: cap.degraded, spent_usd: 0, unreported: 0, status: null };
+  log('budget: cap $' + cap.cap_usd + ' (source ' + cap.source + (cap.clamped ? ', clamped ' + cap.clamped : '') + (cap.degraded ? ', DEGRADED' : '') + ')' + (cap.reason ? ' — ' + cap.reason : ''));
   save();
-  let attempt = 0, waits = 0, mode = 'fresh', sid = null, triedContinue = false;
+  let attempt = 0, waits = 0, mode = 'fresh', spent = 0;
+  let sid = (deps.newSessionId || crypto.randomUUID)(); // our own session id: every relaunch resumes exactly this one
   for (;;) {
     if (ac.signal.aborted) return finish(stopReason || 'stopped', EXIT.stopped);
+    const left = Math.round((cap.cap_usd - spent) * 100) / 100;
+    if (left <= 0) {
+      verdict = { status: 'stopped_by_budget', reason: 'spent ' + spent + ' of the ' + cap.cap_usd + ' cap before launch ' + (attempt + 1) };
+      st.budget.status = verdict.status;
+      return finish('stopped_by_budget', EXIT.gaveUp);
+    }
     attempt += 1;
-    const args = buildArgs(mode, job, sid);
+    const args = buildArgs(mode, Object.assign({}, job, { budgetUsd: left }), sid);
     const launchedAt = now();
     Object.assign(st, { phase: 'running', attempts: attempt, resume_mode: mode, wake_at: null });
     save();
@@ -298,11 +331,23 @@ async function supervise(o, deps) {
     const c = classify(r, parsed, marker);
     Object.assign(st, { session_id: sid, last_class: c.cls, detect_source: c.source });
     st.history = st.history.concat([{ attempt, mode, exit_code: r.code, class: c.cls, source: c.source, at: iso(now()) }]).slice(-MAX_HISTORY);
+    const cost = parsed && typeof parsed.total_cost_usd === 'number' && Number.isFinite(parsed.total_cost_usd) ? parsed.total_cost_usd : null;
+    // Fail closed: a launch that reports no cost may have spent its whole share, so it is charged that share.
+    if (cost === null) { st.budget.unreported += 1; log('launch ' + attempt + ' reported no total_cost_usd; its whole share $' + left + ' is counted as spent (fail closed)'); }
+    spent = Math.round((spent + (cost === null ? left : cost)) * 1e6) / 1e6;
+    verdict = budget.classifyOutcome({ cap_usd: left, envelope: parsed, exitCode: r.code, stdout: '', stderr: haystack(r, parsed) });
+    // Only a launch that would be relaunched turns into a budget stop; an ordinary failure stays `failed`.
+    if ((c.cls === 'rate_limit' || c.cls === 'overloaded') && !verdict.budget_stopped && spent >= cap.cap_usd) {
+      verdict = { status: 'stopped_by_budget', budget_stopped: true, reason: 'launch ' + attempt + ' reported no cost, so the whole ' + cap.cap_usd + ' cap counts as spent' };
+    }
+    Object.assign(st.budget, { spent_usd: spent, status: verdict.status });
+    // A run that hit the cap is never counted as finished (FORGE_RUN_BUDGET.json _honesty), even when it exited 0.
+    if (c.cls !== 'interrupted' && verdict.budget_stopped) return finish('stopped_by_budget', EXIT.gaveUp);
     if (c.cls === 'interrupted') return finish(stopReason || 'interrupted', EXIT.stopped);
     if (c.cls === 'success') { (deps.out || ((s) => process.stdout.write(s)))(r.stdout); return finish('completed', EXIT.completed); }
-    if (c.cls === 'resume-not-found' && mode === 'resume' && !triedContinue) {
-      if (attempt >= S.maxAttempts) return finish('gave-up:max-attempts', EXIT.gaveUp);
-      log('session not found for --resume - one fallback launch with --continue'); triedContinue = true; mode = 'continue'; continue;
+    if (c.cls === 'resume-not-found' && mode === 'resume') {
+      log('session ' + sid + ' not found for --resume; no --continue fallback (it could pick another conversation). Check it by hand: claude -p "continue" --resume ' + sid);
+      return finish('gave-up:session-not-found', EXIT.gaveUp);
     }
     if (c.cls !== 'rate_limit' && c.cls !== 'overloaded') return finish('failed', EXIT.failed);
     const tNow = now();
@@ -311,7 +356,7 @@ async function supervise(o, deps) {
     if (!at) { at = hook.parseResetText(haystack(r, parsed), tNow); src = at ? 'result-text' : null; }
     const wakeAt = Math.max(at ? at + MARGIN_MS : tNow + backoffMs(c.cls, waits, deps.random || Math.random), tNow + MIN_WAIT_MS);
     Object.assign(st, { resume_after: iso(at), resume_after_source: src || 'backoff', wake_at: iso(wakeAt) });
-    const manual = sid ? 'claude -p "continue" --resume ' + sid : 'claude -p "continue" --continue';
+    const manual = 'claude -p "continue" --resume ' + sid;
     if (!S.autoResume) { log('usage limit (' + c.cls + ') - rotator-auto-resume is off; resume by hand after ' + iso(wakeAt) + ': ' + manual); return finish('limit-hit:auto-resume-off', EXIT.gaveUp); }
     if (attempt >= S.maxAttempts) return finish('gave-up:max-attempts', EXIT.gaveUp);
     if (waits >= S.maxWaits) return finish('gave-up:max-waits', EXIT.gaveUp);
@@ -326,7 +371,7 @@ async function supervise(o, deps) {
       await sleep(Math.min(deps.chunkMs || CHUNK_MS, wakeAt - now()), ac.signal);
       if (now() - beat >= HEARTBEAT_MS) { beat = now(); save(); }
     }
-    mode = sid ? 'resume' : 'continue';
+    mode = 'resume';
   }
 }
 

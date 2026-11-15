@@ -38,5 +38,23 @@ t('the guard is not opt-out: FORGE_STRICT_EVENTS=0 still refuses an agentless wp
   finally { if (prev === undefined) delete process.env.FORGE_STRICT_EVENTS; else process.env.FORGE_STRICT_EVENTS = prev; }
 });
 
+// CORE-2-F1: the hand list covered only three types. Every other work event the run contract counts
+// (forge-runcontract.cjs isWorkEvent, minus the assignment type) was written without an agent and then failed
+// independent-verification for the whole run. The writer now uses the contract's own definition.
+console.log('log-event: every work event the contract counts needs an agent (CORE-2-F1)');
+const WORK_CASES = [
+  ['check_passed', Object.assign({ check: 'unit' }, PROOF)],
+  ['file_changed', { file: 'src/a.cjs' }],
+  ['command_run', { command: 'node x.cjs' }],
+  ['report_generated', { output_path: 'report.md' }],
+];
+for (const [type, payload] of WORK_CASES) {
+  t(type + ' without agent is refused (the contract counts it as anonymous work)', () => assert.ok(refusedForAgent(L.validateForWrite(ev(type, payload)))));
+  t(type + ' WITH an agent passes this guard', () => assert.ok(notRefusedForAgent(L.validateForWrite(ev(type, Object.assign({ agent: 'orchestrator' }, payload))))));
+}
+t('wp_verified (non-work in the contract) without agent is not refused by this guard', () => assert.ok(notRefusedForAgent(L.validateForWrite(ev('wp_verified', { wp_id: 'W1', verdict: 'PASS' })))));
+t('agent_work_package_created (an assignment, not work) without agent is not refused by this guard', () => assert.ok(notRefusedForAgent(L.validateForWrite(ev('agent_work_package_created', { wp_id: 'W1', title: 'x' })))));
+t('run_started without agent is not refused by this guard', () => assert.ok(notRefusedForAgent(L.validateForWrite(ev('run_started', { goal: 'x' })))));
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

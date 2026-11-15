@@ -12,7 +12,7 @@
  * MODEL:
  *   requirement({ domain }, opts) -> { domain, required:boolean, reason:string }
  *     `domain` is matched case-insensitively against a fixed correctness-critical list (finance,
- *     parser, ocr, data, prediction). Any other domain (e.g. "marketing", "copy", "website-copy") is
+ *     parser, ocr, data, prediction, payments, ecommerce). Any other domain (e.g. "marketing", "copy", "website-copy") is
  *     NOT required — synthetic or no fixtures is acceptable there. An empty/missing domain is treated
  *     as not correctness-critical (never blocks on missing classification).
  *
@@ -46,9 +46,13 @@
 // Correctness-critical domains — being subtly wrong on real-world input is the actual risk, so
 // synthetic-only fixtures don't prove correctness. Kept as a fixed, explicit list (same
 // single-source-of-truth discipline forge-actiongate.cjs's KNOWN_GATES uses) rather than a heuristic.
-const CRITICAL_DOMAINS = ['finance', 'parser', 'ocr', 'data', 'prediction'];
+// FB-MISC-1-F8: forge-domain-discovery only outputs domain-catalog ids, so the money domains are listed by those ids
+// (payments, ecommerce); finance/parser/ocr stay as aliases for callers that pass them directly.
+const CRITICAL_DOMAINS = ['finance', 'parser', 'ocr', 'data', 'prediction', 'payments', 'ecommerce'];
 
 const CRITICAL_REASONS = {
+  payments: 'payment, billing and refund amounts must be proven against real numbers, not synthetic guesses',
+  ecommerce: 'prices, totals, tax and stock logic must be proven against real catalogue and order data',
   finance: 'financial/invoicing/accounting logic must be proven against real numbers, not synthetic guesses',
   parser: 'a parser that is silently wrong on real-world irregular input is worse than one that fails loudly',
   ocr: 'OCR accuracy on clean synthetic text says nothing about real scanned/photographed documents',

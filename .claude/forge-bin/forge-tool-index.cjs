@@ -46,7 +46,7 @@
  *   node forge-tool-index.cjs ingest  [--run <id>] [--all] [--full] [--root <p>] [--backend sqlite|jsonl] [--json]
  *   node forge-tool-index.cjs search  <query> [--run <id>] [--agent <n>] [--type <t>] [--since <iso>]
  *                                     [--until <iso>] [--limit <n>] [--rejected] [--exclude-rejected] [--json]
- *   node forge-tool-index.cjs tried   <query> [--limit <n>] [--root <p>] [--json]
+ *   node forge-tool-index.cjs tried   <query> [--limit <n>] [--root <p>] [--json]   (runs an incremental ingest first)
  *   node forge-tool-index.cjs resolve <ref_path> [--root <p>] [--json]
  *   node forge-tool-index.cjs stats   [--root <p>] [--json]
  *   node forge-tool-index.cjs rebuild [--root <p>] [--json]
@@ -658,9 +658,11 @@ function search(query, opts) {
       db = openDb(paths, false);
       if (db) {
         const dbCount = db.prepare('SELECT COUNT(*) AS n FROM entries').get().n;
-        if (dbCount === 0 && jsonlCount > 0) {
+        // FB-GUARDS-1-F7: a db that holds a different number of records than the canonical JSONL store (a run ingested
+        // on the jsonl backend only) would miss records, so any count difference falls back to keyword scoring
+        if (dbCount !== jsonlCount && jsonlCount > 0) {
           base.backend = 'jsonl-keyword';
-          base.reason = 'the sqlite index is empty while the canonical JSONL store holds ' + jsonlCount + ' record(s) — falling back to keyword scoring';
+          base.reason = 'the sqlite index holds ' + dbCount + ' record(s) while the canonical JSONL store holds ' + jsonlCount + ' — falling back to keyword scoring';
         } else if (matchExpr) {
           const { where, params } = sqlFiltersFor(filters);
           const sql = 'SELECT e.event_uid, e.ts, e.run_id, e.agent, e.event_type, e.tool, e.summary, e.ref_path, e.line_no, e.summary_fields, bm25(entries_fts) AS bm ' +
@@ -904,6 +906,10 @@ if (require.main === module) {
       const q = o.positional[0];
       if (!q) { console.error('forge-tool-index: tried needs a query'); printUsage(); process.exitCode = 2; }
       else {
+        // FB-GUARDS-1-F17: nothing else keeps the index fresh, so `tried` ingests first (incremental: only new
+        // lines are read). A failed ingest still answers from the old index; its `stale` flag then says so.
+        const pre = ingest({ root: o.root, backend: o.backend });
+        if (!pre.ok) console.error('forge-tool-index: ingest before tried failed: ' + pre.reason);
         const r = wasRejected(q, { root: o.root, backend: o.backend, limit: Number.isFinite(o.limit) ? o.limit : undefined });
         if (o.json) console.log(JSON.stringify(r));
         else {

@@ -768,7 +768,7 @@ forge_guarded_write_new() {
 # forge_guarded_write_recommended — AUXILIARY-FILE-CLOBBER for the bash-only (no `node`) fallback: a
 # uniquely timestamp+random-suffixed settings.forge-recommended-<stamp>-<rand>.json, exclusively created
 # (`set -C` noclobber — never overwrites/follows a prior recovery file or a planted symlink at that exact
-# name), mirroring forge-settings-merge-guards.cjs's own writeExclusiveUnique. Never targets a FIXED
+# name), mirroring forge-settings-merge-guards.cjs's own writeExclusiveUnique (V07). Never targets a FIXED
 # `settings.forge-recommended.json` path — a pre-existing file or symlink already sitting at that fixed name
 # is simply never touched, by construction.
 forge_guarded_write_recommended() {
@@ -920,7 +920,7 @@ forge_copy_settings_file() {
 # template file itself being unreadable) instead of the caller assuming one fixed cause. A brand-new
 # project (no such file yet) is always safe and never even shells out. is_dry_run ("1"/"0", default
 # "0") is passed straight through to migrateOwnerStandingRules() so a dry run reports the SAME
-# outcome a real run would reach without writing anything — dry-run-ness never changes which
+# outcome a real run would reach (F4 fix) without writing anything — dry-run-ness never changes which
 # guard trips, only whether the final write at the very end of that function actually happens.
 forge_check_standing_rules_migration() {
   local project_dir="$1" source_claude_dir="$2" is_dry_run="${3:-0}"
@@ -947,7 +947,7 @@ forge_check_standing_rules_migration() {
   [ -n "$out" ] && forge_log "  $out"
 
   if [ "$code" -eq 3 ]; then
-    # the file EXISTS (checked above) but could not itself be read or parsed — kept, never
+    # F2 fix: the file EXISTS (checked above) but could not itself be read or parsed — kept, never
     # silently treated as "nothing to migrate, safe to overwrite" the way a read/parse failure used to
     # be. Plain NL+EN words, both facts (could not be read; left untouched) in both languages, reused
     # verbatim for the immediate warning AND the final NOTE so the two never say something different.

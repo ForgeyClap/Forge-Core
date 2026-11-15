@@ -17,10 +17,10 @@ description: "Playbook for full-stack apps: backend, auth, SaaS, CRUD dashboards
 - Input validation on every endpoint; never trust client data.
 - Secrets in env + `.env.example` placeholders; no secrets in the client bundle.
 - DB migrations reviewed by `database-reviewer` and reversible.
-- Auth/secret/DB changes are a **required Codex review area** — force `/codex:adversarial-review`.
+- Auth/secret/DB changes get a **Security Boss review**. A Codex adversarial review (`/codex:adversarial-review`) is optional and only when the Codex plugin is on; when it did not run, say so and label any stand-in `FALLBACK (non-independent) review` per `forge-code-review`. It never blocks the package.
 
 ## Team (conditional by stack/level)
-- Lead: `architect` + `planner`.
+- Lead: `build-boss`; `architect` and `planner` are optional read-only design advisors (not Bosses).
 - Frontend: `react-reviewer` / `vue-reviewer`.
 - Backend: `fastapi-reviewer` / `django-reviewer` (Python) or `typescript-reviewer` / `go-reviewer` (by stack).
 - Data: `database-reviewer` (Postgres/Supabase).

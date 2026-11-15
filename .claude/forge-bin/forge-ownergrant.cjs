@@ -14,7 +14,9 @@
  *
  * The rule this module enforces:
  *   1. The secret lives in a FILE the owner writes: <project>/.claude/config/<name>.txt.
- *      A file is outside the caller's process; an env var is not.
+ *      A file is outside the caller's process; an env var is not. But an agent can write a file too
+ *      (FB-GUARDS-1-F1): a secret file created or changed during the current Claude Code
+ *      session is refused, and the real boundary is the Write/Edit deny rules plus the gate hook.
  *   2. An env var may still be used, but ONLY as a *pointer/alias* for the same file value — never as
  *      the secret itself. (`allowEnv` exists for tests and for a deliberate owner-run shell; it is off
  *      by default and every caller in this repo leaves it off.)
@@ -76,6 +78,30 @@ function readOwnerSecret(opts) {
   return { value: null, source: 'none', file, label };
 }
 
+/** sessionStartFromEnv(env, home) -> ms | null — when this process runs inside a Claude Code session
+ *  (CLAUDE_PID is set), the session's start time from the harness's own record
+ *  ~/.claude/sessions/<pid>.json (startedAt). null outside a session or when the record is missing.
+ *  shortcut: an undocumented harness file; when it is missing the fresh-secret check below is skipped. */
+function sessionStartFromEnv(env, home) {
+  const pid = env && typeof env.CLAUDE_PID === 'string' ? env.CLAUDE_PID.trim() : '';
+  if (!/^\d+$/.test(pid)) return null;
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(home || require('os').homedir(), '.claude', 'sessions', pid + '.json'), 'utf8'));
+    return Number.isFinite(rec && rec.startedAt) ? rec.startedAt : null;
+  } catch { return null; }
+}
+
+/** writtenThisSession(file, startMs) -> true when the secret file was created or changed after the session
+ *  started (FB-GUARDS-1-F1): a refused agent could otherwise write the file and pass its own
+ *  token. Defence in depth only; the real boundary is the Write/Edit deny rules and the gate hook. */
+function writtenThisSession(file, startMs) {
+  if (!Number.isFinite(startMs)) return false;
+  try { const st = fs.statSync(file); return Math.max(st.birthtimeMs || 0, st.mtimeMs || 0) >= startMs; }
+  catch { return false; }
+}
+
+const sameRoot = (a, b) => !!a && !!b && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+
 /** verifyOwnerGrant — the single decision. */
 function verifyOwnerGrant(opts) {
   opts = opts || {};
@@ -85,9 +111,17 @@ function verifyOwnerGrant(opts) {
       ok: false, source: 'none',
       // OWNER-CREDENTIAL-PATH: a project-relative LABEL, never secret.file's resolved
       // absolute path — see relativeSecretLabel() above.
-      reason: 'no owner authorisation secret is configured — write one to ' + secret.label
-        + ' (relative to the project root) so this can be VERIFIED instead of assumed (an environment variable does not count: the process asking for permission can set it)',
+      reason: 'no owner authorisation secret is configured — the owner writes it by hand at ' + secret.label
+        + ' (relative to the project root), an agent must never create or edit that file, so this can be VERIFIED instead of assumed (an environment variable does not count: the process asking for permission can set it)',
     };
+  }
+  // The session check runs for the real project root; tests use scratch roots and pass sessionStartMs.
+  const root = opts.projectRoot ? path.resolve(opts.projectRoot) : DEFAULT_ROOT;
+  const startMs = Number.isFinite(opts.sessionStartMs) ? opts.sessionStartMs
+    : (sameRoot(root, DEFAULT_ROOT) ? sessionStartFromEnv(opts.env || process.env, opts.homeDir) : null);
+  if (secret.source === 'file' && writtenThisSession(secret.file, startMs)) {
+    return { ok: false, source: secret.source, reason: 'the owner authorisation secret ' + secret.label
+      + ' was created or changed during this Claude Code session, so an agent may have written it — refused. If you wrote it yourself, start a new session or run the command from a terminal outside Claude Code' };
   }
   const token = opts.token;
   if (typeof token !== 'string' || !token.trim()) {
@@ -202,7 +236,7 @@ function readOverrideGrant(opts) {
       accountLabel, credentialGeneration, issuanceId,
     };
   }
-  // a genuinely absent `until` is INVALID, not unlimited (see the doc comment above).
+  // N12: a genuinely absent `until` is INVALID, not unlimited (see the doc comment above).
   if (typeof parsed.until !== 'string' || !parsed.until) {
     return { active: false, at: parsed.at || null, until: null, reason: parsed.reason || null, accountLabel, credentialGeneration, issuanceId, invalid: 'missing-expiry' };
   }
@@ -261,7 +295,7 @@ function writeOverrideGrant(record, opts) {
 }
 
 module.exports = {
-  verifyOwnerGrant, readOwnerSecret, relativeSecretLabel, DEFAULT_ROOT,
+  verifyOwnerGrant, readOwnerSecret, relativeSecretLabel, sessionStartFromEnv, DEFAULT_ROOT,
   overrideGrantFilePath, readOverrideGrant, writeOverrideGrant,
 };
 

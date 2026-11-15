@@ -47,7 +47,7 @@ function scribeWiring(root, opts) {
       else notes.push('verify-chain OK (inbox ' + v.inbox.lines + ' line(s), ledger ' + v.ledger.lines + ' line(s))');
     } catch (e) { problems.push('forge-scribe verify-chain could not run: ' + String(e.message).split('\n')[0]); }
   } else notes.push('no scribe ledger yet (nothing captured in this project)');
-  // WP 2.1: the store the scribe WRITES to must be ignored: .claude/forge-scribe/ in a legacy project, .forge/scribe/
+  // WP 2.1 (R7): the store the scribe WRITES to must be ignored: .claude/forge-scribe/ in a legacy project, .forge/scribe/
   // once the project uses the .forge/ state root (then a legacy store that still exists is checked as well).
   const scribeDirs = [stateWriteDir(root, 'scribe', 'forge-scribe')];
   const legacyScribe = path.join(cd, 'forge-scribe');
@@ -156,6 +156,256 @@ function globalForgeHandover(root, opts) {
   return problems.length
     ? { ok: false, applicable: true, file: globalFile, problems, fix: 'put the Step 0 handover (read and follow .claude/commands/forge.md with $ARGUMENTS) first in ' + globalFile }
     : { ok: true, applicable: true, file: globalFile };
+}
+
+/** globalDrift(root, opts) — ADVISORY, development tree only (FB-INSTALL-2-F2 / CORE-5-F4). Compares the live ~/.claude
+ *  files Forge depends on with the captured copies in global-install/ (forge-global-drift.cjs report()) and names the
+ *  live_drift / copy_changed files and the allow-listed live files no capture covers. n/a on CI, outside the dev tree,
+ *  without ~/.claude or without global-install/manifest.json. opts.home / opts.devTree / opts.env are test seams. Never red. */
+function globalDrift(root, opts) {
+  const o = opts || {};
+  const env = o.env || process.env;
+  if (env.CI) return { ok: true, applicable: false, reason: 'CI: there is no live ~/.claude to compare' };
+  if (!(o.devTree !== undefined ? o.devTree : readDevTreeMarker(root).valid)) return { ok: true, applicable: false, reason: 'not the development tree — global-install/ is kept only there' };
+  const home = o.home || path.join(require('os').homedir(), '.claude');
+  if (!fs.existsSync(home)) return { ok: true, applicable: false, reason: 'no ~/.claude folder on this machine' };
+  if (!fs.existsSync(path.join(root, 'global-install', 'manifest.json'))) return { ok: true, applicable: false, reason: 'no global-install/manifest.json (nothing captured yet)' };
+  const rep = require('../forge-global-drift.cjs').report({ root, home });
+  const of = (s) => rep.entries.filter((e) => String(e.status).split('+').includes(s)).map((e) => String(e.live || e.path).split('\\').join('/').replace(/^.*?\.claude\//, ''));
+  const liveDrift = of('live_drift'), copyChanged = of('copy_changed');
+  const out = { ok: rep.ok, applicable: true, counts: rep.counts, live_drift: liveDrift, copy_changed: copyChanged, uncovered: rep.uncovered };
+  if (!rep.ok) {
+    out.reason = [liveDrift.length && liveDrift.length + ' live file(s) differ from the capture: ' + liveDrift.slice(0, 6).join(', '),
+      copyChanged.length && copyChanged.length + ' captured copy(ies) edited: ' + copyChanged.slice(0, 6).join(', '),
+      rep.uncovered.length && rep.uncovered.length + ' allow-listed live file(s) not captured: ' + rep.uncovered.slice(0, 6).join(', ')].filter(Boolean).join(' · ');
+    out.fix = 'node .claude/forge-bin/forge-global-drift.cjs (report), then the same with --capture once the live files are the intended ones';
+  }
+  return out;
+}
+
+/** newestWorkRun(root, opts) -> {runId, lastWorkAt} of the newest run with real work (forge-snapshot.cjs pickRun, the
+ *  doctor's own run ranker), or {runId:null}. opts.pickRun is a test seam. */
+function newestWorkRun(root, opts) {
+  const pick = (opts && opts.pickRun) || ((r) => require('../forge-snapshot.cjs').pickRun(r));
+  const sel = pick(root) || {};
+  const row = Array.isArray(sel.considered) ? sel.considered.find((c) => c && c.name === sel.runId) : null;
+  return { runId: sel.runId || null, lastWorkAt: (row && row.lastWorkAt) || null };
+}
+
+/** rollbackCheckpoint(root, opts) — ADVISORY (FB-INSTALL-1-F1). The newest work run has a per-run rollback
+ *  checkpoint record (forge-rollback.cjs list), so a bad run can be rolled back. n/a without a run or without git.
+ *  opts.pickRun / opts.list are test seams. Never red. */
+function rollbackCheckpoint(root, opts) {
+  const o = opts || {};
+  const { runId } = newestWorkRun(root, o);
+  if (!runId) return { ok: true, applicable: false, reason: 'no run with real work yet' };
+  let records;
+  try { records = (o.list || ((r) => require('../forge-rollback.cjs').list({ root: r })))(root); }
+  catch (e) { return { ok: true, applicable: false, reason: 'rollback records cannot be read here: ' + String((e && e.message) || e).split('\n')[0] }; }
+  const n = Array.isArray(records) ? records.length : 0;
+  if (n && records.some((r) => r && r.run_id === runId)) return { ok: true, applicable: true, run: runId, checkpoints: n };
+  return { ok: false, applicable: true, run: runId, checkpoints: n, reason: 'the newest run ' + runId + ' has no rollback checkpoint record (' + n + ' checkpoint(s) in this project)',
+    fix: 'node .claude/forge-bin/forge-rollback.cjs checkpoint --run ' + runId + ' right after the /forge git checkpoint commit (commands/forge.md setup row)' };
+}
+
+/** memoryStatusFresh(root, opts) — ADVISORY (CORE-5-F2). CLAUDE.md sends every session to the newest status
+ *  block of .claude/FORGE_MEMORY.md; warn when that block is dated before the day of the newest run with real work, so
+ *  a session does not resume from a state that no longer exists. opts.memoryText (null = no file) / opts.pickRun are
+ *  test seams. Never red. */
+function memoryStatusFresh(root, opts) {
+  const o = opts || {};
+  let text = o.memoryText;
+  if (text === undefined) { try { text = fs.readFileSync(path.join(root, '.claude', 'FORGE_MEMORY.md'), 'utf8'); } catch { text = null; } }
+  if (typeof text !== 'string') return { ok: true, applicable: false, reason: 'no .claude/FORGE_MEMORY.md' };
+  const block = require('../forge-run-file.cjs').latestStatusBlock(text);
+  if (!block) return { ok: true, applicable: false, reason: 'FORGE_MEMORY.md has no "## Status <date>" block' };
+  const { runId, lastWorkAt } = newestWorkRun(root, o);
+  const workDay = String(lastWorkAt || '').slice(0, 10) || ((/(\d{4}-\d{2}-\d{2})/.exec(String(runId || '')) || [])[1] || '');
+  if (!runId || !workDay) return { ok: true, applicable: false, reason: 'no run with real work to compare against' };
+  const blockDay = block.key.slice(0, 10);
+  if (blockDay >= workDay) return { ok: true, applicable: true, status_block: blockDay, run: runId };
+  return { ok: false, applicable: true, status_block: blockDay, run: runId,
+    reason: 'the newest FORGE_MEMORY.md status block is dated ' + blockDay + ', before the newest work run ' + runId + ' (' + workDay + '): a resume would read a past state',
+    fix: 'append a current status block with node .claude/forge-bin/forge-run-file.cjs append (FORGE_MEMORY.md), then regenerate the snapshot' };
+}
+
+/** configConsumers(root, opts) — ADVISORY (CF-3-F4). Every `.claude/forge-bin/<x>.cjs` consumer the config
+ *  schema names (unless marked "prose only") must mention its setting: the full key or its last dotted part, in the file
+ *  itself or in a sibling it requires with require('./y.cjs'). A consumer that never mentions its key behaves the same
+ *  with the setting off, so "off" would be a promise only. opts.schema is a test seam (null = no schema). Never red. */
+function configConsumers(root, opts) {
+  const o = opts || {};
+  let schema = o.schema;
+  if (schema === undefined) { try { schema = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json'), 'utf8')); } catch { schema = null; } }
+  if (!schema || !schema.settings) return { ok: true, applicable: false, reason: 'no readable FORGE_CONFIG_SCHEMA.json' };
+  const bin = path.join(root, '.claude', 'forge-bin');
+  const textOf = (f) => { try { return fs.readFileSync(path.join(bin, f), 'utf8'); } catch { return null; } };
+  const unread = [];
+  let checked = 0;
+  for (const [key, spec] of Object.entries(schema.settings)) {
+    for (const c of (spec && Array.isArray(spec.consumers)) ? spec.consumers : []) {
+      const m = /^\.claude\/forge-bin\/([\w.-]+\.cjs)\b/.exec(String(c));
+      if (!m || /prose only/i.test(c)) continue;
+      checked++;
+      const own = textOf(m[1]);
+      if (own === null) { unread.push(key + ' -> .claude/forge-bin/' + m[1] + ' (file missing)'); continue; }
+      const sibs = [...own.matchAll(/require\(\s*['"]\.\/([\w.-]+?)(?:\.cjs)?['"]\s*\)/g)].map((x) => textOf(x[1] + '.cjs')).filter((t) => t !== null);
+      const words = [key, key.split('.').pop()];
+      if (![own, ...sibs].some((t) => words.some((w) => t.includes(w)))) unread.push(key + ' -> .claude/forge-bin/' + m[1]);
+    }
+  }
+  const out = { ok: !unread.length, applicable: true, checked, unread };
+  if (unread.length) {
+    out.reason = unread.length + ' code consumer(s) never mention their setting: ' + unread.slice(0, 6).join(', ');
+    out.fix = 'read the setting in that tool (forge-config.cjs get / safeGet), or mark the consumer "(prose only: ...)" in FORGE_CONFIG_SCHEMA.json';
+  }
+  return out;
+}
+
+/** reportStatusEnum(root, opts) — ADVISORY (SK-8-F1). Every "status": "..." line in a .claude/agents/*.md
+ *  report template uses only forge-report.cjs REQUIRED_STATUSES, and a template that lists several values (a | b) lists
+ *  exactly that set: a Boss that ends with a status the ingest rejects is a report the dashboard never shows.
+ *  opts.required is a test seam. n/a without an agents folder or a readable REQUIRED_STATUSES. Never red. */
+function reportStatusEnum(root, opts) {
+  const o = opts || {};
+  let required = o.required;
+  if (!required) { try { required = require(path.join(claudeDir(root), 'forge-bin', 'forge-report.cjs')).REQUIRED_STATUSES; } catch { required = null; } }
+  if (!Array.isArray(required) || !required.length) return { ok: true, applicable: false, reason: 'forge-report.cjs REQUIRED_STATUSES is not readable here' };
+  const dir = path.join(claudeDir(root), 'agents');
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort(); } catch { return { ok: true, applicable: false, reason: 'no .claude/agents folder' }; }
+  const want = required.slice().sort().join('|');
+  const mismatched = [];
+  let checked = 0;
+  for (const n of files) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(dir, n), 'utf8'); } catch { continue; }
+    for (const m of text.matchAll(/"status":\s*"([^"]+)"/g)) {
+      checked++;
+      const vals = m[1].split('|').map((v) => v.trim()).filter(Boolean);
+      const bad = vals.some((v) => !required.includes(v)) || (vals.length > 1 && vals.slice().sort().join('|') !== want);
+      if (bad) mismatched.push({ file: '.claude/agents/' + n, status: m[1] });
+    }
+  }
+  const out = { ok: !mismatched.length, applicable: true, checked, required, mismatched };
+  if (mismatched.length) {
+    out.reason = mismatched.length + ' report template(s) use a status forge-report.cjs rejects or a partial list: ' + mismatched.slice(0, 6).map((m) => m.file + ' "' + m.status + '"').join(', ');
+    out.fix = 'set the template line to "status": "' + required.join(' | ') + '" (forge-report.cjs REQUIRED_STATUSES)';
+  }
+  return out;
+}
+
+/** hooksDocumented(root) — ADVISORY (CF-2-F3). Every hook script the project settings.json runs is named
+ *  in .claude/config/orchestration/HOOKS_OPT_IN.md or .claude/docs/HOOKS_OPT_IN.md, so an owner who wants to audit or
+ *  switch off a hook finds its purpose and off switch. n/a without a readable settings file. Never red. */
+function hooksDocumented(root) {
+  const cd = claudeDir(root);
+  let settings = null;
+  try { settings = JSON.parse(fs.readFileSync(path.join(cd, 'settings.json'), 'utf8')); } catch { return { ok: true, applicable: false, reason: 'no readable .claude/settings.json' }; }
+  const scripts = new Set();
+  for (const groups of Object.values((settings && settings.hooks) || {})) {
+    for (const g of Array.isArray(groups) ? groups : []) {
+      for (const h of (g && Array.isArray(g.hooks)) ? g.hooks : []) {
+        for (const m of String((h && h.command) || '').matchAll(/[\w.-]+\.(?:cjs|mjs|js|ps1|cmd|sh|py)\b/g)) scripts.add(m[0]);
+      }
+    }
+  }
+  const docs = [path.join(cd, 'config', 'orchestration', 'HOOKS_OPT_IN.md'), path.join(cd, 'docs', 'HOOKS_OPT_IN.md')]
+    .map((p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } }).join('\n');
+  const undocumented = [...scripts].sort().filter((n) => !docs.includes(n));
+  const out = { ok: !undocumented.length, applicable: true, checked: scripts.size, undocumented };
+  if (undocumented.length) {
+    out.reason = undocumented.length + ' hook script(s) in .claude/settings.json named in neither HOOKS_OPT_IN.md: ' + undocumented.join(', ');
+    out.fix = 'add a row (event, matcher, script, purpose, off switch) to the inventory table in .claude/config/orchestration/HOOKS_OPT_IN.md';
+  }
+  return out;
+}
+
+/** systemSkillFresh(root) — ADVISORY (SK-1-F2). Runs forge-system-skill.cjs check on this root: the
+ *  generated forge-system skill must match its sources, have no dead path reference and no secret pattern (this
+ *  doctor's own copy of the tool, so a fixture root needs only its sources). n/a without the generated skill. Never red. */
+function systemSkillFresh(root) {
+  if (!fs.existsSync(path.join(claudeDir(root), 'skills', 'forge-system', 'SKILL.md'))) return { ok: true, applicable: false, reason: 'no generated .claude/skills/forge-system skill' };
+  const r = require('../forge-system-skill.cjs').check({ root });
+  const out = { ok: !!r.ok, applicable: true, stale: r.stale, dead_refs: r.deadRefs.map((d) => d.ref + ' in ' + d.file), secrets: r.secrets.length };
+  if (!r.ok) {
+    out.reason = [r.stale.length && r.stale.length + ' stale file(s): ' + r.stale.join(', '),
+      r.deadRefs.length && r.deadRefs.length + ' dead path reference(s): ' + out.dead_refs.slice(0, 4).join(', '),
+      r.secrets.length && r.secrets.length + ' secret pattern(s)'].filter(Boolean).join(' · ');
+    out.fix = 'node .claude/forge-bin/forge-system-skill.cjs generate (then check again; a dead ref or secret is fixed in its source)';
+  }
+  return out;
+}
+
+/** scheduledTasks(root, opts) — ADVISORY (FB-MISC-2-F7). The scheduled tasks forge-killswitch.cjs KNOWN_TASKS
+ *  names (the monthly sweep, the Command Center supervisor) are registered on this machine. Windows and the
+ *  development tree only (the tasks are this machine's), never in CI. Re-registering is an owner action. A failed
+ *  lookup is n/a, never red. opts: platform, devTree, env, known, listTasks (test seams). */
+function scheduledTasks(root, opts) {
+  const o = opts || {};
+  const env = o.env || process.env;
+  if ((o.platform || process.platform) !== 'win32') return { ok: true, applicable: false, reason: 'scheduled tasks are only checked on Windows' };
+  if (env.CI) return { ok: true, applicable: false, reason: 'CI: no owner scheduled tasks to check' };
+  if (!(o.devTree !== undefined ? o.devTree : readDevTreeMarker(root).valid)) return { ok: true, applicable: false, reason: 'not the development tree' };
+  let known = o.known, listTasks = o.listTasks;
+  if (!known || !listTasks) {
+    let K = null;
+    try { K = require(path.join(claudeDir(root), 'forge-bin', 'forge-killswitch.cjs')); } catch (e) { return { ok: true, applicable: false, reason: 'forge-killswitch.cjs does not load (' + String(e.message).split('\n')[0] + ')' }; }
+    known = known || K.KNOWN_TASKS;
+    listTasks = listTasks || K.listTasksWindows;
+  }
+  let tasks;
+  try { tasks = listTasks() || []; } catch (e) { return { ok: true, applicable: false, reason: 'the scheduled-task lookup failed: ' + String((e && e.message) || e).split('\n')[0] }; }
+  const names = new Set(tasks.map((t) => String((t && t.name) || '').replace(/^\\+/, '').toLowerCase()));
+  const missing = known.filter((k) => !names.has(String(k).toLowerCase()));
+  const out = { ok: !missing.length, applicable: true, known, missing };
+  if (missing.length) {
+    out.reason = missing.length + ' scheduled task(s) named in forge-killswitch.cjs KNOWN_TASKS are not registered on this machine: ' + missing.join(', ');
+    out.fix = 'owner action: re-register the task (see the header of .claude/forge-bin/maand-sweep.cmd or start-command-center.cmd), or remove it from KNOWN_TASKS and the notes when it was retired on purpose';
+  }
+  return out;
+}
+
+/** referenceFit(root) — ADVISORY (CORE-3-F2 / CORE-3-F9). (1) every `.claude/forge-bin/<x>.cjs` a file under
+ *  global-install/payload names exists in .claude/forge-bin itself (a tool only under archive/ is gone for the global
+ *  copy); (2) every skill reference file (.claude/skills/**\/references/*.md) fits one Read: at most REFERENCE_MAX_BYTES
+ *  (about 25k tokens). n/a when neither folder exists. Never red. */
+const REFERENCE_MAX_BYTES = 100000;
+function referenceFit(root) {
+  const walk = (dir, keep, acc) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return acc; }
+    for (const e of ents) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.git') walk(p, keep, acc); } else if (keep(p)) acc.push(p);
+    }
+    return acc;
+  };
+  const rel = (p) => path.relative(root, p).split(path.sep).join('/');
+  const payload = path.join(root, 'global-install', 'payload');
+  const skills = path.join(root, '.claude', 'skills');
+  if (!fs.existsSync(payload) && !fs.existsSync(skills)) return { ok: true, applicable: false, reason: 'no global-install/payload and no .claude/skills' };
+  const missing = [];
+  for (const f of walk(payload, (p) => /\.(md|cjs|js|json)$/i.test(p), [])) {
+    let text = '';
+    try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    for (const name of new Set([...text.matchAll(/\.claude\/forge-bin\/([\w.-]+\.cjs)\b/g)].map((m) => m[1]))) {
+      if (!fs.existsSync(path.join(root, '.claude', 'forge-bin', name))) missing.push(rel(f) + ' -> .claude/forge-bin/' + name);
+    }
+  }
+  const oversized = [];
+  for (const f of walk(skills, (p) => /\.md$/i.test(p) && path.basename(path.dirname(p)) === 'references', [])) {
+    let size = 0;
+    try { size = fs.statSync(f).size; } catch { continue; }
+    if (size > REFERENCE_MAX_BYTES) oversized.push({ file: rel(f), bytes: size });
+  }
+  const out = { ok: !missing.length && !oversized.length, applicable: true, missing_tools: missing, oversized };
+  if (!out.ok) {
+    out.reason = [missing.length && missing.length + ' payload reference(s) to a missing forge-bin tool: ' + missing.slice(0, 4).join(', '),
+      oversized.length && oversized.length + ' skill reference file(s) over ' + REFERENCE_MAX_BYTES + ' bytes (one Read): ' + oversized.slice(0, 4).map((x) => x.file).join(', ')].filter(Boolean).join(' · ');
+    out.fix = 'point the payload at the live tool name (or drop the line); split an oversized reference into smaller files';
+  }
+  return out;
 }
 
 /** pluginValidate(root, opts) — ADVISORY (modernization WP 3.7). Runs `claude plugin validate dist/forge-plugin`
@@ -346,7 +596,7 @@ function runLiveness(root, opts) {
 
 module.exports = {
   scribeWiring, unpublishedCheck, structureCheck, advisorySafe, ALWAYS_LOADED_BUDGET_BYTES, ALWAYS_LOADED_FILES,
-  alwaysLoadedBudget, globalForgeHandover, PLUGIN_DIST_REL, PLUGIN_VALIDATE_TIMEOUT_MS, pluginValidate, LINT_SHOW, lintSummary, skillLint,
+  alwaysLoadedBudget, globalForgeHandover, globalDrift, rollbackCheckpoint, memoryStatusFresh, configConsumers, reportStatusEnum, hooksDocumented, systemSkillFresh, scheduledTasks, REFERENCE_MAX_BYTES, referenceFit, PLUGIN_DIST_REL, PLUGIN_VALIDATE_TIMEOUT_MS, pluginValidate, LINT_SHOW, lintSummary, skillLint,
   agentLint, configScan, HARNESS_MIN, harnessScore, LIVENESS_WINDOW_MS, LIVENESS_RUNNING_STATUSES,
   LIVENESS_ABANDONED_MS, runLiveness,
 };

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-killswitch.test.cjs — the ONE handle that stops all autonomous execution.
  *
@@ -533,6 +537,96 @@ t('a confirmed restore clears the ledger so a second restore cannot double-fire'
   K.restore(opts(world(), { exec: recorder().run, confirm: true, stateFile: sf }));
   const second = K.restore(opts(world(), { exec: recorder().run, confirm: true, stateFile: sf }));
   assert.strictEqual(second.ok, false, 'the ledger survived a completed restore');
+});
+
+// ======================================================================================================
+// 4b) audit 2026-11-12 (FB-GUARDS-1-F2/F3/F11/F12): the result must say what really happened
+// ======================================================================================================
+t('F2: a confirmed stop where every command failed and the pids are still alive is NOT ok', () => {
+  const exec = () => ({ ok: false, code: 1, stdout: '', stderr: 'Access is denied.' });
+  const r = K.run(opts(world(), { exec, confirm: true }));
+  assert.ok(r.steps.length > 0, 'setup: expected steps');
+  assert.strictEqual(r.ok, false, 'ok must not be true while the targets survived');
+});
+
+t('F2: a confirmed stop where every lookup threw is NOT ok (nothing was checked, so nothing is proven stopped)', () => {
+  const boom = () => { throw new Error('powershell exploded'); };
+  const r = K.run(opts(world(), { listProcesses: boom, portOwner: boom, listTasks: boom, exec: recorder().run, confirm: true }));
+  assert.strictEqual(r.ok, false, 'three failed lookups must not read as a clean stop');
+});
+
+t('F2: a process listing that fails after the kill counts the pid as still alive, never as gone', () => {
+  const w = world();
+  let killed = false;
+  const listProcesses = () => { if (killed) throw new Error('listing failed'); return w.processes; };
+  const exec = (cmd) => { if (cmd === 'taskkill') killed = true; return { ok: true, code: 0, stdout: '', stderr: '' }; };
+  const r = K.run(opts(w, { listProcesses, exec, confirm: true }));
+  const procSteps = r.steps.filter((s) => s.kind !== 'task');
+  assert.ok(procSteps.length > 0, 'setup');
+  assert.ok(procSteps.every((s) => s.result.verdict === 'failed'), 'an unknown pid state was reported as stopped: ' + JSON.stringify(procSteps.map((s) => s.result.verdict)));
+  assert.strictEqual(r.ok, false);
+});
+
+t('F2: a confirmed stop where every pid really went is ok', () => {
+  const w = world();
+  let gone = false;
+  const listProcesses = () => (gone ? [] : w.processes);
+  const exec = (cmd) => { if (cmd === 'taskkill') gone = true; return { ok: true, code: 0, stdout: '', stderr: '' }; };
+  const r = K.run(opts(w, { listProcesses, exec, confirm: true }));
+  assert.strictEqual(r.ok, true, JSON.stringify(r.errors));
+});
+
+t('F3: a restore where re-enable and the supervisor restart failed is NOT ok and keeps the ledger', () => {
+  const sf = stateFile();
+  fs.writeFileSync(sf, JSON.stringify({ engaged_at: new Date().toISOString(), root: ROOT, port: 4100, disabled_tasks: ['\\ForgeMaandSweep'], stopped: [] }), 'utf8');
+  const exec = () => ({ ok: false, code: 1, stdout: '', stderr: 'Access is denied.' });
+  const spawnDetached = () => ({ ok: false, detached: true, reason: 'could not spawn' });
+  const r = K.restore({ root: ROOT, stateFile: sf, confirm: true, exec, spawnDetached });
+  assert.strictEqual(r.ok, false, 'a failed restore must not report ok');
+  assert.ok(fs.existsSync(sf), 'the ledger was deleted although nothing was restored');
+  const kept = JSON.parse(fs.readFileSync(sf, 'utf8'));
+  assert.deepStrictEqual(kept.disabled_tasks, ['\\ForgeMaandSweep'], 'the ledger must still list the task that is still disabled');
+});
+
+t('F3: a restore where only the supervisor failed keeps the ledger without the re-enabled task', () => {
+  const sf = stateFile();
+  fs.writeFileSync(sf, JSON.stringify({ engaged_at: new Date().toISOString(), root: ROOT, port: 4100, disabled_tasks: ['\\ForgeMaandSweep'], stopped: [] }), 'utf8');
+  const r = K.restore({ root: ROOT, stateFile: sf, confirm: true, exec: recorder().run, spawnDetached: () => ({ ok: false, reason: 'x' }) });
+  assert.strictEqual(r.ok, false);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(sf, 'utf8')).disabled_tasks, []);
+});
+
+t('F11: a task the owner had already disabled is not disabled again and never lands in the ledger', () => {
+  const w = world();
+  w.tasks = w.tasks.map((x) => (/ForgeMaandSweep/.test(x.name) ? Object.assign({}, x, { state: 'Disabled' }) : x));
+  const sf = stateFile();
+  const r = K.run(opts(w, { exec: recorder().run, confirm: true, stateFile: sf }));
+  assert.ok(!r.steps.some((s) => s.kind === 'task' && /ForgeMaandSweep/.test(s.task)), 'a disabled task got a /DISABLE step');
+  const st = JSON.parse(fs.readFileSync(sf, 'utf8'));
+  assert.ok(!st.disabled_tasks.some((x) => /ForgeMaandSweep/.test(x)), 'restore would enable a task the owner disabled: ' + JSON.stringify(st.disabled_tasks));
+  const tg = r.targets.find((x) => x.kind === 'task' && /ForgeMaandSweep/.test(x.task));
+  assert.ok(/already disabled/i.test(tg.evidence), tg.evidence);
+});
+
+t('F12: a gateway from a SIBLING project whose path starts with our root is refused', () => {
+  const root = 'C:\\proj\\forge';
+  const w = world({
+    root, portOwner: 31337,
+    processes: [{ pid: 31337, ppid: 1, name: 'node.exe', cmd: NODE + '"C:\\proj\\forge-v2\\command-center\\gateway\\bin.mjs"' }],
+    tasks: [{ name: '\\ForgeMaandSweep', action: 'cmd.exe /c "C:\\proj\\forge-v2\\.claude\\forge-bin\\maand-sweep.cmd"', state: 'Ready' }],
+  });
+  const r = K.resolveTargets(opts(w));
+  const gw = r.targets.find((x) => x.kind === 'gateway');
+  assert.strictEqual(gw.verified, false, 'a forge-v2 gateway was verified as ours');
+  const task = r.targets.find((x) => x.kind === 'task' && /ForgeMaandSweep/.test(x.task));
+  assert.strictEqual(task.verified, false, 'a forge-v2 task was verified as ours');
+});
+
+t('F12: our own gateway under the exact root is still verified', () => {
+  const root = 'C:\\proj\\forge';
+  const w = world({ root, portOwner: 31337,
+    processes: [{ pid: 31337, ppid: 1, name: 'node.exe', cmd: NODE + '"C:\\proj\\forge\\command-center\\gateway\\bin.mjs"' }] });
+  assert.strictEqual(K.resolveTargets(opts(w)).targets.find((x) => x.kind === 'gateway').verified, true);
 });
 
 // ======================================================================================================

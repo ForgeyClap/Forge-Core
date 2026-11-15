@@ -35,11 +35,8 @@ line) is for a report/log line only and must never be re-parsed or re-executed.
 all — the review runs on the codex CLI's own current default, and is reported honestly as
 **"Codex default model"**, never a fabricated name. **Pinned:** an account's `codex-review.user.json` sets
 `review.model`/`review.reasoning_effort`, and the command passes exactly those as `-m <model>` /
-`-c model_reasoning_effort=<effort>`. This repo's own maintainer account currently pins `gpt-6-astra` at
-`model_reasoning_effort=xhigh` in its own user file (long thinking = xhigh;
-history: gpt-5.6-sol 2026-08-04 → HTTP 400 on that account 2026-09-24) — that pin lives in the
-never-shipped user file, never in this shipped skill text, so a different account never inherits it.
-Before the shipped config existed at all the model was pinned nowhere, so `/codex:review` silently used
-whatever default the plugin happened to carry; reaching a specific pinned model can still need a newer
-Codex CLI (gpt-5.6-sol needed ≥ 0.146.0 — 0.142.3 got an HTTP 400 telling it to upgrade, measured
-2026-08-03).
+`-c model_reasoning_effort=<effort>`. An account's pin lives only in its never-shipped user file, never in
+this shipped skill text, so a different account never inherits it. Reaching a specific pinned model can need
+a newer Codex CLI: an older CLI gets an HTTP 400 telling it to upgrade. When the codex plugin is disabled or
+the effective config resolves to disabled, the step is the labelled FALLBACK review (SKILL.md, "Codex
+handoff"), never a Codex verdict.

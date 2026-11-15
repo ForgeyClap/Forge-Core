@@ -1,0 +1,32 @@
+{
+  "_doc": "Forge graded-verify rubric for prediction and sports-data rationales (audit SK-8-F6). Owner-editable. Used by the forge-graded-verify skill: review-boss scores each criterion 1-4 with evidence + feedback. Advisory only — never gates irreversible actions, and never places a real-money bet. ADAPT per project; do not drop-in blindly.",
+  "domain": "prediction",
+  "threshold": 3,
+  "criteria": [
+    {
+      "id": "data_provenance",
+      "descriptor": "1=data source unknown or invented; 2=source named but not checked; 3=verified source with its date; 4=every input traced to a verified source with its date and any gaps stated",
+      "raise": "name the source and retrieval date of each input and say which inputs are missing"
+    },
+    {
+      "id": "backtest_reality",
+      "descriptor": "1=no backtest, or results invented; 2=backtest on the training data; 3=out-of-sample backtest with its period; 4=out-of-sample backtest with period, sample size and a baseline to beat, numbers reproducible from the run",
+      "raise": "run an out-of-sample backtest against a simple baseline and report period, sample size and the real numbers"
+    },
+    {
+      "id": "uncertainty_labels",
+      "descriptor": "1=states certainty; 2=vague hedging; 3=confidence or probability given; 4=every prediction carries a probability or range plus a plain risk label, and certainty is never claimed",
+      "raise": "attach a probability or range and a risk label to each prediction and remove any claim of certainty"
+    },
+    {
+      "id": "reasoning_soundness",
+      "descriptor": "1=rationale contradicts the data; 2=rationale partly follows; 3=sound with minor leaps; 4=each step follows from the cited data and leakage of future information is ruled out",
+      "raise": "check each step of the rationale against the data and remove any input that was only known after the event"
+    },
+    {
+      "id": "money_safety",
+      "descriptor": "1=places or automates a real-money bet; 2=suggests stakes without a risk note; 3=no automation, risk noted; 4=no automatic betting, no stake advice beyond what was asked, and a clear note that the output is not financial advice",
+      "raise": "remove any automatic betting step and add a plain risk note"
+    }
+  ]
+}

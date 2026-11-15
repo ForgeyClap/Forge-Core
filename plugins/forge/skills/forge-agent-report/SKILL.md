@@ -68,7 +68,9 @@ node .claude/forge-bin/forge-report.cjs ingest <run_id> <file|-> --agent "<Boss 
 
 ## Validation rules (the honesty gate)
 
-- `status` must be one of `completed | partial | blocked | failed`.
+- `status` must be one of `completed | partial | blocked | failed`. There is no `in_progress`: `ingest`
+  rejects it (exit 2) and logs nothing. A Boss that stopped before the package was finished reports `partial`,
+  even when an older template in its agent file still shows `in_progress`.
 - `work_package` must be a non-empty string.
 - `files_changed` must be an array (`[]` is fine for a pure investigation).
 - `evidence` must be an array, and when `status` is `completed` it must contain **at least one

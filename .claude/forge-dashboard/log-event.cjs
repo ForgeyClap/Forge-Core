@@ -36,11 +36,11 @@
  *   ECC (ECC-first): ecc_inventory · ecc_blocked · ecc_agent_failed · native_fallback_used
  *   PROJECT GOVERNANCE (CLAUDE.md + project-local skills): claude_md_checked · claude_md_created · claude_md_updated · claude_md_conflict_detected ·
  *     project_skill_dir_checked · custom_skill_created · custom_skill_updated · custom_skill_used · custom_skill_skipped · custom_skill_conflict_detected
- *   SKILL REGISTRY: skill_registry_checked · skill_registry_created · skill_registry_updated · skill_registry_conflict_detected
- *   CODEX UNLOCK: codex_diagnosis_started · codex_diagnosis_completed · codex_trust_gate_detected · codex_interactive_retry_required ·
+ *   SKILL REGISTRY (v7.1): skill_registry_checked · skill_registry_created · skill_registry_updated · skill_registry_conflict_detected
+ *   CODEX UNLOCK (v7.1): codex_diagnosis_started · codex_diagnosis_completed · codex_trust_gate_detected · codex_interactive_retry_required ·
  *     codex_manual_command_created · codex_retry_started · codex_retry_completed · codex_retry_blocked (carry `reason`: trust/tty | no-git | no-output | not-available)
- *   BROWSER PROOF: browser_proof_started · browser_screenshot_captured · browser_layout_verified · browser_proof_blocked
- *   PROJECT ISOLATION: dashboard_isolation_check_started · dashboard_isolation_check_completed · dashboard_project_root_detected ·
+ *   BROWSER PROOF (v7.1): browser_proof_started · browser_screenshot_captured · browser_layout_verified · browser_proof_blocked
+ *   PROJECT ISOLATION (v7.2): dashboard_isolation_check_started · dashboard_isolation_check_completed · dashboard_project_root_detected ·
  *     dashboard_state_project_mismatch · dashboard_state_reset_for_project · dashboard_port_selected · dashboard_health_verified · dashboard_cross_project_leak_blocked
  *   MISSION CONTROL PHASE 2 (WP1 — hardened flat-file store writer, forge-bin/forge-store.cjs): ticket_created · ticket_updated ·
  *     artifact_stored · prd_generated · mindmap_generated · deep_learn_started · deep_learn_completed · cost_sampled · doctor_run ·
@@ -195,10 +195,15 @@
  *     contract plus the completion_sequence steps before it (gate evidence, final-report.md, a fresh green
  *     contract proof), in-process via forge-runcontract.cjs::completionGate(). Default WARN (stderr, still
  *     written); FORGE_COMPLETION_GATE=strict refuses with exit 2 and writes nothing. In warn mode a tool failure
- *     never blocks; under strict an unavailable/empty/unevaluated verdict refuses a success claim.
+ *     never blocks; under strict an unavailable/empty/unevaluated verdict refuses a success claim (F06, R2/N07).
  *     The writer stamps its own verdict on the written run_completed (_forge_verify.completion_gate), and
- *     forge-finalize refuses a claim stamped "warn" over a registry-declared sequence.
+ *     forge-finalize refuses a claim stamped "warn" over a registry-declared sequence (R2/N07).
  *     See evaluateCompletionGate() below; the recipe itself: forge-runcontract.cjs plan --run <run_id>.
+ *     FAILURE CLOSE (R8B-F3): an honest failure close (status/outcome/verdict/result failed|partial|…) claims
+ *     no completion, but under strict events (the default) it is REFUSED (exit 2, nothing written, a batch as a whole)
+ *     while a Lead-doable contract rule (forge-runcontract.cjs LEAD_DOABLE_RULES) is still open and the event carries no
+ *     `blocker` field naming what the Lead cannot do itself; FORGE_STRICT_EVENTS=0 makes it a WARNING. CLI paths only
+ *     (single event and --batch); see reviewFailureClose(). forge-finalize still refuses every failure close.
  *   SCRIBE RECONCILIATION (part ii): two bookkeeping events about the owner's
  *     requests that forge-bin/forge-scribe.cjs keeps (.claude/forge-scribe/). Both are non-work (forge-runcontract.cjs
  *     NON_WORK_EVENT_TYPES) and run milestones in the forge-verify.cjs mirror (BACKBONE + done).
@@ -254,7 +259,11 @@
  * the dashboard and break the lenses). Put narrative/detail in `note`/`output`/`decision_summary` on a
  * STANDARD event type instead (e.g. {event_type:"agent_progress", agent:"Build Boss", note:" done: 252 tests, smoke OK"}).
  * FORGE_STRICT_EVENTS defaults ON (opt out with =0) — an unregistered agent name, unproven dispatch, or
- * unknown event_type is HARD-REJECTED (exit 2), not just flagged.
+ * unknown event_type is HARD-REJECTED (exit 2), not just flagged. So is a VERIFIER-CLASS start (verify-boss,
+ * review-boss, security-boss, codex-reviewer, verifier) with no wp_id that is not a review dispatch
+ * (forge-runcontract.cjs isReviewDispatch): it was only warned until that mistake repeated (runs
+ * and) and left every later verdict of that agent in the run
+ * unprovably independent. A keyed verifier start is still only warned.
  */
 'use strict';
 const fs = require('fs');
@@ -312,12 +321,23 @@ let ACTIVE_RUN = null;
 try { ACTIVE_RUN = require(path.join(CLAUDE_DIR, 'forge-bin', 'forge-active-run.cjs')); } catch { ACTIVE_RUN = null; }
 function pointActiveRun(evs) {
   if (!ACTIVE_RUN || /^(off|0|false|no)$/i.test(String(process.env.FORGE_AUTO_ACTIVE_RUN || ''))) return;
+  const session = process.env.CLAUDE_SESSION_ID || undefined;
   const started = (evs || []).filter((e) => e && e.event_type === 'run_started').pop();
-  if (!started) return;
-  try {
-    const r = ACTIVE_RUN.setActiveRun(PROJECT_ROOT, started.run_id, { session: process.env.CLAUDE_SESSION_ID || undefined });
-    if (!r.ok) console.error('forge-log-event: NOTE the run pointer was not set (' + r.reason + '); run node .claude/forge-bin/forge-active-run.cjs set ' + started.run_id);
-  } catch (e) { console.error('forge-log-event: NOTE the run pointer was not set (' + ((e && e.message) || e) + ')'); }
+  if (started) {
+    try {
+      const r = ACTIVE_RUN.setActiveRun(PROJECT_ROOT, started.run_id, { session });
+      if (!r.ok) console.error('forge-log-event: NOTE the run pointer was not set (' + r.reason + '); run node .claude/forge-bin/forge-active-run.cjs set ' + started.run_id);
+    } catch (e) { console.error('forge-log-event: NOTE the run pointer was not set (' + ((e && e.message) || e) + ')'); }
+  }
+  // FB-CONTRACT-2-F4: a close lets go of the pointer (only one that names this run), so later hook lines are not
+  // filed under a finished run. After the set, so a batch that starts and closes one run leaves no pointer.
+  for (const e of evs || []) {
+    if (!e || (e.event_type !== 'run_completed' && e.event_type !== 'run_finalized')) continue;
+    try {
+      const c = ACTIVE_RUN.clearActiveRun(PROJECT_ROOT, { run: e.run_id, session });
+      if (!c.ok) console.error('forge-log-event: NOTE the run pointer was not cleared (' + c.reason + '); run node .claude/forge-bin/forge-active-run.cjs clear --run ' + e.run_id);
+    } catch (err) { console.error('forge-log-event: NOTE the run pointer was not cleared (' + ((err && err.message) || err) + ')'); }
+  }
 }
 
 function nowIso() { return new Date().toISOString(); }
@@ -443,11 +463,12 @@ const WORKING_AGENT_EVENTS = new Set(['subagent_started', 'subagent_completed', 
 /** De events waarop de independent-verification-poort haar identiteitsoordeel bouwt. Hun agent MOET
  *  aanwezig en geregistreerd zijn (N-01) — anders is 'wie reviewde dit' een vrij invulbaar veld. */
 // lead_review_* staat hier BEWUST niet in: forge-verify logt lead_review_completed bij een MISMATCH
-// (rework-trigger), niet als goedkeuring — het is geen onafhankelijk reviewprotocol.
+// (rework-trigger), niet als goedkeuring — het is geen onafhankelijk reviewprotocol (R5-06).
 const REVIEW_IDENTITY_EVENTS = new Set(['review_started', 'review_completed', 'codex_review_started', 'codex_review_completed']);
 const DISPATCH_PROOF_EVENTS = new Set(['subagent_started', 'agent_started', 'custom_subagent_created']);
 /** Verifier-class agents (normalised: lowercase, letters only). Their dispatch starts are checked against the one
- *  shape wp-verified-per-wp accepts; see the W2-repeat note in verifyEvent(). */
+ *  shape wp-verified-per-wp accepts; see the W2-repeat note in verifyEvent(). Under STRICT an unkeyed start that is
+ *  not a review dispatch is refused (SD-LEDGER, the repeat), a keyed one is warned. */
 const VERIFIER_CLASS_AGENTS = new Set(['verifyboss', 'verifier', 'reviewboss', 'codexreviewer', 'securityboss']);
 // Canonical vocabulary — the exact set documented in the header comment above, incl. back-compat names.
 const KNOWN_EVENT_TYPES = new Set([
@@ -605,7 +626,15 @@ const PASS_ASSERTION_EVENTS = new Set(['check_passed', 'retest_completed', 'qual
 // dashboard would render it red while forge-manifest.cjs flipped the work package to done — two readers,
 // two answers, from one event. Refuse it at write time instead.
 const CONTRADICTION_FIELDS = ['result', 'outcome', 'verdict', 'status'];
-const FAILURE_VALUE_RE = /\b(fail|fails|failed|failing|failure|error|errored|blocked|refused|rejected|aborted|crash|crashed|timeout|timed[ _-]?out|not[ _-]?ok|nok)\b/i;
+const FAILURE_VALUE_RE = /\b(fail|fails|failed|failing|failure|failures|error|errors|errored|blocked|refused|rejected|aborted|crash|crashed|timeout|timed[ _-]?out|not[ _-]?ok|nok)\b/i;
+// CORE-2-F3: "69 passed, 0 failed" is honest proof, not a contradiction. A failure word right after
+// a zero count is removed before FAILURE_VALUE_RE runs; "0 failed, 3 errors" still reads "3 errors" and is refused.
+const ZERO_FAILURE_COUNT_RE = /\b(?:0|no|zero|none)\s+(?:fail\w*|error\w*|crash\w*|timeouts?|timed[ _-]?outs?)\b/gi;
+// A URL, "n/a" or a relative description with spaces and no file extension ("desktop/mobile captures") is not a file
+// path; the path oracle skips it (screenshot events excepted). An absolute path or one ending in an extension is checked.
+function notAPath(s) {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^n\/a$/i.test(s) || (/\s/.test(s) && !path.isAbsolute(s) && !/\.[a-z0-9]{1,8}$/i.test(s));
+}
 const SCREENSHOT_EVENTS = new Set(['browser_screenshot_captured', 'browser_layout_verified']);
 const MIN_SCREENSHOT_BYTES = 512; // a real PNG/JPEG capture is many KB; below this it is empty/failed, not proof
 // MODEL PROVENANCE gate — see the header doc comment. `model` is MANDATORY on these
@@ -688,13 +717,22 @@ function verifyEvent(ev) {
      *  the verifier a WORKER on that package, so its PASS is a self-close) and then with verifies_wp but no
      *  role/task (an unkeyed work dispatch, so independence is "unresolved"). The check above stayed silent
      *  because neither carried a reviewer-shaped role. A verifier-class agent's start now warns unless it has
-     *  the one shape wp-verified-per-wp accepts: no wp_id, and isReviewDispatch() true. Warn only, never refuse. */
+     *  the one shape wp-verified-per-wp accepts: no wp_id, and isReviewDispatch() true.
+     *  SD-LEDGER: the warning did not stop a REPEAT (verify-boss, task "verify publish
+     *  guard", unkeyed, no review shape), and the contract then reported "unresolved attribution" for every later
+     *  verdict of that agent in the whole run. So the UNKEYED non-review start is now REFUSED under STRICT in
+     *  validateForWrite() (verifierStartRefusal); FORGE_STRICT_EVENTS=0 keeps the warning. A KEYED start still only
+     *  warns: it affects that one package and can be legitimate work (a Review Boss audit package). */
     const agentKey = typeof ev.agent === 'string' ? ev.agent.toLowerCase().replace(/[^a-z]/g, '') : '';
     if (VERIFIER_CLASS_AGENTS.has(agentKey)) {
       const keyed = ev.wp_id !== undefined && ev.wp_id !== null && String(ev.wp_id).trim() !== '';
       const review = RUNCONTRACT.isReviewDispatch(ev);
-      if (keyed || !review) {
+      // LEAD-E1: a verifier-class agent as the worker of a read-only audit package is
+      // legitimate. Role "verify"/"reviewer" stays warned: that is the shape of a verifier closing a build package.
+      const auditPackage = keyed && ((typeof ev.role === 'string' && /^(auditor|audit)$/i.test(ev.role.trim())) || (typeof ev.route === 'string' && ev.route.trim().toLowerCase() === 'research'));
+      if ((keyed || !review) && !auditPackage) {
         v.verifier_dispatch_counts_as_work = true;
+        if (!keyed) v.verifier_dispatch_unkeyed = true;
         v.verifier_dispatch_warning = 'this ' + et + ' starts a verifier-class agent but ' + (keyed ? 'carries wp_id (a keyed start makes the verifier a worker on that package, so its PASS is a self-close)' : 'is not a review dispatch per forge-runcontract.cjs::isReviewDispatch() (it counts as work)') + '. Log it without wp_id, with role:"verify", a review-only task such as "independent verification of the work package", and verifies_wp for the reader. / deze verifier-start telt als WERK: log zonder wp_id, met role:"verify" en een taak uit alleen reviewwoorden.';
       }
     }
@@ -715,7 +753,7 @@ function verifyEvent(ev) {
         for (const f of CONTRADICTION_FIELDS) {
           const raw = ev[f];
           if (raw == null || typeof raw === 'object') continue;
-          if (FAILURE_VALUE_RE.test(String(raw))) {
+          if (FAILURE_VALUE_RE.test(String(raw).replace(ZERO_FAILURE_COUNT_RE, ' '))) {
             v.proof_verified = false;
             v.proof_reason = f + ' "' + raw + '" contradicts the ' + et + ' claim — a pass event cannot also report a failed/blocked/refused outcome';
             break;
@@ -724,7 +762,7 @@ function verifyEvent(ev) {
       }
       // (b) path oracle — the proof path must exist; a screenshot proof must also be non-trivial in size.
       const pathish = ev.screenshot_path || ev.output_path || ev.path || ev.artifact || ev.output_artifact;
-      if (v.proof_verified && pathish && typeof pathish === 'string' && /[\\/]/.test(pathish)) {
+      if (v.proof_verified && pathish && typeof pathish === 'string' && /[\\/]/.test(pathish) && (SCREENSHOT_EVENTS.has(et) || !notAPath(pathish.trim()))) {
         const abs = path.isAbsolute(pathish) ? pathish : path.join(CLAUDE_DIR, '..', pathish);
         if (!fs.existsSync(abs)) { v.proof_verified = false; v.proof_reason = 'proof path missing: ' + pathish; }
         else if (SCREENSHOT_EVENTS.has(et)) {
@@ -893,17 +931,46 @@ function skillMapShapeRefusal(ev) {
 // approval but is not on the list is refused here with the word to use; rejections and listed verdicts pass through.
 const COUNTED_APPROVALS = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd']);
 const APPROVAL_IN_OTHER_WORDS_RE = /^(approve|approves|approval|accept|accepted|accepts|lgtm|looks good( to me)?|good|fine|green|success|succeeded|okay|yes|ja|prima|goed)$/;
+// an approval word (counted or not) followed by ANY character that is not a letter ("approved with minor notes",
+// "approved_with_notes", "Approved.", "approved,", "ok;", "pass-", an ellipsis): the contract only trims and lowercases, so
+// none of these counts there. Deliberately no punctuation list (round 2: an enumerated set still leaked 11 of 26 probes).
+const APPROVAL_PREFIX_RE = /^(pass|passed|approved|ok|akkoord|goedgekeurd|approve|approves|approval|accept|accepted|accepts|lgtm|looks good|good|fine|green|success|succeeded|okay|yes|ja|prima|goed)(?=[^a-z])/;
 function reviewVerdictRefusal(ev) {
   if (!ev || (ev.event_type !== 'review_completed' && ev.event_type !== 'codex_review_completed')) return null;
   for (const field of ['review_verdict', 'verdict']) {
     const raw = ev[field];
     if (typeof raw !== 'string') continue;
-    const v = raw.trim().toLowerCase().replace(/[.!]+$/, '');
-    if (COUNTED_APPROVALS.has(v) || !APPROVAL_IN_OTHER_WORDS_RE.test(v)) continue;
+    const v = raw.trim().toLowerCase(); // same normalisation as forge-runcontract isGoedkeuring (no punctuation strip)
+    if (COUNTED_APPROVALS.has(v)) {
+      // CORE-2-F2: the contract (isGoedkeuring) also reads status/result/outcome; "approved" next to status "completed"
+      // counts as not approved there.
+      const other = ['status', 'result', 'outcome'].find((f) => ev[f] !== undefined && !COUNTED_APPROVALS.has(String(ev[f] == null ? '' : ev[f]).trim().toLowerCase()));
+      if (!other) continue;
+      return 'REFUSED ' + ev.event_type + ' — ' + field + ' approves, but ' + other + ' "' + String(ev[other]).slice(0, 40) + '" is not one of '
+        + [...COUNTED_APPROVALS].join(', ') + ', so the run contract counts this review as not approved; log it again without ' + other
+        + ' (or with ' + other + ':"approved") and move the rest to note.';
+    }
+    // CORE-2-F2: an approval word plus extra words ("APPROVED WITH MINOR NOTES", as review-boss.md prescribes) is refused too.
+    if (!APPROVAL_IN_OTHER_WORDS_RE.test(v) && !APPROVAL_PREFIX_RE.test(v)) continue;
     return 'REFUSED ' + ev.event_type + ' — ' + field + ' "' + raw.slice(0, 40) + '" reads as an approval, but the run contract only counts '
-      + [...COUNTED_APPROVALS].join(', ') + '; log it again with ' + field + ':"approved" (a rejection stays as it is, e.g. "changes_required").';
+      + [...COUNTED_APPROVALS].join(', ') + '; log it again with ' + field + ':"approved" and move the rest to note (a rejection stays as it is, e.g. "changes_required").';
   }
   return null;
+}
+
+/** verifierStartRefusal(ev, v) -> refusal message, or null. SD-LEDGER (the repeat of the W2 mistake): an UNKEYED
+ *  verifier-class start that is not a review dispatch makes every later verdict of that agent in the run unprovably
+ *  independent, and an append-only ledger cannot be repaired afterwards. Called under STRICT only. */
+function verifierStartRefusal(ev, v) {
+  if (!v || !v.verifier_dispatch_counts_as_work || !v.verifier_dispatch_unkeyed) return null;
+  return 'REFUSED ' + ev.event_type + ' — this starts a verifier-class agent (' + String(ev.agent).slice(0, 40) + ') with no wp_id and not in the review-dispatch shape, '
+    + 'so every later verdict (wp_verified, review) of this agent in this run would be unprovably independent ("unresolved attribution"). Log one of three shapes: '
+    + '(a) work: the work package it really works on as wp_id; '
+    + '(b) review: no wp_id, role:"verify", a review-only task such as "independent verification of the work package", verifies_wp:"<wp id>"; '
+    + '(c) an agent_note (not a start) when it only cross-references an agent of another run. '
+    + '/ GEWEIGERD — deze verifier-start heeft geen wp_id en is geen reviewdispatch, dus elk later oordeel van deze agent in deze run is onbewijsbaar onafhankelijk. '
+    + 'Log (a) werk met wp_id, (b) review zonder wp_id met role:"verify", een taak uit alleen reviewwoorden en verifies_wp, of (c) een agent_note bij een verwijzing naar een agent van een andere run. '
+    + '(set FORGE_STRICT_EVENTS=0 to opt out of strict mode — not recommended)';
 }
 
 const HAND_WORK_TYPES = new Set(['wp_completed', 'wp_failed', 'decision_logged']);
@@ -931,12 +998,21 @@ function validateForWrite(ev) {
   // Category tests L1: the category-test Lead logged decision_logged and wp_completed with no agent; the
   // contract's independent-verification then failed for good (anonymous work, fail-closed) and an append-only ledger
   // cannot be repaired. Refused at the door instead, whatever FORGE_STRICT_EVENTS says (identity is not opt-out).
-  if (HAND_WORK_TYPES.has(ev.event_type) && !(typeof ev.agent === 'string' && ev.agent.trim())) {
+  // CORE-2-F1: the hand list covered three types; check_passed, file_changed, command_run and every
+  // other type the contract counts as work hit the same dead end. The contract's own definition (isWorkEvent, minus the
+  // assignment type it never attributes) decides now; the hand list stays as the fallback when it cannot be loaded.
+  const isContractWork = RUNCONTRACT && typeof RUNCONTRACT.isWorkEvent === 'function'
+    ? RUNCONTRACT.isWorkEvent(ev) && !(RUNCONTRACT.ASSIGNMENT_EVENT_TYPES && RUNCONTRACT.ASSIGNMENT_EVENT_TYPES.has(String(ev.event_type).toLowerCase()))
+    : HAND_WORK_TYPES.has(ev.event_type);
+  // an unknown type under STRICT keeps its own "unknown event_type" refusal below (same exit 2, clearer reason)
+  if (isContractWork && !(STRICT && v && v.event_type_unknown) && !(typeof ev.agent === 'string' && ev.agent.trim())) {
     return { ok: false, exitCode: 2, message: 'REFUSED ' + ev.event_type + ' — a work event needs an agent: add "agent":"<who did it>" (the Lead itself: "orchestrator"); work logged without an agent makes independent-verification fail for the whole run' };
   }
   if (STRICT && v && (v.agent_registered === false || v.proof_verified === false || (v.dispatch_unverified && !v.dispatch_unverified_accepted) || v.event_type_unknown || v.model_unverified)) {
     return { ok: false, exitCode: 2, message: 'STRICT REFUSED ' + ev.event_type + ' — ' + (v.event_type_warning || v.agent_warning || v.proof_reason || v.model_reason || 'unproven dispatch (no dispatch_id, runtime not internal/native)') + ' (set FORGE_STRICT_EVENTS=0 to opt out of strict mode — not recommended)' };
   }
+  const verifierRefusal = STRICT ? verifierStartRefusal(ev, v) : null;
+  if (verifierRefusal) return { ok: false, exitCode: 2, message: 'STRICT ' + verifierRefusal };
   // Category tests O24: an owner_override is the OWNER's act clearing one named rule. A Lead logged its own
   // fixes as owner_override (no rule, no by); the contract never counted it, but the ledger read as an owner approval.
   // Shape only here (rule + by present); whether `by` is a configured owner stays the contract's job. Not opt-out.
@@ -951,7 +1027,7 @@ function validateForWrite(ev) {
   if (shapeRefusal) return { ok: false, exitCode: 2, message: shapeRefusal };
   const verdictRefusal = reviewVerdictRefusal(ev);
   if (verdictRefusal) return { ok: false, exitCode: 2, message: verdictRefusal };
-  WRITER_VALIDATED.add(ev); // appendChainedLocked will not stamp this event a second time
+  WRITER_VALIDATED.add(ev); // R2/N10: appendChainedLocked will not stamp this event a second time
   return { ok: true, verify: v };
 }
 
@@ -1067,7 +1143,7 @@ function chainTail(eventsFile, runId) {
       let parsed;
       try { parsed = JSON.parse(s); } catch { continue; } // defensively skip an unparseable line rather than crash
       if (parsed && parsed.entry_hash) {
-        // the previous event's ingestion instant (ingested_at; timestamp for pre-F05 history) for the backdating flag
+        // F05: the previous event's ingestion instant (ingested_at; timestamp for pre-F05 history) for the backdating flag
         const ms = Date.parse(parsed.ingested_at || parsed.timestamp);
         return { prevHash: parsed.entry_hash, lastSeq: Number.isFinite(Number(parsed.seq)) ? Number(parsed.seq) : 0, lastIngestedMs: Number.isFinite(ms) ? ms : null };
       }
@@ -1192,7 +1268,7 @@ function appendChainedLocked(runDir, events, opts) {
      *  De digest dekt uitsluitend de SEMANTISCHE caller-inhoud: alle volatiele/writer-gestempelde
      *  velden (timestamp — per aanroep vers gestempeld door validateForWrite —, _forge_verify,
      *  event_id en de keten-/txn-velden) zijn uitgesloten, anders is geen enkele retry ooit gelijk. */
-    // ingested_at is writer-stamped per call, like timestamp — outside the content digest
+    // F05: ingested_at is writer-stamped per call, like timestamp — outside the content digest
     const TXN_VOLATILE = new Set(['timestamp', 'ingested_at', '_forge_verify', 'event_id', 'prev_hash', 'seq', 'entry_hash', 'txn_id', 'txn_sha256', 'txn_count']);
     const txnNormalize = (ev) => { const k = Object.keys(ev).filter((x) => !TXN_VOLATILE.has(x)).sort(); const o = Object.create(null); for (const x of k) o[x] = ev[x]; return o; };
     /** r6b #2: de digest sluit timestamp/event_id uit omdat de WRITER ze stempelt — maar een caller
@@ -1267,7 +1343,7 @@ function appendChainedLocked(runDir, events, opts) {
     let prevHash = tail.prevHash;
     let seq = tail.lastSeq;
     const lines = [];
-    /** the authoritative ingestion instant is stamped HERE, under the lock, right before the entry hash
+    /** F05: the authoritative ingestion instant is stamped HERE, under the lock, right before the entry hash
      *  binds it — so no caller and no pre-lock delay can move it. A claimed_ts earlier than the previous
      *  event's ingestion (chainTail's lastIngestedMs, or this batch's predecessor) is flagged, never silently
      *  accepted as the order of events. */
@@ -1451,7 +1527,7 @@ function completionGateMode() {
 }
 /** evaluateCompletionGate(ev, pendingBefore, opts) -> {decision:'skip'|'pass'|'warn'|'refuse'|'unavailable', lines, gate?}.
  *  Never throws. opts.mode / opts.runcontract / opts.claudeDir exist for tests (defaults: env / this project). */
-/** FAILURE-CLOSE PREDICATE — the ONE definition lives in forge-runcontract.cjs (isFailureClose). This
+/** FAILURE-CLOSE PREDICATE (F04/F06) — the ONE definition lives in forge-runcontract.cjs (isFailureClose). This
  *  mirror is used ONLY when that module cannot be loaded at all (then strict mode must still let an honest
  *  failure close through); log-event-completion-gate.test.cjs asserts the mirror equals the exported original
  *  byte for byte, so it can never drift unnoticed. */
@@ -1490,12 +1566,15 @@ function evaluateCompletionGate(ev, pendingBefore, opts) {
   if (g === null || g === undefined || typeof g !== 'object') return unavailable('the checker returned no verdict for run ' + runId + ' (' + String(g) + ')');
   if (g.applicable === false) {
     if (g.failure_close === true && isFailureCloseEvent(ev, rc)) {
-      return { decision: 'pass', gate: g, lines: ['forge-log-event: NOTE run_completed for ' + runId + ' is an honest failure close — no completion is claimed, the completion gate does not apply, and this run cannot be finalized'] };
+      // R8B-F3: an honest failure close may not skip work the Lead could do itself (reviewFailureClose)
+      const fr = reviewFailureClose(ev, pendingBefore, rc, root, opts);
+      if (fr.decision === 'refuse') return { decision: 'refuse', failure_close_refused: true, gate: g, lines: fr.lines };
+      return { decision: 'pass', gate: g, lines: ['forge-log-event: NOTE run_completed for ' + runId + ' is an honest failure close — no completion is claimed, the completion gate does not apply, and this run cannot be finalized'].concat(fr.lines) };
     }
     return unavailable('the checker called the gate not applicable to a run_completed that is not an honest failure close (run ' + runId + ')');
   }
   if (typeof g.ok !== 'boolean') return unavailable('the checker returned no ok/not-ok verdict for run ' + runId);
-  // a step the checker could not judge (unknown id from a newer registry, contract not evaluable) is UNMET
+  // N07: a step the checker could not judge (unknown id from a newer registry, contract not evaluable) is UNMET
   // under strict — also when an older checker without opts.strict reported it as merely 'unevaluated'.
   const unevaluatedSteps = (g.steps || []).filter((x) => x && x.status === 'unevaluated');
   const unevaluatedRules = Array.isArray(g.unevaluated_rules) ? g.unevaluated_rules : [];
@@ -1518,6 +1597,36 @@ function evaluateCompletionGate(ev, pendingBefore, opts) {
   if (warnText) lines.push('  ⚠ ' + warnText);
   lines.push('  next: ' + (g.plan_command || ('node .claude/forge-bin/forge-runcontract.cjs plan --run ' + runId)) + (mode === 'strict' ? '' : ' · with ' + COMPLETION_GATE_ENV + '=strict this event would be refused'));
   return { decision: mode === 'strict' ? 'refuse' : 'warn', gate: g, lines };
+}
+/** reviewFailureClose(ev, pendingBefore, rc, root, opts) -> {decision:'pass'|'refuse', lines}. R8B-F3:
+ *  round 8b's Lead skipped the /forge procedure and closed its run "partial" over 9 red rules; the writer only recorded
+ *  it. A failure close is now judged by forge-runcontract.cjs::failureCloseReview (the one definition of
+ *  LEAD_DOABLE_RULES): when a Lead-doable rule is still open and the close names no `blocker` (a hard gate, an
+ *  owner-queue item, or a work package that failed after its one escalation), strict events (the default) REFUSE it
+ *  (exit 2, nothing written) and print the open rules with how to meet them; with FORGE_STRICT_EVENTS=0 the same list
+ *  is a WARNING and the close is written. Fail-open: a missing review (older checker) or one that throws never blocks a
+ *  failure close; it prints a NOTE. opts.strictEvents is a test seam (default: FORGE_STRICT_EVENTS !== '0'). Never throws. */
+function reviewFailureClose(ev, pendingBefore, rc, root, opts) {
+  const runId = String(ev.run_id || '');
+  const plan = 'node .claude/forge-bin/forge-runcontract.cjs plan --run ' + runId;
+  const strictEvents = opts && opts.strictEvents !== undefined ? opts.strictEvents === true : process.env.FORGE_STRICT_EVENTS !== '0';
+  if (!rc || typeof rc.failureCloseReview !== 'function') {
+    return { decision: 'pass', lines: ['forge-log-event: NOTE the failure-close review is unavailable (this forge-runcontract.cjs has no failureCloseReview) — written without it; check by hand: ' + plan] };
+  }
+  let fr;
+  try { fr = rc.failureCloseReview({ run_id: runId, event: ev }, { root, extraEvents: Array.isArray(pendingBefore) ? pendingBefore : [] }); }
+  catch (e) { return { decision: 'pass', lines: ['forge-log-event: NOTE the failure-close review could not judge run ' + runId + ' (' + shortReason(e) + ') — written without it (a tool failure never blocks a failure close); check by hand: ' + plan] }; }
+  if (!fr || typeof fr !== 'object') return { decision: 'pass', lines: ['forge-log-event: NOTE the failure-close review returned no verdict for run ' + runId + ' — written without it; check by hand: ' + plan] };
+  if (!fr.avoidable) return { decision: 'pass', lines: fr.blocker ? ['forge-log-event: NOTE the failure close names its blocker: "' + String(fr.blocker).replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, 200) + '"'] : [] };
+  const lines = [strictEvents
+    ? 'forge-log-event: FAILURE CLOSE REFUSED run_completed for ' + runId + ' — nothing was written. This failure close leaves work open that the Lead can do itself:'
+    : 'forge-log-event: FAILURE CLOSE WARNING — run_completed for ' + runId + ' is written, but it leaves work open that the Lead can do itself:'];
+  if (fr.empty) lines.push('  ✗ ' + fr.reason);
+  for (const r of Array.isArray(fr.lead_doable) ? fr.lead_doable : []) lines.push('  ✗ ' + r.id + ' [' + r.severity + '] — ' + String(r.how || '').slice(0, 200));
+  if (Array.isArray(fr.other) && fr.other.length) lines.push('  (also open, not counted as Lead-doable: ' + fr.other.join(', ') + ')');
+  lines.push('  Do these, log them, then close again. Only when something the Lead cannot do itself really stops the run (a hard gate, an owner-queue item, or a work package that failed after its one escalation), close with a "blocker" field of at least 12 characters that names it, e.g. {"status":"failed","blocker":"hard gate: deploy needs owner approval"}.');
+  lines.push('  next: ' + (fr.plan_command || plan) + (strictEvents ? '' : ' · with strict events (the default) this failure close is refused'));
+  return { decision: strictEvents ? 'refuse' : 'pass', lines };
 }
 function printCompletionGate(res) {
   if (res && Array.isArray(res.lines)) for (const l of res.lines) console.error(l);
@@ -1718,7 +1827,7 @@ function mainCli() {
         console.error('batch REFUSED as a whole: line ' + (i + 1) + ' (run_completed) fails the completion gate, 0 written (all-or-nothing)');
         process.exit(2);
       }
-      stampCompletionGate(accepted[i], gate); // the writer's own verdict travels with the claim
+      stampCompletionGate(accepted[i], gate); // R2/N07: the writer's own verdict travels with the claim
     }
     const w = appendChainedLocked(rd.runDir, accepted, txnId ? { txnId } : undefined);
     if (!w.ok) { console.error(w.message); process.exit(w.refused ? 2 : 1); }
@@ -1773,7 +1882,7 @@ function mainCli() {
   const gate = evaluateCompletionGate(ev, []);
   printCompletionGate(gate);
   if (gate.decision === 'refuse') process.exit(2);
-  stampCompletionGate(ev, gate); // the writer's own verdict travels with the claim
+  stampCompletionGate(ev, gate); // R2/N07: the writer's own verdict travels with the claim
   const w = appendChainedLocked(rd.runDir, [ev]);
   if (!w.ok) { console.error(w.message); process.exit(w.refused ? 2 : 1); }
   if (w.backdated) console.error('forge-log-event: NOTE ' + ev.event_type + ' carries a claimed_ts earlier than the previous event was ingested — kept as claimed_ts, flagged claimed_ts_backdated; ordering and cutoffs use the writer-stamped ingested_at');
@@ -1790,9 +1899,11 @@ module.exports = {
   runStartBaseline, RUN_START_BASELINE_FIELDS,
   // the run_completed completion gate.
   evaluateCompletionGate, completionGateMode, COMPLETION_GATE_ENV,
-  // the writer's own gate stamp on run_completed and the library-append stamping.
+  // the failure-close review (a close over Lead-doable rules needs a named blocker)
+  reviewFailureClose,
+  // the writer's own gate stamp on run_completed (N07) and the library-append stamping (N10).
   stampCompletionGate, stampLibraryEvent,
-  // writer-controlled time and the failure-close mirror
+  // writer-controlled time (F05) and the failure-close mirror (F06)
   stampWriterTime, WRITER_TIME_FIELDS, isFailureCloseEvent, FAILURE_CLOSE_FIELDS_MIRROR, FAILURE_CLOSE_RE_MIRROR,
   // part ii: the owner-requests reconciliation check (scribe gate) and its writer-owned stamp.
   evaluateScribeReconciliation, stampScribeReconciliation,

@@ -1,0 +1,47 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "automation",
+  "_doc": "The Automation pack (owner request R-0239): 3 auto-* SPECIALIST agents for n8n workflows and chat bots in code (Discord, Telegram, Slack). Evidence: demo-sandbox-automation and web-design-booking-automation, named in the global per-domain policy (no brain entry). forge-router sends an automation request to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Presets are expanded by forge-lane-skills.cjs (--require automation-all,process). Workflows are imported inactive, credentials are metadata only, and activation, production instances and outbound messages stay owner gates. The n8n-* skills come from a plugin and are optional, never preloaded.",
+  "projectTypes": [
+    "n8n",
+    "bots",
+    "integration"
+  ],
+  "signals": [
+    "n8n",
+    "automation",
+    "automatisering",
+    "workflow automation",
+    "webhook",
+    "discord bot",
+    "telegram bot",
+    "slack bot",
+    "bot",
+    "zapier"
+  ],
+  "playbook": "forge-n8n",
+  "agents": [
+    "auto-n8n-engineer",
+    "auto-n8n-validator",
+    "auto-bot-engineer"
+  ],
+  "skills": [
+    "forge-n8n",
+    "forge-bots",
+    "forge-integration",
+    "forge-verify",
+    "test-driven-development"
+  ],
+  "presets": {
+    "automation-all": [
+      "forge-n8n",
+      "forge-bots",
+      "forge-integration"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

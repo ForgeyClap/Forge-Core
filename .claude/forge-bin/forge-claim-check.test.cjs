@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-claim-check.test.cjs — (owner standing rule P-000094: every mistake gets an
  * automated guard that fails on the old behaviour). The mistake: a final report claimed that EVERY package was
@@ -159,6 +163,12 @@ try {
     const note = C.ledgerExceptions([{ event_type: 'agent_note', wp_id: 'Z', agent: 'lead', verdict: 'fail' }, { event_type: 'file_changed', wp_id: 'Z' }]);
     t('A8 a note carrying wp_id + verdict fail counts as a FAIL verdict', note.some((x) => x.wp_id === 'Z' && x.kind === 'completed-after-fail'), JSON.stringify(note));
     t('A9 garbage entries are ignored, not a crash', C.ledgerExceptions([null, 7, 'x', {}]).length === 0);
+    // FB-FINALIZE-1-F5: the LAST wp_verified verdict decides; an earlier PASS does not hide a later FAIL
+    const lastFail = C.ledgerExceptions([{ event_type: 'wp_completed', wp_id: 'WP-A' }, { event_type: 'wp_verified', wp_id: 'WP-A', verdict: 'PASS' }, { event_type: 'wp_verified', wp_id: 'WP-A', verdict: 'FAIL' }]);
+    t('A10 PASS then a later FAIL (no work after it) is a failed-last exception', lastFail.length === 1 && lastFail[0].wp_id === 'WP-A' && lastFail[0].kind === 'failed-last', JSON.stringify(lastFail));
+    t('A11 ... so "Every package was independently verified." is not accepted', C.check('Every package was independently verified.', [{ event_type: 'wp_completed', wp_id: 'WP-A' }, { event_type: 'wp_verified', wp_id: 'WP-A', verdict: 'PASS' }, { event_type: 'wp_verified', wp_id: 'WP-A', verdict: 'FAIL' }]).ok === false);
+    const failPass = C.ledgerExceptions([{ event_type: 'wp_completed', wp_id: 'WP-B' }, { event_type: 'wp_verified', wp_id: 'WP-B', verdict: 'FAIL' }, { event_type: 'wp_verified', wp_id: 'WP-B', verdict: 'PASS' }]);
+    t('A12 FAIL then a later PASS (no work between) is still clean', failPass.length === 0, JSON.stringify(failPass));
   }
 
   // ---------------------------------------------------------------- B
@@ -390,12 +400,25 @@ try {
     writeRun('r6', stamped(EXC_LEDGER, T0), report(GOOD_EN_ALL), LR);
     const c6 = C.checkReports({ root: LR, runId: 'r6' });
     t('L14 open run: an exception list that names every ledger exception id passes', c6.findings.filter((x) => /r6/.test(x.file)).length === 0, JSON.stringify(c6.findings));
-    writeRun('r7', stamped(EXC_LEDGER.concat([{ event_type: 'run_finalized' }]), T0 - 4 * 864e5), report(GOOD_EN), LR);
+    const d7 = writeRun('r7', stamped(EXC_LEDGER.concat([{ event_type: 'run_finalized' }]), T0 - 4 * 864e5), report(GOOD_EN), LR);
+    fs.writeFileSync(path.join(d7, 'run-finalized.json'), JSON.stringify({ schema: 2, run_id: 'r7', finalized_at: new Date(T0 - 4 * 864e5 + 60e3).toISOString() }));
     const c7 = C.checkReports({ root: LR, runId: 'r7' });
-    t('L15 a sealed run keeps the earlier rule (a named exception list qualifies; completeness is not re-judged)', c7.findings.filter((x) => /r7/.test(x.file)).length === 0, JSON.stringify(c7.findings));
+    t('L15 a sealed run (valid receipt) keeps the earlier rule (a named exception list qualifies; completeness is not re-judged)', c7.findings.filter((x) => /r7/.test(x.file)).length === 0, JSON.stringify(c7.findings));
+    // FB-FINALIZE-1-F10: finalize appends run_finalized BEFORE its refusals, so the event alone is no seal
+    writeRun('r7b', stamped(EXC_LEDGER.concat([{ event_type: 'run_finalized' }]), T0), report(GOOD_EN), LR);
+    const c7b = C.checkReports({ root: LR, runId: 'r7b' });
+    t('L15b a run_finalized event without a receipt (a refused finalize) is still open: the incomplete list is flagged', c7b.code === 3 && c7b.findings.some((x) => /r7b/.test(x.file) && /incomplete/.test(x.reason)), JSON.stringify(c7b.findings));
+    const d7c = writeRun('r7c', stamped(EXC_LEDGER.concat([{ event_type: 'run_finalized' }]), T0), report(GOOD_EN), LR);
+    fs.writeFileSync(path.join(d7c, 'run-finalized.json'), '{not json');
+    t('L15c an unreadable receipt is no seal either', C.checkReports({ root: LR, runId: 'r7c' }).findings.some((x) => /r7c/.test(x.file) && /incomplete/.test(x.reason)));
     writeRun('r8', stamped(EXC_LEDGER, T0), report('The claim guard refuses a seal when a report says every package was verified while the ledger has exceptions, also for docs reports.'), LR);
     const c8 = C.checkReports({ root: LR, runId: 'r8' });
     t('L17 open run: a sentence that DESCRIBES the guard (the noun exceptions in prose, no list) is not an incomplete list (real replay false positive)', !c8.findings.some((x) => /r8/.test(x.file) && /incomplete/.test(x.reason)), JSON.stringify(c8.findings.filter((x) => /r8/.test(x.file))));
+    // FB-FINALIZE-2-F4: a report path with a space (this project lives in "my project (v2)!") is one path, not three words
+    const spaced = put(LR, 'docs/my audits/space-report.md', report(BAD_EN));
+    const spEvents = stamped([{ event_type: 'run_started' }, { event_type: 'report_generated', path: spaced }, { event_type: 'report_generated', evidence: '"docs/my audits/space-report.md"; docs/audits/audit-report.md' }, { event_type: 'report_generated', evidence: 'wrote docs/audits/audit-report.md for the owner' }], T0);
+    const spSel = C.reportsForRun({ root: LR, runDir: path.join(writeRun('rsp', spEvents, undefined, LR)), events: spEvents });
+    t('L18 an absolute report path with a space, and a quoted relative one in a list, are selected as one path each', relsOf(spSel).includes('docs/my audits/space-report.md') && relsOf(spSel).includes('docs/audits/audit-report.md') && !spSel.notes.some((n) => /my|audits\/space/.test(n) && /not found/.test(n)), JSON.stringify({ rels: relsOf(spSel), notes: spSel.notes }));
     t('L16 check() (one report, no run state) is unchanged: GOOD_EN still qualifies', C.check(report(GOOD_EN), EXC_LEDGER).ok);
     t('L12 an open (unsealed) run does not own docs reports changed more than 6 h after its last event (real replay: 52 old runs claimed today\'s EINDRAPPORT)', !relsOf(s4).some((r) => /^docs\//.test(r)), JSON.stringify(relsOf(s4)));
   });
@@ -598,7 +621,8 @@ try {
       ['test-tally guard removed', 'if (isTally(toks, i + qlen, i)) continue;', '', (M) => M.check(report('All tests of the packages passed review.'), EXC_LEDGER).claims.length > 0],
       ['code fences not skipped', 'if (FENCE_RE.test(raw)) { inFence = !inFence; flush(); return; }', '', (M) => M.check('# R\n\n```\n' + BAD_EN + '\n```\n', EXC_LEDGER).ok === false],
       ['wp_failed ignored', "if (e.event_type === 'wp_failed') {", "if (false && e.event_type === 'wp_failed') {", (M) => !M.ledgerExceptions(EXC_LEDGER).some((x) => x.kind === 'wp_failed')],
-      ['not-verified rule removed', "if (!ok) add(wp, 'not-verified'", "if (false) add(wp, 'not-verified'", (M) => !M.ledgerExceptions(EXC_LEDGER).some((x) => x.wp_id === 'B8')],
+      ['not-verified rule removed', "if (!v) add(wp, 'not-verified'", "if (false) add(wp, 'not-verified'", (M) => !M.ledgerExceptions(EXC_LEDGER).some((x) => x.wp_id === 'B8')],
+      ['failed-last rule removed', "if (!v.pass) add(wp, 'failed-last'", "if (false) add(wp, 'failed-last'", (M) => !M.ledgerExceptions([{ event_type: 'wp_verified', wp_id: 'WP-A', verdict: 'PASS' }, { event_type: 'wp_verified', wp_id: 'WP-A', verdict: 'FAIL' }]).some((x) => x.kind === 'failed-last')],
       ['FAIL cleared by any PASS kind', 'else if (PASS_RE.test(verdict) && st[kind])', 'else if (PASS_RE.test(verdict) && (st.verify || st.review)) { for (const k of Object.keys(st)) delete st[k]; } else if (false)', (M) => !M.ledgerExceptions([{ event_type: 'review_completed', wp_id: 'Y', verdict: 'FAIL' }, { event_type: 'wp_completed', wp_id: 'Y' }, { event_type: 'wp_verified', wp_id: 'Y', verdict: 'PASS' }]).some((x) => x.wp_id === 'Y' && x.kind === 'completed-after-fail')],
       ['work-unit noun not required', 'const hasUnit = SELF_UNIT.has(toks[i].n) || unit;', 'const hasUnit = true;', (M) => M.check(report('Every new skill was checked for hidden commands, secret reads and prompt injection.'), EXC_LEDGER).ok === false],
       ['lane counts with a weak check word', 'if ((hasUnit && (strong.length || weak.length)) || (lane && strong.length))', 'if ((hasUnit && (strong.length || weak.length)) || (lane && (strong.length || weak.length)))', (M) => M.check(report('All lanes were checked out from main.'), EXC_LEDGER).claims.length > 0],

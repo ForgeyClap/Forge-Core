@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-workflows.test.cjs — structural + behavioural test for .claude/workflows/forge-build.js and forge-verify.js
 // (package 2.3). Workflow scripts cannot be started from a test (a real run needs the owner's
 // dynamic-workflows / ultracode opt-in), so this test checks them statically, runs them in a node:vm sandbox with a
@@ -319,6 +323,45 @@ t('verify: parallel verifier rows -> PASS/FAIL/INCOMPLETE table, batches of at m
   assert.strictEqual(lost.result.verdict, 'INCOMPLETE');
   const many = await runScript(SRC.verify, { projectRoot: 'C:/proj', checks: Array.from({ length: 20 }, (_, i) => 'c' + i) }, () => ({ result: 'PASS', evidence: 'ok' }));
   assert.strictEqual(many.calls.length, 20); assert.ok(many.maxActive <= 16, 'max concurrent ' + many.maxActive);
+});
+
+/* ---- CORE-2-F9 (forge-build ledger ids + skills) and CORE-4-F12 (forge-verify maxParallel), audit 2026-11-12 ---- */
+const respondBuild = (p, o) => o.phase === 'Triage' ? { route: 'build', risk: 'low', checks: ['tests'], pattern: 'x' }
+  : o.phase === 'Verify' ? { verdict: 'PASS', failureKind: 'none', checks: [], evidence: 'ok', skills_opened: ['forge-verify'] }
+  : { status: 'completed', filesChanged: ['a.js'], testsRun: [{ command: 'node --test', exitCode: 0 }], skills_opened: ['forge-conduct'] };
+
+t('build: runId + per-part wpId reach the verifier prompt (wp_verified needs both)', async () => {
+  const r = await runScript(SRC.build, { task: 'Do X.', projectRoot: 'C:/proj', runId: 'forge-2026-11-13-000001',
+    parts: [{ id: 'core', task: 'core', owns: ['src/a.js'], wpId: 'WP-7a' }, { id: 'tests', task: 'tests', owns: ['test/a.test.js'], wpId: 'WP-7b' }] }, respondBuild);
+  const v = r.calls.find((c) => c.opts.phase === 'Verify');
+  assert.ok(v && v.prompt.includes('forge-2026-11-13-000001') && v.prompt.includes('WP-7a') && v.prompt.includes('WP-7b'), 'verifier prompt lacks run/wp ids');
+});
+t('build: args.skills are named in every worker, triage and verifier prompt', async () => {
+  const r = await runScript(SRC.build, { task: 'Do X.', projectRoot: 'C:/proj', skills: ['forge-conduct', 'forge-testing'] }, respondBuild);
+  assert.ok(r.calls.length >= 3 && r.calls.every((c) => c.prompt.includes('forge-conduct') && c.prompt.includes('forge-testing')), 'a prompt does not name the skills');
+});
+t('build: worker and verdict schemas carry skills_opened and the result returns it', async () => {
+  const r = await runScript(SRC.build, { task: 'Do X.', projectRoot: 'C:/proj', skills: ['forge-conduct'] }, respondBuild);
+  const w = r.calls.find((c) => c.opts.phase === 'Build'); const v = r.calls.find((c) => c.opts.phase === 'Verify');
+  assert.ok(w.opts.schema.properties.skills_opened && w.opts.schema.properties.skills_opened.type === 'array', 'worker schema');
+  assert.ok(v.opts.schema.properties.skills_opened && v.opts.schema.properties.skills_opened.type === 'array', 'verdict schema');
+  assert.ok(r.result.attempts[0].reports[0].report.skills_opened.includes('forge-conduct'));
+});
+t('build: a bad runId / wpId / skill name is refused before any agent starts', async () => {
+  for (const bad of [{ runId: 'x\ny' }, { skills: ['ok', 'bad name;rm'] }, { parts: [{ id: 'a', task: 't', owns: ['a.js'], wpId: 'bad id with spaces' }] }]) {
+    let threw = false; let calls = 0;
+    try { await runScript(SRC.build, Object.assign({ task: 'Do X.', projectRoot: 'C:/proj' }, bad), (...a) => { calls++; return respondBuild(...a); }); } catch { threw = true; }
+    assert.ok(threw && calls === 0, 'accepted ' + JSON.stringify(bad));
+  }
+});
+t('verify: args.maxParallel caps concurrent verifiers (lane budget), default stays 16', async () => {
+  const checks = Array.from({ length: 10 }, (_, i) => 'c' + i);
+  const two = await runScript(SRC.verify, { projectRoot: 'C:/proj', checks, maxParallel: 2 }, () => ({ result: 'PASS', evidence: 'ok' }));
+  assert.strictEqual(two.calls.length, 10); assert.ok(two.maxActive <= 2, 'max concurrent ' + two.maxActive);
+  const dflt = await runScript(SRC.verify, { projectRoot: 'C:/proj', checks: Array.from({ length: 20 }, (_, i) => 'c' + i) }, () => ({ result: 'PASS', evidence: 'ok' }));
+  assert.ok(dflt.maxActive === 16, 'default cap ' + dflt.maxActive);
+  let threw = false; try { await runScript(SRC.verify, { projectRoot: 'C:/proj', checks, maxParallel: 0 }, () => ({})); } catch { threw = true; }
+  assert.ok(threw, 'maxParallel 0 accepted');
 });
 
 /* ================================ the REAL guard hook ================================ */

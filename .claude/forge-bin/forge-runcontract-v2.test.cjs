@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for FORGE_HARD_RULES.json version 2 and the forge-runcontract.cjs V2 extensions
  *  (part A): the closure / sequence / reaction / file-touched
  *  check types (pass, fail and edge cases each), the `since` (historical_exempt) and `phase` (phase_deferred)
@@ -60,7 +64,8 @@ function run(rules, events, opts) {
   return RC.check(Object.assign({ run_id: id }, opts.params || {}), Object.assign({ root: TMP, rulesPath: rulesFile(Array.isArray(rules) ? rules : [rules]), ownerProfilePath: NO_OWNER_PROFILE }, opts.checkOpts || {}));
 }
 const det = (res, id) => (res.rule_details || {})[id] || {};
-const ownerOv = (extra) => Object.assign({ event_type: 'owner_override', by: 'owner', reason: 'owner reviewed this explicitly and accepts it for a real reason' }, extra);
+// FB-CONTRACT-1-F2: a real owner act carries the writer-owned owner stamp (an unstamped one is label-only)
+const ownerOv = (extra) => Object.assign({ event_type: 'owner_override', by: 'owner', reason: 'owner reviewed this explicitly and accepts it for a real reason', _forge_verify: { owner_act: { via: 'command-center-confirm' } } }, extra);
 
 // ================================================================================================
 console.log('\n1) closure');
@@ -120,7 +125,8 @@ const WPC = R('wpc', { type: 'closure', open: 'agent_work_package_created', clos
 {
   const base = [{ event_type: 'agent_work_package_created', agent: 'lead', wp_id: 'WP7' }];
   const ok = run(WPC, base.concat([ownerOv({ rule: 'manifest-complete', wp_id: 'WP7' })]));
-  t('closure skip_rule: an owner_override {rule:manifest-complete, wp_id} closes exactly that package', ok.satisfied.includes('wpc') && det(ok, 'wpc').owner_skipped === 1);
+  // FB-CONTRACT-1-F2 (fail closed): no owner-only writer path exists yet, so even a stamped skip closes nothing
+  t('closure skip_rule: a well-formed owner_override {rule:manifest-complete, wp_id} does not close the package yet', !ok.satisfied.includes('wpc') && !det(ok, 'wpc').owner_skipped);
   const wrongBy = run(WPC, base.concat([ownerOv({ rule: 'manifest-complete', wp_id: 'WP7', by: 'worker-3' })]));
   t('closure skip_rule: the same skip by a non-owner `by` closes nothing', wrongBy.warnings.includes('wpc'));
   const otherWp = run(WPC, base.concat([ownerOv({ rule: 'manifest-complete', wp_id: 'WP8' })]));
@@ -255,7 +261,8 @@ const GATE = R('gate', { type: 'reaction', on: 'gate_blocked', require: ['owner_
 {
   const blk = { event_type: 'gate_blocked', agent: 'orchestrator', gate: 'recursive-delete', command_digest: 'abc' };
   t('reaction PASS: a decision_logged for the same gate resolves the block', run(GATE, [blk, { event_type: 'decision_logged', agent: 'lead', gate: 'recursive-delete', decision: 'safe variant: move to backup instead' }]).satisfied.includes('gate'));
-  t('reaction PASS: a valid owner_override for the same gate resolves the block', run(GATE, [blk, ownerOv({ rule: 'gate:recursive-delete', gate: 'recursive-delete' })]).satisfied.includes('gate'));
+  // FB-CONTRACT-1-F2 (fail closed): until an owner-only writer path exists only decision_logged resolves a gate block
+  t('reaction FAIL: a well-formed owner_override does not resolve the block until an owner-only writer path exists', run(GATE, [blk, ownerOv({ rule: 'gate:recursive-delete', gate: 'recursive-delete' })]).warnings.includes('gate'));
   t('reaction FAIL: an owner_override with a non-owner `by` resolves nothing', run(GATE, [blk, ownerOv({ rule: 'gate:recursive-delete', gate: 'recursive-delete', by: 'Build Boss' })]).warnings.includes('gate'));
   t('reaction FAIL: a decision for ANOTHER gate resolves nothing', run(GATE, [blk, { event_type: 'decision_logged', agent: 'lead', gate: 'push' }]).warnings.includes('gate'));
   t('reaction edge: a gate_blocked without `gate` cannot be paired (reported, never silently cleared)', run(GATE, [{ event_type: 'gate_blocked', agent: 'orchestrator' }, { event_type: 'decision_logged', agent: 'lead', gate: 'x' }]).warnings.includes('gate'));

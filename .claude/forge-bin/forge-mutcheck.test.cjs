@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-mutcheck.test.cjs — hermetic, offline tests for forge-mutcheck.cjs. EVERY fixture lives under
  * os.tmpdir() (fs.mkdtempSync) so this file never writes to the real project. Exit 0 = all pass.
@@ -223,6 +227,17 @@ let hollowDir;
   t('H1: every one of the ' + ALL_TMP_ROOTS.length + ' fixture roots created this run is under os.tmpdir()',
     ALL_TMP_ROOTS.length > 0 && ALL_TMP_ROOTS.every((d) => path.resolve(d).startsWith(tmpRoot)));
   t('H2: forge-mutcheck.cjs itself was never touched by this test file', fs.existsSync(path.join(__dirname, 'forge-mutcheck.cjs')));
+}
+
+// ---- Section Z: FB-VERIFY-1-F10 — zero scored mutants is never "every mutant caught" ----
+{
+  const z = freshDir('mc-z-zero');
+  fs.writeFileSync(path.join(z, 'z.cjs'), "'use strict';\nmodule.exports = {};\n", 'utf8');
+  fs.writeFileSync(path.join(z, 'z.test.cjs'), "console.log('1 passed, 0 failed');\n", 'utf8');
+  const r = MC.checkOnePair(path.join(z, 'z.cjs'), path.join(z, 'z.test.cjs'), {});
+  t('Z1: zero scored mutants -> ok:false with a plain reason', r.ok === false && /no mutant could be scored/.test(r.error || ''));
+  const cli = spawnSync(process.execPath, [path.join(__dirname, 'forge-mutcheck.cjs'), '--src', path.join(z, 'z.cjs'), '--test', path.join(z, 'z.test.cjs')], { encoding: 'utf8' });
+  t('Z2: CLI exits 2 and never prints "every mutant caught"', cli.status === 2 && !/every mutant caught/.test(cli.stdout));
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

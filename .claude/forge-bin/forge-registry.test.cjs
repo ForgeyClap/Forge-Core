@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-registry.cjs — builds fake projects in an os.mkdtemp scan-root and writes the
  *  registry to a SEPARATE FORGE_REGISTRY_HOME temp dir. Never touches the real ~/.claude or real projects. */
 const fs = require('fs');
@@ -78,6 +82,29 @@ t('ISOLATION: scan+write created NO files inside any scanned project', isolated 
 //    prove require.main guard by checking the module exposes fns without side effects) — implicit: this
 //    test file requires it and nothing was written to OUT until we explicitly called writeRegistry.
 t('module exports the API', typeof R.scanProjects === 'function' && typeof R.writeRegistry === 'function' && typeof R.findProjects === 'function');
+
+// 6) FB-CONFIG-2-F6: the newest run is the one with the newest WORK, not the folder name that sorts last
+{
+  const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-reg-newest-')), 'proj');
+  const mk = (id, ts, extra) => {
+    const d = path.join(p, '.claude', 'forge-runs', id);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'run.json'), JSON.stringify(Object.assign({ run_id: id, status: 'completed', started: ts }, extra || {})));
+    fs.writeFileSync(path.join(d, 'events.jsonl'), JSON.stringify({ event: 'run_started', timestamp: ts }) + '\n');
+  };
+  mk('forge-demo-layout-preview', '2026-07-10T10:00:00Z', { status: 'ended_unknown' }); // sorts after every dated id
+  mk('forge-2026-11-12-180451', '2026-11-12T18:04:51Z');
+  mk('forge-2026-10-01-000000', '2026-10-01T00:00:00Z');
+  const pr = R.readProject(p);
+  t('6a: last_run_id is the run with the newest event, not the highest-sorting name', pr && pr.last_run_id === 'forge-2026-11-12-180451');
+  const noEv = path.join(p, '.claude', 'forge-runs', 'zzz-no-events');
+  fs.mkdirSync(noEv, { recursive: true });
+  fs.writeFileSync(path.join(noEv, 'run.json'), JSON.stringify({ run_id: 'zzz-no-events', status: 'completed', started: '2026-01-01T00:00:00Z', completed: '2026-01-02T00:00:00Z' }));
+  fs.utimesSync(noEv, new Date('2026-01-02T00:00:00Z'), new Date('2026-01-02T00:00:00Z'));
+  fs.utimesSync(path.join(noEv, 'run.json'), new Date('2026-01-02T00:00:00Z'), new Date('2026-01-02T00:00:00Z'));
+  t('6b: a run without events ranks by its run.json time, so an old one never wins by name', R.readProject(p).last_run_id === 'forge-2026-11-12-180451');
+  fs.rmSync(path.dirname(p), { recursive: true, force: true });
+}
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

@@ -10,12 +10,23 @@ license: MIT
   Pinned commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b (tag v7.0.1, also main on 2026-11-02)
   Upstream path: skills/subagent-driven-development/
   License: MIT (c) 2025 Jesse Vincent -- full text in LICENSE next to this file
-  Forge vendor note: frontmatter license: MIT key and this provenance block added; 12 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; one line added under the task-reviewer Template that links re-review-prompt.md directly from SKILL.md (upstream only reaches it through references/fix-loop.md and references/final-review.md; Forge skill lint wants every reference one level deep); everything else verbatim.
+  Forge vendor note: frontmatter description shortened for the skill-listing budget (the earlier text is in the "original description" comment line(s) in the frontmatter); a marked "Forge addendum" blockquote added near the top of implementer-prompt.md, task-reviewer-prompt.md and re-review-prompt.md (in Forge the implementer and reviewers are Bosses dispatched with a route model plus effort, not general-purpose agents); frontmatter license: MIT key and this provenance block added; 12 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; one line added under the task-reviewer Template that links re-review-prompt.md directly from SKILL.md (upstream only reaches it through references/fix-loop.md and references/final-review.md; Forge skill lint wants every reference one level deep); a marked "Forge addendum" blockquote under the H1 of this SKILL.md (audit SK-2-F3/F4/F5: GOAT models, one fix round, parallel implementers with disjoint ownership, no recursive workspace delete); everything else verbatim.
   Previous pin: 5bf4e78011075bcfc0dc295f0724994cd123ee71; upgraded 2026-11-02 (WP Q3-SKILLS).
   Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by skill-boss, 2026-11-02 -- clean; every upstream file git-blob-hash-verified against the pinned commit's tree before copying.
 -->
 
 # Subagent-Driven Development
+
+> **Forge addendum (not upstream):** inside Forge these four points override the upstream text below.
+> - **Models:** the GOAT route table in `.claude/FORGE_MODEL_ROUTING.json` picks model and effort. "Most capable
+>   model" means the route's model, never Fable up front; the final whole-branch review runs on Review Boss on its
+>   deep route (opus, xhigh).
+> - **Fix loop:** at most one fix round (one rework or escalation) per task; a second FAIL is reported honestly as
+>   blocked. The five-round cap and the rounds 4-5 escalation in `references/fix-loop.md` do not apply.
+> - **Parallel implementers:** allowed when each task has disjoint file ownership in its own worktree and branch
+>   (`forge-worktrees`, `forge-team-orchestration`); only tasks that share a file stay serial.
+> - **Workspace cleanup:** never delete the workspace recursively (the Forge gate hook blocks a recursive delete
+>   outside `_scratch/`). Delete its files one by one, or leave it and name its path in the report.
 
 Execute plan by dispatching a fresh implementer subagent per task, a task review (spec compliance + code quality) after each, and a broad whole-branch review at the end.
 

@@ -24,7 +24,7 @@ This is a **secrets + auth domain** — `security-reviewer` is a useful (optiona
 - **Dedicated agent identity (video-research verified):** integrations that READ e-mail/CRM-data or SEND on the owner's behalf SHOULD run under a dedicated agent identity — own mailbox/account, own OAuth grant, own API key — never the owner's personal credentials. Scope-minimization bounds *operations*, not *data*: a readonly token on the owner's mailbox still exposes their entire correspondence to a prompt-injected agent; a dedicated identity gives blast-radius containment + one-step revocation + a clean audit trail. Tiered: required-by-default for e-mail-read + external-send combinations (lethal-trifecta shape), advisory for low-risk one-way notifications. Surface the extra-account setup cost as an owner decision at integration planning and record the identity choice in the integration notes.
 
 ## Team (conditional)
-Lead: `architect`; `security-reviewer` available as an optional advisor. Specialists: `silent-failure-hunter` (dropped webhooks/retries), `python-reviewer` / `typescript-reviewer`, `database-reviewer`.
+Lead: `integration-boss`; `architect` is an optional read-only design advisor (not a Boss) and `security-reviewer` an optional advisor. Specialists: `silent-failure-hunter` (dropped webhooks/retries), `python-reviewer` / `typescript-reviewer`, `database-reviewer`.
 
 ## Skills / commands / MCP
 `n8n-workflow-patterns` (if n8n); Gmail / Calendar / CRM / Slack MCP tools via ToolSearch.

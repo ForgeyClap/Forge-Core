@@ -11,6 +11,7 @@ const { spawnSync } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
 const { BIN_DIR, DASH_SPA, NODE, claudeDir, listByExt, store } = require('./context.cjs');
+const { retryRedSuites } = require('./suite-retry.cjs');
 
 // WP-SPD-B: `node --check` cost one process spawn per file (about 315 spawns, 27-67 s per doctor run).
 // A `.cjs` file is always CommonJS, so Node compiles it as the body of the module wrapper function
@@ -102,6 +103,9 @@ function nodeCheckAll(root) {
 // WP-LIMITS: 600 s -> 1500 s. forge-sync.test grew to ~1550 assertions with an isolated TEMP and
 // needs about 750 s alone; under load the 600 s default left only ~43 s headroom. Same semantics: a suite that
 // hits the limit is timedOut/blocked, never a pass, and the env override still wins.
+// SD-FLAKE: FORGE_DOCTOR_RETRY=0 turns off the one sequential retry of red suites (strict mode). By default
+// a red suite is re-run once, alone, with this same limit; passing that retry is green but listed as flaky; more than
+// 5 red suites in the first pass is breakage and gets no retry (doctor/suite-retry.cjs).
 const DOCTOR_SUITE_TIMEOUT_MS = 1500000;
 // a failing suite names its failing tests in the evidence. On 2026-09-27 one gate-hook test failed
 // once inside a release gate and could not be identified, because perSuite held counts only. A failure line is what
@@ -217,6 +221,41 @@ function runSuiteSequential(file, root, timeoutMs) {
   }
 }
 
+/** suiteVerdict(file, r) -> the per-suite entry for one raw spawn result {status, signal, stdout, stderr}. Used for the
+ *  first pass and, unchanged, for the SD-FLAKE retry. */
+function suiteVerdict(file, r) {
+  // spawnSync sets status:null + a kill signal (verified: SIGTERM on Windows, r.error may also carry an
+  // ETIMEDOUT message) when the timeout fires; treat any status:null+signal combo as "blocked", not
+  // "failed" — it never actually finished running.
+  const timedOut = r.status === null && !!r.signal;
+  const out = ((r.stdout || '') + (r.stderr || ''));
+  // Robust tally extraction (FOLLOWUP A): the previous /(\d+)\s+passed,\s+(\d+)\s+failed/ had
+  // no anchor and no /g flag, so it matched the FIRST occurrence anywhere in combined stdout+stderr —
+  // including a phrase inside a test DESCRIPTION that a suite's own harness happens to echo (e.g.
+  // "  ok  reports 0 passed, 0 failed when empty"), long before the suite's real trailing tally line. This
+  // already caused one real false-negative (forge-chaos.test.cjs briefly read as 0/0 — fixed there by
+  // renaming the colliding description, but the underlying regex class bug remained). Fix: only accept a
+  // match where the digits are the FIRST thing on their line (anchor `^\s*` with the `m` flag) — a genuine
+  // tally is always printed at the very start of its own line (see this file's own final
+  // `console.log(pass + ' passed, ' + fail + ' failed')`), so a description embedded mid-line — prefixed by
+  // "  ok  " / "  FAIL " or any other text before the digits — can never satisfy the anchor. Deliberately
+  // NOT anchored at the line's END too: a real sibling suite (forge-learn.test.cjs, archived by A6 2026-11-02, still in archive/) legitimately prints
+  // "N passed, M failed, K skipped" — extra trailing content on the same summary line is normal and must
+  // still be read correctly (`\b` after "failed" instead of `$` — proven by re-running this exact fix
+  // against the real project's full suite battery, not just a hand-written fixture). Take the LAST such
+  // anchored match (not the first) as belt-and-suspenders, since the genuine summary is always the final
+  // thing a suite prints.
+  const TALLY_RE = /^\s*(\d+)\s+passed,\s+(\d+)\s+failed\b/gm;
+  let m = null, tm;
+  while ((tm = TALLY_RE.exec(out)) !== null) m = tm;
+  const p = m ? Number(m[1]) : 0, f = m ? Number(m[2]) : 0;
+  const suiteOk = !timedOut && r.status === 0 && f === 0 && !!m && p > 0;
+  const entry = { suite: path.basename(file), passed: p, failed: f, ok: suiteOk, timedOut };
+  if (!suiteOk && !timedOut) { const names = failingTestNames(out); if (names.length) entry.failures = names; }
+  if (timedOut && r.signal) entry.signal = r.signal;
+  return entry;
+}
+
 function runTests(root, opts) {
   // timeoutMs is test-only-overridable so a hermetic test can prove the timedOut/blocked classification
   // against a REAL spawnSync timeout in milliseconds instead of waiting minutes or faking the spawnSync
@@ -244,39 +283,16 @@ function runTests(root, opts) {
     // relative target against process.cwd() (the gate hook's scratch rule) reported false failures. The pool
     // spawns each suite with the same cwd, inherited environment and limit.
     const r = pooledResults ? pooledResults[ti] : runSuiteSequential(t, root, timeoutMs);
-    // spawnSync sets status:null + a kill signal (verified: SIGTERM on Windows, r.error may also carry an
-    // ETIMEDOUT message) when the timeout fires; treat any status:null+signal combo as "blocked", not
-    // "failed" — it never actually finished running.
-    const timedOut = r.status === null && !!r.signal;
-    const out = ((r.stdout || '') + (r.stderr || ''));
-    // Robust tally extraction (FOLLOWUP A): the previous /(\d+)\s+passed,\s+(\d+)\s+failed/ had
-    // no anchor and no /g flag, so it matched the FIRST occurrence anywhere in combined stdout+stderr —
-    // including a phrase inside a test DESCRIPTION that a suite's own harness happens to echo (e.g.
-    // "  ok  reports 0 passed, 0 failed when empty"), long before the suite's real trailing tally line. This
-    // already caused one real false-negative (forge-chaos.test.cjs briefly read as 0/0 — fixed there by
-    // renaming the colliding description, but the underlying regex class bug remained). Fix: only accept a
-    // match where the digits are the FIRST thing on their line (anchor `^\s*` with the `m` flag) — a genuine
-    // tally is always printed at the very start of its own line (see this file's own final
-    // `console.log(pass + ' passed, ' + fail + ' failed')`), so a description embedded mid-line — prefixed by
-    // "  ok  " / "  FAIL " or any other text before the digits — can never satisfy the anchor. Deliberately
-    // NOT anchored at the line's END too: a real sibling suite (forge-learn.test.cjs, archived by A6 2026-11-02, still in archive/) legitimately prints
-    // "N passed, M failed, K skipped" — extra trailing content on the same summary line is normal and must
-    // still be read correctly (`\b` after "failed" instead of `$` — proven by re-running this exact fix
-    // against the real project's full suite battery, not just a hand-written fixture). Take the LAST such
-    // anchored match (not the first) as belt-and-suspenders, since the genuine summary is always the final
-    // thing a suite prints.
-    const TALLY_RE = /^\s*(\d+)\s+passed,\s+(\d+)\s+failed\b/gm;
-    let m = null, tm;
-    while ((tm = TALLY_RE.exec(out)) !== null) m = tm;
-    const p = m ? Number(m[1]) : 0, f = m ? Number(m[2]) : 0;
-    const suiteOk = !timedOut && r.status === 0 && f === 0 && !!m && p > 0;
-    if (timedOut) suitesBlocked++;
-    else if (!suiteOk) suitesFailed++;
-    passed += p; failed += f;
-    const entry = { suite: path.basename(t), passed: p, failed: f, ok: suiteOk, timedOut };
-    if (!suiteOk && !timedOut) { const names = failingTestNames(out); if (names.length) entry.failures = names; }
-    if (timedOut && r.signal) entry.signal = r.signal;
-    perSuite.push(entry);
+    perSuite.push(suiteVerdict(t, r));
+  }
+  // SD-FLAKE: every red suite gets ONE retry, alone and sequentially, after the pool has finished (same
+  // limit, same temp isolation). Passing the retry = passing but listed as flaky; more than 5 red = breakage, no retry;
+  // FORGE_DOCTOR_RETRY=0 = strict mode. See doctor/suite-retry.cjs.
+  const retried = retryRedSuites(perSuite, (i, leftMs) => suiteVerdict(tests[i], runSuiteSequential(tests[i], root, Math.max(1, Math.min(timeoutMs, leftMs)))), opts);
+  for (const e of retried.perSuite) {
+    if (e.timedOut) suitesBlocked++;
+    else if (!e.ok) suitesFailed++;
+    passed += e.passed; failed += e.failed;
   }
   let ok = suitesFailed === 0 && suitesBlocked === 0;
   let reason = '';
@@ -284,8 +300,8 @@ function runTests(root, opts) {
     ok = false; // no evidence is not a pass
     reason = dirExists ? 'no evidence: 0 test suites found in forge-bin/ (dir present but empty)' : 'no evidence: forge-bin/ dir missing';
   }
-  const res = { suites: tests.length, suitesFailed, suitesBlocked, passed, failed, ok, perSuite, reason,
-    runner: pooledResults ? 'pool' : 'sequential', jobs: pooledResults ? jobs : 1 };
+  const res = { suites: tests.length, suitesFailed, suitesBlocked, passed, failed, ok, perSuite: retried.perSuite, reason,
+    flaky: retried.flaky, retry: retried.retry, runner: pooledResults ? 'pool' : 'sequential', jobs: pooledResults ? jobs : 1 };
   // A pool that could not deliver is said out loud; the suites then ran sequentially (the verdict above).
   if (pooled && !pooledResults) res.poolError = pooled.error;
   return res;
@@ -343,5 +359,5 @@ module.exports = {
   CJS_WRAPPER_PARAMS, syntaxCheckInProcess, nodeCheckAll, DOCTOR_SUITE_TIMEOUT_MS, FAIL_LINE_RE, FAIL_NAMES_MAX,
   FAIL_NAME_MAX_CHARS, failingTestNames, DOCTOR_SUITE_JOBS, SUITE_POOL_FILE, SUITE_DURATIONS_FILE,
   SUITE_DURATIONS_MAX_ROOTS, resolveSuiteJobs, suiteRootKey, readSuiteDurations, suiteOrder, writeSuiteDurations,
-  runSuitesPooled, suiteTmpHelpers, runSuiteSequential, runTests, strictEventCheck, spaPresent,
+  runSuitesPooled, suiteTmpHelpers, runSuiteSequential, suiteVerdict, runTests, strictEventCheck, spaPresent,
 };

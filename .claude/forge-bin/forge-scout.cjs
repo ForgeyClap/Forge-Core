@@ -27,7 +27,11 @@
  *
  * LEDGER SHAPE (both files, identical shape):
  *   { "_doc": <string>, "version": 1, "entries": [ { capability, verdict, reason, source, ts }, ... ] }
- *   verdict is one of 'approve' | 'hard-pass'. A malformed ledger (invalid JSON, wrong top-level shape, an
+ *   verdict is one of 'approve' | 'hard-pass' | 'salvage'. SALVAGE (CF-5-F7, 2026-11-13, owner rule "owner
+ *   resources are salvaged, not rejected") also carries keep[] (pieces used), remove[] (the exact unsafe pieces)
+ *   and rebuild (the work package id of our own version); the latest salvage prevails over a hard-pass for the
+ *   same capability and is never adopted whole. An entry may carry owner_supplied:true; a hard-pass on such an
+ *   item is refused unless it names a rebuild work package. A malformed ledger (invalid JSON, wrong top-level shape, an
  *   entry missing a required field) THROWS on read — same fail-closed posture forge-actiongate.cjs and
  *   forge-evidence.cjs use for their own config files; a corrupt ledger must never be silently treated as
  *   "nothing vetted yet."
@@ -50,13 +54,14 @@
  *
  * CLI:
  *   node forge-scout.cjs terms --domain <d> [--keywords <k1,k2,...>] [--json]
- *   node forge-scout.cjs record --capability <c> --verdict <approve|hard-pass> --reason "<r>" [--source <s>] [--json]
+ *   node forge-scout.cjs record --capability <c> --verdict <approve|hard-pass|salvage> --reason "<r>" [--source <s>]
+ *        [--keep "<piece>" ...] [--remove "<piece>" ...] [--rebuild <wp id>] [--owner-supplied] [--json]
  *   node forge-scout.cjs list [--json]
  *   node forge-scout.cjs rank --query "<q>" --candidates <file.json> [--cap N] [--json]   (: a JSON list, or {candidates:[...]},
  *        of {name, description?, url?, source_kind?, updated?, web_only?})
  *   node forge-scout.cjs adopt-plan --capability <c> [--json]   (: branch + reviewed-diff plan for an APPROVED capability)
  * Exit codes: terms/list/rank: 0 (advisory, never a gate) · record: 0 = recorded · adopt-plan: 0 = plan, 3 = refused
- *   (hard-pass or never vetted) · 2 = usage/validation error (missing/invalid field, malformed ledger or candidates file).
+ *   (hard-pass, salvage or never vetted) · 2 = usage/validation error (missing/invalid field, malformed ledger or candidates file).
  */
 const fs = require('fs');
 const path = require('path');
@@ -66,7 +71,19 @@ const CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE
 // forge-sync.cjs's SYSTEM/SYSTEM_GLOB list: it must never be synced from, or overwritten/deleted by, the
 // product template. See forge-sync.cjs's own comment next to SYSTEM for the matching note.
 const USER_CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_SCOUT_VETTING.user.json');
-const VALID_VERDICTS = new Set(['approve', 'hard-pass']);
+const VALID_VERDICTS = new Set(['approve', 'hard-pass', 'salvage']);
+const WP_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/;
+
+/** salvageProblem(e) -> null when a salvage entry carries its pieces, else what is missing (CF-5-F7): keep (what is
+ *  used) and remove (the exact unsafe piece) as non-empty lists of non-empty strings, rebuild = a work package id. */
+function salvageProblem(e) {
+  const list = (v) => Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string' && s.trim());
+  if (!list(e.keep)) return 'a salvage verdict needs "keep": the pieces that are used';
+  if (!list(e.remove)) return 'a salvage verdict needs "remove": the exact unsafe or unusable pieces';
+  if (typeof e.rebuild !== 'string' || !WP_ID_RE.test(e.rebuild)) return 'a salvage verdict needs "rebuild": the work package id that builds our own version';
+  return null;
+}
+const toList = (v) => (v == null ? [] : (Array.isArray(v) ? v : [v])).map((s) => String(s).trim()).filter(Boolean);
 
 // ---------------------------------------------------------------------------------------------------------
 // terms() — tailored, per-domain search-term generation
@@ -271,11 +288,13 @@ function loadLedgerFile(p) {
       throw new Error('forge-scout: ledger entry missing non-empty "capability" in ' + p);
     }
     if (!VALID_VERDICTS.has(entry.verdict)) {
-      throw new Error('forge-scout: ledger entry "' + entry.capability + '" has invalid "verdict" in ' + p + ' (must be approve|hard-pass): ' + JSON.stringify(entry.verdict));
+      throw new Error('forge-scout: ledger entry "' + entry.capability + '" has invalid "verdict" in ' + p + ' (must be approve|hard-pass|salvage): ' + JSON.stringify(entry.verdict));
     }
     if (typeof entry.reason !== 'string' || !entry.reason.trim()) {
       throw new Error('forge-scout: ledger entry "' + entry.capability + '" missing non-empty "reason" in ' + p);
     }
+    const sp = entry.verdict === 'salvage' ? salvageProblem(entry) : null;
+    if (sp) throw new Error('forge-scout: ledger entry "' + entry.capability + '" in ' + p + ': ' + sp);
   }
   return data;
 }
@@ -310,22 +329,34 @@ function record(params, opts) {
   const capability = typeof params.capability === 'string' ? params.capability.trim() : '';
   if (!capability) throw new Error('forge-scout: record() requires a non-empty "capability" string');
   if (!VALID_VERDICTS.has(params.verdict)) {
-    throw new Error('forge-scout: record() requires "verdict" to be one of approve|hard-pass, got: ' + JSON.stringify(params.verdict));
+    throw new Error('forge-scout: record() requires "verdict" to be one of approve|hard-pass|salvage, got: ' + JSON.stringify(params.verdict));
   }
   const reason = typeof params.reason === 'string' ? params.reason.trim() : '';
   if (!reason) throw new Error('forge-scout: record() requires a non-empty "reason" string');
+  const pieces = {};
+  if (params.keep != null) pieces.keep = toList(params.keep);
+  if (params.remove != null) pieces.remove = toList(params.remove);
+  if (params.rebuild != null) pieces.rebuild = String(params.rebuild).trim();
+  if (params.verdict === 'salvage') {
+    const sp = salvageProblem(pieces);
+    if (sp) throw new Error('forge-scout: record(): ' + sp);
+  }
+  // CF-5-F7 (owner rule "owner resources are salvaged, not rejected"): an owner-supplied item is never rejected whole
+  if (params.verdict === 'hard-pass' && params.owner_supplied === true && !(pieces.rebuild && WP_ID_RE.test(pieces.rebuild))) {
+    throw new Error('forge-scout: record(): an owner-supplied item is salvaged, not rejected: use --verdict salvage with --keep, --remove and --rebuild <wp id>, or give the hard-pass a --rebuild <wp id>');
+  }
 
   const explicit = resolveExplicitPath(opts.vettingPath);
   const writePath = explicit || USER_CONFIG_PATH; // default mode: user ledger only, never the shipped template
   const ledger = loadLedgerFile(writePath); // throws on a pre-existing malformed ledger — fail closed
 
-  const entry = {
+  const entry = Object.assign({
     capability,
     verdict: params.verdict,
     reason,
     source: typeof params.source === 'string' && params.source.trim() ? params.source.trim() : null,
     ts: nowIso(),
-  };
+  }, pieces, params.owner_supplied === true ? { owner_supplied: true } : {});
   ledger.entries = [...ledger.entries, entry]; // append — never mutate/remove a prior entry
   saveLedgerFile(writePath, ledger);
   return entry;
@@ -341,7 +372,10 @@ function list(opts) {
 /** isVetted(capability, opts) -> null | prevailing entry. A HARD-PASS for this capability ALWAYS wins over
  *  any later approve attempt for the same capability — this is what makes a HARD-PASS "persist": once
  *  recorded, no subsequent record() call can make isVetted() report anything other than that HARD-PASS for
- *  this capability. Absent a HARD-PASS, the most recently recorded entry for the capability is returned. */
+ *  this capability. Absent a HARD-PASS, the most recently recorded entry for the capability is returned.
+ *  SALVAGE (SK-7-F2): the latest salvage outranks both — it is the per-piece verdict (keep / remove / rebuild) that
+ *  replaces a whole-item reject, and it never adopts the item whole (adoptPlan refuses it), so the hard-pass's
+ *  protection holds while rank() keeps the item in view instead of skipping it. */
 function isVetted(capability, opts) {
   opts = opts || {};
   const cap = typeof capability === 'string' ? capability.trim() : '';
@@ -349,6 +383,8 @@ function isVetted(capability, opts) {
   const { entries } = list(opts);
   const matches = entries.filter((e) => e.capability.trim().toLowerCase() === cap.toLowerCase());
   if (matches.length === 0) return null;
+  const salvage = matches.filter((e) => e.verdict === 'salvage').pop();
+  if (salvage) return salvage;
   const hardPass = matches.find((e) => e.verdict === 'hard-pass');
   if (hardPass) return hardPass;
   return matches[matches.length - 1];
@@ -435,6 +471,7 @@ function adoptPlan(capability, opts) {
   if (!cap) throw new Error('forge-scout: adoptPlan() requires a non-empty capability string');
   const prior = isVetted(cap, { vettingPath: opts.vettingPath });
   if (!prior) throw new Error('forge-scout: "' + cap + '" is not vetted; run Scout and record an approve first');
+  if (prior.verdict === 'salvage') throw new Error('forge-scout: "' + cap + '" has a salvage verdict: it is never adopted whole; keep ' + prior.keep.join('; ') + ' and build our own version in ' + prior.rebuild);
   if (prior.verdict !== 'approve') throw new Error('forge-scout: "' + cap + '" has a hard-pass (' + prior.reason + '); it is never adopted');
   const day = new Date(Number.isFinite(opts.now) ? opts.now : Date.now()).toISOString().slice(0, 10).replace(/-/g, '');
   const branch = 'scout/adopt-' + slug(cap) + '-' + day;
@@ -460,10 +497,14 @@ module.exports = {
 function parseArgs(argv) {
   const cmd = argv[0] || null;
   const rest = argv.slice(1);
-  const opts = { cmd, domain: null, keywords: [], capability: null, verdict: null, reason: null, source: null, query: null, candidates: null, cap: null, json: false, positional: [] };
+  const opts = { cmd, domain: null, keywords: [], capability: null, verdict: null, reason: null, source: null, query: null, candidates: null, cap: null, json: false, keep: null, remove: null, rebuild: null, ownerSupplied: false, positional: [] };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (a === '--domain') opts.domain = rest[++i];
+    if (a === '--keep') (opts.keep = opts.keep || []).push(rest[++i]);
+    else if (a === '--remove') (opts.remove = opts.remove || []).push(rest[++i]);
+    else if (a === '--rebuild') opts.rebuild = rest[++i];
+    else if (a === '--owner-supplied') opts.ownerSupplied = true;
+    else if (a === '--domain') opts.domain = rest[++i];
     else if (a === '--keywords') opts.keywords = (rest[++i] || '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--capability') opts.capability = rest[++i];
     else if (a === '--verdict') opts.verdict = rest[++i];
@@ -479,7 +520,8 @@ function parseArgs(argv) {
 }
 function printUsage() {
   console.error('Usage: node forge-scout.cjs terms --domain <d> [--keywords <k1,k2,...>] [--json]');
-  console.error('       node forge-scout.cjs record --capability <c> --verdict <approve|hard-pass> --reason "<r>" [--source <s>] [--json]');
+  console.error('       node forge-scout.cjs record --capability <c> --verdict <approve|hard-pass|salvage> --reason "<r>" [--source <s>] [--json]');
+  console.error('            salvage: --keep "<piece>" (repeat) --remove "<piece>" (repeat) --rebuild <wp id>; --owner-supplied marks an owner item');
   console.error('       node forge-scout.cjs list [--json]');
   console.error('       node forge-scout.cjs rank --query "<q>" --candidates <file.json> [--cap N] [--json]');
   console.error('       node forge-scout.cjs adopt-plan --capability <c> [--json]');
@@ -502,10 +544,10 @@ if (require.main === module) {
       }
     } else if (opts.cmd === 'record') {
       if (!opts.capability || !opts.verdict || !opts.reason) {
-        console.error('forge-scout: record requires --capability <c> --verdict <approve|hard-pass> --reason "<r>"');
+        console.error('forge-scout: record requires --capability <c> --verdict <approve|hard-pass|salvage> --reason "<r>"');
         process.exitCode = 2;
       } else {
-        const entry = record({ capability: opts.capability, verdict: opts.verdict, reason: opts.reason, source: opts.source }, {});
+        const entry = record({ capability: opts.capability, verdict: opts.verdict, reason: opts.reason, source: opts.source, keep: opts.keep, remove: opts.remove, rebuild: opts.rebuild, owner_supplied: opts.ownerSupplied || undefined }, {});
         if (opts.json) console.log(JSON.stringify(entry));
         else console.log('recorded [' + entry.verdict + '] ' + entry.capability + ' — ' + entry.reason);
         process.exitCode = 0;
@@ -515,7 +557,10 @@ if (require.main === module) {
       if (opts.json) console.log(JSON.stringify(result));
       else {
         console.log('forge-scout ledger — ' + result.entries.length + ' entrie(s)');
-        for (const e of result.entries) console.log('  [' + e.verdict + '] ' + e.capability + ' — ' + e.reason + (e.source ? ' (' + e.source + ')' : ''));
+        for (const e of result.entries) {
+          console.log('  [' + e.verdict + '] ' + e.capability + ' — ' + e.reason + (e.source ? ' (' + e.source + ')' : ''));
+          if (e.verdict === 'salvage') console.log('      keep: ' + e.keep.join('; ') + ' · remove: ' + e.remove.join('; ') + ' · rebuild: ' + e.rebuild);
+        }
       }
       process.exitCode = 0;
     } else if (opts.cmd === 'rank') {
@@ -537,7 +582,7 @@ if (require.main === module) {
       if (!opts.capability) { console.error('forge-scout: adopt-plan requires --capability <c>'); process.exitCode = 2; }
       else {
         let plan = null;
-        try { plan = adoptPlan(opts.capability, {}); } catch (e) { if (/not vetted|hard-pass/.test(e.message)) { console.log(e.message); process.exitCode = 3; } else throw e; }
+        try { plan = adoptPlan(opts.capability, {}); } catch (e) { if (/not vetted|hard-pass|salvage verdict/.test(e.message)) { console.log(e.message); process.exitCode = 3; } else throw e; }
         if (plan) {
           if (opts.json) console.log(JSON.stringify(plan));
           else { console.log('adopt ' + plan.capability + ' on branch ' + plan.branch + ':'); plan.steps.forEach((s, i) => console.log('  ' + (i + 1) + '. ' + s)); }

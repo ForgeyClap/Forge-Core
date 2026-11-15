@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-genesis.test.cjs — real tests for staged, approval-gated self-authoring (PIECE J1).
 // Proves the safety core two ways every time: (1) a proposal ALWAYS lands in staging, NEVER in the live
 // skills dir, and (2) promotion out of staging happens ONLY via approve() with an explicit ownerApproval
@@ -401,6 +405,52 @@ t('CLI with no command at all exits 2', () => {
     const ok = genesis.approve({ name: 'seam-approved' }, { root: root3, ownerApproval: 'env-secret', env: { FORGE_GENESIS_APPROVAL: 'env-secret' }, allowEnv: true });
     assert.strictEqual(ok.ok, true, 'reason: ' + ok.reason);
   });}
+
+console.log('\n6) owner-grant freshness and live-skill protection (FB-QUALITY-F1, FB-QUALITY-F2)');
+const EV = 'run forge-2026-07-42 line 88 shows this exact gap in a real run (evidence text)';
+
+t('an approval secret written during the current session is refused (an agent may have written it)', () => {
+  const root = freshRoot('genesis-fresh-secret');
+  genesis.proposeSkill({ name: 'fresh-one', gap: 'gap', evidence: EV }, { root });
+  const sessionStartMs = Date.now() - 60000;
+  const tok = seedOwnerSecret(root, 'AGENT-CHOSEN-TOKEN');
+  const r = genesis.approve({ name: 'fresh-one' }, { root, ownerApproval: tok, sessionStartMs });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/during this Claude Code session/.test(r.reason), r.reason);
+  assert.strictEqual(fs.existsSync(path.join(root, '.claude', 'skills', 'fresh-one')), false);
+  const older = genesis.approve({ name: 'fresh-one' }, { root, ownerApproval: tok, sessionStartMs: Date.now() + 60000 });
+  assert.strictEqual(older.ok, true, older.reason);
+});
+
+t('propose refuses a name that is already a live skill', () => {
+  const root = freshRoot('genesis-live-propose');
+  fs.mkdirSync(path.join(root, '.claude', 'skills', 'forge-verify'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', 'skills', 'forge-verify', 'SKILL.md'), 'REAL LIVE SKILL\n');
+  const r = genesis.proposeSkill({ name: 'forge-verify', gap: 'gap', evidence: EV }, { root });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/already a live skill/.test(r.reason), r.reason);
+});
+
+t('approve never overwrites an existing live skill unless replace is explicit', () => {
+  const root = freshRoot('genesis-live-approve');
+  genesis.proposeSkill({ name: 'forge-verify', gap: 'gap', evidence: EV }, { root });
+  const live = path.join(root, '.claude', 'skills', 'forge-verify', 'SKILL.md');
+  fs.mkdirSync(path.dirname(live), { recursive: true });
+  fs.writeFileSync(live, 'REAL LIVE SKILL\n');
+  const tok = seedOwnerSecret(root, 'OWNER-TOKEN-LIVE');
+  const r = genesis.approve({ name: 'forge-verify' }, { root, ownerApproval: tok });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/already a live skill/.test(r.reason), r.reason);
+  assert.strictEqual(fs.readFileSync(live, 'utf8'), 'REAL LIVE SKILL\n');
+  const forced = genesis.approve({ name: 'forge-verify' }, { root, ownerApproval: tok, replace: true });
+  assert.strictEqual(forced.ok, true, forced.reason);
+  assert.notStrictEqual(fs.readFileSync(live, 'utf8'), 'REAL LIVE SKILL\n');
+});
+
+t('the CLI accepts --replace for approve', () => {
+  const src = fs.readFileSync(CLI, 'utf8');
+  assert.ok(/'--replace'/.test(src) && /replace: cli\.replace/.test(src));
+});
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');

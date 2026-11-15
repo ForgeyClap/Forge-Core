@@ -46,7 +46,7 @@ function lastEventTimeMs(file) {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const o = JSON.parse(lines[i]);
-        const t = Date.parse(o && (o.ingested_at || o.timestamp)); // the writer-stamped instant wins
+        const t = Date.parse(o && (o.ingested_at || o.timestamp)); // F05: the writer-stamped instant wins
         if (Number.isFinite(t)) return t;
       } catch { /* afgeknotte of corrupte regel — probeer de vorige */ }
     }
@@ -171,11 +171,11 @@ function qualityCatalogDoctorCheck(root) {
  *    - finalized / finalized-historical — read through forge-finalize check() (evaluateAcceptance). A HISTORICAL
  *                              record is reported with its cause and whether it was re-verified; a bare
  *                              HISTORICAL is never presented as "re-verified OK" (S5); an unverified-archival or
- *                              otherwise unauthenticated archival receipt is never a completion proof:
+ *                              otherwise unauthenticated archival receipt is never a completion proof (R2/N03b):
  *                              red for an enforced claim, finalized-archival with completion_proof:false otherwise;
- *    - undetermined            the receipt's git state cannot be read: RED in the development tree,
+ *    - undetermined            the receipt's git state cannot be read (R2/N08): RED in the development tree,
  *                              an ok:true NOTE (status 'undetermined') everywhere else;
- *    - a completion claim is sticky: work logged after run_completed keeps the run 'completed' (red until
+ *    - a completion claim is sticky (R2/N09): work logged after run_completed keeps the run 'completed' (red until
  *      it is finalized after a new run_completed, or closed as failed), it never turns back into "in progress";
  *    - anything whose completion claim PREDATES RUN_CONTRACT_ENFORCED_SINCE (the day this recipe and gate
  *      shipped): reported, not enforced — older runs never had the recipe, and a synced project must not turn
@@ -257,7 +257,7 @@ function judgeRunForDoctor(root, runId, sinceIso) {
       return Object.assign(base, { ok: !claimEnforced, enforced: claimEnforced, status: 'finalized-archival', acceptance, completion_proof: false, reason: 'the finalize receipt is an ARCHIVAL record, not a completion proof — ' + proof.reason + notEnforcedNote });
     }
     if (fin.verdict === 'STALE') return Object.assign(base, { ok: !claimEnforced, enforced: claimEnforced, status: 'finalized-stale', acceptance, completion_proof: false, reason: 'the finalize receipt no longer holds — ' + acceptance.label + notEnforcedNote });
-    /** a finalize checker that cannot run is a tool failure the doctor must show RED, never "undetermined, ok". */
+    /** F06: a finalize checker that cannot run is a tool failure the doctor must show RED, never "undetermined, ok". */
     if (fin.verdict === 'UNAVAILABLE') return Object.assign(base, { ok: false, enforced: true, status: 'finalize-unavailable', acceptance, completion_proof: false, reason: 'the finalize receipt could not be evaluated — ' + (fin.reason || acceptance.label) });
     /** UNDETERMINED (the git state of this root cannot be read right now — dubious
      *  ownership, a repo without commits, git missing) used to be ok:true, so a broken git probe read as a pass.

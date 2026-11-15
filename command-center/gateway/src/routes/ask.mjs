@@ -1,7 +1,7 @@
 // Ask-the-owner routes (moved verbatim out of server.mjs, WP A11 part 1). POST /api/ask is called by
 // the ask-mcp.mjs MCP subprocess (never the browser) to register a real question and BLOCK until the
 // owner answers or the ask times out. POST /api/ask/:id/answer is the dashboard's own real answer
-// submission. Both are token-checked once in requestListener.
+// submission. Both are token-checked once in requestListener (N6 fix).
 import { safeIdOk, safeConvIdOk } from '../security.mjs';
 import { validateSchema } from '../body.mjs';
 import { conversationExists, appendConversationEvent } from '../conversations.mjs';

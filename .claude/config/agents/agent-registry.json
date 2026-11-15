@@ -100,7 +100,7 @@
     "electron-pro": {
       "name": "Electron Pro",
       "role": "Electron desktop apps (specialist)",
-      "responsibilities": "Builds/hardens Electron apps: safe IPC, context isolation, no nodeIntegration in the renderer, and a real signed installer. Dispatched for desktop-app work packages.",
+      "responsibilities": "Builds/hardens Electron apps: safe IPC, context isolation, no nodeIntegration in the renderer. Installer and build config belong to desk-installer-engineer. Dispatched for desktop-app work packages.",
       "selfReview": true,
       "agentFile": ".claude/agents/electron-pro.md"
     },
@@ -145,6 +145,328 @@
       "responsibilities": "WP-7b (run forge-2026-10-09-forge-core-overhaul, audit SCRIBE-F8): keeps every owner instruction verbatim (secrets scrubbed) as a tracked item R-n via forge-scribe.cjs — classifies it, links it to work packages, and reports open and done-but-unacked items for one batched owner question. Changes scribe state ONLY through forge-scribe.cjs; never edits project files (exec-reviewer class, no Write/Edit). Dispatched by the Lead (not Boss) only for a multi_ask prompt (3+ asks), end-of-run reconciliation, or a resume with 20+ open items; the normal path needs no LLM call. GOAT quick route (sonnet/low).",
       "selfReview": true,
       "agentFile": ".claude/agents/scribe.md"
+    },
+    "scribe-acker": {
+      "name": "Scribe-acker",
+      "role": "Owner-delegated acceptor of routine scribe items (NL: Accepteerder)",
+      "responsibilities": "Owner R-0233 (2026-11-11): the owner no longer acks routine scribe items by hand. Runs forge-scribe.cjs autoack under the recorded delegation owner-R-0233 while config scribe-autoack is on: acks done items whose evidence re-verifies in a run that is not red and confirms carry-over proposals that carry a reason; holds questions, unclassified, hard-gate and owner-decision items and missing or red evidence for the owner, and reports them as the one batched owner question. Never cancels, supersedes, answers, classifies or reopens; never acks with --prompt. Changes scribe state ONLY through forge-scribe.cjs autoack (exec-reviewer class, no Write/Edit). The UserPromptSubmit and Stop hooks run the same autoack without an LLM call; the Lead dispatches this agent at end-of-run reconciliation. GOAT quick route (sonnet/low).",
+      "selfReview": true,
+      "agentFile": ".claude/agents/scribe-acker.md"
+    },
+    "rbx-game-director": {
+      "name": "Roblox Game Director",
+      "role": "Roblox pack specialist: Game Director (under Boss)",
+      "responsibilities": "Use for Roblox game design: specs, core loop, economy and balance, with numbers and acceptance criteria. Roblox projects only; a specialist under Boss. Owns the design docs and specs folder; never touches code, Studio, assets. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-game-director.md"
+    },
+    "rbx-luau-engineer": {
+      "name": "Roblox Luau Engineer",
+      "role": "Roblox pack specialist: Luau Engineer (under Build Boss)",
+      "responsibilities": "Use for Roblox server and client Luau code, built test-first against the approved spec and remote contract. Roblox projects only; a specialist under Build Boss. Owns the code files in its work package; never touches other lanes' files, Studio writes (read only), design docs, skills, secrets. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-luau-engineer.md"
+    },
+    "rbx-ui-engineer": {
+      "name": "Roblox UI Engineer",
+      "role": "Roblox pack specialist: UI Engineer (under UI Boss)",
+      "responsibilities": "Use for Roblox screens, HUD, menus and UI motion that work on phone, PC and console. Roblox projects only; a specialist under UI Boss. Owns UI code and the UI motion sheets; never touches game logic, Studio writes outside UI, the economy. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-ui-engineer.md"
+    },
+    "rbx-world-builder": {
+      "name": "Roblox World Builder",
+      "role": "Roblox pack specialist: World Builder (under Build Boss)",
+      "responsibilities": "Use for Roblox levels, placement, lighting and streaming in Studio, with placement checks and captures. Roblox projects only; a specialist under Build Boss. Owns world content in its own area of the ownership map; never touches game code, the economy, another lane's Studio area. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-world-builder.md"
+    },
+    "rbx-vfx-audio": {
+      "name": "Roblox VFX and Audio",
+      "role": "Roblox pack specialist: VFX and Audio (under UI Boss)",
+      "responsibilities": "Use for Roblox visual effects, sound and music modules with intensity tiers and a flash limit. Roblox projects only; a specialist under UI Boss. Owns the effect and sound modules; never touches game logic, the economy. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-vfx-audio.md"
+    },
+    "rbx-blender-artist": {
+      "name": "Roblox Blender Artist",
+      "role": "Roblox pack specialist: Blender Artist (under Build Boss)",
+      "responsibilities": "Use for Roblox-ready models, rigs, animations and icons made with Blender, within Roblox limits. Roblox projects only; a specialist under Build Boss. Owns the art source folder and the art delivery notes; never touches game code, Studio, uploads (rbx-integrator uploads). Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-blender-artist.md"
+    },
+    "rbx-integrator": {
+      "name": "Roblox Integrator",
+      "role": "Roblox pack specialist: Integrator (under Integration Boss)",
+      "responsibilities": "Use for merging Roblox lanes, syncing to Studio and planning uploads (dry run first, owner-gated). Roblox projects only; a specialist under Integration Boss. Owns the integration branch, the Studio sync and the upload log; never touches product code outside merges. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-integrator.md"
+    },
+    "rbx-qa-tester": {
+      "name": "Roblox QA Tester",
+      "role": "Roblox pack specialist: QA Tester (under Test Boss)",
+      "responsibilities": "Use for Roblox specs and playtests in a test copy of the place: console output, captures, timings and FPS. Roblox projects only; a specialist under Test Boss. Owns tests and test reports; never touches product code, the Studio build window. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-qa-tester.md"
+    },
+    "rbx-security-reviewer": {
+      "name": "Roblox Security Reviewer",
+      "role": "Roblox pack specialist: Security Reviewer (under Security Boss)",
+      "responsibilities": "Use to attack a Roblox game as an exploiter would: remotes, data, purchases, currency, teleports. Never edits. Roblox projects only; a specialist under Security Boss. Owns nothing (reads and runs checks, never writes); never touches every file. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-security-reviewer.md"
+    },
+    "rbx-verifier": {
+      "name": "Roblox Verifier",
+      "role": "Roblox pack specialist: Verifier (under Verify Boss)",
+      "responsibilities": "Use after every Roblox work package: PASS, FAIL or NOT_RUN per acceptance criterion, with the literal command and exit code. Never edits. Roblox projects only. Owns nothing (reads and runs, never writes); never touches every file: it edits nothing. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-verifier.md"
+    },
+    "rbx-liveops-producer": {
+      "name": "Roblox Live-Ops Producer",
+      "role": "Roblox pack specialist: Live-Ops Producer (under Docs Boss)",
+      "responsibilities": "Use for Roblox seasons, events, the live calendar, shop rotation and patch notes, as data. Roblox projects only; a specialist under Docs Boss. Owns the calendar and live settings as data; never touches code, Studio. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-liveops-producer.md"
+    },
+    "rbx-skill-monitor": {
+      "name": "Roblox Skill Monitor",
+      "role": "Roblox pack specialist: Skill Monitor (under Skill Boss)",
+      "responsibilities": "Use to vet, pin, measure and improve the skills of a Roblox team: keep, remove or rebuild per item. Roblox projects only; a specialist under Skill Boss. Owns skills, skill reports and the skills lock file; never touches game code, Studio. Part of the Roblox pack (.claude/config/packs/roblox.json); dispatched only for Roblox work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/rbx-skill-monitor.md"
+    },
+    "ai-rag-engineer": {
+      "name": "AI RAG Engineer",
+      "role": "AI pack specialist: RAG Engineer (under Build Boss)",
+      "responsibilities": "Use for RAG and AI chat code: idempotent ingestion, retrieval, answers with citations and an honest fallback. AI projects only; a specialist under Build Boss. Owns: Ingestion, chunking, embedding, retrieval and answer code in your work package, plus its unit and integration tests and small eval fixtures. Never touches: UI styling, prompts or flows owned by another agent, the eval graders (ai-eval-engineer), deploy and provider settings. Part of the ai pack (.claude/config/packs/ai.json); dispatched only for AI work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/ai-rag-engineer.md"
+    },
+    "ai-eval-engineer": {
+      "name": "AI Eval Engineer",
+      "role": "AI pack specialist: Eval Engineer (under Test Boss)",
+      "responsibilities": "Use to grade an AI chat, RAG or agent build: eval sets, graders, prompt-injection tests, scores with evidence. AI projects only; a specialist under Test Boss. Owns: Nothing in the repo: you run the eval set, the graders and the injection probes, and return a graded report. Eval sets and graders are written by the builder or Test Boss from your spec. Never touches: Every file: you edit nothing. Your shell use is for running the app, its eval script and its tests. Part of the ai pack (.claude/config/packs/ai.json); dispatched only for AI work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/ai-eval-engineer.md"
+    },
+    "ai-voice-designer": {
+      "name": "AI Voice Designer",
+      "role": "AI pack specialist: Voice Designer (under Integration Boss)",
+      "responsibilities": "Use for AI phone call flows: Dutch first when set, one question at a time, no outbound calls unapproved. AI projects only; a specialist under Integration Boss. Owns: The call-flow files in your work package: the system prompt, the call script, intents and slots, the goodbye lines, and the notification text (as markdown or JSON). Never touches: Telephony and provider config, webhook code, credentials, phone numbers, the voice provider account, tests. Part of the ai pack (.claude/config/packs/ai.json); dispatched only for AI work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/ai-voice-designer.md"
+    },
+    "app-architect": {
+      "name": "App Architect",
+      "role": "App pack specialist: App Architect (under Boss)",
+      "responsibilities": "Use for the one app contract before parallel builders start: API, data model and auth model. App projects only; a specialist under Boss. Owns: The contract documents (API spec, data model, auth and role model, error envelope), their version number, decision notes, and the file ownership table for parallel builders. Never touches: Implementation code, tests, migration files, environment files, deploy config, secrets. Part of the app pack (.claude/config/packs/app.json); dispatched only for app work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/app-architect.md"
+    },
+    "app-backend-engineer": {
+      "name": "App Backend Engineer",
+      "role": "App pack specialist: Backend Engineer (under Build Boss)",
+      "responsibilities": "Use for app endpoints with validation at every boundary, server-side auth and reversible migrations. App projects only; a specialist under Build Boss. Owns: The backend source files and migrations in your work package, and their tests. Never touches: The contract (app-architect), frontend files, other lanes' files, production databases, secrets. Part of the app pack (.claude/config/packs/app.json); dispatched only for app work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/app-backend-engineer.md"
+    },
+    "app-data-reviewer": {
+      "name": "App Data Reviewer",
+      "role": "App pack specialist: Data Reviewer (under Review Boss)",
+      "responsibilities": "Use to review app state, persistence, import and export, and feature logic against the contract. App projects only; a specialist under Review Boss. Owns: Nothing in the repo: you read and run, and return a review report. Never touches: Every file: you edit nothing. Part of the app pack (.claude/config/packs/app.json); dispatched only for app work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/app-data-reviewer.md"
+    },
+    "app-domain-reviewer": {
+      "name": "App Domain Reviewer",
+      "role": "App pack specialist: Domain Reviewer (under Review Boss)",
+      "responsibilities": "Use to check money-critical business rules (tax, bank parsing, money maths) on real fixtures. App projects only; a specialist under Review Boss. Owns: Nothing in the repo: you read and run, and return a graded review. Never touches: Every file: you edit nothing. Part of the app pack (.claude/config/packs/app.json); dispatched only for app work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/app-domain-reviewer.md"
+    },
+    "auto-n8n-engineer": {
+      "name": "Automation n8n Engineer",
+      "role": "Automation pack specialist: n8n Engineer (under Integration Boss)",
+      "responsibilities": "Use for n8n workflows built inactive by default, with credentials as metadata only. Automation projects only; a specialist under Integration Boss. Owns: The workflow JSON files in the repo, the Code node source and the workflow registry entries named in the work package. Never touches: Workflow activation, credential values, writes to a production instance, bots in code (auto-bot-engineer), other lanes' files. Part of the automation pack (.claude/config/packs/automation.json); dispatched only for automation work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/auto-n8n-engineer.md"
+    },
+    "auto-n8n-validator": {
+      "name": "Automation n8n Validator",
+      "role": "Automation pack specialist: n8n Validator (under Verify Boss)",
+      "responsibilities": "Use to validate n8n workflows: error branch, retries, idempotency, test and live kept apart. Automation projects only; a specialist under Verify Boss. Owns: Your verdict report. Never touches: Workflows (you never edit or activate one), credentials and the production instance. Part of the automation pack (.claude/config/packs/automation.json); dispatched only for automation work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/auto-n8n-validator.md"
+    },
+    "auto-bot-engineer": {
+      "name": "Automation Bot Engineer",
+      "role": "Automation pack specialist: Bot Engineer (under Integration Boss)",
+      "responsibilities": "Use for Discord, Telegram and Slack bots: signature checks, retries, dead letter, safe logs. Automation projects only; a specialist under Integration Boss. Owns: The bot code, its tests and the command definitions named in the work package. Never touches: Bot tokens, app registration, posting into real servers or channels, n8n workflows (auto-n8n-engineer), other lanes' files. Part of the automation pack (.claude/config/packs/automation.json); dispatched only for automation work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/auto-bot-engineer.md"
+    },
+    "data-scraper-engineer": {
+      "name": "Data Scraper Engineer",
+      "role": "Data pack specialist: Scraper Engineer (under Build Boss)",
+      "responsibilities": "Use for scrapers and crawlers of public or permitted sources, with robots and rate limits respected. Data projects only; a specialist under Build Boss. Owns: The scraper code, parsers, saved fixtures, tests and the output schema named in the work package. Never touches: Sources behind a login or paywall, credentials, outreach sending, other lanes' files. Part of the data pack (.claude/config/packs/data.json); dispatched only for data work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/data-scraper-engineer.md"
+    },
+    "data-compliance-reviewer": {
+      "name": "Data Compliance Reviewer",
+      "role": "Data pack specialist: Data Compliance Reviewer (under Security Boss)",
+      "responsibilities": "Use to check a data source's permission, terms, robots rules and personal data before scraping. Data projects only; a specialist under Security Boss. Owns: Your verdict report. You cannot write files or run commands: the Lead saves the report. Never touches: Code, data and every file in the repo. Part of the data pack (.claude/config/packs/data.json); dispatched only for data work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/data-compliance-reviewer.md"
+    },
+    "data-backtest-auditor": {
+      "name": "Data Backtest Auditor",
+      "role": "Data pack specialist: Backtest Auditor (under Verify Boss)",
+      "responsibilities": "Use to audit predictions and backtests: leakage, validity, uncertainty labels; never a real-money action. Data projects only; a specialist under Verify Boss. Owns: Your audit report. Never touches: Model code, data and features (you rerun, the builder fixes), and every betting, trading or payment account. Part of the data pack (.claude/config/packs/data.json); dispatched only for data work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/data-backtest-auditor.md"
+    },
+    "desk-installer-engineer": {
+      "name": "Desktop Installer Engineer",
+      "role": "Desktop pack specialist: Installer Engineer (under Build Boss)",
+      "responsibilities": "Use for a desktop app's build and installer that really opens, signing config and a clean shipped app. Desktop projects only; a specialist under Build Boss. Owns: The build and installer config (for example electron-builder or Electron Forge config, the build scripts in package.json), the version number, and the release notes draft. Never touches: App feature code (electron-pro or the feature builder), signing certificates and keys, publishing, other lanes' files. Part of the desktop pack (.claude/config/packs/desktop.json); dispatched only for desktop work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/desk-installer-engineer.md"
+    },
+    "desk-qa-tester": {
+      "name": "Desktop QA Tester",
+      "role": "Desktop pack specialist: QA Tester (under Test Boss)",
+      "responsibilities": "Use to start the real desktop .exe, drive it through its own window and capture the result. Desktop projects only; a specialist under Test Boss. Owns: Test reports and captures in the evidence folder the work package names. Never touches: Product code, build config, other agents' tests. Part of the desktop pack (.claude/config/packs/desktop.json); dispatched only for desktop work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/desk-qa-tester.md"
+    },
+    "game-designer": {
+      "name": "Game Designer",
+      "role": "Game pack specialist: Game Designer (under Boss)",
+      "responsibilities": "Use for a game's core loop, win and lose states, balance numbers and acceptance criteria. Browser and Godot game projects only; a specialist under Boss. Owns: The design document in your work package: core loop, controls, win and lose states, balance tables, level outlines and the acceptance criteria per feature. Never touches: Game code, assets, tests, the build, publishing. Part of the game pack (.claude/config/packs/game.json); dispatched only for game work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/game-designer.md"
+    },
+    "game-programmer": {
+      "name": "Game Programmer",
+      "role": "Game pack specialist: Game Programmer (under Build Boss)",
+      "responsibilities": "Use for game code: game loop, input, collision, save data and the frame budget. Browser and Godot game projects only; a specialist under Build Boss. Owns: The game code and its tests in your work package (loop, scenes, entities, input mapping, collision, save and load). Never touches: The design document, art and audio source files, other agents' tests, publishing. Part of the game pack (.claude/config/packs/game.json); dispatched only for game work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/game-programmer.md"
+    },
+    "game-playtester": {
+      "name": "Game Playtester",
+      "role": "Game pack specialist: Playtester (under Test Boss)",
+      "responsibilities": "Use to play the real game build across viewports, find stuck states and capture the result. Browser and Godot game projects only; a specialist under Test Boss. Owns: Nothing in the repo: you play, capture and return a test report. Captures go to the evidence folder the work package names. Never touches: Every file: you edit nothing. Your shell use is for starting the build, running its tests and taking captures. Part of the game pack (.claude/config/packs/game.json); dispatched only for game work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/game-playtester.md"
+    },
+    "mob-app-engineer": {
+      "name": "Mobile App Engineer",
+      "role": "Mobile pack specialist: Mobile App Engineer (under Build Boss)",
+      "responsibilities": "Use for mobile app code (Capacitor, Expo, React Native, Flutter) with secure storage, built test-first. Mobile projects only; a specialist under Build Boss. Owns: The app code and its tests named in the work package: screens, navigation, state, storage and native bridges. Never touches: Signing keys and keystores, version numbers and release builds (mob-release-engineer), store listings, other lanes' files, secrets. Part of the mobile pack (.claude/config/packs/mobile.json); dispatched only for mobile work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/mob-app-engineer.md"
+    },
+    "mob-release-engineer": {
+      "name": "Mobile Release Engineer",
+      "role": "Mobile pack specialist: Mobile Release Engineer (under Integration Boss)",
+      "responsibilities": "Use for apk and aab builds, version codes and release notes; signing keys stay an owner gate. Mobile projects only; a specialist under Integration Boss. Owns: The build configuration (Gradle wrapper settings, Capacitor or Expo config for versions), the version name and code, the release notes draft and the artefacts in the project's output folder. Never touches: Keystores, key passwords, store accounts and uploads; app feature code (mob-app-engineer); other lanes' files. Part of the mobile pack (.claude/config/packs/mobile.json); dispatched only for mobile work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/mob-release-engineer.md"
+    },
+    "mob-qa-tester": {
+      "name": "Mobile QA Tester",
+      "role": "Mobile pack specialist: Mobile QA Tester (under Test Boss)",
+      "responsibilities": "Use to install a mobile build in the emulator, open it, drive the main flows and capture each screen. Mobile projects only; a specialist under Test Boss. Owns: Test reports, captures and log excerpts under the run's evidence folder, written by the commands you run. Never touches: Product code and test code (you run them, the builder fixes them), signing, store tracks, any device the owner did not connect. Part of the mobile pack (.claude/config/packs/mobile.json); dispatched only for mobile work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/mob-qa-tester.md"
+    },
+    "res-analyst": {
+      "name": "Research Analyst",
+      "role": "Research pack specialist: Research Analyst (under Search Boss)",
+      "responsibilities": "Use for exhaustive research: enumerate every item a source exposes, with coverage numbers and sources. Research projects only; a specialist under Search Boss. Owns: Nothing in the repo: you read and search, and return the findings in your report. The owning Boss saves them. Never touches: Every file: you edit nothing and run no commands. Part of the research pack (.claude/config/packs/research.json); dispatched only for research work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/res-analyst.md"
+    },
+    "res-fact-checker": {
+      "name": "Research Fact Checker",
+      "role": "Research pack specialist: Fact Checker (under Verify Boss)",
+      "responsibilities": "Use to check every claim and citation in a research result: verified, inferred or unknown. Research projects only; a specialist under Verify Boss. Owns: Nothing in the repo: you read, open the sources, and return a graded report. Never touches: Every file: you edit nothing and run no commands. Part of the research pack (.claude/config/packs/research.json); dispatched only for research work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/res-fact-checker.md"
+    },
+    "res-plan-writer": {
+      "name": "Research Plan Writer",
+      "role": "Research pack specialist: Plan Writer (under Docs Boss)",
+      "responsibilities": "Use to turn research evidence into a plain-language step plan with risks and rollback. Research and planning projects only; a specialist under Docs Boss. Owns: The plan document in your work package (markdown), and its open-questions list. Never touches: Code, config, the research sources, other agents' reports, publishing. Part of the research pack (.claude/config/packs/research.json); dispatched only for research work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/res-plan-writer.md"
+    },
+    "shop-product-researcher": {
+      "name": "Shop Product Researcher",
+      "role": "Shop pack specialist: Shop Product Researcher (under Search Boss)",
+      "responsibilities": "Use for product and market research for a shop or digital products, with sources and no invented numbers. Shop projects only; a specialist under Search Boss. Owns: The research note in your report. You cannot write files: the Lead or Docs Boss saves it. Never touches: Listings, the store, prices, product files and every file in the repo. Part of the shop pack (.claude/config/packs/shop.json); dispatched only for shop work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/shop-product-researcher.md"
+    },
+    "shop-listing-writer": {
+      "name": "Shop Listing Writer",
+      "role": "Shop pack specialist: Shop Listing Writer (under Docs Boss)",
+      "responsibilities": "Use for shop listing titles, tags and descriptions in the owner's language; drafts only, never publishes. Shop projects only; a specialist under Docs Boss. Owns: The listing draft files named in the work package (for example `listings/*.md` or the project's listing data file). Never touches: The store, prices, product files, code, and replies to buyers. Part of the shop pack (.claude/config/packs/shop.json); dispatched only for shop work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/shop-listing-writer.md"
+    },
+    "shop-catalog-engineer": {
+      "name": "Shop Catalog Engineer",
+      "role": "Shop pack specialist: Shop Catalog Engineer (under Integration Boss)",
+      "responsibilities": "Use for shop product data, digital product files and store connectors kept behind the owner gate. Shop projects only; a specialist under Integration Boss. Owns: Product data files (catalog JSON or CSV), the scripts that build digital product files and their output, and the store connector code with its tests. Never touches: Live store writes, API keys, payment settings (payment-integration), listing copy (shop-listing-writer), other lanes' files. Part of the shop pack (.claude/config/packs/shop.json); dispatched only for shop work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/shop-catalog-engineer.md"
+    },
+    "shop-ops-analyst": {
+      "name": "Shop Ops Analyst",
+      "role": "Shop pack specialist: Shop Ops Analyst (under Review Boss)",
+      "responsibilities": "Use to check shop orders, cashflow and support drafts against real data, and to flag fabricated metrics. Shop projects only; a specialist under Review Boss. Owns: Your review report. Never touches: The files and data you review, the store, payments and buyer messages. Part of the shop pack (.claude/config/packs/shop.json); dispatched only for shop work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/shop-ops-analyst.md"
+    },
+    "web-art-director": {
+      "name": "Website Art Director",
+      "role": "Website pack specialist: Art Director (under UI Boss)",
+      "responsibilities": "Use for a website's brand guideline, visual direction and design critique against that guideline. Website projects only; a specialist under UI Boss. Owns: The brand guideline of the business (logo or monogram with clearspace, a named palette with hex values, a two-font pairing, iconography, button styles), the design tokens, and design critique notes. Never touches: Page logic and components (web-frontend-engineer), copy (web-content-writer), tests, other lanes' files, deploy settings, secrets. Part of the website pack (.claude/config/packs/website.json); dispatched only for website work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/web-art-director.md"
+    },
+    "web-frontend-engineer": {
+      "name": "Website Frontend Engineer",
+      "role": "Website pack specialist: Frontend Engineer (under Build Boss)",
+      "responsibilities": "Use for website pages and components with every state, responsive layouts and zero console errors. Website projects only; a specialist under Build Boss. Owns: The page and component source files in your work package, and their tests. Never touches: The brand guideline and tokens (web-art-director), copy decks (web-content-writer), other lanes' files, deploy and hosting config, secrets. Part of the website pack (.claude/config/packs/website.json); dispatched only for website work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/web-frontend-engineer.md"
+    },
+    "web-content-writer": {
+      "name": "Website Content Writer",
+      "role": "Website pack specialist: Content Writer (under Docs Boss)",
+      "responsibilities": "Use for real website copy in the owner's language: headlines, page text, calls to action and page SEO copy. Website projects only; a specialist under Docs Boss. Owns: The copy and content files in your work package (copy decks, markdown or JSON content, page text), meta titles and meta descriptions. Never touches: Layout, styles, component code, tests, images, publishing. Part of the website pack (.claude/config/packs/website.json); dispatched only for website work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/web-content-writer.md"
+    },
+    "web-dataviz-engineer": {
+      "name": "Website Dataviz Engineer",
+      "role": "Website pack specialist: Dataviz Engineer (under UI Boss)",
+      "responsibilities": "Use for website charts and dashboards on real data, with honest empty, loading and error states. Website projects only; a specialist under UI Boss. Owns: Chart and dashboard components, their data adapters and their tests. Never touches: The data source itself (APIs, database schema, scrapers), the brand guideline, other lanes' files. Part of the website pack (.claude/config/packs/website.json); dispatched only for website work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/web-dataviz-engineer.md"
+    },
+    "web-qa-proof": {
+      "name": "Website QA Proof",
+      "role": "Website pack specialist: QA Proof (under Test Boss)",
+      "responsibilities": "Use for website proof: screenshots on desktop, tablet and mobile, console, keyboard, contrast and speed. Website projects only; a specialist under Test Boss. Owns: Test reports and captures in the evidence folder the work package names. Never touches: Product code, styles, copy, other agents' tests. Part of the website pack (.claude/config/packs/website.json); dispatched only for website work.",
+      "selfReview": true,
+      "agentFile": ".claude/agents/web-qa-proof.md"
     }
   },
   "extensionRule": "New agent? Only with permanent name + role + skill bundle + model mapping + self-review + loop position, added to this file (template) and synced. Never spawn ad-hoc differently-named agents for work an existing Boss covers. Optional domain specialists and opt-in reviewers follow the same contract under `specialistAgents` above instead of the fixed 12-Boss `agents` map (which several tools anchor an exact count on).",

@@ -236,6 +236,7 @@ function onceQuote(ent, oncePrefix) {
 const LOCK_POLL_MS_DEFAULT = 15;
 const LOCK_TIMEOUT_MS_DEFAULT = 4000;
 const LOCK_STALE_MS_DEFAULT = 15000;
+const LOCK_HARD_STALE_MS = 10 * 60 * 1000; // FB-CONFIG-1-F9: older than this, a lock is stale whatever its pid says
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -298,7 +299,10 @@ function reclaimEligibility(lockPath, staleMs) {
   const seen = readLockInPlace(lockPath);
   if (!seen) return null;
   const ageMs = Date.now() - seen.mtimeMs;
-  return { token: seen.token, mtimeMs: seen.mtimeMs, eligible: ageMs > staleMs && !isPidAlive(parseTokenPid(seen.token)) };
+  // FB-CONFIG-1-F9: past the hard ceiling the lock is reclaimed whatever its pid says (a reused pid or an empty token
+  // made it unreclaimable for good); a transaction holds the lock for milliseconds.
+  const pastCeiling = ageMs > Math.max(staleMs, LOCK_HARD_STALE_MS);
+  return { token: seen.token, mtimeMs: seen.mtimeMs, ageMs, eligible: ageMs > staleMs && (pastCeiling || !isPidAlive(parseTokenPid(seen.token))) };
 }
 
 /** createOwnedLock(lockPath, token) -> true (freshly created and durably holds exactly `token`) | false
@@ -380,7 +384,7 @@ function tryReclaimStaleLock(lockPath, staleMs, newToken) {
 }
 
 /** acquireLock(file, opts) -> { path: lockPath, token }, once held — pass this SAME object to releaseLock;
- *  never a bare path. Throws { code:'lock_busy' } after opts.timeoutMs of contention; throws a real
+ *  never a bare path (V09). Throws { code:'lock_busy' } after opts.timeoutMs of contention; throws a real
  *  error (never returns) when a fresh create's own token write fails (V09 out-p8). opts: pollMs, timeoutMs,
  *  staleMs. */
 function acquireLock(file, opts) {
@@ -404,7 +408,10 @@ function acquireLock(file, opts) {
       return { path: lockPath, token };
     }
     if (Date.now() >= deadline) {
-      const err = new Error('forge-config: another process is writing ' + file + ' — try again');
+      const seen = readLockInPlace(lockPath);
+      const pid = seen ? parseTokenPid(seen.token) : NaN;
+      const detail = seen ? ' (lock ' + lockPath + ', pid ' + (Number.isInteger(pid) ? pid : 'unknown') + ', age ' + Math.max(0, Math.round((Date.now() - seen.mtimeMs) / 1000)) + ' s; a lock older than ' + (LOCK_HARD_STALE_MS / 60000) + ' min is reclaimed automatically)' : '';
+      const err = new Error('forge-config: another process is writing ' + file + ' — try again' + detail);
       err.code = 'lock_busy';
       throw err;
     }

@@ -77,9 +77,18 @@ Every candidate found gets exactly one of two verdicts, recorded via
   - is a security risk (requests broad/unscoped credentials, unclear data handling, unvetted third-party
     network calls, obfuscated code).
 
+**Owner-supplied or owner-named items are salvaged, never rejected whole** (global HARD MUST "Owner resources
+are salvaged, not rejected", 2026-11-09). For a file, repo, plugin, skill, tool or asset pack the owner supplied
+or pointed to, the report lists per piece: **keep** (what is used, and where), **remove** (the exact unsafe or
+unusable piece and why: download-and-run, arbitrary code execution, credential or cookie handling, unreviewed
+hooks, licence-blocked files) and **rebuild** (Forge's own safe version of that piece and its work package).
+Record a HARD-PASS only for a removed piece, under a piece-level name such as `<item>-<piece>`, never under the
+item's own name. A prior HARD-PASS on the item's name does not stop a new salvage pass when the owner names
+the item again; `rank` may still list it as `skipped_hard_pass`, so vet the pieces anyway and say so.
+
 Before researching ANY capability, call `forge-bin/forge-scout.cjs list` (or `isVetted`) to check whether
-it was already vetted — a prior HARD-PASS always persists and must not be re-litigated; a prior APPROVE is
-reported as already-vetted rather than re-run from scratch.
+it was already vetted — a prior HARD-PASS persists and is not re-litigated (the one exception is the owner
+naming the item again, above); a prior APPROVE is reported as already-vetted rather than re-run from scratch.
 
 ## Hard rules (non-negotiable)
 - **Nothing is auto-installed, ever.** Scout's job ends at a recorded, evidenced verdict — no skill/plugin/
@@ -100,7 +109,8 @@ reported as already-vetted rather than re-run from scratch.
   still has to name the capability explicitly before it goes from "vetted" to "opted in."
 - **A HARD-PASS is permanent and non-negotiable without a NEW explicit owner override.** `isVetted()` always
   surfaces an existing HARD-PASS ahead of any later APPROVE attempt for the same capability — this is
-  enforced by the ledger itself (`forge-scout.cjs`), not left to memory or good intentions.
+  enforced by the ledger itself (`forge-scout.cjs`), not left to memory or good intentions. The owner naming
+  an item again counts as that override for a salvage pass (keep / remove / rebuild per piece, see Step 3).
 - **No candidate is judged from marketing copy alone.** A web-search hit with a demo video is watched (Step
   2) before a verdict is recorded; a hit with no way to verify real behavior is HARD-PASSed as "unverifiable"
   rather than optimistically approved.

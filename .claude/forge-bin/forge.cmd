@@ -21,20 +21,24 @@ REM NOTE for editors: cmd parses redirection and separator characters even insid
 REM in this file must not contain angle brackets, ampersands, pipes or quote characters.
 set "BIN=%~dp0"
 set "DASH=%~dp0..\forge-dashboard"
-if "%~1"=="" goto help
-if /I "%~1"=="dashboard"   goto dashboard_or_start
-if /I "%~1"=="start"       goto dashboard_or_start
-if /I "%~1"=="legacy-dashboard" goto legacydash
-if /I "%~1"=="status"      ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" status & goto end )
-if /I "%~1"=="runs"        ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" runs & goto end )
-if /I "%~1"=="open-report" ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" open-report & goto end )
-if /I "%~1"=="health"      ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" status & goto end )
-if /I "%~1"=="log-event"   goto logevent
-if /I "%~1"=="resume"      goto resume
-if /I "%~1"=="learn"       goto learn
-if /I "%~1"=="config"      goto config
-if /I "%~1"=="sweep"       goto sweep
-if /I "%~1"=="promptcheck" goto promptcheck
+REM FB-MISC-2-F1: an argument is never expanded inside a new pair of quotes. The tilde form strips the
+REM caller's quotes, so a value with an odd number of embedded quotes flipped the quote state of the line
+REM and an ampersand in it ran as a command. Arguments are compared raw in brackets or read through a FOR
+REM variable, which cmd substitutes after it has already split the line into commands.
+if [%1]==[] goto help
+if /I [%1]==[dashboard]   goto dashboard_or_start
+if /I [%1]==[start]       goto dashboard_or_start
+if /I [%1]==[legacy-dashboard] goto legacydash
+if /I [%1]==[status]      ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" status & goto end )
+if /I [%1]==[runs]        ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" runs & goto end )
+if /I [%1]==[open-report] ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" open-report & goto end )
+if /I [%1]==[health]      ( "%NODE_CMD%" "%BIN%forge-runinfo.cjs" status & goto end )
+if /I [%1]==[log-event]   goto logevent
+if /I [%1]==[resume]      goto resume
+if /I [%1]==[learn]       goto learn
+if /I [%1]==[config]      goto config
+if /I [%1]==[sweep]       goto sweep
+if /I [%1]==[promptcheck] goto promptcheck
 goto help
 :dashboard_or_start
 REM ("forge dashboard works after a fresh install, with no manual steps"): ALL the decision
@@ -58,8 +62,8 @@ REM cmd's quote state so an ampersand inside a value runs the rest of the line a
 REM re-expands percent-variables found inside the payload too. A file cmd never parses is the only form
 REM it cannot mangle, so a 4th argument is required and must end in .json; anything else is a usage error.
 REM For an inline JSON string instead of a file, use forge.ps1 or forge.sh - see forge-bin README.md.
-if "%~4"=="" goto logevent_noarg
-if /I "%~x4"==".json" goto logevent_file
+if [%4]==[] goto logevent_noarg
+for %%F in (%4) do if /I "%%~xF"==".json" goto logevent_file
 echo Usage: forge.cmd log-event RUN_ID EVENT_TYPE payload.json - only a .json file is accepted here; for inline JSON use forge.ps1 or forge.sh.
 exit /b 2
 :logevent_file

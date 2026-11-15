@@ -2,7 +2,7 @@
  * SegmentedControl — a small set of mutually exclusive options.
  *
  * Real radiogroup semantics: roving tabindex, arrow keys move and select,
- * Home/End jump to the ends. Look: a sunken track; the chosen segment is a
+ * Home/End jump to the ends. Look (v1.0): a sunken track; the chosen segment is a
  * raised surface with shadow 1 (mockups .seg), so the choice reads without colour.
  */
 

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 const nodeTest = require('node:test');
 // The doctor and the forge-sync regression gate read the '<n> passed, <m> failed' tally line; node:test's own
 // 'ℹ pass 5' summary reads as 0/0 = no evidence (26h2 sync rollback 2026-11-03).
@@ -70,6 +74,29 @@ test('--help / -h prints usage and writes nothing; an unknown flag is refused (e
   assert.strictEqual(fs.readFileSync(path.join(r, 'AGENTS.md'), 'utf8'), before);
   assert.strictEqual(fs.existsSync(path.join(r, 'GEMINI.md')), false);
   fs.rmSync(r, { recursive: true, force: true });
+});
+// a bare run (no target) defaulted to "all" and WROTE 22 export files; a write now needs a named target.
+test('a bare run without a target writes nothing and exits 2 with a hint', () => {
+  const r = fake();
+  const before = fs.readFileSync(path.join(r, 'AGENTS.md'), 'utf8');
+  const p = spawnSync(process.execPath, [path.join(__dirname, 'forge-export.cjs'), '--root', r], { encoding: 'utf8' });
+  assert.strictEqual(p.status, 2);
+  assert.match(p.stderr, /nothing written: name a target \(opencode\|codex\|gemini\|all\) to write/);
+  assert.strictEqual(fs.readFileSync(path.join(r, 'AGENTS.md'), 'utf8'), before);
+  assert.strictEqual(fs.existsSync(path.join(r, 'GEMINI.md')), false);
+  assert.strictEqual(fs.existsSync(path.join(r, '.opencode')), false);
+  fs.rmSync(r, { recursive: true, force: true });
+});
+test('a target given as the first argument (no --root) is honoured; only the --root value is skipped', () => {
+  // Red on the 2026-11-08 code: without --root the first argument was skipped, so `forge-export.cjs all` wrote nothing
+  // and `forge-export.cjs opencode` ran every target.
+  assert.strictEqual(X.namedTarget(['all']), 'all');
+  assert.strictEqual(X.namedTarget(['opencode', '--check']), 'opencode');
+  assert.strictEqual(X.namedTarget(['--check', 'gemini']), 'gemini');
+  assert.strictEqual(X.namedTarget(['--root', 'x']), undefined);
+  assert.strictEqual(X.namedTarget(['--root', 'x', 'codex']), 'codex');
+  assert.strictEqual(X.namedTarget(['codex', '--root', 'x']), 'codex');
+  assert.strictEqual(X.namedTarget([]), undefined);
 });
 // The generated files (.opencode/**, GEMINI.md, the AGENTS.md section) are per-project and never shipped, so a
 // synced project has none: there the real-tree drift check cannot pass by design (26h2 sync rollback 2026-11-02).

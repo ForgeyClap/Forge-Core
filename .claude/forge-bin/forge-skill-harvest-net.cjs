@@ -69,6 +69,8 @@ async function ghJson(ctx, args, { resource = 'core', input, serverRetries = MAX
       await ctx.sleep(wait);
       continue;
     }
+    // FB-SKILLTOOLS-F7: gh itself failed (not installed, logged out): no HTTP answer at all, so a retry cannot help
+    if (resp.ghFailed) return { ok: false, status: 0, json: null, headers: {}, error: 'gh_failed', detail: redact(resp.stderr || 'gh exited without an HTTP response') };
     if (resp.status >= 500 || resp.status === 0) {
       if (attempt >= Math.min(serverRetries, MAX_ATTEMPTS)) break;
       ctx.log(`server error ${resp.status} on ${resource}: retry ${attempt}/${serverRetries - 1}`);
@@ -88,9 +90,12 @@ const GH_MAX_BYTES = 512 * 1024 * 1024;
 function realGh(args, input) {
   return new Promise((resolve) => {
     const fail = { status: 0, headers: {}, body: '' };
+    // FB-SKILLTOOLS-F7: keep a bounded tail of stderr and the exit code, so a missing or logged-out gh is named
+    const ghFail = (why) => ({ status: 0, headers: {}, body: '', ghFailed: true, stderr: String(why || '').trim().split(/\r?\n/).filter(Boolean).slice(-1)[0] || 'gh failed' });
     let child;
-    try { child = spawn('gh', ['api', '-i', ...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] }); } catch { resolve(fail); return; }
-    const chunks = []; let size = 0; let done = false;
+    try { child = spawn('gh', ['api', '-i', ...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); } catch (e) { resolve(ghFail(e && e.message)); return; }
+    const chunks = []; let size = 0; let done = false; let errText = '';
+    child.stderr.on('data', (c) => { if (errText.length < 4096) errText += c.toString('utf8'); });
     const finish = (r) => { if (!done) { done = true; clearTimeout(timer); resolve(r); } };
     const timer = setTimeout(() => { child.kill(); finish(fail); }, GH_TIMEOUT_MS);
     child.stdout.on('data', (c) => {
@@ -98,8 +103,11 @@ function realGh(args, input) {
       if (size > GH_MAX_BYTES) { child.kill(); finish(fail); return; }
       chunks.push(c);
     });
-    child.on('error', () => finish(fail));
-    child.on('close', () => finish(parseGhOutput(Buffer.concat(chunks).toString('utf8'))));
+    child.on('error', (e) => finish(ghFail(e && e.message)));
+    child.on('close', (code) => {
+      const r = parseGhOutput(Buffer.concat(chunks).toString('utf8'));
+      finish(r.status === 0 && code !== 0 ? ghFail(errText || 'gh exited with code ' + code) : r);
+    });
     child.stdin.on('error', () => {}); // gh may close stdin early (EPIPE); its stdout still decides the result
     child.stdin.end(input === undefined ? '' : input);
   });
@@ -145,4 +153,4 @@ function realCtx({ maxRequests = 0, log } = {}) {
   };
 }
 
-module.exports = { MAX_ATTEMPTS, MAX_WAIT_MS, PACE_MS, redact, parseGhOutput, rateLimitWaitMs, ghJson, httpsGet, getText, realCtx };
+module.exports = { MAX_ATTEMPTS, MAX_WAIT_MS, PACE_MS, redact, parseGhOutput, rateLimitWaitMs, ghJson, httpsGet, getText, realCtx, realGh };

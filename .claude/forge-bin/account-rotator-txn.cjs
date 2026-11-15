@@ -132,7 +132,7 @@ async function corroboratedCapture(P, slot, o) {
   return { captured: true, reason: null, how: proof.how, reading: proof.reading || null };
 }
 
-// ---- preflight -------------------------------------------------------------------------------------------
+// ---- preflight (M2) -------------------------------------------------------------------------------------------
 /** preflight(P, targetName, o) -> {ok, live, from, target} | {ok:false, reason}. Pauses nothing, swaps nothing. */
 async function preflight(P, targetName, o) {
   const opts = o || {};

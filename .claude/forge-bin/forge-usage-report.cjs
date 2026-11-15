@@ -64,8 +64,10 @@ function pct(a, p) {
 }
 const share = (t) => (t.ctx > 0 ? t.read / t.ctx : 0);
 const RUN_ID_RE = /forge-\d{4}-\d{2}-\d{2}-[A-Za-z0-9][A-Za-z0-9-]*/g;
-// a transcript command that touches a run: the legacy forge-runs folder and (WP 2.1) the opt-in .forge/runs folder
-const RUN_CMD_RE = /log-event|runcontract|forge-runs|\.forge[\\/]+runs/;
+// FB-USAGE-F6: a run marker is a shell command that CALLS log-event or runcontract (what the header promises). A Read of
+// a run folder, or any other tool input that only names a run path, is not a marker.
+const RUN_CMD_RE = /log-event|runcontract/;
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 
 // One streaming pass per transcript: usage records, compaction timestamps, run-id markers.
 async function scanTranscript(file, since, knownRuns) {
@@ -81,8 +83,8 @@ async function scanTranscript(file, since, knownRuns) {
     const ts = typeof r.timestamp === 'string' ? r.timestamp : '';
     if (knownRuns && r.type === 'assistant' && r.message && Array.isArray(r.message.content)) {
       for (const c of r.message.content) {
-        if (!c || c.type !== 'tool_use' || !c.input) continue;
-        const s = JSON.stringify(c.input);
+        if (!c || c.type !== 'tool_use' || !c.input || !SHELL_TOOLS.has(c.name) || typeof c.input.command !== 'string') continue;
+        const s = c.input.command;
         if (!RUN_CMD_RE.test(s)) continue;
         for (const m of s.match(RUN_ID_RE) || []) if (knownRuns.has(m)) markers.push({ ts, run: m });
       }
@@ -269,7 +271,7 @@ function dateWindow(runs, ts) {
 function attribute(t, ts, parentMarkers, runs) {
   if (!ts) return null;
   const ids = new Set(t.markers.map((m) => m.run));
-  if (ids.size === 1) return { run: t.markers[0].run, method: 'marker' };
+  if (ids.size === 1 && ts >= t.markers[0].ts) return { run: t.markers[0].run, method: 'marker' }; // from the marker onward
   const own = lastMarkerAt(t.markers, ts);
   if (own) return { run: own.run, method: 'marker_segment' };
   const par = parentMarkers ? lastMarkerAt(parentMarkers, ts) : null;

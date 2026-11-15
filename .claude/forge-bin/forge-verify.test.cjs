@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-verify.cjs. Uses os.mkdtemp fixtures + FORGE_STORE_ROOT (same escape hatch
  *  as forge-store.test.cjs) so nothing ever touches the real project's .claude/. Set FORGE_STORE_ROOT
  *  BEFORE requiring forge-verify.cjs — it resolves forge-store.cjs's CLAUDE_DIR once, at require time. */
@@ -539,6 +543,19 @@ const evidenceCleanDir = writeEvents('run-evidence-clean', [
   ev({ event_type: 'zero_console_errors_noted', agent: 'UI Boss' }),
   ev({ event_type: 'agent_completed', agent: 'UI Boss' }),
 ]);
+// FB-FINALIZE-1-F2: the advisory Evidence section now checks the claimed screenshots on disk inside the run
+for (const f of ['mobile-390.png', 'tablet-768.png', 'desktop-1440.png']) {
+  fs.mkdirSync(path.join(evidenceCleanDir, 'artifacts'), { recursive: true });
+  fs.writeFileSync(path.join(evidenceCleanDir, 'artifacts', f), 'png-bytes', 'utf8');
+}
+writeEvents('run-evidence-fake', [
+  ev({ event_type: 'agent_started', agent: 'UI Boss' }),
+  ev({ event_type: 'browser_screenshot_captured', agent: 'UI Boss', screenshot_path: 'fake/mobile-tablet-desktop-zero-console-375-768-1440.png' }),
+  ev({ event_type: 'zero_console_errors_noted', agent: 'UI Boss' }),
+  ev({ event_type: 'agent_completed', agent: 'UI Boss' }),
+]);
+const cliDomainFake = runCli('run-evidence-fake', '--root', TMP, '--domain', 'website');
+t('FB-FINALIZE-1-F2 CLI --domain: a named-but-absent screenshot path does not satisfy the website evidence', !/all required evidence present for domain "website"/.test(cliDomainFake.stdout));
 const cliDomainSatisfied = runCli('run-evidence-clean', '--root', TMP, '--domain', 'website');
 t('CLI --domain with real satisfying evidence prints the OK line', /all required evidence present for domain "website"/.test(cliDomainSatisfied.stdout));
 t('CLI --domain with real satisfying evidence still exits 0 (also clean on mismatches/tickets/isolation)', cliDomainSatisfied.status === 0);
@@ -573,6 +590,9 @@ const acFullDir = writeEvents('run-ac-full', [
   ev({ event_type: 'ticket_created', agent: 'orchestrator', ticket_id: 'tk-prd-cov-full-2', prd_id: 'prd-cov-full' }),
   ev({ event_type: 'ticket_updated', agent: 'orchestrator', ticket_id: 'tk-prd-cov-full-1', note: 'closed with test_evidence' }),
   ev({ event_type: 'ticket_updated', agent: 'orchestrator', ticket_id: 'tk-prd-cov-full-2', note: 'closed with test_evidence' }),
+  // FB-VERIFY-1-F4: ticket_created/ticket_updated are bookkeeping, so the real completion proof is a check_passed
+  ev({ event_type: 'check_passed', agent: 'Build Boss', ticket_id: 'tk-prd-cov-full-1', note: '2 passed, 0 failed' }),
+  ev({ event_type: 'check_passed', agent: 'Build Boss', ticket_id: 'tk-prd-cov-full-2', note: '2 passed, 0 failed' }),
   ev({ event_type: 'agent_completed', agent: 'Build Boss' }),
 ]);
 const acFull = V.checkAcceptanceCoverage('run-ac-full', { runDir: acFullDir });
@@ -1055,7 +1075,7 @@ t('EVENT-RUN-BINDING-GAP: the excluded foreign event never closed the local chec
 // V23/V24/V27/V31 (2026-09-24 second Codex recheck, out-p7.md)
 // ================================================================================================
 
-// ---- a DISPROVEN completion (_forge_verify.proof_verified:false) must not close its own paired task,
+// ---- V23: a DISPROVEN completion (_forge_verify.proof_verified:false) must not close its own paired task,
 // even with an otherwise-perfectly-positive status/verdict ----
 {
   const disprovenCloseDir = writeEvents('run-v23-disproven-close', [
@@ -1077,7 +1097,7 @@ t('EVENT-RUN-BINDING-GAP: the excluded foreign event never closed the local chec
   const provenCloseAgent = provenClose.agents.find((a) => a.agent === 'Build Boss');
   t('V23 counterweight: an ordinary (non-disproven) check_passed closes its pair as before', provenCloseAgent.tasksOpen.length === 0);
 }
-// ---- a disproven completion must not close a closes_event_id target either ----
+// ---- V23: a disproven completion must not close a closes_event_id target either ----
 {
   const disprovenClosesIdDir = writeEvents('run-v23-disproven-closes-id', [
     ev({ event_type: 'check_failed', agent: 'Review Boss', event_id: 'ev-v23-1', task: 'security check' }),
@@ -1087,7 +1107,7 @@ t('EVENT-RUN-BINDING-GAP: the excluded foreign event never closed the local chec
   const disprovenClosesIdAgent = disprovenClosesId.agents.find((a) => a.agent === 'Review Boss');
   t('V23: a disproven closes_event_id completion does not clear the target (still open)', disprovenClosesIdAgent.tasksOpen.length === 1);
 }
-// ---- forge-runcontract.cjs's independent-review protocol also rejects a disproven review completion
+// ---- V23: forge-runcontract.cjs's independent-review protocol also rejects a disproven review completion
 // (isGoedkeuring), not just forge-verify.cjs's task-closure path — same central predicate, both call sites ----
 {
   const RC = require('./forge-runcontract.cjs');
@@ -1097,7 +1117,7 @@ t('EVENT-RUN-BINDING-GAP: the excluded foreign event never closed the local chec
   t('V23: isGoedkeuring rejects a disproven event even with a positive verdict string', disprovenPositive.ok === false);
 }
 
-// ---- a review_completed with ONLY {ok:false} (no verdict/status/result/outcome field at all) must
+// ---- V24: a review_completed with ONLY {ok:false} (no verdict/status/result/outcome field at all) must
 // be recognised as an outcome and read as failed, not fall through to the TERMINAL_TYPES 'done' default ----
 {
   t('V24: reviewOutcome({event_type:review_completed, ok:false}) is failed, not null', V.reviewOutcome({ event_type: 'review_completed', ok: false }) === 'failed');
@@ -1148,7 +1168,7 @@ for (const fx of V24_REVIEW_OUTCOME_FIXTURES) {
   t('V24 REGRESSION: a boolean-only ok:true review_completed closes its paired review_started (done, not failed)', okTrueReviewAgent.tasksOpen.length === 0);
 }
 
-// ---- one completion closes ONE obligation — its own natural TASK_PAIRS pair, never ALSO an unrelated
+// ---- V27: one completion closes ONE obligation — its own natural TASK_PAIRS pair, never ALSO an unrelated
 // closes_event_id target at the same time ----
 {
   const pairPlusReferenceDir = writeEvents('run-v27-pair-plus-reference', [
@@ -1175,7 +1195,7 @@ for (const fx of V24_REVIEW_OUTCOME_FIXTURES) {
   t('V27 counterweight: closes_event_id still closes a genuinely unrelated task when the closer has no natural pair of its own', reviewBossAgent2.tasksOpen.length === 0);
 }
 
-// ---- a MALFORMED run_id (null / non-string) must never close a current-run obligation — same
+// ---- V31: a MALFORMED run_id (null / non-string) must never close a current-run obligation — same
 // treatment as an already-rejected FOREIGN STRING run_id, not the same treatment as a genuinely absent one ----
 {
   const nullRunIdDir = writeEvents('run-v31-null-run-id', [
@@ -1436,7 +1456,7 @@ if (process.platform === 'win32') {
 // Codex review fixes for checkDeclaredScope(): W1-04/05/06.
 // ================================================================================================
 
-// ---- canonicalise both sides before comparing (dot-segments, repeated './', absolute-in-root) ----
+// ---- W1-04: canonicalise both sides before comparing (dot-segments, repeated './', absolute-in-root) ----
 {
   const dir = writeEvents('run-scope-w104-traversal', [
     ev({ event_type: 'agent_work_package_created', agent: 'Build Boss', wp_id: 'wp-w104a', declared_files: ['src/'] }),
@@ -1522,7 +1542,7 @@ if (process.platform === 'win32') {
   tf('V-05: a duplicate entry in a re-declaration is not a conflicting re-declaration', () => V.checkDeclaredScope('run-scope-dupe', { runDir: dir, root: TMP }).violations.length === 0);
 }
 
-// ---- the FIRST declaration of a wp_id is the one that counts; a later conflicting re-declaration
+// ---- W1-05: the FIRST declaration of a wp_id is the one that counts; a later conflicting re-declaration
 // is reported as its own violation and never changes the check ----
 {
   const dir = writeEvents('run-scope-w105-downgrade', [
@@ -1553,7 +1573,7 @@ if (process.platform === 'win32') {
   });
 }
 
-// ---- an explicit empty declaration means "no files may change"; an unattributed change is never
+// ---- W1-06: an explicit empty declaration means "no files may change"; an unattributed change is never
 // silently clean when at least one package in the run declares scope ----
 {
   const dir = writeEvents('run-scope-w106-empty', [
@@ -1579,7 +1599,7 @@ if (process.platform === 'win32') {
 }
 
 // ================================================================================================
-// checkGoalContract() — invariants_to_confirm + stop_bound
+// checkGoalContract() — invariants_to_confirm + stop_bound (M5)
 // ================================================================================================
 
 // ---- (a) a PRD with both invariants and a stop_bound ----
@@ -1816,6 +1836,115 @@ const goodJudgement = () => ({
   t('WP-S1 CLI: --strip prints the packet without the narrative', strip.status === 0 && !/trust me|carefully/.test(strip.stdout) && /"stripped"/.test(strip.stdout));
   const broken = run(['--claim', path.join(TMP, 'does-not-exist.json')]);
   t('WP-S1 CLI: unreadable --claim input exits 1 with a message', broken.status === 1 && /--claim/.test(broken.stderr));
+}
+
+// ---- FIX-VERIFY regression pins ----
+{
+  // FB-VERIFY-1-F1: two suites in one runner file; the last tally must not hide an earlier failure.
+  const two = V.parseRunnerOutput(['  ok  test 1', '  FAIL test 2', '1 passed, 1 failed', '  ok  a', '  ok  b', '2 passed, 0 failed'].join('\n'));
+  tf('FB-VERIFY-1-F1 parse: tallies of two suites are summed (3 passed, 1 failed)', () => two.passed === 3 && two.failed === 1);
+  const tap2 = V.parseRunnerOutput(['not ok 1 - a', '# pass 0', '# fail 1', 'ok 1 - b', '# pass 1', '# fail 0'].join('\n'));
+  tf('FB-VERIFY-1-F1 parse: two TAP blocks ("# fail 1" then "# fail 0") still report 1 failed', () => tap2.failed === 1 && tap2.passed === 1);
+  const named = V.parseRunnerOutput(['  FAIL b', '  ok  a', '2 passed, 0 failed'].join('\n'));
+  tf('FB-VERIFY-1-F1 parse: a FAIL line is never outvoted by a 0-failed tally', () => named.failed >= 1);
+  const pk = Object.assign(basePacket(), { runner_output: ['  ok  x', '  FAIL y', '1 passed, 1 failed', REPO_RUNNER_OK].join('\n') });
+  tf('FB-VERIFY-1-F1 claim: an earlier failed suite makes the claim NOT-PROVEN', () => V.assessClaim(pk, goodJudgement()).verdict === 'NOT-PROVEN');
+
+  // FB-VERIFY-1-F3: the declared-scope gate reads the single-path forms (path / file / output_path) too.
+  const scopeDir = writeEvents('run-fixverify-scope-path', [
+    ev({ event_type: 'agent_work_package_created', agent: 'orchestrator', wp_id: 'wp-fv', declared_files: ['src/a.js'], scope_lock: true }),
+    ev({ event_type: 'file_changed', agent: 'Build Boss', wp_id: 'wp-fv', path: 'config/secrets.js' }),
+    ev({ event_type: 'file_changed', agent: 'Build Boss', wp_id: 'wp-fv', file: 'other/b.js' }),
+    ev({ event_type: 'file_changed', agent: 'Build Boss', wp_id: 'wp-fv', path: 'src/a.js' }),
+  ]);
+  const sc = V.checkDeclaredScope('run-fixverify-scope-path', { runDir: scopeDir, root: TMP });
+  tf('FB-VERIFY-1-F3 scope: path and file forms are checked (3 checked, 2 blockers)', () => sc.checked === 3
+    && sc.violations.filter((v) => v.severity === 'blocker').map((v) => v.path).sort().join() === 'config/secrets.js,other/b.js');
+
+  // FB-VERIFY-1-F4: ticket_created / ticket_updated bookkeeping is never the in-run completion proof.
+  const fvPrd = path.join(CLAUDE_DIR, 'forge-prd');
+  fs.mkdirSync(fvPrd, { recursive: true });
+  fs.writeFileSync(path.join(fvPrd, 'prd-fv-book.meta.json'), JSON.stringify({ prd_id: 'prd-fv-book', title: 'x', sections: { acceptance_criteria: [{ id: 'ac-1', text: 'c1' }] } }), 'utf8');
+  store.putEntity('tickets', 'tk-prd-fv-book-1', { ticket_id: 'tk-prd-fv-book-1', prd_id: 'prd-fv-book', run_id: 'run-fv-book', title: 'c1', status: 'done', created: new Date().toISOString() });
+  const bookDir = writeEvents('run-fv-book', [
+    ev({ event_type: 'prd_generated', agent: 'orchestrator', prd_id: 'prd-fv-book', run_id: 'run-fv-book' }),
+    ev({ event_type: 'ticket_created', agent: 'orchestrator', ticket_id: 'tk-prd-fv-book-1' }),
+    ev({ event_type: 'ticket_updated', agent: 'orchestrator', ticket_id: 'tk-prd-fv-book-1' }),
+  ]);
+  tf('FB-VERIFY-1-F4 coverage: only ticket_created/ticket_updated in the run -> still a gap', () => V.checkAcceptanceCoverage('run-fv-book', { runDir: bookDir }).acceptance_gaps.length === 1);
+
+  // FB-VERIFY-1-F5: qualified status words are not done.
+  tf('FB-VERIFY-1-F5 status: qualified words are never done', () => ['partially complete', 'not yet done', 'almost done', 'to be completed', '50% complete, tests pending', 'nearly done']
+    .every((s) => V.taskStatus({ event_type: 'x', status: s }) !== 'done'));
+  tf('FB-VERIFY-1-F5 status: plain done words still read done', () => ['done', 'completed', 'passed', '100% complete'].every((s) => V.taskStatus({ event_type: 'x', status: s }) === 'done'));
+
+  // FB-VERIFY-1-F6: a failure condition hit and later re-checked green is cleared (last event wins).
+  fs.writeFileSync(path.join(fvPrd, 'prd-fv-fc.meta.json'), JSON.stringify({ prd_id: 'prd-fv-fc', title: 'x', sections: { failure_conditions: [{ id: 'fc-1', text: 'bundle over 1MB' }] } }), 'utf8');
+  const fcDir = writeEvents('run-fv-fc', [
+    ev({ event_type: 'prd_generated', agent: 'orchestrator', prd_id: 'prd-fv-fc', run_id: 'run-fv-fc' }),
+    ev({ event_type: 'check_failed', agent: 'QA Boss', prd_id: 'prd-fv-fc', fc_id: 'fc-1', note: '2.3MB' }),
+    ev({ event_type: 'check_passed', agent: 'QA Boss', prd_id: 'prd-fv-fc', fc_id: 'fc-1', note: '0.8MB' }),
+  ]);
+  const fc = V.checkFailureConditions('run-fv-fc', { runDir: fcDir });
+  tf('FB-VERIFY-1-F6 fc: fail then pass -> cleared, no hit', () => fc.failure_hits.length === 0 && fc.cleared.length === 1);
+  const fcDir2 = writeEvents('run-fv-fc2', [
+    ev({ event_type: 'prd_generated', agent: 'orchestrator', prd_id: 'prd-fv-fc', run_id: 'run-fv-fc2' }),
+    ev({ event_type: 'check_passed', agent: 'QA Boss', prd_id: 'prd-fv-fc', fc_id: 'fc-1', note: '0.8MB' }),
+    ev({ event_type: 'check_failed', agent: 'QA Boss', prd_id: 'prd-fv-fc', fc_id: 'fc-1', note: '2.3MB' }),
+  ]);
+  tf('FB-VERIFY-1-F6 fc: pass then fail -> still a hit', () => V.checkFailureConditions('run-fv-fc2', { runDir: fcDir2 }).failure_hits.length === 1);
+
+  // FB-VERIFY-1-F7: a failed check with no completion claim is an unresolved failure; a later pass resolves it.
+  const f7 = V.verifyRun(writeEvents('run-fv-f7', [
+    ev({ event_type: 'run_started', agent: 'orchestrator' }),
+    ev({ event_type: 'agent_started', agent: 'Test Boss' }),
+    ev({ event_type: 'check_started', agent: 'Test Boss', task: 'suite' }),
+    ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'suite', note: '3 failed' }),
+    ev({ event_type: 'run_completed', agent: 'orchestrator' }),
+  ]));
+  tf('FB-VERIFY-1-F7 verifyRun: an unclaimed failed check is flagged unresolvedFailed', () => f7.agents.find((a) => a.agent === 'Test Boss').unresolvedFailed === true);
+  const f7ok = V.verifyRun(writeEvents('run-fv-f7-ok', [
+    ev({ event_type: 'agent_started', agent: 'Test Boss' }),
+    ev({ event_type: 'check_started', agent: 'Test Boss', task: 'suite' }),
+    ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'suite', note: '3 failed' }),
+    ev({ event_type: 'check_started', agent: 'Test Boss', task: 'suite' }),
+    ev({ event_type: 'check_passed', agent: 'Test Boss', task: 'suite', note: '3 passed' }),
+  ]));
+  tf('FB-VERIFY-1-F7 verifyRun: a later pass of the same check resolves it', () => f7ok.agents.find((a) => a.agent === 'Test Boss').unresolvedFailed === false);
+  const f7mid = V.verifyRun(writeEvents('run-fv-f7-mid', [
+    ev({ event_type: 'agent_started', agent: 'Test Boss' }),
+    ev({ event_type: 'check_started', agent: 'Test Boss', task: 'suite' }),
+    ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'suite', note: '3 failed' }),
+  ]));
+  tf('FB-VERIFY-1-F7 verifyRun: mid-run (no run_completed) a failed check is loop work, not a gate', () => f7mid.agents.find((a) => a.agent === 'Test Boss').unresolvedFailed === false);
+}
+
+// FB-QUALITY-F8 (criterion-id ticket ids): checkAcceptanceCoverage joins a criterion to tk-<prd>-<id> (the id
+// forge-prd now mints), so reordered criteria are not reported as missing tickets; a legacy positional ticket
+// still counts when it names this criterion, and never when it names another one.
+{
+  writePrdMeta('prd-cov-ids', [{ id: 'logout', text: 'Can log out' }, { id: 'login', text: 'Can log in' }]);
+  for (const id of ['tk-prd-cov-ids-login', 'tk-prd-cov-ids-logout']) store.putEntity('tickets', id, { ticket_id: id, prd_id: 'prd-cov-ids', status: 'done', title: id });
+  const idsDir = writeEvents('run-ac-ids', [
+    ev({ event_type: 'prd_generated', agent: 'orchestrator', prd_id: 'prd-cov-ids', run_id: 'run-ac-ids' }),
+    ev({ event_type: 'check_passed', agent: 'Build Boss', ticket_id: 'tk-prd-cov-ids-login', note: '1 passed, 0 failed' }),
+    ev({ event_type: 'check_passed', agent: 'Build Boss', ticket_id: 'tk-prd-cov-ids-logout', note: '1 passed, 0 failed' }),
+  ]);
+  const ids = V.checkAcceptanceCoverage('run-ac-ids', { runDir: idsDir });
+  t('F8-ids verify: tickets named after the criterion ids cover a reordered PRD (0 gaps)', ids.acceptance_gaps.length === 0);
+
+  writePrdMeta('prd-cov-legacy', [{ id: 'signup', text: 'Can sign up' }, { id: 'reset', text: 'Can reset' }]);
+  store.putEntity('tickets', 'tk-prd-cov-legacy-1', { ticket_id: 'tk-prd-cov-legacy-1', prd_id: 'prd-cov-legacy', status: 'done', description: 'Acceptance criterion signup for PRD prd-cov-legacy' });
+  store.putEntity('tickets', 'tk-prd-cov-legacy-2', { ticket_id: 'tk-prd-cov-legacy-2', prd_id: 'prd-cov-legacy', status: 'done', description: 'Acceptance criterion other for PRD prd-cov-legacy' });
+  const legacyDir = writeEvents('run-ac-legacy', [
+    ev({ event_type: 'prd_generated', agent: 'orchestrator', prd_id: 'prd-cov-legacy', run_id: 'run-ac-legacy' }),
+    ev({ event_type: 'check_passed', agent: 'Build Boss', ticket_id: 'tk-prd-cov-legacy-1', note: '1 passed, 0 failed' }),
+    ev({ event_type: 'check_passed', agent: 'Build Boss', ticket_id: 'tk-prd-cov-legacy-2', note: '1 passed, 0 failed' }),
+  ]);
+  const legacy = V.checkAcceptanceCoverage('run-ac-legacy', { runDir: legacyDir });
+  t('F8-ids verify: a legacy positional ticket that names its criterion still covers it', !legacy.acceptance_gaps.some((g) => g.ac_id === 'signup'));
+  t('F8-ids verify: a positional ticket that names ANOTHER criterion does not, and the gap names tk-<prd>-<id>',
+    legacy.acceptance_gaps.length === 1 && legacy.acceptance_gaps[0].ac_id === 'reset' && legacy.acceptance_gaps[0].ticket_id === 'tk-prd-cov-legacy-reset');
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

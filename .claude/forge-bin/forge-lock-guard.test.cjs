@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-lock-guard.test.cjs — tests the mechanical hotspot write-lock. Hermetic: every case
 // uses an isolated temp dir (opts.dir) + an injected clock (opts.now) so nothing touches the real lock dir
 // and TTL/expiry is deterministic (no real waiting).
@@ -251,6 +255,24 @@ console.log('\nG2) atomische claim onder echte gelijktijdigheid');
     tc('G2d refresh na verlies van de lock meldt LOST (houder stopt, schrijft niet door)', lost.ok === false && /lost|gone/i.test(lost.reason || ''));
   }
 }
+
+// FB-GUARDS-1-F13: the same file under another spelling got a second lock.
+t('F13: the same project file spelled with ./, .. or as an absolute path is ONE hotspot', () => {
+  const dir = tmpDir();
+  const root = require('path').resolve(__dirname, '..', '..');
+  const a = lg.acquire({ hotspot: '.claude/forge-bin/x.cjs', runId: 'run-1' }, { dir, now: T0 });
+  assert.ok(a.ok, 'setup');
+  const b = lg.acquire({ hotspot: './.claude/forge-bin/../forge-bin/x.cjs', runId: 'run-2' }, { dir, now: T0 + 1 });
+  assert.strictEqual(b.ok, false, 'a ../ spelling got a second lock');
+  const c = lg.acquire({ hotspot: require('path').join(root, '.claude', 'forge-bin', 'x.cjs'), runId: 'run-3' }, { dir, now: T0 + 2 });
+  assert.strictEqual(c.ok, false, 'the absolute path got a second lock');
+  assert.strictEqual(lg.check({ hotspot: require('path').join(root, '.claude', 'forge-bin', 'x.cjs') }, { dir, now: T0 + 3 }).held, true,
+    'check() with the absolute path a PreToolUse hook passes must see the relative lock');
+});
+
+t('F13: a free-text hotspot without a path is keyed as before', () => {
+  assert.strictEqual(lg.normHotspot('Event Registry'), 'event registry');
+});
 
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

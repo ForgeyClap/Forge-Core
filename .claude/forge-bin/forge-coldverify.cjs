@@ -41,7 +41,8 @@
  *   - the ticket store            -> forge-store.cjs (listStore/getEntity), same entities the board shows
  *   - the spec (PRD criteria)     -> forge-verify.cjs's OWN loadPrdMeta()/acceptanceCriteria(), so this
  *                                    check and the spec-drift blocker read a criterion identically
- *   - the ticket<->criterion join -> `tk-<prd_id>-<n>`, the exact id forge-prd.cjs::criteriaToTickets mints
+ *   - the ticket<->criterion join -> forge-prd.cjs::ticketIdFor (`tk-<prd_id>-<criterion id>`, positional
+ *                                    `tk-<prd_id>-<n>` for an ac-<n> id), the exact id criteriaToTickets mints
  *   - done/failed classification  -> forge-verify.cjs's exported taskStatus(), not a re-derived copy
  *   - the evidence log            -> the run's own events.jsonl (filtered, never re-formatted)
  *
@@ -96,6 +97,7 @@ const { spawnSync } = require('child_process');
 
 const store = require('./forge-store.cjs');
 const verify = require('./forge-verify.cjs');
+const prdTool = require('./forge-prd.cjs');
 
 // WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
 // folders exactly as before). Guarded: a missing or older forge-paths.cjs keeps the legacy paths and never crashes.
@@ -286,7 +288,8 @@ const norm = (p) => String(p).replace(/\\/g, '/').replace(/^\.\//, '').toLowerCa
 
 // ---- the spec side ------------------------------------------------------------------------------------
 /** criterionFor(ticket) -> {text, source, ac_id}. Prefers the PRD (the authoritative spec) read through
- *  forge-verify's OWN loadPrdMeta/acceptanceCriteria, joined by the `tk-<prd_id>-<n>` index forge-prd mints.
+ *  forge-verify's OWN loadPrdMeta/acceptanceCriteria, joined by forge-prd's ticketIdFor (criterion id first, then
+ *  the legacy position of a tk-<prd_id>-<n>; the ticket description is never read, it is builder-side prose here).
  *  Falls back to the ticket's title only when there is no readable PRD criterion, and says so via `source`
  *  — a caller can always tell whether it compared against the spec or against the builder's restatement. */
 function criterionFor(ticket) {
@@ -298,9 +301,9 @@ function criterionFor(ticket) {
     const meta = verify.loadPrdMeta(prdId);
     if (meta) {
       const criteria = verify.acceptanceCriteria(meta);
-      if (idx >= 0 && idx < criteria.length) {
-        return { text: criteria[idx].text, source: 'prd', ac_id: criteria[idx].id };
-      }
+      // FB-QUALITY-F8: look the criterion up by id through forge-prd's one join; a positional id keeps working
+      const hit = criteria.find((c, i) => prdTool.ticketIdFor(prdId, c.id, i + 1) === id) || (idx >= 0 && idx < criteria.length ? criteria[idx] : null);
+      if (hit) return { text: hit.text, source: 'prd', ac_id: hit.id };
     }
   }
   const title = typeof ticket.title === 'string' ? ticket.title.trim() : '';
@@ -329,7 +332,8 @@ function criterionFor(ticket) {
  *                        forge-verify's taskStatus(); and when that event CLAIMS a delivery (it names
  *                        paths), at least one of those paths must actually be on disk, or
  *                   P2 — a referent the ticket names that BOTH exists on disk AND is named by an admitted
- *                        file_changed / artifact event in this ticket's own run.
+ *                        file_changed / artifact event in this ticket's own run that carries this ticket_id or
+ *                        the ticket's own wp_id (FB-FINALIZE-1-F6: a run-wide match no longer counts).
  *                 A file merely existing (P3) is explicitly NOT enough: that is a filename, not a proof,
  *                 and accepting it is the exact softness this check was built to remove.
  */
@@ -386,11 +390,18 @@ function coldVerifyTicket(ticket, opts) {
   }
 
   const boundToTicket = admitted.filter((e) => typeof e.ticket_id === 'string' && e.ticket_id === ticketId);
-  for (const e of boundToTicket) {
+  const checkName = (e) => e.task || e.title || null;
+  const isFailure = (e) => verify.taskStatus(e) === 'failed' || e.event_type === 'check_failed' || e.event_type === 'quality_gate_blocked';
+  for (let i = 0; i < boundToTicket.length; i++) {
+    const e = boundToTicket[i];
     if (COLD_NON_PROVING_TYPES.has(e.event_type)) continue;
     const st = verify.taskStatus(e);
-    if (st === 'failed' || e.event_type === 'check_failed' || e.event_type === 'quality_gate_blocked') {
-      item.counter_evidence.push({ type: e.event_type, check: e.task || e.title || null });
+    if (isFailure(e)) {
+      // FB-FINALIZE-1-F7: a failure that a LATER done event of the same named check fixed is not counter-evidence
+      const name = checkName(e);
+      const fixedLater = name != null && boundToTicket.slice(i + 1).some((x) => !COLD_NON_PROVING_TYPES.has(x.event_type)
+        && checkName(x) === name && !isFailure(x) && verify.taskStatus(x) === 'done');
+      if (!fixedLater) item.counter_evidence.push({ type: e.event_type, check: name });
       continue;
     }
     if (st !== 'done') continue;
@@ -413,13 +424,20 @@ function coldVerifyTicket(ticket, opts) {
       detail: 'admitted ' + e.event_type + ' carries ticket_id ' + ticketId });
   }
 
+  // FB-FINALIZE-1-F6: P2 used every admitted event of the run, whatever ticket it belonged to, and also
+  // matched on a bare basename, so another ticket's file proved this one. Now only events bound to THIS ticket (its
+  // ticket_id, or the ticket's own wp_id) count, and the match is on the path or its trailing segments, never the
+  // basename of a ref that names a folder.
+  const ticketWp = typeof cold.wp_id === 'string' && cold.wp_id.trim() ? cold.wp_id.trim() : null;
   const deliveredNorm = new Set();
   for (const e of admitted) {
     if (COLD_NON_PROVING_TYPES.has(e.event_type)) continue;
+    const bound = (typeof e.ticket_id === 'string' && e.ticket_id === ticketId) || (ticketWp && typeof e.wp_id === 'string' && e.wp_id.trim() === ticketWp);
+    if (!bound) continue;
     for (const p of eventPaths(e)) deliveredNorm.add(norm(p));
   }
   for (const res of resolvedRefs) {
-    const hit = [norm(res.path), norm(res.ref), norm(path.basename(res.ref))]
+    const hit = [norm(res.path), norm(res.ref)]
       .some((n) => Array.from(deliveredNorm).some((d) => d === n || d.endsWith('/' + n)));
     if (hit) {
       item.corroborations.push({ kind: 'P2', type: 'file_changed/artifact', check: null,

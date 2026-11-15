@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-agent-tool-hook.test.cjs — the PreToolUse/PostToolUse(Agent) hook (WP A2). Throwaway roots only.
  * Covers: a sample Pre payload -> exactly { ts, event, session, tool, tool_use_id, subagent_type, name, model, effort,
@@ -103,9 +107,17 @@ try {
   const FIT_PROMPT = 'run the tests with node and write the report file';
   const fitPre = (type) => JSON.stringify(Object.assign({}, pre, { tool_input: { subagent_type: type, prompt: FIT_PROMPT, description: 'd' } }));
   const fs1 = cli(mkRoot(), fitPre('search-boss'));
-  t('F1 search-boss + a run/write prompt: exit 0, empty stdout, stderr names the agent, the missing tools and a suggestion',
-    fs1.status === 0 && fs1.stdout === '' && /search-boss/.test(fs1.stderr) && /Bash/.test(fs1.stderr) && /Write/.test(fs1.stderr) && /build-boss/.test(fs1.stderr),
+  t('F1 search-boss + a run/write prompt: exit 0, stderr names the agent, the missing tools and a suggestion',
+    fs1.status === 0 && /search-boss/.test(fs1.stderr) && /Bash/.test(fs1.stderr) && /Write/.test(fs1.stderr) && /build-boss/.test(fs1.stderr),
     JSON.stringify({ s: fs1.status, o: fs1.stdout, e: fs1.stderr }));
+  // FB-GUARDS-2-F4: stderr on a PreToolUse exit 0 never reaches the model, so the same warning goes out as
+  // PreToolUse additionalContext on stdout, with no permission decision (the dispatch is never blocked).
+  const fs1json = (() => { try { return JSON.parse(fs1.stdout); } catch { return null; } })();
+  const fs1hso = fs1json && fs1json.hookSpecificOutput;
+  t('F1b the warning reaches the model: stdout is PreToolUse additionalContext JSON without a permission decision',
+    !!fs1hso && fs1hso.hookEventName === 'PreToolUse' && /search-boss/.test(fs1hso.additionalContext) && /Bash/.test(fs1hso.additionalContext)
+      && !('permissionDecision' in fs1hso) && !('decision' in fs1json),
+    JSON.stringify({ o: fs1.stdout }));
   const fs2 = cli(mkRoot(), fitPre('build-boss'));
   t('F2 build-boss + the same prompt: no warning', fs2.status === 0 && fs2.stdout === '' && !/dispatch-fit/.test(fs2.stderr), JSON.stringify({ s: fs2.status, e: fs2.stderr }));
   const fr = AT.run(fitPre('search-boss'), { root: mkRoot(), env: {} });

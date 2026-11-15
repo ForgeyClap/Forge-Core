@@ -139,15 +139,15 @@
     },
     {
       "id": "fs-codex-review",
-      "claim": "Auth, secret and DB changes get the Codex adversarial review.",
-      "evidence_required": "The Codex review result, or a note that Codex did not run.",
+      "claim": "Auth, secret and DB changes get a Security Boss review; a Codex adversarial review is optional and only when the Codex plugin is on.",
+      "evidence_required": "The Security Boss review result, plus the Codex review result or a note that Codex did not run.",
       "how_to_run": "Read the review record.",
       "severity": "warn",
       "honesty_note": "If the runtime, account, device or sandbox needed for this proof is missing, mark NOT_RUN and say why; never PASS on a description.",
       "source": {
         "path": ".claude/skills/forge-fullstack/SKILL.md",
         "section": "Hard rules",
-        "quote": "Auth/secret/DB changes are a required Codex review area"
+        "quote": "Auth/secret/DB changes get a **Security Boss review**"
       }
     }
   ],

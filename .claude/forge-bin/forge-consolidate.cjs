@@ -19,8 +19,11 @@
  * THREE OPERATIONS (run in this fixed order, one store, one pass):
  *   1. REJECT non-canonical records — any record failing validateCanonical() (missing text, missing/
  *      unparsable evidence.run_id, missing/invalid ts) is a synthesised or quote-less entry and is
- *      dropped from the active store outright, reported under `rejected` with a reason. This is the
- *      no-synthesis guard's enforcement point.
+ *      moved out of the active store into <store>.rejected-<date>.jsonl (never deleted), reported under
+ *      `rejected` with a reason. This is the no-synthesis guard's enforcement point. forge-reflect's
+ *      owner-correction evidence ({source:'owner-correction', quote}) counts as real evidence (FB-MEMORY-F1).
+ *      Malformed lines are kept as they are and counted (`malformedCount`); lines appended while this ran
+ *      are kept; utility decays once per period, anchored on decayed_at (FB-MEMORY-F7).
  *   2. MERGE exact duplicates — two canonical records with the same `type` and the same normalized `text`
  *      (case/whitespace-insensitive, byte-identical otherwise) are the same lesson recorded twice. The
  *      OLDEST record's `text` survives VERBATIM as the merged record's text; tags and reinforced_by sets
@@ -75,26 +78,60 @@ function parseEvidenceRunId(evidence) {
 
 // ---- store IO (one-JSON-per-line, malformed lines silently dropped — mirrors forge-orchestrate.cjs's
 // readEventsJsonl tolerance so a partially-corrupt store never crashes this tool) ----
-function readStore(storePath) {
+/** readStoreDetailed(storePath) -> {records, malformed: [raw lines], raw}. FB-MEMORY-F7: a line that does not parse
+ *  (half-written, hand-edited) is returned so a rewrite can keep it instead of silently deleting it. */
+function readStoreDetailed(storePath) {
   let raw;
   try { raw = fs.readFileSync(storePath, 'utf8'); }
   catch (e) {
-    if (e.code === 'ENOENT') return [];
+    if (e.code === 'ENOENT') return { records: [], malformed: [], raw: '' };
     throw new Error('forge-consolidate: could not read store ' + storePath + ': ' + e.message);
   }
-  if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
-  const out = [];
-  for (const line of raw.split(/\r?\n/)) {
+  const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const records = [], malformed = [];
+  for (const line of text.split(/\r?\n/)) {
     const s = line.trim();
     if (!s) continue;
-    try { const obj = JSON.parse(s); if (obj && typeof obj === 'object' && !Array.isArray(obj)) out.push(obj); } catch { /* malformed line — dropped */ }
+    let obj = null;
+    try { obj = JSON.parse(s); } catch { obj = null; }
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) records.push(obj); else malformed.push(s);
   }
-  return out;
+  return { records, malformed, raw };
 }
-function writeStore(storePath, records) {
+function readStore(storePath) { return readStoreDetailed(storePath).records; }
+/** writeStore(storePath, records, opts) — temp file + rename. opts.keepLines: raw lines written back unchanged (the
+ *  malformed ones); opts.since: the raw text the caller read, so lines appended meanwhile (forge-memory's append) are
+ *  kept instead of being overwritten. */
+function writeStore(storePath, records, opts) {
+  opts = opts || {};
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  const body = records.map((r) => JSON.stringify(r)).join('\n');
-  fs.writeFileSync(storePath, body.length ? body + '\n' : '', 'utf8');
+  const lines = records.map((r) => JSON.stringify(r)).concat(Array.isArray(opts.keepLines) ? opts.keepLines : []);
+  if (typeof opts.since === 'string') {
+    let now = '';
+    try { now = fs.readFileSync(storePath, 'utf8'); } catch { now = ''; }
+    if (now.length > opts.since.length && now.startsWith(opts.since)) {
+      for (const l of now.slice(opts.since.length).split(/\r?\n/)) if (l.trim()) lines.push(l.trim());
+    }
+  }
+  const body = lines.join('\n');
+  const tmp = storePath + '.' + process.pid + '.' + Date.now() + '.tmp';
+  fs.writeFileSync(tmp, body.length ? body + '\n' : '', 'utf8');
+  fs.renameSync(tmp, storePath);
+}
+/** archiveRejected(storePath, records, now) -> the archive file. FB-MEMORY-F1: a rejected record is moved, never lost. */
+function archiveRejected(storePath, records, now) {
+  const base = storePath.replace(/\.jsonl$/i, '');
+  const file = base + '.rejected-' + new Date(now).toISOString().slice(0, 10) + '.jsonl';
+  fs.appendFileSync(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  return file;
+}
+/** ownerCorrectionEvidence(evidence) -> true for forge-reflect's {source:'owner-correction', quote} (a verbatim owner
+ *  quote is real evidence even without a run_id). */
+function ownerCorrectionEvidence(evidence) {
+  if (typeof evidence !== 'string' || !evidence.trim()) return false;
+  let obj;
+  try { obj = JSON.parse(evidence); } catch { return false; }
+  return !!obj && typeof obj === 'object' && obj.source === 'owner-correction' && typeof obj.quote === 'string' && !!obj.quote.trim();
 }
 
 /** validateCanonical(record) -> {ok:true, runId} | {ok:false, reason}. The ONLY gate deciding whether a
@@ -108,6 +145,7 @@ function validateCanonical(record) {
     return { ok: false, reason: 'missing/invalid timestamp — cannot tie this text to a real logged moment' };
   }
   const runId = parseEvidenceRunId(record.evidence);
+  if (!runId && ownerCorrectionEvidence(record.evidence)) return { ok: true, reason: null, runId: null, evidence: 'owner-correction' };
   if (!runId) return { ok: false, reason: 'evidence does not carry a real run_id — synthesised/quote-less, not real logged evidence' };
   return { ok: true, reason: null, runId };
 }
@@ -124,15 +162,17 @@ function consolidate(opts) {
   const minUsesForPrune = Number.isFinite(opts.minUsesForPrune) ? opts.minUsesForPrune : DEFAULT_MIN_USES_FOR_PRUNE;
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
 
-  const raw = readStore(opts.store);
+  const read = readStoreDetailed(opts.store);
+  const raw = read.records;
   const before = raw.length;
 
-  // Step 1: reject non-canonical (synthesised/quote-less) records — never kept in the active store.
+  // Step 1: reject non-canonical (synthesised/quote-less) records — never kept in the active store (archived instead).
   const rejected = [];
+  const rejectedRecords = [];
   const canonical = [];
   for (const r of raw) {
     const v = validateCanonical(r);
-    if (!v.ok) { rejected.push({ id: r && r.id, reason: v.reason }); continue; }
+    if (!v.ok) { rejected.push({ id: r && r.id, reason: v.reason }); rejectedRecords.push(r); continue; }
     // Normalize housekeeping fields (numeric/array only — `text` is NEVER touched here or anywhere below).
     if (!Number.isFinite(r.utility)) r.utility = 0; else r.utility = clampUtility(r.utility);
     if (!Number.isFinite(r.uses)) r.uses = 0;
@@ -176,8 +216,10 @@ function consolidate(opts) {
   // Step 3a: decay stale utility (numeric only — text untouched).
   let decayedCount = 0;
   for (const r of survivors) {
-    const anchor = r.last_reinforced || r.ts;
-    const ageDays = (now - Date.parse(anchor)) / 86400000;
+    // FB-MEMORY-F7: the anchor moves with each decay, so utility decays once per period, not once per call.
+    const decayedMs = Date.parse(r.decayed_at);
+    const anchorMs = Math.max(Date.parse(r.last_reinforced || r.ts), Number.isFinite(decayedMs) ? decayedMs : -Infinity);
+    const ageDays = (now - anchorMs) / 86400000;
     if (Number.isFinite(ageDays) && ageDays > decayAfterDays && r.utility) {
       const decayed = clampUtility(r.utility * decayFactor);
       if (decayed !== r.utility) { r.utility = decayed; r.decayed_at = new Date(now).toISOString(); decayedCount++; }
@@ -193,11 +235,15 @@ function consolidate(opts) {
     kept.push(r);
   }
 
-  if (!opts.dryRun) writeStore(opts.store, kept);
+  let archive = null;
+  if (!opts.dryRun) {
+    if (rejectedRecords.length) archive = archiveRejected(opts.store, rejectedRecords, now);
+    writeStore(opts.store, kept, { keepLines: read.malformed, since: read.raw });
+  }
 
   return {
     store: opts.store, before, after: kept.length,
-    rejected, mergedCount, decayedCount, prunedCount: pruned.length,
+    rejected, archive, malformedCount: read.malformed.length, mergedCount, decayedCount, prunedCount: pruned.length,
     prunedIds: pruned.map((p) => p.id), keptIds: kept.map((r) => r.id),
     notes: [
       rejected.length ? rejected.length + ' non-canonical (synthesised/quote-less) record(s) rejected' : 'no non-canonical records found',
@@ -210,7 +256,7 @@ function consolidate(opts) {
 
 module.exports = {
   consolidate, validateCanonical, parseEvidenceRunId, normalizeText, mergeKey, clampUtility,
-  readStore, writeStore,
+  readStore, readStoreDetailed, writeStore, archiveRejected, ownerCorrectionEvidence,
   DEFAULT_DECAY_AFTER_DAYS, DEFAULT_DECAY_FACTOR, DEFAULT_PRUNE_THRESHOLD, DEFAULT_MIN_USES_FOR_PRUNE,
   UTILITY_MIN, UTILITY_MAX,
 };

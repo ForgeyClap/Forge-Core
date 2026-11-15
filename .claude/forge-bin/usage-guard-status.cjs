@@ -23,7 +23,11 @@ function statusPersistTransform(fresh, u, ident, nowIso, detectAccountSwitch) {
   const session = pctOrNull(u && u.session && u.session.pct);
   const week = pctOrNull(u && u.week && u.week.pct);
   if (session === null && week === null) return null;
-  const next = Object.assign({}, fresh, { percents: { session, week }, lastCheckAt: nowIso, lastStatusAt: nowIso });
+  // FB-USAGE-F3: the reset times too (the lane budget reads them); a side without a value keeps the earlier one.
+  const prev = fresh.resets && typeof fresh.resets === 'object' && !Array.isArray(fresh.resets) ? fresh.resets : {};
+  const resetOf = (w, k) => (w && typeof w.resetsAt === 'string' && w.resetsAt ? w.resetsAt : (prev[k] || null));
+  const resets = { session: resetOf(u && u.session, 'session'), week: resetOf(u && u.week, 'week') };
+  const next = Object.assign({}, fresh, { percents: { session, week }, resets, lastCheckAt: nowIso, lastStatusAt: nowIso });
   if (typeof next.lastError === 'string' && MEASUREMENT_ERROR_RE.test(next.lastError)) delete next.lastError;
   return next;
 }

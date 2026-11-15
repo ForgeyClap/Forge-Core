@@ -69,3 +69,42 @@ test('the 423 body is plain and token-free', () => {
   assert.match(b.error, /2 min ago/);
   assert.deepEqual(Object.keys(b.sync_lock).sort(), ['age_ms', 'batch_id', 'started_at']);
 });
+
+// FB-SYNC-C-F1: a lock of THIS host whose pid is not running is left behind by a killed install. After the same 2-minute
+// grace forge-sync.cjs uses (LOCK_DEAD_OWNER_GRACE_MS) it no longer puts the project into maintenance mode.
+test('a lock of this host whose pid is dead stops blocking after the 2 min grace', () => {
+  const p = project();
+  const now = Date.now();
+  const dead = () => false;
+  fs.writeFileSync(lockOf(p), JSON.stringify({ pid: 4242, host: os.hostname(), started_at: new Date(now - 3 * 60000).toISOString() }));
+  assert.equal(readSyncLock(p, now, { pidAlive: dead }).locked, false);
+  // inside the grace it still blocks (the pid may not be visible yet, or was just spawned)
+  assert.equal(readSyncLock(p, now - 2 * 60000, { pidAlive: dead }).locked, true);
+  // a live owner keeps the lock, however long it runs (within the 6 h window)
+  assert.equal(readSyncLock(p, now, { pidAlive: () => true }).locked, true);
+  // an owner that cannot be told keeps the lock
+  assert.equal(readSyncLock(p, now, { pidAlive: () => null }).locked, true);
+});
+
+test('a dead pid on ANOTHER host, or a lock with no host, keeps the age rule', () => {
+  const p = project();
+  const now = Date.now();
+  const dead = () => false;
+  fs.writeFileSync(lockOf(p), JSON.stringify({ pid: 4242, host: 'some-other-machine', started_at: new Date(now - 3 * 60000).toISOString() }));
+  assert.equal(readSyncLock(p, now, { pidAlive: dead }).locked, true);
+  fs.writeFileSync(lockOf(p), JSON.stringify({ pid: 4242, started_at: new Date(now - 3 * 60000).toISOString() }));
+  assert.equal(readSyncLock(p, now, { pidAlive: dead }).locked, true);
+});
+
+test('the real liveness probe: a lock naming an exited process of this host does not block', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync(process.execPath, ['-e', '0']);
+  assert.equal(r.status, 0);
+  const p = project();
+  const now = Date.now();
+  fs.writeFileSync(lockOf(p), JSON.stringify({ pid: r.pid, host: os.hostname(), started_at: new Date(now - 3 * 60000).toISOString() }));
+  assert.equal(readSyncLock(p, now).locked, false);
+  // our own pid is alive -> still locked
+  fs.writeFileSync(lockOf(p), JSON.stringify({ pid: process.pid, host: os.hostname(), started_at: new Date(now - 3 * 60000).toISOString() }));
+  assert.equal(readSyncLock(p, now).locked, true);
+});

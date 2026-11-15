@@ -247,7 +247,7 @@ function scanEventsFile(eventsPath, nowMs, nameIndex) {
 // before/after benchmark). Cached here on real file identity `(path, mtimeMs, size)` — an unchanged
 // run (the overwhelming majority of runs on any given poll; only actively-running runs mutate their
 // events.jsonl) is scanned exactly ONCE, not on every single poll. Mirrors the already-reviewed
-// FIFO-bounded-cache pattern in tools.mjs rather than inventing a new one; bounded so this
+// FIFO-bounded-cache pattern in tools.mjs (WP10 F4) rather than inventing a new one; bounded so this
 // new cache itself can never become the next unbounded-growth defect.
 //
 // WP-CC1: the cache key stays file-identity only (never `nowMs`) — `nowMs` only affects the
@@ -573,7 +573,7 @@ function buildRunRows(projectPath, nowMs) {
     // (shared with proof.mjs) requires the exact matching run_id, a real 64-hex digest, and a
     // literal green contract before this run is honestly reported finalized.
     const finalizedReceiptRaw = readJsonSafe(path.join(runPath, 'run-finalized.json'));
-    // WP-RB-CC (M-1), made strict by the Codex review of 2026-09-28: the receipt only counts while
+    // WP-RB-CC (M-1), made strict by the Codex review of 2026-09-28 (R1): the receipt only counts while
     // the live events.jsonl still has its exact byte size AND sha256. Only a run that HAS a receipt is
     // fingerprinted (a provisional cache: same file identity and metadata, at most 60 s, see events-digest.mjs); a missing or unreadable log never
     // counts as finalized.

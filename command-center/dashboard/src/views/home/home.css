@@ -271,7 +271,7 @@ button.fw-start__step:focus-visible {
   }
 }
 
-/* ------------------------------------------------- above the composer (L1) */
+/* ------------------------------------------------- above the composer (F7, L1) */
 
 /* The no-project line and the usage line belong to the composer: a small gap, not the page rhythm. */
 .fw-start__compose {

@@ -57,7 +57,7 @@ else
   echo "ok   the corrupt file's bytes are untouched by the check itself"
 fi
 
-# --- a dry run must report the SAME outcome as the real run above ---
+# --- F4: a dry run must report the SAME outcome as the real run above ---
 FORGE_STANDING_MIGRATION_SKIP=""
 FORGE_STANDING_MIGRATION_REASON=""
 forge_check_standing_rules_migration "$PROJ_DIR" "$REPO_ROOT/.claude" "1"

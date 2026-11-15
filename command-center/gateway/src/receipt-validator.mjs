@@ -30,7 +30,7 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
  * `{state:'ok', bytes, digest}`, `{state:'missing'}` or `{state:'unreadable', reason}`. The receipt
  * pins the log exactly as forge-finalize.cjs wrote it (`digest` = sha256 of the whole file, `bytes` =
  * its length), and it only counts while the live log still has BOTH. WP-RB-CC (review finding M-1)
- * first compared the byte size only; the Codex review of 2026-09-28 showed that an equal-length
+ * first compared the byte size only; the Codex review of 2026-09-28 (R1) showed that an equal-length
  * edit (check_passed -> check_failed) kept the size, and that a missing log skipped the check — so the
  * digest is compared too, and a log that is missing, unreadable or simply not checked never lets a run
  * read as finalized. Only a receipt that exists is ever checked (the `absent` case returns first).

@@ -1,0 +1,61 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "ai",
+  "_doc": "The ai pack (owner request R-0239, contract): 3 ai-* SPECIALIST agents plus the existing specialist mcp-developer by reference (never Bosses; the 12 permanent Bosses are unchanged) for AI chat, RAG, LLM agents and AI voice or phone agents, built from the owner projects that really used them (the AI chat test project and the owner's Dutch voice-agent work). forge-router sends AI chat, RAG and voice work to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Lanes open the presets ai-all and process first (checked by forge-lane-skills.cjs --require ai-all,process).",
+  "projectTypes": [
+    "rag",
+    "chatbot",
+    "ai-agent",
+    "voice-agent"
+  ],
+  "signals": [
+    "RAG",
+    "chatbot",
+    "AI chat",
+    "LLM",
+    "embeddings",
+    "vector store",
+    "retrieval",
+    "citations",
+    "evals",
+    "prompt injection",
+    "voice agent",
+    "belagent",
+    "Twilio",
+    "Vapi"
+  ],
+  "playbook": "forge-rag",
+  "agents": [
+    "ai-rag-engineer",
+    "ai-eval-engineer",
+    "ai-voice-designer",
+    "mcp-developer"
+  ],
+  "skills": [
+    "forge-rag",
+    "forge-agent",
+    "forge-voice",
+    "forge-graded-verify",
+    "forge-skill-testing",
+    "forge-testing",
+    "forge-debug",
+    "ponytail",
+    "test-driven-development",
+    "forge-verify",
+    "humanizer",
+    "forge-mcp-clients"
+  ],
+  "presets": {
+    "ai-all": [
+      "forge-rag",
+      "forge-agent",
+      "forge-voice",
+      "forge-graded-verify"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

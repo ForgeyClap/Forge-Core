@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Offline, hermetic tests for forge-store.cjs — writes ONLY to an os.mkdtemp temp dir via the
  *  FORGE_STORE_ROOT override; never touches the real project's .claude/. Exit 0 = all pass. */
 const fs = require('fs');
@@ -83,7 +87,7 @@ t('github gho_ token redacted', !hasRaw(S.redactValue({ v: 'gho_ABCDEFGHIJ123456
 const pemBlk = '-----BEGIN RSA ' + 'PRIVATE KEY-----\nMIIBODYSECRETLINE1\nMIIBODYSECRETLINE2\n-----END RSA PRIVATE KEY-----';
 t('PEM private key BODY redacted (not just header)', !hasRaw(S.redactValue({ v: pemBlk }), 'MIIBODYSECRETLINE'));
 t('scheme://user:pass@ password redacted', !hasRaw(S.redactValue({ v: 'postgres://admin:SuperSecret99@db.host/x' }), 'SuperSecret99'));
-t('scheme://user preserved (only password masked)', hasRaw(S.redactValue({ v: 'postgres://admin:SuperSecret99@db.host/x' }), 'postgres://admin'));
+t('scheme://user preserved (only password masked)', hasRaw(S.redactValue({ v: 'postgres://admin:SuperSecret99@db.host/x' }), 'postgres://admin')); // FAKE test fixture (reviewed for the public release verify)
 t('keyless secret via key name: password -> redacted', S.redactValue({ password: 'hunter2plaintext' }).password === R);
 t('keyless secret via key name: access_token -> redacted', S.redactValue({ access_token: 'plainABC123' }).access_token === R);
 t('keyless secret via key name: apiKey (camel) -> redacted', S.redactValue({ apiKey: 'plainkeyvalue' }).apiKey === R);
@@ -155,7 +159,7 @@ t('7a7: Google AIza key at the exact 35-char fixed body length starting with 0 i
 t('7a8: SendGrid SG. key with BOTH 16-char segments at their exact minimum is redacted', noRaw('SG.' + 'A'.repeat(16) + '.' + 'B'.repeat(16)));
 t('7a9: JWT header at the exact 10-char minimum is redacted', noRaw('eyJ' + '0123456789' + '.payloadpart.sigpart'));
 t('7a10: db2:// connection-string password (digit-bearing scheme name) is redacted, scheme preserved', (() => {
-  const r = S.redactValue({ v: 'db2://user:Secret1@host/db' });
+  const r = S.redactValue({ v: 'db2://user:Secret1@host/db' }); // FAKE test fixture (reviewed for the public release verify)
   return !r.v.includes('Secret1') && r.v.includes('db2://user');
 })());
 
@@ -292,6 +296,26 @@ t('9c9: ordinary sentences ending in a period stay unchanged', S.redactText('Use
 }
 t('9b6: "token"/"Token" bare prose keeps using the EXISTING tuned KEY_VALUE_BARE_RE floor, unaffected by the new Authorization/Bearer handling (no regression)',
   S.redactText('token ab123456789') === 'token ab123456789' && S.redactText('token 4b19f0e2c9aa') === 'token ***REDACTED***');
+
+// FB-CONFIG-2-F1: camelCase secret keys, arrays, numbers and nested credential objects
+{
+  const r = S.redactValue({ dbPassword: 'hunter2-plain', githubToken: 'opaque-value-123', token: ['arr-secret-1'], password: 12345678, credentials: { pass: 'p4ss' } });
+  const raw = JSON.stringify(r);
+  t('10a: a camelCase secret key (dbPassword, githubToken) is redacted', r.dbPassword === '***REDACTED***' && r.githubToken === '***REDACTED***');
+  t('10b: the strings in an array under a secret key are redacted', Array.isArray(r.token) && r.token[0] === '***REDACTED***');
+  t('10c: a number under a secret key is redacted', r.password === '***REDACTED***');
+  t('10d: a leaf nested under a credential object is redacted', r.credentials && r.credentials.pass === '***REDACTED***');
+  t('10e: none of the five raw values survive', !/hunter2-plain|opaque-value-123|arr-secret-1|12345678|p4ss/.test(raw));
+  const keep = S.redactValue({ author: 'Ann', description: 'plain', tokenizer: 'bpe', count: 3, enabled: true, tags: ['a', 'b'] });
+  t('10f: ordinary keys, numbers, booleans and arrays are unchanged', JSON.stringify(keep) === JSON.stringify({ author: 'Ann', description: 'plain', tokenizer: 'bpe', count: 3, enabled: true, tags: ['a', 'b'] }));
+  t('10g: redactText masks a camelCase label (dbPassword=hunter2, "githubToken": "x")', S.redactText('dbPassword=hunter2') === 'dbPassword=***REDACTED***' && S.redactText('{"githubToken": "xyz"}') === '{"githubToken": "***REDACTED***"}');
+  t('10h: redactText leaves a mid-word lowercase term alone (possession: 5)', S.redactText('possession: 5') === 'possession: 5');
+}
+// FB-CONFIG-2-F7: the fine-grained GitHub token shape (github_pat_...) — synthetic value built at runtime
+{
+  const pat = 'github' + '_pat_' + '11ABCDEFG0' + 'abcdefghij'.repeat(5) + '_' + 'KLMNOPQRST'.repeat(2);
+  t('10i: a fine-grained GitHub token is redacted by redactValue and redactText', !hasRaw(S.redactValue({ v: pat }), pat.slice(0, 24)) && !S.redactText('see ' + pat).includes(pat.slice(0, 24)));
+}
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

@@ -12,8 +12,9 @@ description: "Use to self-review a diff or PR before commit (kritische review, t
 genuine correction (an owner fix, a false assumption caught, a preference stated), append it to
 `learnings.md` with a date and real evidence — never invent a lesson that didn't happen.
 
-**Do not duplicate ECC skills — defer to:** `code-review-excellence` (the deep per-language review
-reference: React/Vue/Angular/Svelte/Rust/TypeScript/Java/PHP/Python/Django/Go/C#/Kotlin/NestJS/C/C++).
+**Do not duplicate ECC skills — defer to:** the ECC language reviewer agents for per-language depth when
+they are installed (`typescript-reviewer`, `python-reviewer`, `go-reviewer` and the like). The optional
+`code-review-excellence` skill is not shipped and is switched off on this machine, so never rely on it.
 This file is the Forge-specific orchestration wrapper: the fixed review order, the severity scale, and
 how a finding becomes a rework item in the Forge pipeline.
 
@@ -124,8 +125,9 @@ unavailable, report that honestly — the review above still stands on its own.
 The model and command come from the EFFECTIVE config, never from memory: the shipped `.claude/config/orchestration/codex-review.json` merged with the optional, never-shipped `.claude/config/orchestration/codex-review.user.json` (only `review.model`/`review.reasoning_effort` can win from it, both validated). Run it only through `node .claude/forge-bin/forge-codexreview-config.cjs run [--adversarial] --prompt "<focus>"` (argv, no shell, sandbox hard-coded read-only). With no user pin the review runs on the codex CLI default and is reported as **"Codex default model"**, never a fabricated name. Config merge, validation rules, the no-shell route and the pin history: `references/codex-review-config.md`.
 
 **Name the step for what it is.** The planned work package is the **Codex code-review**, not an "ECC
-code-review". ECC `code-reviewer`/`security-reviewer` is the *fallback* you use when Codex genuinely
-could not run, and it is always labelled
+code-review". A read-only Forge reviewer (`review-boss`, plus `security-boss` for auth, payments,
+secrets or webhooks; never ECC `security-reviewer`, which has Write/Edit) is the *fallback* you use when
+Codex genuinely could not run, and it is always labelled
 `FALLBACK (non-independent) review — Codex did not run because: <reason>`. Planning the fallback as
 the step quietly downgrades an independent review into a second opinion from the same model family
 that wrote the code.

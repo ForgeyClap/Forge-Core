@@ -9,23 +9,23 @@
     "read-only-audit": {
       "tools_base": ["Read", "Grep", "Glob"],
       "may_add": ["WebSearch", "WebFetch"],
-      "forbidden": ["Write", "Edit", "Bash", "PowerShell"],
+      "forbidden": ["Write", "Edit", "Bash", "PowerShell", "Skill"],
       "description": "Read/search/fetch only. Mechanically cannot change a single file or execute any command (Bash or PowerShell) — the entire value of these roles is an independent, untamperable view of the real repo (and, for research roles, the public web). Used for: review-boss, security-boss, search-boss, seo-boss."
     },
     "write-no-exec": {
       "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
-      "forbidden": ["Bash", "PowerShell"],
+      "forbidden": ["Bash", "PowerShell", "Skill"],
       "description": "Can read and write/edit files (plans, work packages, docs, JSON registries) but cannot run any command (Bash or PowerShell) — no git, npm, curl, rm, or ad-hoc node/PowerShell scripts. Used for coordination/writing roles whose output is an artifact for another agent (Build Boss, Test Boss, etc.) to actually execute or ship, never something this role executes itself. Used for: boss, head-chef, docs-boss, skill-boss."
     },
     "full-build": {
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
       "forbidden": [],
       "description": "Full read/write/execute power — the largest blast radius in the roster. Reserved for roles whose actual job is impossible without running a build, test runner, installer, or other shell tooling (Bash on macOS/Linux/Git-Bash, PowerShell on a Windows host with no bash). Used for: build-boss, test-boss, ui-boss, integration-boss, data-scientist, electron-pro, mcp-developer, ml-engineer, payment-integration."
     },
     "exec-reviewer": {
-      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob"],
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
       "forbidden": ["Write", "Edit"],
-      "description": "Has Bash/PowerShell but not Write/Edit. IMPORTANT: this is NOT a read-only class (see bash_is_a_write_primitive_note/powershell_is_a_write_primitive_note above) — it is a deliberate, narrow exception for a role whose only actual need is invoking an external CLI/slash-command (the Codex plugin) or re-running a build/test command via a shell, with no first-party need to edit repository files through the Write/Edit tool APIs itself. Used for: codex-reviewer, verify-boss and scribe (scribe: Bash only, to run forge-scribe.cjs)."
+      "description": "Has Bash/PowerShell but not Write/Edit. IMPORTANT: this is NOT a read-only class (see bash_is_a_write_primitive_note/powershell_is_a_write_primitive_note above) — it is a deliberate, narrow exception for a role whose only actual need is invoking an external CLI/slash-command (the Codex plugin) or re-running a build/test command via a shell, with no first-party need to edit repository files through the Write/Edit tool APIs itself. Used for: codex-reviewer, verify-boss, scribe and scribe-acker (scribe and scribe-acker: Bash only, to run forge-scribe.cjs)."
     }
   },
   "agents": {
@@ -49,13 +49,13 @@
     },
     "test-boss": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage", "Skill"],
       "model": "sonnet",
       "rationale": "Runs real automated tests (Playwright e2e, or the correct strategy per project type) and must write test files/fixtures. Running a real test suite is impossible without a shell (spawning the test runner) — Bash where available, PowerShell on a bash-less Windows host. Full-build is the minimum viable grant for this role."
     },
     "ui-boss": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage", "Skill"],
       "model": "opus",
       "rationale": "Builds and fixes UI/UX, runs real screenshot loops across mobile/tablet/desktop, and needs to launch dev servers/screenshot tooling — none of which is reachable without a shell (Bash, or PowerShell on a bash-less Windows host). Full-build is the minimum viable grant."
     },
@@ -85,13 +85,13 @@
     },
     "build-boss": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage", "Skill"],
       "model": "opus",
       "rationale": "Implementation/coding Boss: writes the actual code changes and must run the project's real build/lint/typecheck/test commands to self-review before handoff (per its own checklist). A shell (Bash, or PowerShell on a bash-less Windows host) is core to the role, not incidental."
     },
     "integration-boss": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "SendMessage", "Skill"],
       "model": "opus",
       "rationale": "Wires APIs, n8n, webhooks, databases, and NVIDIA-as-tool integrations — needs to run install/validate commands (e.g. n8n `validate_workflow`, package installs, curl-based smoke tests) that only a shell (Bash, or PowerShell on a bash-less Windows host) provides."
     },
@@ -103,51 +103,327 @@
     },
     "data-scientist": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
       "model": "opus",
       "rationale": "EDA-to-model work requires running real analysis/training scripts and validation harnesses — a shell (Bash, or PowerShell on a bash-less Windows host) is required to execute them, not just author code."
     },
     "electron-pro": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
       "model": "opus",
       "rationale": "Builds/hardens an Electron desktop app and must produce a real signed installer/build — packaging tooling only runs through a shell (Bash, or PowerShell on a bash-less Windows host)."
     },
     "mcp-developer": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
       "model": "opus",
       "rationale": "Builds/debugs MCP servers/clients and must actually run them (JSON-RPC compliance checks, local server smoke tests) — a shell (Bash, or PowerShell on a bash-less Windows host) is required to execute a server process, not optional."
     },
     "ml-engineer": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
       "model": "opus",
       "rationale": "Training-to-serving ML pipelines require running real training/eval/deploy scripts to verify reproducibility and drift monitoring — a shell (Bash, or PowerShell on a bash-less Windows host) is core to the role."
     },
     "payment-integration": {
       "class": "full-build",
-      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob"],
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
       "model": "opus",
       "rationale": "Stripe/gateway integration work needs to run webhook verification tooling and local test-mode charge/refund smoke tests — a shell (Bash, or PowerShell on a bash-less Windows host) is required to execute those checks, not just to author the integration code."
     },
     "codex-reviewer": {
       "class": "exec-reviewer",
-      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob"],
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
       "model": "sonnet",
       "rationale": "Optional independent code-quality reviewer. Needs a shell (Bash, or PowerShell on a bash-less Windows host) solely to invoke the Codex CLI/slash-commands (`/codex:review`, `/codex:adversarial-review`) and to run `git diff`. Deliberately has NO Write/Edit — it must never directly edit the code it is reviewing. Per bash_is_a_write_primitive/powershell_is_a_write_primitive, this agent is NOT read-only despite lacking Write/Edit; it is classified exec-reviewer, a distinct, narrower-than-full-build class than a coder role, not a security-equivalent to review-boss/security-boss."
     },
     "verify-boss": {
       "class": "exec-reviewer",
-      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob"],
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
       "model": "sonnet",
       "rationale": "DEFAULT verifier per work package (GOAT routing 2026-10-06; sonnet/medium; replies PASS/FAIL with evidence, never edits) and independent RE-EXECUTOR: re-runs the exact build/test/health-check command a Boss claims passed, from a cold read of the diff, and reports the literal exit code. Needs a shell (Bash, or PowerShell on a bash-less Windows host) to actually re-execute those checks (forge-doctor/forge-runwatch/forge-flaky/the cited test suite) — a re-executor that could not run a command would be pointless. Deliberately has NO Write/Edit — per bash_is_a_write_primitive/powershell_is_a_write_primitive it is NOT read-only, but it must never be able to 'fix' the very evidence it verifies, so exec-reviewer (Bash/PowerShell + Read/Grep/Glob, no Write/Edit) is the correct minimum. Distinct from codex-reviewer (external Codex opinion) and from read-only review-boss/security-boss (which cannot re-execute at all)."
     },
     "scribe": {
       "class": "exec-reviewer",
-      "tools": ["Read", "Grep", "Glob", "Bash"],
+      "tools": ["Read", "Grep", "Glob", "Bash", "Skill"],
       "model": "sonnet",
       "rationale": "Owner-requirements ledger keeper (GOAT quick route sonnet/low). Needs Bash solely to run `node .claude/forge-bin/forge-scribe.cjs` — the ONLY sanctioned way to change scribe state (capture/classify/link/transition/gate/digest) — plus read-only inspection. Deliberately has NO Write/Edit so it can never hand-edit the inbox/ledger or any project file. Per bash_is_a_write_primitive it is NOT read-only; exec-reviewer is the correct minimum. No PowerShell: forge-scribe.cjs is a plain node CLI that Bash (Git Bash on Windows) runs."
+    },
+    "scribe-acker": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "Skill"],
+      "model": "sonnet",
+      "rationale": "Owner-delegated acceptor (R-0233, GOAT quick route sonnet/low). Needs Bash solely to run `node .claude/forge-bin/forge-scribe.cjs autoack` (and read-only gate/list), which decides every accept or hold itself. Deliberately has NO Write/Edit so it can never hand-edit the inbox/ledger or any project file, and no PowerShell (a plain node CLI). Per bash_is_a_write_primitive it is NOT read-only; exec-reviewer is the correct minimum, like scribe."
+    },
+    "rbx-game-director": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (Game Director): writes design or schedule documents as data for other lanes; it runs nothing itself."
+    },
+    "rbx-luau-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (Luau Engineer): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-ui-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (UI Engineer): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-world-builder": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (World Builder): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-vfx-audio": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (VFX and Audio): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-blender-artist": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (Blender Artist): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-integrator": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (Integrator): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-qa-tester": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (QA Tester): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "rbx-security-reviewer": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (Security Reviewer): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "rbx-verifier": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "sonnet",
+      "rationale": "Roblox pack specialist (Verifier): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "rbx-liveops-producer": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "Roblox pack specialist (Live-Ops Producer): writes design or schedule documents as data for other lanes; it runs nothing itself."
+    },
+    "rbx-skill-monitor": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "sonnet",
+      "rationale": "Roblox pack specialist (Skill Monitor): builds, runs tests or drives Studio and Blender tooling, so it needs a shell."
+    },
+    "ai-rag-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "AI pack specialist (RAG Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "ai-eval-engineer": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "sonnet",
+      "rationale": "AI pack specialist (Eval Engineer, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "ai-voice-designer": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "AI pack specialist (Voice Designer, R-0239): writes its own documents as data for other lanes; it runs nothing itself."
+    },
+    "app-architect": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "App pack specialist (App Architect, R-0239): writes its own documents as data for other lanes; it runs nothing itself."
+    },
+    "app-backend-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "App pack specialist (Backend Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "app-data-reviewer": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "sonnet",
+      "rationale": "App pack specialist (Data Reviewer, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "app-domain-reviewer": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "opus",
+      "rationale": "App pack specialist (Domain Reviewer, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "auto-n8n-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Automation pack specialist (n8n Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "auto-n8n-validator": {
+      "class": "exec-reviewer",
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
+      "model": "sonnet",
+      "rationale": "Automation pack specialist (n8n Validator, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "auto-bot-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Automation pack specialist (Bot Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "data-scraper-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Data pack specialist (Scraper Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "data-compliance-reviewer": {
+      "class": "read-only-audit",
+      "tools": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"],
+      "model": "opus",
+      "rationale": "Data pack specialist (Data Compliance Reviewer, R-0239): reads and searches the repo and the public web only; it edits nothing and runs nothing."
+    },
+    "data-backtest-auditor": {
+      "class": "exec-reviewer",
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
+      "model": "sonnet",
+      "rationale": "Data pack specialist (Backtest Auditor, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "desk-installer-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Desktop pack specialist (Installer Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "desk-qa-tester": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "sonnet",
+      "rationale": "Desktop pack specialist (QA Tester, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "game-designer": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "Game pack specialist (Game Designer, R-0239): writes its own documents as data for other lanes; it runs nothing itself."
+    },
+    "game-programmer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Game pack specialist (Game Programmer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "game-playtester": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "sonnet",
+      "rationale": "Game pack specialist (Playtester, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "mob-app-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Mobile pack specialist (Mobile App Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "mob-release-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Mobile pack specialist (Mobile Release Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "mob-qa-tester": {
+      "class": "exec-reviewer",
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
+      "model": "sonnet",
+      "rationale": "Mobile pack specialist (Mobile QA Tester, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "res-analyst": {
+      "class": "read-only-audit",
+      "tools": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"],
+      "model": "opus",
+      "rationale": "Research pack specialist (Research Analyst, R-0239): reads and searches the repo and the public web only; it edits nothing and runs nothing."
+    },
+    "res-fact-checker": {
+      "class": "read-only-audit",
+      "tools": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"],
+      "model": "sonnet",
+      "rationale": "Research pack specialist (Fact Checker, R-0239): reads and searches the repo and the public web only; it edits nothing and runs nothing."
+    },
+    "res-plan-writer": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "Research pack specialist (Plan Writer, R-0239): writes its own documents as data for other lanes; it runs nothing itself."
+    },
+    "shop-product-researcher": {
+      "class": "read-only-audit",
+      "tools": ["Read", "Grep", "Glob", "WebSearch", "WebFetch"],
+      "model": "opus",
+      "rationale": "Shop pack specialist (Shop Product Researcher, R-0239): reads and searches the repo and the public web only; it edits nothing and runs nothing."
+    },
+    "shop-listing-writer": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "Shop pack specialist (Shop Listing Writer, R-0239): writes its own documents as data for other lanes; it runs nothing itself."
+    },
+    "shop-catalog-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Shop pack specialist (Shop Catalog Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "shop-ops-analyst": {
+      "class": "exec-reviewer",
+      "tools": ["Bash", "PowerShell", "Read", "Grep", "Glob", "Skill"],
+      "model": "sonnet",
+      "rationale": "Shop pack specialist (Shop Ops Analyst, R-0239): reads and re-runs checks but must never edit the evidence it judges."
+    },
+    "web-art-director": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Website pack specialist (Art Director, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "web-frontend-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Website pack specialist (Frontend Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "web-content-writer": {
+      "class": "write-no-exec",
+      "tools": ["Read", "Write", "Edit", "Grep", "Glob"],
+      "model": "opus",
+      "rationale": "Website pack specialist (Content Writer, R-0239): writes its own documents as data for other lanes; it runs nothing itself."
+    },
+    "web-dataviz-engineer": {
+      "class": "full-build",
+      "tools": ["Read", "Write", "Edit", "Bash", "PowerShell", "Grep", "Glob", "Skill"],
+      "model": "opus",
+      "rationale": "Website pack specialist (Dataviz Engineer, R-0239): builds, runs tests or drives its tooling, so it needs a shell."
+    },
+    "web-qa-proof": {
+      "class": "exec-reviewer",
+      "tools": ["Read", "Grep", "Glob", "Bash", "PowerShell", "Skill"],
+      "model": "sonnet",
+      "rationale": "Website pack specialist (QA Proof, R-0239): reads and re-runs checks but must never edit the evidence it judges."
     }
   }
 }

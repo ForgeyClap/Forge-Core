@@ -1,6 +1,7 @@
 ---
 name: forge-release
-description: "Use when cutting a release (nieuwe versie, changelog, semver bump)."
+description: "Use when cutting or rolling back a release: bump, changelog, tag, publish (nieuwe versie, release terugdraaien)."
+# 2026-11-13 original description (audit SK-5-F5 restored the rollback, tag and publish triggers): "Use when cutting a release (nieuwe versie, changelog, semver bump)."
 # W2-BUDGET original description (listing budget): "Use when cutting a version: conventional-commit bump, changelog, release PR, dry run, SHA-pinned publish via OIDC, rollback. Tag, publish and push stay owner-gated."
 # W2-BUDGET original when_to_use (listing budget): "Triggers: cut a release, new version, nieuwe versie uitbrengen, versie ophogen, changelog, release notes, semver bump, release PR, publish to npm, tag a version, bad release terugdraaien."
 ---

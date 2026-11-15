@@ -20,7 +20,7 @@
 
 const HYSTERESIS = 5;                 // a target must be below threshold-5 unless nothing better exists
 const MAX_AUTO_SWITCHES_PER_DAY = 6;  // committed swaps per 24 h, counted per hop (AR-09)
-const MAX_FAILED_PER_DAY = 6;         // failed / rolled-back attempts per 24 h before the rotator stops trying
+const MAX_FAILED_PER_DAY = 6;         // failed / rolled-back attempts per 24 h before the rotator stops trying (M6)
 const BACKOFF_MAX_MIN = 60;           // 2, 4, 8, 16, 32, 60 min between failed attempts
 const MAX_HOPS = 3;                   // bounded onward switches inside one event
 const DAY_MS = 24 * 3600 * 1000;

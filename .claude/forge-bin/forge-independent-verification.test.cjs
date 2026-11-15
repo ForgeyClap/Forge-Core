@@ -191,7 +191,7 @@ console.log('independent-verification (honesty-core)');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  // een bewijsset moet ECHT bewijs zijn — vorm alleen is niet genoeg
+  // R3-04: een bewijsset moet ECHT bewijs zijn — vorm alleen is niet genoeg
   {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iv-schema-'));
     const digestVan = (gates) => {
@@ -213,7 +213,7 @@ console.log('independent-verification (honesty-core)');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  // namen moeten toetsbaar zijn, en zonder registry is dat onmogelijk => fail-closed
+  // R3-02: namen moeten toetsbaar zijn, en zonder registry is dat onmogelijk => fail-closed
   {
     const bekend = new Set(['build boss', 'review boss']);
     const basis = keten([werk('Build Boss'), start('Review Boss', 'r1'), klaar('Review Boss', 'r1')]);
@@ -230,7 +230,7 @@ console.log('independent-verification (honesty-core)');
       (RC.knownAgentNames(path.join(__dirname, '..', '..')) || new Set()).has('build boss'));
   }
 
-  /** een review die NIET goedkeurt mag geen goedkeuring zijn. Dit was het pijnlijkste gat: de poort
+  /** R4-01: een review die NIET goedkeurt mag geen goedkeuring zijn. Dit was het pijnlijkste gat: de poort
    *  keek of er EEN review bestond, niet of die positief eindigde — en forge-verify emitteert
    *  lead_review_completed juist bij FOUTEN, dus een afkeuring bevestigde de afronding. */
   {
@@ -247,7 +247,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R4-01 en een echt goedkeurend verdict slaagt wel', basis({ review_verdict: 'approved' }).ok === true);
   }
 
-  // de uitzonderingslijst mag alleen INERTE events bevatten
+  // R4-02: de uitzonderingslijst mag alleen INERTE events bevatten
   t('1 R4-02 rejected_approach is werk (de writer eist er zelfs bewijs op)', RC.isWorkEventType('rejected_approach') === true);
   t('1 R4-02 agent_output en decision_logged zijn werk', RC.isWorkEventType('agent_output') === true && RC.isWorkEventType('decision_logged') === true);
   t('1 R4-02 een reviewer die zelf rejected_approach produceerde is geen buitenstaander',
@@ -258,7 +258,7 @@ console.log('independent-verification (honesty-core)');
   /** RONDE 5 — vier gaten die de VORIGE ronde had geïntroduceerd of gemist. */
   {
     const basis = (extra) => iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1', extra)]), { commitSha: COMMIT, evidenceDigest: EVID });
-    // tegenstrijdige uitkomstvelden — zo verstop je een afkeuring
+    // R5-02: tegenstrijdige uitkomstvelden — zo verstop je een afkeuring
     t('1 R5-02 review_verdict:approved naast verdict:CHANGES_REQUIRED wordt geweigerd',
       basis({ review_verdict: 'approved', verdict: 'CHANGES_REQUIRED' }).ok === false);
     t('1 R5-02 ook status/result/outcome tellen mee',
@@ -270,7 +270,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R5-02 een eenduidig positief beeld slaagt wel',
       basis({ review_verdict: 'pass', status: 'ok', ok: true }).ok === true);
   }
-  // een goedkeuring bovenop ROOD bewijs bevestigt niets
+  // R5-03: een goedkeuring bovenop ROOD bewijs bevestigt niets
   t('1 R5-03 een gefaalde poort in de bewijsset blokkeert de verificatie',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID, evidenceAllGreen: false, evidenceFailed: ['doctor'] }).ok === false);
   t('1 R5-03 en de reden noemt de gefaalde poort',
@@ -283,10 +283,10 @@ console.log('independent-verification (honesty-core)');
     t('1 R5-03 de canonicalizer meldt eerlijk WELKE poort faalde', r.allGreen === false && r.failed.join() === 'b', JSON.stringify(r));
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  // een AFGEKEURDE poging verbruikt de start net zo goed
+  // R5-04: een AFGEKEURDE poging verbruikt de start net zo goed
   t('1 R5-04 afgekeurd-dan-goedgekeurd op dezelfde start wordt geweigerd',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1', { review_verdict: 'CHANGES_REQUIRED' }), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
-  // actieve uitvoering is werk; dispatch blijft een gemotiveerde uitzondering
+  // R5-01: actieve uitvoering is werk; dispatch blijft een gemotiveerde uitzondering
   t('1 R5-01 een reviewer die zelf fix_started logde is geen buitenstaander',
     iv(keten([werk('a'), { event_type: 'fix_started', agent: 'V' }, start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
   t('1 R5-01 uitvoering NA de review maakt hem stale',
@@ -301,19 +301,19 @@ console.log('independent-verification (honesty-core)');
     iv(keten([werk('a'), { event_type: 'agent_started', agent: 'V', dispatch_id: 'd1' }, start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
   t('1 R6-02/R7-04 alleen een GESTRUCTUREERD rolveld laat de reviewer buitenstaander zijn',
     iv(keten([werk('a'), { event_type: 'agent_started', agent: 'V', dispatch_id: 'd1', role: 'review', task: 'review WP2' }, start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === true);
-  // een owner_override kan het contract na het oordeel doen kantelen — dus staling, maar de owner
+  // R6-03: een owner_override kan het contract na het oordeel doen kantelen — dus staling, maar de owner
   // is geen uitvoerder.
   t('1 R6-03 een owner_override NA de review maakt hem stale',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'), { event_type: 'owner_override', agent: 'owner', rule: 'x', by: 'owner', reason: 'y' }]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
   t('1 R6-03 maar de owner belandt niet in de werkersverzameling',
     iv(keten([{ event_type: 'owner_override', agent: 'owner', rule: 'x', by: 'owner', reason: 'y' }, werk('a'), start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID }).workers.includes('owner') === false);
-  // "er was ooit een goedkeuring" is niet hetzelfde als "het oordeel staat"
+  // R6-01: "er was ooit een goedkeuring" is niet hetzelfde als "het oordeel staat"
   t('1 R6-01 een AFKEURING na de goedkeuring haalt die onderuit',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'), start('W', 'r2'), klaar('W', 'r2', { review_verdict: 'CHANGES_REQUIRED' })]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
   t('1 R6-01 en de reden noemt de latere ongeldige completion',
     /niet geldig/i.test(iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'), start('W', 'r2'), klaar('W', 'r2', { review_verdict: 'blocked' })]), { commitSha: COMMIT, evidenceDigest: EVID }).reason));
 
-  /** zelf gevonden bij het draaien van ronde 5, en het bevestigt Codex' waarschuwing uit R4-01:
+  /** R5-06 — zelf gevonden bij het draaien van ronde 5, en het bevestigt Codex' waarschuwing uit R4-01:
    *  forge-verify.cjs logt `lead_review_completed` juist BIJ EEN MISMATCH, als trigger voor rework. Een
    *  eventtype dat "review afgerond" heet maar "er is werk mislukt" betekent, hoort geen kandidaat te
    *  zijn voor onafhankelijke verificatie. Ik had het laten staan omdat de verdict-eis het toch wel zou
@@ -339,7 +339,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R6-05 en een hash die de recorder zelf niet kon bevestigen ook niet', digestVan(null, { evidence_verified: false }) === null);
     t('1 R6-05 een manifest van een ANDERE run telt niet als bewijs van deze run', digestVan({ run_id: 'een-andere-run' }) === null);
     t('1 R6-05 maar het correcte manifest levert gewoon een digest', digestVan({ run_id: 'r' }, { evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }) !== null);
-    /** een codepin die je niet AFDWINGT bindt niets. */
+    /** R8-03: een codepin die je niet AFDWINGT bindt niets. */
     t('1 R8-03 een poort zonder codemeting telt niet als bewijs', digestVan({ run_id: 'r' }, { evidence_verified: true }) === null);
     t('1 R8-03 een onstabiele meting (code bewoog tijdens de poort) evenmin', digestVan({ run_id: 'r' }, { evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: false } }) === null);
     t('1 R8-03 en bewijs dat op een VUILE bron draaide ook niet', digestVan({ run_id: 'r' }, { evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: false, stable: true } }) === null);
@@ -347,7 +347,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R7-06 en evidence_verified moet EXPLICIET true zijn, niet slechts niet-false', digestVan({ run_id: 'r' }, {}) === null);
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  // een AANWEZIG maar leeg uitkomstveld is geen goedkeuring
+  // R6-08: een AANWEZIG maar leeg uitkomstveld is geen goedkeuring
   t('1 R6-08 review_verdict:approved met ok:"" wordt geweigerd',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1', { ok: '' })]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
   t('1 R6-08 een leeg status-veld ook',
@@ -371,7 +371,7 @@ console.log('independent-verification (honesty-core)');
   }
 
   /** RONDE 7 — twee gaten die IK in de vorige ronde zelf introduceerde. */
-  // vrije tekst mocht een veiligheidsgrens bepalen; "implement review feedback" gold als review.
+  // R7-04: vrije tekst mocht een veiligheidsgrens bepalen; "implement review feedback" gold als review.
   {
     const dispatch = (extra) => iv(keten([werk('a'), Object.assign({ event_type: 'agent_started', agent: 'V' }, extra), start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID });
     t('1 R7-04 "implement review feedback" is UITVOEREND werk, geen reviewopdracht',
@@ -381,7 +381,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R7-04 alleen een gestructureerd rolveld telt', dispatch({ role: 'review', task: 'review WP2' }).ok === true);
     t('1 R7-04 en een uitvoerende task overruled een reviewrol (doen gaat voor etiket)',
       dispatch({ role: 'review', task: 'implement the patch' }).ok === false);
-    /** mijn R7-04-fix gebruikte een DENYLIST van uitvoeringswerkwoorden, dus alles wat daar niet
+    /** R8-01: mijn R7-04-fix gebruikte een DENYLIST van uitvoeringswerkwoorden, dus alles wat daar niet
      *  in stond gold als review — `develop production feature` kwam er gewoon door. Dezelfde fout als
      *  R3-01, een laag dieper. Nu positief bewijs: de taak moet ZELF reviewwerk beschrijven. */
     for (const taak of ['develop production feature', 'ship the release', 'wire up the gateway', 'onbekende opdracht']) {
@@ -393,7 +393,7 @@ console.log('independent-verification (honesty-core)');
         dispatch({ role: 'review', task: taak }).ok === true);
     }
   }
-  // de staleness-check hanteerde een ZWAKKERE definitie van goedkeuring dan de hoofdvalidator
+  // R7-05: de staleness-check hanteerde een ZWAKKERE definitie van goedkeuring dan de hoofdvalidator
   t('1 R7-05 een latere afkeuring met een LEEG veld telt ook als afkeuring',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'), start('W', 'r2'), klaar('W', 'r2', { status: '' })]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
   t('1 R7-05 en een latere completion met ok:"true" (string) telt eveneens als afkeuring',
@@ -401,7 +401,7 @@ console.log('independent-verification (honesty-core)');
   t('1 R7-05 beide ingangen delen nu EEN definitie van goedkeuring',
     RC.isGoedkeuring({ review_verdict: 'pass' }).ok === true && RC.isGoedkeuring({ review_verdict: 'pass', ok: 'true' }).ok === false);
 
-  /** de staleness-check keek alleen naar het VERDICT van latere completions. Een tweede
+  /** R8-02: de staleness-check keek alleen naar het VERDICT van latere completions. Een tweede
    *  POSITIEVE completion die een verbruikt review_id hergebruikt of een verkeerde commit draagt, is
    *  net zo goed een signaal dat er iets niet klopt — die mag de goedkeuring niet ongemoeid laten. */
   t('1 R8-02 een latere POSITIEVE completion op een verbruikt review_id blokkeert het oordeel',
@@ -409,7 +409,7 @@ console.log('independent-verification (honesty-core)');
   t('1 R8-02 en een latere completion met een VERKEERDE commit ook',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'), start('W', 'r2'), klaar('W', 'r2', { commit_sha: 'f'.repeat(40) })]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
 
-  /** herstel MOET mogelijk zijn. Mijn R8-02-fix blokkeerde op elke latere ongeldige completion,
+  /** R9-07: herstel MOET mogelijk zijn. Mijn R8-02-fix blokkeerde op elke latere ongeldige completion,
    *  ook als daarna een verse, geldige review volgde — precies de weg die de foutmelding voorschrijft. */
   const hersteldNaFout = iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'),
     klaar('V', 'r1'),
@@ -419,7 +419,7 @@ console.log('independent-verification (honesty-core)');
   t('1 R9-07 maar een ongeldige LAATSTE completion laat het rood',
     iv(keten([werk('a'), start('V', 'r1'), klaar('V', 'r1'), start('W', 'r2'), klaar('W', 'r2', { review_verdict: 'blocked' })]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
 
-  /** mijn 'positief bewijs' had nog drie gaten. Onbekend hoort aan de strenge kant te vallen. */
+  /** R9-01: mijn 'positief bewijs' had nog drie gaten. Onbekend hoort aan de strenge kant te vallen. */
   {
     const d = (extra) => iv(keten([werk('a'), Object.assign({ event_type: 'agent_started', agent: 'V' }, extra), start('V', 'r1'), klaar('V', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID });
     t('1 R9-01 een reviewrol ZONDER taak bewijst niets (waarvoor ingezet is dan onbekend)',
@@ -432,7 +432,7 @@ console.log('independent-verification (honesty-core)');
       d({ role: 'review', task: 'review WP2' }).ok === true);
   }
 
-  /** de suite dekte de nieuwe eisen van ronde 9 nog niet. Elk van deze bindingen kreeg pas
+  /** R9-08: de suite dekte de nieuwe eisen van ronde 9 nog niet. Elk van deze bindingen kreeg pas
    *  betekenis toen hij ergens werd AFGEDWONGEN — dus hoort er per binding een test te staan die faalt
    *  zodra de handhaving wegvalt. */
   {
@@ -445,7 +445,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R9-02 bewijs van DEZELFDE commit is gewoon in orde',
       iv(basis, evid({ evidenceCommit: COMMIT })).ok === true);
   }
-  // de canonicalizer vertrouwt `evidence_verified` niet blind meer als het bestand er nog ligt
+  // R9-05: de canonicalizer vertrouwt `evidence_verified` niet blind meer als het bestand er nog ligt
   {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iv-readback-'));
     const runDir = path.join(dir, '.claude', 'forge-runs', 'r');
@@ -467,7 +467,7 @@ console.log('independent-verification (honesty-core)');
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  /** DERDE keer dezelfde vormfout: R3-01 leerde dat een denylist onveilig faalt, R8-01 bouwde
+  /** R10-01 — DERDE keer dezelfde vormfout: R3-01 leerde dat een denylist onveilig faalt, R8-01 bouwde
    *  er toch een, R9-01 breidde die uit. `task:"review code and update production source"` kwam erdoor
    *  omdat "update" er niet in stond. Nu een ALLOWLIST op tokenniveau: elk woord moet uit de
    *  reviewwoordenschat komen, dus ook een woord dat ik nooit heb bedacht maakt het uitvoerend werk. */
@@ -484,7 +484,7 @@ console.log('independent-verification (honesty-core)');
     }
   }
 
-  /** een zelfgeschreven noop-poort zonder command of outputbestand is geen bewijs. */
+  /** R10-03: een zelfgeschreven noop-poort zonder command of outputbestand is geen bewijs. */
   {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iv-r10-'));
     const digestVan = (gate) => {
@@ -499,7 +499,7 @@ console.log('independent-verification (honesty-core)');
     t('1 R10-03 argv als alternatief voor command telt ook', digestVan({ argv: ['node', 't'], output_file: 'x.txt' }) !== null);
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  /** check() geeft de bewijscommit door en de evaluator vergelijkt hem met de beoordeelde
+  /** R10-02: check() geeft de bewijscommit door en de evaluator vergelijkt hem met de beoordeelde
    *  commit — dit is de E2E-doorgifte die R10-06 miste (de unit-test bewees hem niet via check()). */
 
   // N-06: een onderbroken keten vlak vóór de completion mag niet worden overgeslagen
@@ -507,15 +507,22 @@ console.log('independent-verification (honesty-core)');
   t('1 N-06 een directe voorganger zonder entry_hash breekt de subjectbinding',
     iv(gat, { commitSha: COMMIT, evidenceDigest: EVID }).ok === false);
 
+  // a doctor receipt (doctor_run) is a check, not work. Neither its agent name nor its place may fail the
+  // gate (forge-doctor logged it as 'reviewer', an unregistered name, and a doctor run can follow the review).
+  t('1 DOCTOR doctor_run before and after the review is not work and needs no registered agent',
+    iv(keten([werk('Build Boss'), { event_type: 'doctor_run', agent: 'reviewer', ok: true }, start('Verify Boss', 'r1'),
+      klaar('Verify Boss', 'r1')]), { commitSha: COMMIT, evidenceDigest: EVID }).ok === true
+    && RC.isWorkEventType('doctor_run') === false);
+
   // F-08: elke naam in de allowlist moet de strict writer ECHT kennen
   const writerSrc = fs.readFileSync(path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs'), 'utf8');
   const bekend = new Set([...(writerSrc.match(/const KNOWN_EVENT_TYPES = new Set\(\[([\s\S]*?)\]\)/)[1].matchAll(/'([a-z0-9_]+)'/g))].map((m) => m[1]));
   const onbekend = [...RC.REVIEW_START_TYPES, ...RC.REVIEW_DONE_TYPES, ...RC.NON_WORK_EVENT_TYPES].filter((x) => !bekend.has(x));
   t('1 F-08 elk eventtype dat de poort NOEMT is ECHT geregistreerd bij de writer', onbekend.length === 0, 'onbekend: ' + onbekend.join(', '));
-  /** parametrisch over ELK geregistreerd type — zo kan een nieuw eventtype niet stilzwijgend in
+  /** R3-01: parametrisch over ELK geregistreerd type — zo kan een nieuw eventtype niet stilzwijgend in
    *  de verkeerde bak belanden. De omkering maakt onbekend = werk, dus deze test bewaakt vooral dat de
    *  niet-werk-lijst niets bevat wat in werkelijkheid iets produceert. */
-  /** de vorige taxonomietest gebruikte een SUFFIX-regex en miste daardoor precies
+  /** R4-06/R5-11: de vorige taxonomietest gebruikte een SUFFIX-regex en miste daardoor precies
    *  `_output`, `_assigned`, `_approach` en `_logged` — de vier die ronde 4 als verkeerd ingedeeld
    *  aanwees. Een test die zijn eigen blinde vlek deelt met de code bewijst niets. Nu ECHT parametrisch:
    *  elk geregistreerd type wordt geclassificeerd en de niet-werk-lijst moet stuk voor stuk verdedigbaar
@@ -539,6 +546,9 @@ console.log('independent-verification (honesty-core)');
     // Codex R3 SC-06, defended in forge-runcontract.cjs NON_WORK_EVENT_TYPES: scribe_head, the writer-
     // stamped hash anchor of the scribe ledger that the capture hook appends — it records a hash, produces nothing.
     'scribe_head',
+    // doctor_run, the doctor's receipt of a CHECK run — same family as
+    // gate_evaluated; it produces nothing of the reviewed product.
+    'doctor_run',
   ]);
   t('1 WP-4B the two version-2 types that DO change the run stay WORK: sync_completed and owner_requirement_noted',
     bekend.has('sync_completed') && bekend.has('owner_requirement_noted')
@@ -754,7 +764,7 @@ function fixture(naam, evs, fopts) {
   t('2 E2E: een review-event ZONDER agent wordt door de writer geweigerd',
     naamloos.codes.some((c) => c.type === 'review_started' && c.status !== 0), JSON.stringify(naamloos.codes));
 
-  /** strict mode uitzetten mag een build soepeler maken, maar niet betekenen dat "wie dit
+  /** R4-05: strict mode uitzetten mag een build soepeler maken, maar niet betekenen dat "wie dit
    *  goedkeurde" een vrij invulbaar veld wordt. Deze test draait de ECHTE writer met
    *  FORGE_STRICT_EVENTS=0 en verwacht dat de spookreviewer nog steeds wordt geweigerd. */
   {
@@ -770,14 +780,14 @@ function fixture(naam, evs, fopts) {
       spookOptOut.status !== 0 && /NIET opt-out/.test(String(spookOptOut.stderr || '')), 'exit=' + spookOptOut.status + ' ' + String(spookOptOut.stderr || '').slice(0, 160));
     const echtOptOut = zonderStrict('review_started', { agent: 'Review Boss', review_id: 'r1', note: 'x' });
     t('2 R4-05 maar een ECHTE reviewer komt er ook zonder strict mode gewoon door', echtOptOut.status === 0, String(echtOptOut.stderr || '').slice(0, 160));
-    /** de strict-off test dekte alleen `review_started`. Een poort die maar op één van zijn zes
+    /** R5-11: de strict-off test dekte alleen `review_started`. Een poort die maar op één van zijn zes
      *  types wordt getoetst, is niet aantoonbaar gesloten. */
     const klaarOptOut = zonderStrict('review_completed', { agent: 'Niemand Die Bestaat', review_id: 'r1', note: 'x' });
     t('2 R5-11 ook review_completed weigert een spookreviewer zonder strict mode', klaarOptOut.status !== 0, 'exit=' + klaarOptOut.status);
     const codexOptOut = zonderStrict('codex_review_started', { agent: 'Niemand Die Bestaat', review_id: 'r1', note: 'x' });
     t('2 R5-11 en codex_review_started evenmin', codexOptOut.status !== 0, 'exit=' + codexOptOut.status);
 
-    /** de writer dwong identiteit alleen af op agent-/subagent-events, dus phantom of naamloos
+    /** R6-07: de writer dwong identiteit alleen af op agent-/subagent-events, dus phantom of naamloos
      *  WERK belandde gewoon in de audittrail (de poort ving het later fail-closed op, maar mijn claim
      *  dat de writer work-identiteit afdwingt was te sterk). De drie zwaarstwegende worktypes worden nu
      *  wel naamgecontroleerd. */

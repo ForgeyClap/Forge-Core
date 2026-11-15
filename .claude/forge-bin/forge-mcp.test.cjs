@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-mcp.test.cjs — tests the read-only Forge MCP server (JSON-RPC handlers + tools + resources +
 // isolation). Uses the module exports (handle/callTool/listResources/readResource) so it is deterministic;
 // PROJECT_ROOT resolves to the template (forge-mcp.cjs __dirname/../..), which has real forge-runs.
@@ -160,6 +164,36 @@ t('WP 1.9: archives of the shared history/ledger/decisions files are listed and 
     assert.deepStrictEqual(o.uris, ['forge://memory/FORGE_TASK_HISTORY.md', 'forge://memory/FORGE_AGENT_LEDGER_ARCHIVE_2026-10-b.md', 'forge://memory/FORGE_DECISIONS_ARCHIVE_2026-10.md', 'forge://memory/FORGE_TASK_HISTORY_ARCHIVE_2026-10.md']);
     assert.ok(o.hist.ok === true && o.hist.text.includes('# history archive') && !o.hist.text.includes(FAKE_SK), JSON.stringify(o.hist).slice(0, 200));
     for (const k of ['owner', 'lessons', 'boss']) assert.strictEqual(o[k].ok, false, k + ' must stay forbidden');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// FB-GUARDS-1-F8: only real run folders count, newest first by run.json started, else the first event timestamp
+t('FB-GUARDS-1-F8: latest run is the newest real run; hook folders are not runs', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-mcp-latest-'));
+  try {
+    const runs = path.join(root, '.claude', 'forge-runs');
+    const mk = (id, files) => { fs.mkdirSync(path.join(runs, id), { recursive: true }); for (const [n, b] of Object.entries(files)) fs.writeFileSync(path.join(runs, id, n), b); };
+    mk('forge-2026-08-03-old', { 'run.json': JSON.stringify({ started: '2026-08-03T10:00:00Z' }) });
+    mk('forge-2026-11-12-new', { 'run.json': JSON.stringify({ status: 'running' }), 'events.jsonl': JSON.stringify({ event_type: 'run_started', timestamp: '2026-11-12T18:04:51Z' }) + '\n' });
+    mk('forge-2026-10-01-mid', { 'events.jsonl': JSON.stringify({ event_type: 'run_started', timestamp: '2026-10-01T08:00:00Z' }) + '\n' });
+    mk('_toollog', { 'x.log': 'tool log\n' });
+    mk('_hooks', { 'run.json': '{}' });
+    mk('.hotspot-locks', { 'events.jsonl': '{}\n' });
+    const script = [
+      "const m = require(" + JSON.stringify(path.join(__dirname, 'forge-mcp.cjs')) + ");",
+      "const s = m.callTool('forge_status', {}); const l = m.callTool('forge_list_runs', {});",
+      "const resRuns = [...new Set(m.listResources().map((r) => (/^forge:\\/\\/run\\/([^/]+)/.exec(r.uri) || [])[1]).filter(Boolean))];",
+      "console.log(JSON.stringify({ latest: s.latest_run && s.latest_run.id, total: s.total_runs, list: l.runs.map((r) => r.id), resRuns }));",
+    ].join('\n');
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10000, env: Object.assign({}, process.env, { FORGE_PROJECT_ROOT: root }) });
+    assert.strictEqual(r.status, 0, 'child exit ' + r.status + ' ' + r.stderr);
+    const o = JSON.parse(r.stdout.trim().split('\n').pop());
+    assert.strictEqual(o.latest, 'forge-2026-11-12-new', JSON.stringify(o));
+    assert.deepStrictEqual(o.list, ['forge-2026-11-12-new', 'forge-2026-10-01-mid', 'forge-2026-08-03-old']);
+    assert.strictEqual(o.total, 3);
+    assert.deepStrictEqual(o.resRuns, ['forge-2026-11-12-new', 'forge-2026-10-01-mid', 'forge-2026-08-03-old']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

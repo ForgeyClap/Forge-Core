@@ -128,7 +128,7 @@ function scanJsonRisks(text) {
       const isKeyPosition = !!(top && top.type === 'object' && text[i] === ':');
       if (isKeyPosition) {
         // decode (not raw.slice(1,-1)) so a Unicode-escaped duplicate (decodes to the same string as a
-        // plain-spelled key) is caught too.
+        // plain-spelled key) is caught too (V08).
         // `raw` is always a lone, already-valid JSON string token here — JSON.parse cannot throw on it.
         const key = JSON.parse(raw);
         if (top.keys.has(key)) duplicateKeys.push(key);
@@ -140,7 +140,7 @@ function scanJsonRisks(text) {
     }
     if (c === '-' || (c >= '0' && c <= '9')) {
       const raw = parseNumberLiteral();
-      // compare SOURCE TEXT to what JSON.stringify(Number(raw)) would emit — not just the parsed value —
+      // V08: compare SOURCE TEXT to what JSON.stringify(Number(raw)) would emit — not just the parsed value —
       // so every reserialize-changing form is caught (overflow-to-null, underflow-to-zero, >2^53 integers in
       // either integer or decimal notation, -0 losing its sign, 1E2-style redundant exponent notation), while
       // an ordinary hand-typed literal (30, 1.5, 0.1, 9007199254740991) round-trips unchanged and is never
@@ -239,12 +239,15 @@ function defaultTimestampStamp(d) {
 // ---------------------------------------------------------------------------
 // deep hook-entry shape validation (SCHEMA-ACCEPTANCE): a hooks.<event>[] array must contain only well-shaped
 // entries — { matcher?: string, hooks: [ { type: 'command', command: string, timeout?: number }, ... ] } — so
-// an entry whose `hooks` is itself an object/string/etc, or whose hook items are not real command hooks, is
+// an entry whose `hooks` is itself an object/string/etc, or whose hook items are not well-formed hooks, is
 // refused rather than silently treated as "valid but empty".
 // ---------------------------------------------------------------------------
+// FB-INSTALL-2-F12: Claude Code also runs prompt, agent and http hooks; each known type must carry its own non-empty
+// field. Forge only merges command hooks and leaves the others untouched. An unknown type is still refused (fail closed).
+const HOOK_TYPE_FIELD = { command: 'command', prompt: 'prompt', agent: 'prompt', http: 'url' };
 function isValidHookItem(h) {
-  return !!h && typeof h === 'object' && !Array.isArray(h)
-    && h.type === 'command' && typeof h.command === 'string' && h.command.length > 0
+  const field = !!h && typeof h === 'object' && !Array.isArray(h) && Object.prototype.hasOwnProperty.call(HOOK_TYPE_FIELD, h.type) ? HOOK_TYPE_FIELD[h.type] : null;
+  return !!field && typeof h[field] === 'string' && h[field].length > 0
     && (h.timeout === undefined || typeof h.timeout === 'number');
 }
 function isValidHookEntry(e) {

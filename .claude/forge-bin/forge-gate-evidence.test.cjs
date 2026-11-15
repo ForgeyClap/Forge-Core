@@ -62,7 +62,7 @@ console.log('forge-gate-evidence (hermetisch, root=' + ROOT + ')');
 // 4) CLI-contract: exit 1 zodra een poort rood is, exit 0 als alles groen is
 {
   // paden met spaties MOETEN werken (node staat in "C:\Program Files\..."; deze projectmap heet
-  // "my project!") — daarom quotes in de inline --gate-vorm.
+  // "my project (v2)!") — daarom quotes in de inline --gate-vorm.
   const q = (x) => '"' + x + '"';
   const r1 = spawnSync(process.execPath, [TOOL, '--run', RUN, '--root', ROOT, '--gate', 'cli-rood::' + q(process.execPath) + ' ' + q(badScript)], { encoding: 'utf8' });
   t('4 CLI exit 1 bij een rode poort', r1.status === 1, 'status=' + r1.status);
@@ -240,6 +240,42 @@ try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { }
       if (savedGitDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = savedGitDir;
     }
     fs.rmSync(REALREPO, { recursive: true, force: true });
+  }
+}
+
+// FB-FINALIZE-1-F3: single quotes in an inline --gate are quotes, so `-e 'process.exit(1)'` really runs and goes red
+{
+  t('F3 tokenize reads single quotes as quotes', JSON.stringify(E.tokenize("node -e 'process.exit(1)'")) === JSON.stringify(['node', '-e', 'process.exit(1)']), JSON.stringify(E.tokenize("node -e 'process.exit(1)'")));
+  t('F3 a single quote inside double quotes stays literal', JSON.stringify(E.tokenize('node -e "console.log(\'x\')"')) === JSON.stringify(['node', '-e', "console.log('x')"]));
+  t('F3 an unterminated quote is refused by tokenize (null)', E.tokenize("node x.js don't") === null && E.tokenize('node "x.js') === null);
+  const q = (x) => '"' + x + '"';
+  const sq = spawnSync(process.execPath, [TOOL, '--run', RUN, '--root', ROOT, '--gate', 'sq::' + q(process.execPath) + " -e 'process.exit(1)'"], { encoding: 'utf8' });
+  t('F3 CLI: a single-quoted inline gate that exits 1 is recorded RED (exit 1), never green', sq.status === 1, 'status=' + sq.status + ' ' + (sq.stdout || '') + (sq.stderr || ''));
+  const un = spawnSync(process.execPath, [TOOL, '--run', RUN, '--root', ROOT, '--gate', 'un::' + q(process.execPath) + " -e 'process.exit(0)"], { encoding: 'utf8' });
+  t('F3 CLI: an unterminated quote in an inline gate is a usage error (exit 2)', un.status === 2 && /quote|aanhalingsteken/i.test(un.stderr || ''), 'status=' + un.status + ' ' + (un.stderr || ''));
+}
+
+// FB-FINALIZE-1-F4: green but not bindable (dirty worktree) is not "ALLE GROEN" with exit 0
+{
+  const gitOk = (() => { try { return spawnSync('git', ['--version'], { encoding: 'utf8' }).status === 0; } catch { return false; } })();
+  if (!gitOk) console.log('  SKIP F4: no working `git` on PATH');
+  else {
+    const G = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-evidence-dirty-'));
+    const git = (...a) => spawnSync('git', a, { cwd: G, encoding: 'utf8' });
+    git('init', '-q'); git('config', 'user.email', 'test@example.com'); git('config', 'user.name', 'Test');
+    fs.writeFileSync(path.join(G, '.gitignore'), '.claude/\n');
+    fs.writeFileSync(path.join(G, 'src.txt'), 'v1\n');
+    git('add', '.'); git('commit', '-q', '-m', 'seed');
+    fs.mkdirSync(path.join(G, '.claude', 'forge-runs', 'r-dirty'), { recursive: true });
+    const ok = path.join(G, '.claude', 'ok.cjs');
+    fs.writeFileSync(ok, "console.log('1 passed, 0 failed');");
+    const q = (x) => '"' + x + '"';
+    const clean = spawnSync(process.execPath, [TOOL, '--run', 'r-dirty', '--root', G, '--gate', 'g::' + q(process.execPath) + ' ' + q(ok)], { encoding: 'utf8' });
+    t('F4 a green gate on a clean committed tree: exit 0', clean.status === 0, 'status=' + clean.status + ' ' + clean.stdout + clean.stderr);
+    fs.writeFileSync(path.join(G, 'src.txt'), 'v2 (uncommitted)\n');
+    const dirty = spawnSync(process.execPath, [TOOL, '--run', 'r-dirty', '--root', G, '--gate', 'g::' + q(process.execPath) + ' ' + q(ok)], { encoding: 'utf8' });
+    t('F4 a green gate on a dirty tree: exit 3 and a line that names the gate and says to commit first', dirty.status === 3 && /\bg\b/.test(dirty.stdout) && /commit/i.test(dirty.stdout), 'status=' + dirty.status + ' ' + dirty.stdout + dirty.stderr);
+    fs.rmSync(G, { recursive: true, force: true });
   }
 }
 

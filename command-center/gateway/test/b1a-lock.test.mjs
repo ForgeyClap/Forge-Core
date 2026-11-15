@@ -48,7 +48,7 @@ function freePort() {
 }
 
 function startGateway(t, extraEnv) {
-  const env = { ...process.env, CC_DISCORD_AUTOSTART: 'off', ...extraEnv };
+  const env = { ...process.env, CC_DISCORD_AUTOSTART: 'off', FORGE_REMOTE_BRIDGE_AUTOSTART: 'off', ...extraEnv };
   for (const k of ['CC_PORT', 'FORGE_GATEWAY_PORT', 'CC_TEST_PREFERRED_PORT', 'CC_TEST_THROW_AFTER_MS']) if (!(k in extraEnv)) delete env[k];
   const child = spawn(process.execPath, [BIN], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = { stdout: '', stderr: '' };
@@ -242,7 +242,7 @@ test('REAL: the supervisor stops at once (DATA_DIR_LOCKED) instead of restart-lo
   await waitForListening(owner);
   // The supervisor spawns bin.mjs with this test process's env.
   const saved = {};
-  const childEnv = { FORGE_DATA_DIR: data, CC_PORT: String(await freePort()), CC_DISCORD_AUTOSTART: 'off' };
+  const childEnv = { FORGE_DATA_DIR: data, CC_PORT: String(await freePort()), CC_DISCORD_AUTOSTART: 'off', FORGE_REMOTE_BRIDGE_AUTOSTART: 'off' };
   for (const [k, v] of Object.entries(childEnv)) { saved[k] = process.env[k]; process.env[k] = v; }
   t.after(() => { for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } });
   const starts = [];

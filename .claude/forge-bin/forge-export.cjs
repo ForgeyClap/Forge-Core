@@ -2,6 +2,7 @@
 'use strict';
 /** forge-export: generate OpenCode / Codex / Gemini files from .claude/agents + .claude/skills.
  *  Usage: node forge-export.cjs <opencode|codex|gemini|all> [--check] [--root <dir>]
+ *  A write needs an explicit target (a bare run writes nothing, exit 2); --check without a target checks all.
  *  Deterministic and idempotent (no timestamps). --check = drift test, exit 1 on any difference.
  *  Writes no credentials: provider keys are {env:VAR} references only. Plan: the any-model plan, layer L2 (owner docs, not shipped). */
 const fs = require('fs');
@@ -154,21 +155,34 @@ function run(root, targets, check) {
   return { diffs, files: Object.keys(want) };
 }
 
-module.exports = { generate, run, splitFrontmatter, mergeMarkers, BEGIN, END, TARGETS };
+/** namedTarget(args) -> the target the CLI was given, or undefined. Skips only the --root VALUE. Without --root,
+ *  `ri + 1` is 0 and used to skip the FIRST argument: `forge-export.cjs all` then wrote nothing and
+ *  `forge-export.cjs opencode` silently ran every target (found 2026-11-08, R8B integration). */
+function namedTarget(args) {
+  const ri = args.indexOf('--root');
+  return args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
+}
+
+module.exports = { generate, run, splitFrontmatter, mergeMarkers, namedTarget, BEGIN, END, TARGETS };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   // --help must never fall through to the default target "all" (that WRITES AGENTS.md/GEMINI.md).
   if (args.includes('--help') || args.includes('-h')) {
     console.log('Usage: node forge-export.cjs <opencode|codex|gemini|all> [--check] [--root <dir>]\n'
-      + '  Writes the exports (default target all); --check only reports drift (exit 1). --help writes nothing.');
+      + '  Writing needs an explicit target; a bare run writes nothing (exit 2). --check (target optional, default all) only reports drift (exit 1). --help writes nothing.');
     process.exit(0);
   }
   const unknown = args.find((a) => a.startsWith('-') && a !== '--check' && a !== '--root');
   if (unknown) { console.error('forge-export: unknown option ' + unknown + ' (nothing written; see --help)'); process.exit(2); }
   const ri = args.indexOf('--root');
   const root = ri >= 0 ? path.resolve(args[ri + 1]) : path.resolve(__dirname, '..', '..');
-  const t = args.find((a, i) => !a.startsWith('--') && i !== ri + 1) || 'all';
+  const named = namedTarget(args);
+  if (!named && !args.includes('--check')) {
+    console.error('Usage: node forge-export.cjs <opencode|codex|gemini|all> [--check] [--root <dir>]\nnothing written: name a target (opencode|codex|gemini|all) to write');
+    process.exit(2);
+  }
+  const t = named || 'all';
   const targets = t === 'all' ? TARGETS : [t];
   if (!targets.every((x) => TARGETS.includes(x))) { console.error('target: opencode|codex|gemini|all'); process.exit(2); }
   const check = args.includes('--check');

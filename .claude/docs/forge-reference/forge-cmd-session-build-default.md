@@ -5,6 +5,20 @@
 > holds the full, unmodified wording of lines 29-35 of the earlier file (whole-file sha256 `6ab6d9160d6d321dff530a6b2c25e4c0c1a8d4c85ab8aaeb6595b7ef2b6dfdbd`).
 > Nothing between the two markers below was reworded. **When to read:** at the start of every build: the full setup order (target folder, intake, dashboard, usage guard, git checkpoint, PRD, contract preview, roster, START gate, destructive words, bare-folder install) and the beginner promise wording.
 
+> **Setup order (R8B-F6, 2026-11-08):** the one first command is `node .claude/forge-bin/forge-start.cjs --text "<raw request>"`;
+> it assigns the run id and does steps 0-2 (`forge-cmd-steps-0-3.md`). Then follow the order below from the target folder on,
+> skipping its run_id step (done). The verbatim text below keeps its old order.
+
+> **Bare folder: install first, never a raw copy (corrected 2026-11-13, audit CORE-4-F13).** The verbatim sentence below
+> that says "Copy `~/.claude/forge/template/.claude` into `./.claude` NOW ... and continue" is retired; do not follow it.
+> A folder without `.claude/forge-bin/` gets Forge through the same safe route the global `/forge` uses: create an empty
+> `.claude/` when there is none, run `node ~/.claude/forge/template/.claude/forge-bin/forge-sync.cjs install "<current folder>"`
+> (it backs up what it changes, runs the doctor before and after, and rolls back on a regression), then confirm that
+> `.claude/commands/forge.md` exists, the doctor is green and the 4100 health check passed. Only then start step 1.
+> A refused or rolled-back install is fixed first and is not an install (global HARD MUST "Forge installed first, then
+> work", 2026-11-08). A raw copy leaves no forge-sync receipt, so the next sync would read the whole folder as drift.
+
+
 <!-- wp11-verbatim-begin source=.claude/commands/forge.md lines=29-35 -->
 ## Forge Session Mode (project-local)
 `/forge`, `gebruik Forge`, `gebruik Forge systeem`, `use Forge`, `start Forge` (or `start Forge session`) → enter **Forge Session Mode** for THIS project: set `.claude/FORGE_SESSION_STATE.json` `mode:"on"` (+ `since`). While ON, treat **follow-up prompts in this project as part of the current Forge session** — automatically run them through the Forge flow (Lead Agent + dynamic subagents); the user need not repeat "gebruik Forge"; keep dashboard/memory/task-history/ledger updating. **Pause/stop:** `stop Forge`, `pause Forge`, `normale Claude mode`, `doe dit zonder Forge` → set `mode:"paused"`/`"off"`. **Status:** `Forge status` / `is Forge actief?` → read + report `FORGE_SESSION_STATE.json`. Session Mode grants **no extra permission**: project isolation stays ON, ECC Normal ON, ECC Full Test OFF (unless explicitly enabled), and no credentials/live-workflows/production deploy/global config/external writes without explicit approval. The dashboard shows a **FORGE SESSION** badge from this file.

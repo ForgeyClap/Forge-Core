@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-codexreview-config.test.cjs — unit tests for the shipped+user Codex-config merge itself
  * (hardened, 2026-09-26 independent review finding 3.1). forge-codexreview.
@@ -192,7 +196,7 @@ t('N3: a user review.model override starting with "-" is rejected end-to-end by 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-// --- the reviewer needs a REAL, runnable, no-shell invocation route (agents/codex-reviewer.md can
+// --- N3: the reviewer needs a REAL, runnable, no-shell invocation route (agents/codex-reviewer.md can
 //     only run commands through Bash/PowerShell — "spawn argv with no shell" needs a route THIS module
 //     provides end-to-end, not prose telling the agent to spawn it itself). Every test here spawns a tiny
 //     FAKE node-script "codex" via FORGE_CODEX_BIN/opts.codexBin — never the real codex CLI. ---

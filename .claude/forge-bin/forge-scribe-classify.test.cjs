@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-scribe-classify.test.cjs — WP I.8c: the toggle-correction TAG of forge-scribe-classify.cjs
  * (toggleCorrection). Pure-function tests, hermetic (the only file system use is a temp copy of the classifier for the
@@ -331,6 +335,33 @@ console.log('\nforge-scribe-classify: id ranges in owner acks (WP-ACK-RANGE)');
       m.applied && repl !== line && m.M.authorizes(neg, id, 'ack', cfg).ok === true && auth(neg, id).ok === false, JSON.stringify({ applied: m.applied }));
   }
   t('RM0: each range mutation anchor sits on exactly ONE line', RANGE_MUTANTS.every(([, a]) => srcR.split('// ' + a).length === 2));
+}
+
+// ---------------------------------------------------------------- 6. owner acts that are not acts (FB-SCRIBE-1-F2/F3)
+// authorizes() read reported speech, doubt, check instructions, quotes, '>' lines and fenced code as an owner ack, and a
+// wish that merely contained a batch phrase as a batch ack of every item. Each sentence below gave ok:true before.
+console.log('\nforge-scribe-classify: reported speech, doubt, checks and wishes are no owner act (FB-SCRIBE-1-F2/F3)');
+{
+  const auth = (txt, id, intent) => C.authorizes(txt, id || 'R-0040', intent || 'ack', cfg);
+  const NOT_ACTS = [
+    'controleer of R-0040 klopt', 'ik twijfel of R-0040 klopt', 'laat de verifier nagaan of R-0040 klopt', 'R-0040 klopt maar test het eerst',
+    'De agent zei "R-0040 is akkoord". Dat heb ik nooit gezegd!', '> R-0040 klopt', '```\nR-0040 klopt\n```', 'check whether R-0040 is approved',
+    'the agent claimed R-0040 is approved', 'R-0040 klopt, zei de agent', 'zorg dat R-0040 klopt',
+    // verify round 1: a check clause joined by a comma or semicolon (not only a contrast), and single-quoted reported speech
+    'R-0040 klopt, test het eerst', 'R-0040 klopt, controleer het eerst', 'R-0040 klopt; test het eerst', 'R-0040 klopt, laat de verifier het nog nagaan',
+    'R-0040 klopt - test het eerst', 'R-0040 klopt (test het eerst)', "Bot: 'R-0040 klopt'", 'Bot: ‘R-0040 klopt’',
+  ];
+  const leaks = NOT_ACTS.filter((x) => auth(x).ok);
+  t('F2-a: reported speech, doubt, a check instruction, a quote, a "> " line and fenced code never authorise an ack', leaks.length === 0, leaks.map((x) => JSON.stringify(x) + ' ' + auth(x).how).join(' | '));
+  const WISHES = ['zorg dat alles goedgekeurd wordt door de verifier', 'ik wil dat alles akkoord is voor vrijdag', 'zorg dat alles goed is'];
+  const wl = WISHES.filter((x) => auth(x, 'R-0041').ok);
+  t('F3-a: a wish or instruction that merely contains a batch phrase never authorises a batch ack', wl.length === 0, wl.map((x) => JSON.stringify(x)).join(' | '));
+  t('F3-b: ... nor a batch cancel ("add a cancel all button to the cart")', auth('add a cancel all button to the cart', 'R-0041', 'cancel').ok === false, JSON.stringify(auth('add a cancel all button to the cart', 'R-0041', 'cancel')));
+  const ACTS = [['R-0040 klopt', 'rid'], ['R-0040 akkoord.', 'rid'], ['Approve R-0040', 'rid'], ['R-0039 en R-0040 kloppen.', 'list'], ['Alles akkoord', 'batch'],
+    ['alles goedgekeurd!', 'batch'], ['ja, alles akkoord', 'batch'], ['Ok alles goed.', 'batch'], ['Alles akkoord, schuif ze door', 'batch'], ['Alles akkoord, top werk', 'batch'],
+    ['/forge alles akkoord', 'batch'], ['R-0040 klopt, ga verder.', 'rid'], ['R-0040 is "klaar" en akkoord', 'rid']];
+  const lost = ACTS.filter(([x, how]) => { const a = auth(x); return !a.ok || a.how !== how; });
+  t('F2-b: plain owner acks still authorise (one id, a list, a batch phrase with ja/ok or a separate clause)', lost.length === 0, lost.map(([x]) => JSON.stringify(x) + ' -> ' + JSON.stringify(auth(x))).join(' | '));
 }
 
 for (const d of TMP) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }

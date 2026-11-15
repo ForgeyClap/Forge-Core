@@ -1,6 +1,6 @@
 {
     "_doc": "Per-agent CORE skills (permanent, every project, auto-attached) — the project-type bundle from config/skills/global-skills.json comes ON TOP. Skill Boss validates before dispatch: an agent may not start without its core skills resolvable (real skill, playbook, ECC agent, or documented method) — missing → report + labeled safe fallback.",
-    "_wp15_note": "WP 1.5 (2026-10-24): LEGACY MIRROR. The agent .md frontmatter is now the single source of truth for every per-agent fact; .claude/config/agents/agents.generated.json is generated from it (node .claude/forge-bin/forge-registry-gen.cjs agents --write) and forge-doctor `agents` cross-checks this file against it. This file stays, kept consistent, until a later wave removes it: change the agent frontmatter first, then this mirror, then regenerate. Cross-checked here: every skill in an agent's frontmatter `skills:` preload list must be listed for it below. Situational skills (invocationNotes) and disable-model-invocation skills stay listed here but are not preloaded.",
+    "_wp15_note": "WP 1.5 (2026-10-24), corrected 2026-11-13: LEGACY MIRROR. Default (preloaded) skills have one source: .claude/config/orchestration/FORGE_DEFAULT_SKILLS.json (see .claude/docs/default-skills.md). node .claude/forge-bin/forge-agent-skills-sync.cjs --write writes them into each agent file's frontmatter skills: list and appends them here (names are appended, never dropped); --check reports drift. Never hand-edit a preload in an agent file or here: edit FORGE_DEFAULT_SKILLS.json and run the sync. The other per-agent facts (model, effort, tools) stay in the agent .md frontmatter; .claude/config/agents/agents.generated.json is generated from it (node .claude/forge-bin/forge-registry-gen.cjs agents --write) and forge-doctor agents cross-checks this file against it. Situational skills (invocationNotes) and disable-model-invocation skills are hand-listed here and are not preloaded.",
     "agents": {
         "boss": [
             "forge-router",
@@ -9,42 +9,61 @@
             "forge-report",
             "forge-prompt-coach",
             "grill-me",
-            "grilling"
+            "grilling",
+            "forge-conduct"
         ],
         "head-chef": [
             "forge-prd",
             "forge-worktrees",
-            "forge-router"
+            "forge-router",
+            "forge-conduct",
+            "forge-quality"
         ],
         "review-boss": [
             "forge-code-review",
-            "forge-verify"
+            "forge-verify",
+            "forge-conduct",
+            "forge-craft"
         ],
         "test-boss": [
             "forge-skill-testing",
             "forge-verify",
-            "forge-debug"
+            "forge-debug",
+            "forge-conduct",
+            "forge-testing"
         ],
         "ui-boss": [
             "forge-website",
             "forge-mobile",
-            "forge-verify"
+            "forge-verify",
+            "forge-conduct",
+            "forge-craft",
+            "forge-ui-polish",
+            "forge-glass-ui"
         ],
         "seo-boss": [
             "forge-website",
             "forge-scout",
-            "forge-verify"
+            "forge-verify",
+            "forge-conduct",
+            "forge-web-quality"
         ],
         "security-boss": [
-            "forge-verify"
+            "forge-verify",
+            "forge-conduct",
+            "forge-security-review"
         ],
         "skill-boss": [
             "forge-scout",
             "forge-skill-testing",
-            "forge-router"
+            "forge-router",
+            "forge-conduct",
+            "forge-skill-authoring"
         ],
         "search-boss": [
-            "forge-scout"
+            "forge-scout",
+            "forge-conduct",
+            "forge-research-evidence"
         ],
         "build-boss": [
             "forge-skill-testing",
@@ -52,17 +71,440 @@
             "forge-code-review",
             "forge-worktrees",
             "resolving-merge-conflicts",
-            "setup-pre-commit"
+            "setup-pre-commit",
+            "forge-conduct",
+            "forge-testing",
+            "ponytail",
+            "forge-android-app"
         ],
         "integration-boss": [
-            "forge-integration"
+            "forge-integration",
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-remote-access"
         ],
         "docs-boss": [
             "forge-report",
             "forge-prd",
             "teach",
             "wait-what",
-            "claude-md-improver"
+            "claude-md-improver",
+            "forge-conduct",
+            "humanizer"
+        ],
+        "codex-reviewer": [
+            "forge-conduct",
+            "forge-code-review",
+            "forge-craft"
+        ],
+        "data-scientist": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail"
+        ],
+        "electron-pro": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail"
+        ],
+        "mcp-developer": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-mcp-clients"
+        ],
+        "ml-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail"
+        ],
+        "payment-integration": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-security-review"
+        ],
+        "scribe": [
+            "forge-conduct",
+            "humanizer",
+            "forge-report",
+            "forge-scribe"
+        ],
+        "scribe-acker": [
+            "forge-conduct",
+            "forge-verify",
+            "forge-scribe"
+        ],
+        "verify-boss": [
+            "forge-conduct",
+            "forge-verify"
+        ],
+        "rbx-blender-artist": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "create-game-assets",
+            "roblox-studio-workflow",
+            "performance-optimization"
+        ],
+        "rbx-game-director": [
+            "forge-conduct",
+            "forge-brainstorm",
+            "roblox-game-design",
+            "roblox-player-psychology",
+            "roblox-economy-ethics",
+            "roblox-new-system",
+            "roblox-simulator-economy",
+            "level-design",
+            "game-feel",
+            "game-ai",
+            "prototype-fast"
+        ],
+        "rbx-integrator": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "roblox-studio-workflow",
+            "roblox-publish-checklist",
+            "roblox-luau",
+            "roblox-security",
+            "forge-worktrees"
+        ],
+        "rbx-liveops-producer": [
+            "forge-conduct",
+            "humanizer",
+            "forge-report",
+            "roblox-economy-ethics",
+            "roblox-player-psychology",
+            "roblox-game-design",
+            "roblox-publish-checklist"
+        ],
+        "rbx-luau-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "roblox-luau",
+            "roblox-networking",
+            "roblox-datastores",
+            "roblox-security",
+            "roblox-new-system",
+            "roblox-physics",
+            "roblox-characters",
+            "roblox-simulator-economy",
+            "save-systems",
+            "performance-optimization",
+            "roblox-studio-workflow"
+        ],
+        "rbx-qa-tester": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-verify",
+            "roblox-studio-workflow",
+            "roblox-luau",
+            "roblox-security",
+            "performance-optimization",
+            "roblox-publish-checklist"
+        ],
+        "rbx-security-reviewer": [
+            "forge-conduct",
+            "forge-security-review",
+            "roblox-security",
+            "roblox-networking",
+            "roblox-datastores",
+            "roblox-economy-ethics",
+            "roblox-game-audit"
+        ],
+        "rbx-skill-monitor": [
+            "forge-conduct",
+            "forge-skill-authoring",
+            "forge-skill-testing",
+            "forge-security-review"
+        ],
+        "rbx-ui-engineer": [
+            "forge-conduct",
+            "forge-craft",
+            "forge-ui-polish",
+            "roblox-luau",
+            "roblox-ui",
+            "game-ui-ux",
+            "game-feel",
+            "input-systems",
+            "roblox-security"
+        ],
+        "rbx-verifier": [
+            "forge-conduct",
+            "forge-verify",
+            "roblox-luau",
+            "roblox-security",
+            "roblox-publish-checklist"
+        ],
+        "rbx-vfx-audio": [
+            "forge-conduct",
+            "forge-craft",
+            "forge-ui-polish",
+            "roblox-luau",
+            "roblox-vfx",
+            "audio-design",
+            "game-feel"
+        ],
+        "rbx-world-builder": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "roblox-luau",
+            "roblox-studio-workflow",
+            "level-design",
+            "camera-systems",
+            "roblox-physics",
+            "performance-optimization"
+        ],
+        "ai-eval-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-verify",
+            "forge-agent",
+            "forge-graded-verify",
+            "forge-skill-testing"
+        ],
+        "ai-rag-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-rag",
+            "forge-agent",
+            "test-driven-development"
+        ],
+        "ai-voice-designer": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-voice",
+            "humanizer"
+        ],
+        "app-architect": [
+            "forge-conduct",
+            "forge-brainstorm",
+            "forge-fullstack",
+            "forge-api",
+            "forge-database",
+            "forge-auth"
+        ],
+        "app-backend-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-api",
+            "forge-database",
+            "forge-auth",
+            "test-driven-development"
+        ],
+        "app-data-reviewer": [
+            "forge-conduct",
+            "forge-code-review",
+            "forge-craft",
+            "forge-database",
+            "forge-verify"
+        ],
+        "app-domain-reviewer": [
+            "forge-conduct",
+            "forge-code-review",
+            "forge-craft",
+            "forge-verify",
+            "forge-graded-verify"
+        ],
+        "auto-bot-engineer": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-bots",
+            "forge-integration",
+            "test-driven-development"
+        ],
+        "auto-n8n-engineer": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-n8n",
+            "forge-integration"
+        ],
+        "auto-n8n-validator": [
+            "forge-conduct",
+            "forge-verify",
+            "forge-n8n"
+        ],
+        "data-backtest-auditor": [
+            "forge-conduct",
+            "forge-verify",
+            "forge-prediction",
+            "forge-graded-verify"
+        ],
+        "data-compliance-reviewer": [
+            "forge-conduct",
+            "forge-security-review",
+            "forge-scraping"
+        ],
+        "data-scraper-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-scraping",
+            "forge-data",
+            "test-driven-development"
+        ],
+        "desk-installer-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-electron",
+            "forge-release",
+            "forge-windows-shell"
+        ],
+        "desk-qa-tester": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-verify",
+            "forge-electron"
+        ],
+        "game-designer": [
+            "forge-conduct",
+            "forge-brainstorm",
+            "forge-game",
+            "prototype-fast",
+            "level-design",
+            "game-feel"
+        ],
+        "game-playtester": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-verify",
+            "forge-game"
+        ],
+        "game-programmer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-game",
+            "input-systems",
+            "save-systems",
+            "performance-optimization",
+            "test-driven-development"
+        ],
+        "mob-app-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-mobile",
+            "forge-android-app",
+            "test-driven-development"
+        ],
+        "mob-qa-tester": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-verify",
+            "forge-mobile",
+            "forge-android-app"
+        ],
+        "mob-release-engineer": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-android-app",
+            "forge-mobile",
+            "forge-release"
+        ],
+        "res-analyst": [
+            "forge-conduct",
+            "forge-research-evidence",
+            "forge-scout"
+        ],
+        "res-fact-checker": [
+            "forge-conduct",
+            "forge-verify",
+            "forge-research-evidence",
+            "forge-graded-verify"
+        ],
+        "res-plan-writer": [
+            "forge-conduct",
+            "humanizer",
+            "forge-report",
+            "forge-prd",
+            "writing-plans"
+        ],
+        "shop-catalog-engineer": [
+            "forge-conduct",
+            "forge-debug",
+            "ponytail",
+            "forge-ecommerce",
+            "forge-payments",
+            "forge-integration"
+        ],
+        "shop-listing-writer": [
+            "forge-conduct",
+            "humanizer",
+            "forge-report",
+            "forge-ecommerce"
+        ],
+        "shop-ops-analyst": [
+            "forge-conduct",
+            "forge-code-review",
+            "forge-craft",
+            "forge-ecommerce",
+            "forge-verify"
+        ],
+        "shop-product-researcher": [
+            "forge-conduct",
+            "forge-research-evidence",
+            "forge-ecommerce"
+        ],
+        "web-art-director": [
+            "forge-conduct",
+            "forge-craft",
+            "forge-ui-polish",
+            "frontend-design",
+            "forge-website"
+        ],
+        "web-content-writer": [
+            "forge-conduct",
+            "humanizer",
+            "forge-report",
+            "forge-website",
+            "forge-long-form-writing"
+        ],
+        "web-dataviz-engineer": [
+            "forge-conduct",
+            "forge-craft",
+            "forge-ui-polish",
+            "forge-website",
+            "forge-fullstack"
+        ],
+        "web-frontend-engineer": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-debug",
+            "ponytail",
+            "forge-website",
+            "frontend-design",
+            "test-driven-development"
+        ],
+        "web-qa-proof": [
+            "forge-conduct",
+            "forge-testing",
+            "forge-verify",
+            "forge-a11y",
+            "forge-web-quality"
         ]
     },
     "autoAttach": "Two different things (corrected WP 2.4a, 2026-10-24). (1) PRELOAD: the agent .md frontmatter `skills:` list (a subset of this map) is what Claude Code injects at startup, the FULL SKILL.md text into every dispatch of that agent, so it holds only what the agent needs on every dispatch. (2) ON DEMAND: shipped agents have no Skill tool, so every other skill listed here for an agent is not auto-loaded; the agent Reads it from disk when relevant (.claude/skills/<name>/SKILL.md, else ~/.claude/skills/<name>/SKILL.md), or the Lead quotes it in the dispatch prompt together with the project-type bundle from config/skills/global-skills.json. No manual per-project reconnection.",
@@ -106,7 +548,6 @@
                 "security-review"
             ],
             "skill-boss": [
-                "forge-skill-authoring",
                 "using-superpowers",
                 "global-skills registry (config/skills/global-skills.json)"
             ],

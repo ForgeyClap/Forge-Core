@@ -44,3 +44,5 @@ Use the project's installed runner and its own script (`npm test`), never a glob
 ## Coverage
 - Turn it on in CI when the project tracks it (`--coverage`); look at uncovered branches in changed files, not
   only the headline percentage.
+- Pitfall: Jest's key is `coverageThreshold` (singular). The plural `coverageThresholds` that some ECC
+  examples use is ignored without a warning, so the gate silently never fails.

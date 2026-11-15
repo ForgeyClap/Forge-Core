@@ -16,7 +16,7 @@ snippet: `$PSVersionTable.PSVersion`.
   what the data needs). `ConvertFrom-Json` returns a PSCustomObject; there is no `-AsHashtable` in 5.1.
 
 ## Quoting and paths
-- Single quotes are literal: `'C:\Users\YOU\Documents\my project!'`. Double quotes expand `$name`
+- Single quotes are literal: `'C:\Users\YOU\Documents\my project (v2)!'`. Double quotes expand `$name`
   and `$(...)`; a `$` in a password-like or regex string inside double quotes is silently eaten.
 - An exe whose path is quoted needs the call operator: `& 'C:\Program Files\nodejs\node.exe' --version`.
 - A literal apostrophe inside single quotes is doubled: `'it''s'`. The curly quotes U+2018 to U+201B are

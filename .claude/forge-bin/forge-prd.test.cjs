@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Offline, hermetic tests for forge-prd.cjs — writes ONLY to an os.mkdtemp temp dir via the
  *  FORGE_STORE_ROOT override (shared with forge-store.cjs); never touches the real project's .claude/.
  *  Exit 0 = all pass. */
@@ -271,7 +275,7 @@ const perfResult = openClarifications({ sections: { goal: manyUnterminated } });
 const perfMs = Date.now() - perfStart;
 t('W1-02c: 20,000 repeated unterminated marker prefixes scan in well under a second', Array.isArray(perfResult) && perfMs < 500, 'took ' + perfMs + 'ms');
 
-// openClarifications() redacts each question string ITSELF — never relies on the source object
+// W1-03: openClarifications() redacts each question string ITSELF — never relies on the source object
 // having passed through writePrd()'s redaction first (a hand-written / directly-read meta fixture must
 // still come out redacted).
 const unredactedMeta = { prd_id: 'prd-unredacted-1', title: 'Direct fixture', sections: { goal: 'leaked key: [NEEDS CLARIFICATION: rotate ' + FAKE_SECRET + '?]' } };
@@ -294,7 +298,7 @@ const unterminated = openClarifications({ sections: { goal: '[NEEDS CLARIFICATIO
 t('an unterminated marker is reported as open and does not hide a later marker', unterminated.length >= 1 && unterminated.some((c) => /first, never closed/.test(c.question)), JSON.stringify(unterminated));
 
 // ---- W1-03 id redaction, W1-N01 documentation, W1-N04 redact before truncating ----
-// every returned field is redacted, including an item id that carries a token-shaped value.
+// W1-03: every returned field is redacted, including an item id that carries a token-shaped value.
 const idLeak = openClarifications({ sections: { acceptance_criteria: [{ id: FAKE_SECRET, text: '[NEEDS CLARIFICATION: which region?]' }] } });
 t('W1-03: a token-shaped item id is redacted in the clarification result', idLeak.length === 1 && !JSON.stringify(idLeak).includes(FAKE_SECRET));
 // W1-N01: the literal prefix written as documentation (in backticks, or escaped) is not a question.
@@ -509,10 +513,10 @@ const rAmendMissing = runCli(['amend', 'tk-does-not-exist-xyz', '--gap', 'g', '-
 t('CLI amend exits 1 on a missing ticket', rAmendMissing.status === 1 && /ticket not found/i.test(rAmendMissing.stderr));
 
 // =====================================================================================================
-// 12) Codex findings — forge-prd.cjs amend hardening
+// 12) Codex findings (W2-04, W2-05, W2-06, W2-07, W2-08, W2-11) — forge-prd.cjs amend hardening
 // =====================================================================================================
 
-// --- a labelled credential in free-text gap prose is redacted (redactValue() alone misses it;
+// --- W2-04: a labelled credential in free-text gap prose is redacted (redactValue() alone misses it;
 // only redactText()'s key=value scan catches "password=..."/"client_secret=..." written in prose). ---
 const ticketIdW404 = freshPrdWithTicket('prd-amend-w204');
 const labelledCredGap = 'reproduce with password=FAKE_PASS_123 and client_secret=FAKE_CLIENT_SECRET_ABC';
@@ -683,7 +687,7 @@ t('W2-05d: a credential-shaped test file name is masked in the PRD meta', !JSON.
 t('W2-05d: a credential-shaped test file name is masked in the rendered md', !mdW205d.includes(W205_CRED_ID));
 t('W2-05d: a credential-shaped test file name is masked in the history line', !histW205d.includes(W205_CRED_ID));
 
-// --- test-path containment is realpath-based (follows symlinks/junctions), not lexical. ---
+// --- W2-06: test-path containment is realpath-based (follows symlinks/junctions), not lexical. ---
 let junctionCreateOk = true;
 const W206_OUTSIDE = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-prd-outside-'));
 fs.writeFileSync(path.join(W206_OUTSIDE, 'evil.test.js'), '// evil\n', 'utf8');
@@ -720,7 +724,7 @@ try {
 } catch (e) { threwOutside2 = /escapes the project root/.test(e.message); }
 t('W2-06: a path entirely outside the root (a stand-in for "another drive") is rejected', threwOutside2 === true);
 
-// --- atomic writes + idempotent repair after a partial (meta-write) failure. ---
+// --- W2-07: atomic writes + idempotent repair after a partial (meta-write) failure. ---
 const ticketIdW207 = freshPrdWithTicket('prd-amend-w207');
 const metaFileW207 = path.join(TMP, 'forge-prd', 'prd-amend-w207.meta.json');
 function w207DirectWrite(file, content) { const tmp = file + '.w207tmp'; fs.writeFileSync(tmp, content, 'utf8'); fs.renameSync(tmp, file); }
@@ -831,7 +835,7 @@ t('W2-N01: the PRD meta carries BOTH distinct entries, each correctly attributed
   metaWN01.spec_gaps.some((g) => g.id === 'gap-1' && g.ticket_id === ticketWN01A) &&
   metaWN01.spec_gaps.some((g) => g.id === 'gap-2' && g.ticket_id === ticketWN01B));
 
-// --- a PRD-scoped exclusive lock across read/allocate/log/write. ---
+// --- W2-08: a PRD-scoped exclusive lock across read/allocate/log/write. ---
 const W208_LOCK_DIR = path.join(TMP, 'forge-runs', '.hotspot-locks');
 
 // a held lock makes a second amend fail cleanly and write nothing
@@ -919,7 +923,7 @@ t('W2-08b: nothing was written once the lock was lost (the writeFile seam was ne
 const ticketAfterTakeover = readTicket(ticketIdTakeover);
 t('W2-08b: the ticket on disk is untouched after a lock takeover', ticketAfterTakeover.spec_gaps === undefined);
 
-// --- gap rendering escapes HTML/markdown metacharacters so injected markup renders inert. ---
+// --- W2-11: gap rendering escapes HTML/markdown metacharacters so injected markup renders inert. ---
 const w211Prd = Object.assign({}, legacyPrd, {
   prd_id: 'prd-gap-w211-1',
   spec_gaps: [{
@@ -930,7 +934,7 @@ const w211Prd = Object.assign({}, legacyPrd, {
 });
 const w211Md = renderPrd(w211Prd);
 t('W2-11: a raw <h2> tag does not survive as an HTML tag', !w211Md.includes('<h2>Injected</h2>') && w211Md.includes('&lt;h2&gt;Injected&lt;/h2&gt;'));
-t('W2-11: a markdown link does not survive as a real link', !/\[link\]\(http:\/\/x\)/.test(w211Md) && w211Md.includes('&#91;link&#93;(http&#58;//x)')); // the '://' is broken too
+t('W2-11: a markdown link does not survive as a real link', !/\[link\]\(http:\/\/x\)/.test(w211Md) && w211Md.includes('&#91;link&#93;(http&#58;//x)')); // F5: the '://' is broken too
 t('W2-11: markdown emphasis does not survive as real emphasis', !/[^\\]\*\*bold\*\*/.test(w211Md) && w211Md.includes('\\*\\*bold\\*\\*'));
 t('W2-11: an HTML comment opener does not survive as a real comment', !w211Md.includes('<!-- hide this -->') && w211Md.includes('&lt;!-- hide this --&gt;'));
 t('W2-11: a PRD without spec_gaps still renders byte-identical (fc-1 preserved)', renderPrd(legacyPrd) === LEGACY_EXPECTED);
@@ -967,6 +971,106 @@ const w211eMd = renderPrd(w211ePrd);
 t('W2-11e: a hand-authored gap id containing a raw HTML tag renders inert (id is escaped too)', !w211eMd.includes('<h2>X</h2>') && w211eMd.includes('&lt;h2&gt;X&lt;/h2&gt;'));
 t('W2-11e: a hand-authored ticket_id containing a raw HTML tag renders inert (ticket_id is escaped too)', !w211eMd.includes('<script>evil</script>') && w211eMd.includes('&lt;script&gt;evil&lt;/script&gt;'));
 t('W2-11e: a PRD without spec_gaps still renders byte-identical (fc-1 preserved)', renderPrd(legacyPrd) === LEGACY_EXPECTED);
+
+// FB-QUALITY-F8: re-running write --tickets keeps existing tickets (status, spec_gaps) instead of resetting them.
+{
+  const prdKeep = { prd_id: 'prd-keep-001', title: 'Keep', sections: { goal: 'g', acceptance_criteria: ['first criterion', 'second criterion'] } };
+  writePrd(prdKeep);
+  const first = criteriaToTickets(prdKeep);
+  const tkFile = path.join(TMP, 'forge-tickets', 'tk-prd-keep-001-1.json');
+  const tk = JSON.parse(fs.readFileSync(tkFile, 'utf8'));
+  tk.status = 'done'; tk.spec_gaps = [{ id: 'gap-1', gap: 'kept gap' }];
+  fs.writeFileSync(tkFile, JSON.stringify(tk), 'utf8');
+  const again = criteriaToTickets(prdKeep);
+  const after = JSON.parse(fs.readFileSync(tkFile, 'utf8'));
+  t('F8: first run creates both tickets', first.length === 2);
+  t('F8: a second run creates nothing and reports both as kept', again.length === 0 && Array.isArray(again.kept) && again.kept.length === 2);
+  t('F8: the done status and the spec_gaps of an existing ticket survive a re-run', after.status === 'done' && Array.isArray(after.spec_gaps) && after.spec_gaps.length === 1);
+  const cliAgain = runCli(['write', JSON.stringify(prdKeep), '--tickets']);
+  t('F8: the CLI says the tickets were kept and exits 0', cliAgain.status === 0 && /kept: 2/.test(cliAgain.stdout));
+}
+
+// SK-6-F8: a ticket that could not be created makes write --tickets exit 1 (never 'PRD written' with exit 0).
+{
+  const prdFail = { prd_id: 'prd-tkfail-001', title: 'Fail', sections: { goal: 'g', acceptance_criteria: ['only criterion'] } };
+  fs.mkdirSync(path.join(TMP, 'forge-tickets', 'tk-prd-tkfail-001-1.json'), { recursive: true }); // a folder where the file must go
+  const r = runCli(['write', JSON.stringify(prdFail), '--tickets']);
+  t('SK-6-F8: a failed ticket write exits 1', r.status === 1);
+  t('SK-6-F8: ... and says how many tickets failed', /FAILED: 1/.test(r.stdout + r.stderr));
+}
+
+// SK-6-F9: write and render also read the PRD from --file <path> or from stdin ('-'), so no shell has to pass a
+// quoted JSON argument (PowerShell 5.1 strips the inner quotes; Git Bash breaks on an apostrophe).
+{
+  const prdFile = { prd_id: 'prd-file-001', title: "File PRD with an owner's apostrophe", sections: { goal: 'g', acceptance_criteria: ['only one'] } };
+  const f = path.join(TMP, 'prd-file-001.json');
+  fs.writeFileSync(f, JSON.stringify(prdFile), 'utf8');
+  const rr = runCli(['render', '--file', f]);
+  t("SK-6-F9: render --file reads the PRD from the file", rr.status === 0 && rr.stdout.includes("# File PRD with an owner's apostrophe"));
+  const rw = runCli(['write', '--file', f, '--tickets']);
+  t('SK-6-F9: write --file writes the PRD and its tickets', rw.status === 0 && /PRD written: prd-file-001/.test(rw.stdout) && /tickets created: 1/.test(rw.stdout));
+  const rs = spawnSync(process.execPath, [CLI, 'render', '-'], { input: JSON.stringify(prdFile), env: Object.assign({}, process.env, { FORGE_STORE_ROOT: TMP }), encoding: 'utf8' });
+  t("SK-6-F9: render - reads the PRD from stdin", rs.status === 0 && rs.stdout.includes("# File PRD with an owner's apostrophe"));
+  const rm = runCli(['render', '--file', path.join(TMP, 'no-such-prd.json')]);
+  t('SK-6-F9: a missing --file exits 1 with a clear message', rm.status === 1 && /could not be read/.test(rm.stderr));
+  const rn = runCli(['render', '--file']);
+  t('SK-6-F9: --file without a path exits 1 with the usage line', rn.status === 1 && /Usage/.test(rn.stderr));
+}
+
+// CF-4-F4: a PRD that names its domain gets that domain's domain-presets.json baseline as its own section
+// (advisory: rendered and stored, never turned into tickets). An unknown or absent domain changes nothing.
+{
+  const prdMod = require('./forge-prd.cjs');
+  t('CF-4-F4: domainBaseline is exported', typeof prdMod.domainBaseline === 'function');
+  if (typeof prdMod.domainBaseline === 'function') {
+    const presetsPath = path.join(TMP, 'domain-presets.json');
+    fs.writeFileSync(presetsPath, JSON.stringify({ domains: { website: { requirements: [{ id: 'real-content', text: 'No lorem ipsum anywhere.', source: 's' }, { id: 'zero-console-errors', text: 'Zero console errors.', source: 's' }] } } }), 'utf8');
+    const base = prdMod.domainBaseline('Website', { presetsPath });
+    t('CF-4-F4: the matching domain gives its requirements (id + text, case-insensitive key)', base.length === 2 && base[0].id === 'real-content' && base[1].text === 'Zero console errors.');
+    t('CF-4-F4: an unknown domain gives []', prdMod.domainBaseline('nope', { presetsPath }).length === 0);
+    t('CF-4-F4: a missing presets file gives [] (never throws)', prdMod.domainBaseline('website', { presetsPath: path.join(TMP, 'none.json') }).length === 0);
+    const realWebsite = prdMod.domainBaseline('website');
+    t('CF-4-F4: the shipped domain-presets.json is read by default', realWebsite.length > 0 && realWebsite.every((r) => r.id && r.text));
+    const prdDom = { prd_id: 'prd-domain-001', title: 'Domain PRD', domain: 'website', sections: { goal: 'g', acceptance_criteria: ['one'] } };
+    const wDom = writePrd(prdDom);
+    const mdDom = fs.readFileSync(wDom.mdPath, 'utf8');
+    t('CF-4-F4: writePrd renders a Domain Baseline section with the preset ids', /## Domain Baseline \(website\)/.test(mdDom) && realWebsite.every((r) => mdDom.includes('**' + r.id + '**')));
+    const metaDom = JSON.parse(fs.readFileSync(wDom.metaPath, 'utf8'));
+    t('CF-4-F4: the meta stores the injected baseline', Array.isArray(metaDom.domain_baseline) && metaDom.domain_baseline.length === realWebsite.length);
+    t('CF-4-F4: the baseline is advisory, never tickets (criteria count unchanged)', criteriaToTickets(prdDom).length === 1);
+    const plainMd = renderPrd({ prd_id: 'prd-plain', title: 'Plain', sections: { goal: 'g' } });
+    t('CF-4-F4: a PRD without a domain renders no Domain Baseline heading', !/Domain Baseline/.test(plainMd));
+    const rDom = runCli(['render', JSON.stringify(prdDom)]);
+    t('CF-4-F4: CLI render shows the baseline too', rDom.status === 0 && /## Domain Baseline \(website\)/.test(rDom.stdout));
+  }
+}
+
+// FB-QUALITY-F8 (criterion-id ticket ids): a criterion with its own id gets ticket tk-<prd>-<id>, so reordering the
+// criteria keeps every ticket on its own criterion. ac-<n> ids and plain strings keep the positional tk-<prd>-<n>.
+{
+  const prdMod = require('./forge-prd.cjs');
+  t('F8-ids: ticketIdFor is exported', typeof prdMod.ticketIdFor === 'function');
+  if (typeof prdMod.ticketIdFor === 'function') {
+    t('F8-ids: a custom id maps to tk-<prd>-<id>', prdMod.ticketIdFor('prd-x', 'login') === 'tk-prd-x-login');
+    t('F8-ids: ac-<n> keeps the positional tk-<prd>-<n>', prdMod.ticketIdFor('prd-x', 'ac-3') === 'tk-prd-x-3');
+    t('F8-ids: an id a ticket id cannot hold falls back to the position (as before)', prdMod.ticketIdFor('prd-x', 'AC one', 4) === 'tk-prd-x-4');
+    const spaced = criteriaToTickets({ prd_id: 'prd-ids-space', sections: { acceptance_criteria: [{ id: 'AC one', text: 'spaced id' }] } });
+    t('F8-ids: a criterion with such an id still gets its positional ticket', spaced.join(',') === 'tk-prd-ids-space-1' && spaced.failed.length === 0);
+    const prdIds = { prd_id: 'prd-ids-001', title: 'Ids', sections: { goal: 'g', acceptance_criteria: [{ id: 'login', text: 'can log in' }, 'plain second', { id: 'ac-3', text: 'third' }] } };
+    writePrd(prdIds);
+    const made = criteriaToTickets(prdIds);
+    t('F8-ids: tickets follow the criterion ids', made.join(',') === 'tk-prd-ids-001-login,tk-prd-ids-001-2,tk-prd-ids-001-3');
+    const reordered = { prd_id: 'prd-ids-001', title: 'Ids', sections: { goal: 'g', acceptance_criteria: [{ id: 'ac-3', text: 'third' }, { id: 'login', text: 'can log in' }, 'plain second'] } };
+    const again = criteriaToTickets(reordered);
+    t('F8-ids: after a reorder the id-bearing criteria keep their tickets', again.kept.includes('tk-prd-ids-001-login') && again.kept.includes('tk-prd-ids-001-3'));
+    t('F8-ids: two criteria that map to one ticket id fail loudly instead of sharing it', again.failed.includes('tk-prd-ids-001-3'));
+    // legacy: a positional ticket minted before criterion ids, for criterion 'signup' at position 1, is kept
+    store.putEntity('tickets', 'tk-prd-ids-legacy-1', { ticket_id: 'tk-prd-ids-legacy-1', prd_id: 'prd-ids-legacy', title: 'sign up', description: 'Acceptance criterion signup for PRD prd-ids-legacy', status: 'done' });
+    const legacy = criteriaToTickets({ prd_id: 'prd-ids-legacy', sections: { acceptance_criteria: [{ id: 'signup', text: 'sign up' }] } });
+    t('F8-ids: a legacy positional ticket that names this criterion is kept, no second ticket is made', legacy.length === 0 && legacy.kept.join(',') === 'tk-prd-ids-legacy-1'
+      && !fs.existsSync(path.join(TMP, 'forge-tickets', 'tk-prd-ids-legacy-signup.json')));
+  }
+}
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

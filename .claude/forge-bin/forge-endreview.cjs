@@ -252,6 +252,17 @@ function checkRecorded(opts) {
   return out;
 }
 
+/** ownerTextWarnings(root, dir, runId) -> string[] — SD-T8: final-report.md is checked for the owner's
+ *  language (owner profile language.ui + the run's newest scribe record) and for AI tells (forge-owner-text-check.cjs).
+ *  WARN only: `check` prints these and keeps its exit code. A missing or failing checker is one warning, never a throw. */
+function ownerTextWarnings(root, dir, runId) {
+  let T = null;
+  try { T = require('./forge-owner-text-check.cjs'); } catch { T = null; }
+  if (!T || typeof T.checkReport !== 'function') return ['forge-owner-text-check.cjs is not available next to this tool: the owner language and AI tells were not checked'];
+  try { return T.checkReport({ root, runId, runDir: dir }).warnings; }
+  catch (e) { return ['the owner-text check could not run (' + String((e && e.message) || e).slice(0, 160) + ')']; }
+}
+
 /** renderQuestions(questions, lang) -> text. */
 function renderQuestions(questions, lang) {
   const L = [lang === 'nl' ? 'Zelfreview aan het eind (' + questions.length + ' vragen):' : 'End-of-work self-review (' + questions.length + ' questions):'];
@@ -326,14 +337,16 @@ function main(argv, io) {
     let dir;
     try { dir = runDirFor(root, run); } catch (e) { err('forge-endreview: the run folder could not be resolved (' + e.message + ')'); return 2; }
     const c = checkRecorded({ root, runDir: dir, runId: run });
-    if (json) out(JSON.stringify(Object.assign({ run_id: run, folder: path.relative(root, dir).split(path.sep).join('/') }, c), null, 2));
+    const textWarnings = ownerTextWarnings(root, dir, run);
+    if (json) out(JSON.stringify(Object.assign({ run_id: run, folder: path.relative(root, dir).split(path.sep).join('/') }, c, { owner_text_warnings: textWarnings }), null, 2));
     else {
       out('Self-review for run ' + run + ': ' + (c.ok ? 'OK — recorded, complete, and final-report.md has the Self-review section' : 'NOT DONE'));
       if (c.summary) out('  ' + c.summary.questions + ' answered, ' + c.summary.with_evidence + ' with evidence, ' + c.summary.open_items.length + ' open item(s)');
       for (const p of c.problems) out('  - ' + p);
       for (const n of c.notes) out('  note: ' + n);
+      for (const w of textWarnings) out('  warning: ' + w);
     }
-    return c.ok ? 0 : 1;
+    return c.ok ? 0 : 1; // the owner-text warnings never change the exit code (warn, not block)
   }
   err(USAGE);
   return 2;
@@ -341,7 +354,7 @@ function main(argv, io) {
 
 module.exports = {
   QUESTIONS_REL, RECORD_KIND, RECORD_VERSION, RECORD_FILE, REPORT_FILE, MIN_NOTE, HEADING_RE,
-  canon, runDirFor, loadQuestions, validateQuestions, validateAnswers, recordSelfReview, checkRecorded, queueProblems,
+  canon, runDirFor, loadQuestions, validateQuestions, validateAnswers, recordSelfReview, checkRecorded, queueProblems, ownerTextWarnings,
   renderQuestions, renderTemplate, answersSkeleton, main,
 };
 

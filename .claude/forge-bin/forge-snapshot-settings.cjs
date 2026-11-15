@@ -21,18 +21,20 @@
  *     (fail closed — never overwrites something it can't parse) and can `--backup` the original first.
  *
  * MODEL:
- *   mergeSnapshotHooks(existing, {markerCommand, reinjectCommand, timeoutMs}) -> merged settings object.
+ *   mergeSnapshotHooks(existing, {markerCommand, reinjectCommand, timeoutSec}) -> merged settings object.
  *   hasExactHook(list, matcher, command) -> boolean.
  *
  * CLI:
  *   node forge-snapshot-settings.cjs apply --target <path> --marker-command "<cmd>" --reinject-command "<cmd>"
- *     [--timeout-ms <n>] [--backup] [--json]
+ *     [--timeout-sec <n>] [--backup] [--json]   (a hook `timeout` is in SECONDS, 1-60; default 15)
  * Exit codes: 0 = written (or already up to date). 2 = usage error / existing file present but not valid JSON.
  */
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_TIMEOUT_MS = 5000;
+// FB-MEMORY-F6: a Claude Code hook `timeout` is in SECONDS (HOOKS_OPT_IN.md); 5000 meant 83 minutes, not 5 s.
+const DEFAULT_TIMEOUT_SEC = 15;
+const MAX_TIMEOUT_SEC = 60;
 
 function hasExactHook(list, matcher, command) {
   if (!Array.isArray(list)) return false;
@@ -43,8 +45,8 @@ function hasExactHook(list, matcher, command) {
     return hooks.some((h) => h && h.command === command);
   });
 }
-function buildEntry(matcher, command, timeoutMs) {
-  return { matcher, hooks: [{ type: 'command', command, timeout: timeoutMs }] };
+function buildEntry(matcher, command, timeoutSec) {
+  return { matcher, hooks: [{ type: 'command', command, timeout: timeoutSec }] };
 }
 
 /** mergeSnapshotHooks(existing, opts) -> merged settings object. See file header SAFETY MODEL. Never
@@ -53,7 +55,8 @@ function mergeSnapshotHooks(existing, opts) {
   opts = opts || {};
   if (!opts.markerCommand) throw new Error('forge-snapshot-settings: markerCommand is required');
   if (!opts.reinjectCommand) throw new Error('forge-snapshot-settings: reinjectCommand is required');
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS;
+  const timeoutSec = opts.timeoutSec == null ? DEFAULT_TIMEOUT_SEC : opts.timeoutSec;
+  if (!Number.isInteger(timeoutSec) || timeoutSec < 1 || timeoutSec > MAX_TIMEOUT_SEC) throw new Error('forge-snapshot-settings: timeoutSec must be a whole number of seconds from 1 to ' + MAX_TIMEOUT_SEC + ' (got ' + timeoutSec + ')');
 
   const out = existing && typeof existing === 'object' && !Array.isArray(existing)
     ? JSON.parse(JSON.stringify(existing))
@@ -65,33 +68,33 @@ function mergeSnapshotHooks(existing, opts) {
   out.hooks.PreCompact = Array.isArray(out.hooks.PreCompact) ? out.hooks.PreCompact.slice() : [];
   for (const matcher of ['manual', 'auto']) {
     if (!hasExactHook(out.hooks.PreCompact, matcher, opts.markerCommand)) {
-      out.hooks.PreCompact.push(buildEntry(matcher, opts.markerCommand, timeoutMs));
+      out.hooks.PreCompact.push(buildEntry(matcher, opts.markerCommand, timeoutSec));
       added.push('PreCompact[' + matcher + ']');
     }
   }
 
   out.hooks.SessionStart = Array.isArray(out.hooks.SessionStart) ? out.hooks.SessionStart.slice() : [];
   if (!hasExactHook(out.hooks.SessionStart, 'compact', opts.reinjectCommand)) {
-    out.hooks.SessionStart.push(buildEntry('compact', opts.reinjectCommand, timeoutMs));
+    out.hooks.SessionStart.push(buildEntry('compact', opts.reinjectCommand, timeoutSec));
     added.push('SessionStart[compact]');
   }
 
   return { settings: out, added };
 }
 
-module.exports = { mergeSnapshotHooks, hasExactHook, DEFAULT_TIMEOUT_MS };
+module.exports = { mergeSnapshotHooks, hasExactHook, DEFAULT_TIMEOUT_SEC, MAX_TIMEOUT_SEC };
 
 // ---- CLI ----
 function parseArgs(argv) {
   const cmd = argv[0] || null;
   const rest = argv.slice(1);
-  const opts = { target: null, markerCommand: null, reinjectCommand: null, timeoutMs: null, backup: false, json: false, usageError: null };
+  const opts = { target: null, markerCommand: null, reinjectCommand: null, timeoutSec: null, backup: false, json: false, usageError: null };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--target') opts.target = rest[++i];
     else if (a === '--marker-command') opts.markerCommand = rest[++i];
     else if (a === '--reinject-command') opts.reinjectCommand = rest[++i];
-    else if (a === '--timeout-ms') opts.timeoutMs = Number(rest[++i]);
+    else if (a === '--timeout-sec') opts.timeoutSec = Number(rest[++i]);
     else if (a === '--backup') opts.backup = true;
     else if (a === '--json') opts.json = true;
     else if (!opts.usageError) opts.usageError = 'unknown argument: ' + a;
@@ -99,10 +102,11 @@ function parseArgs(argv) {
   return { cmd, opts };
 }
 function printUsage() {
-  console.error('Usage: node forge-snapshot-settings.cjs apply --target <path> --marker-command "<cmd>" --reinject-command "<cmd>" [--timeout-ms <n>] [--backup] [--json]');
+  console.error('Usage: node forge-snapshot-settings.cjs apply --target <path> --marker-command "<cmd>" --reinject-command "<cmd>" [--timeout-sec <1-60>] [--backup] [--json]');
 }
 if (require.main === module) {
   const { cmd, opts } = parseArgs(process.argv.slice(2));
+  if (!opts.usageError && opts.timeoutSec != null && !(Number.isInteger(opts.timeoutSec) && opts.timeoutSec >= 1 && opts.timeoutSec <= MAX_TIMEOUT_SEC)) opts.usageError = '--timeout-sec must be a whole number from 1 to ' + MAX_TIMEOUT_SEC + ' (a hook timeout is in seconds)';
   if (cmd !== 'apply' || opts.usageError || !opts.target || !opts.markerCommand || !opts.reinjectCommand) {
     if (opts.usageError) console.error('forge-snapshot-settings: ' + opts.usageError);
     printUsage();
@@ -124,7 +128,7 @@ if (require.main === module) {
       fs.writeFileSync(backupPath, raw, 'utf8');
       console.error('forge-snapshot-settings: backed up existing file to ' + backupPath);
     }
-    const { settings, added } = mergeSnapshotHooks(existing, { markerCommand: opts.markerCommand, reinjectCommand: opts.reinjectCommand, timeoutMs: opts.timeoutMs });
+    const { settings, added } = mergeSnapshotHooks(existing, { markerCommand: opts.markerCommand, reinjectCommand: opts.reinjectCommand, timeoutSec: opts.timeoutSec });
     fs.mkdirSync(path.dirname(opts.target), { recursive: true });
     fs.writeFileSync(opts.target, JSON.stringify(settings, null, 2) + '\n', 'utf8');
     const result = { target: opts.target, added, wasPresent: raw != null };

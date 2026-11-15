@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-rollback.test.cjs — real tests for ROLLBACK PER RUN (WP 3.3). Every case runs the REAL CLI as a
 // spawned process against a throwaway git repository under os.tmpdir(), with hermetic git (an empty global config, no
 // system config, a ceiling directory so a parent repository can never be discovered). Two MUTATION checks run a
@@ -410,6 +414,15 @@ t('MUTATION: a tool that stops protecting memory/ledger/state paths is caught by
 t('MUTATION: a tool that drops --literal-pathspecs restores the glob match too, and the literal assertion catches it', () => {
   const tool = mutant('globspec', "['--literal-pathspecs', 'restore',", "['restore',");
   assert.throws(() => assertLiteral(literalScenario(tool)), /glob match must never restore/);
+});
+
+t('FB-INSTALL-1-F9: a manifest path with backslashes, a drive letter or an absolute form is refused (never outside the project)', () => {
+  const R = require('./forge-rollback.cjs');
+  const ctx = { root: path.join(TMP, 'proj-x'), dirs: { extra: [] } };
+  for (const bad of ['..\\..\\outside.txt', 'a\\b.txt', 'C:/outside.txt', 'c:outside.txt', '/etc/x', '//server/share/x']) {
+    assert.ok(R.protectedReason(ctx, bad), 'not refused: ' + bad);
+  }
+  assert.strictEqual(R.protectedReason(ctx, 'src/app.js'), null);
 });
 
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* best effort temp cleanup */ }

@@ -10,7 +10,7 @@ license: MIT
   Pinned commit: c55ee46073ed923f86ce59a5eb3b6d895095d1b7
   Upstream path: skills/productivity/grilling/
   License: MIT (c) 2026 Matt Pocock -- full text in LICENSE next to this file
-  Forge vendor note: frontmatter license: MIT key and this provenance block added; agents/openai.yaml (Codex UI metadata, no function in Claude Code) not shipped; everything else verbatim.
+  Forge vendor note: frontmatter description shortened for the skill-listing budget (the earlier text is in the "original description" comment line(s) in the frontmatter); frontmatter license: MIT key and this provenance block added; agents/openai.yaml (Codex UI metadata, no function in Claude Code) not shipped; everything else verbatim.
   Reviewed for prompt-injection patterns, hidden/zero-width/bidi/control unicode, network use and deletes by build-boss, 2026-09-24 -- clean; every upstream file sha256-verified against the pinned-commit manifest before copying.
 -->
 

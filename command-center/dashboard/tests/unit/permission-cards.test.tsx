@@ -332,4 +332,54 @@ describe('usePendingPermissions (data side)', () => {
     await expect(result.current.answer('p1', 'allow')).rejects.toThrow('unknown request');
     expect(result.current.pending).toHaveLength(1);
   });
+
+  it('the pending read sends the dashboard credential the answer write sends (cookie mode + token header)', async () => {
+    const { renderHook, waitFor } = await import('@testing-library/react');
+    const { usePendingPermissions } = await import('@/views/chat/permissions/use-pending-permissions');
+    const { writeCredentials } = await import('@/prototype/state/gateway-client');
+    const meta = document.createElement('meta');
+    meta.name = 'cc-exec-token';
+    meta.content = 'tok-r1';
+    document.head.appendChild(meta);
+    const reads: RequestInit[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (String(url).includes('/pending')) reads.push(init ?? {});
+        return { ok: true, status: 200, json: async () => ({ ok: true, pending: [] }) } as Response;
+      }),
+    );
+    try {
+      renderHook(() => usePendingPermissions('c1', 60_000));
+      await waitFor(() => expect(reads).toHaveLength(1));
+      expect(reads[0].credentials).toBe(writeCredentials());
+      expect((reads[0].headers as Record<string, string> | undefined)?.['x-cc-exec-token']).toBe('tok-r1');
+    } finally {
+      meta.remove();
+    }
+  });
+
+  it('a 401/403 on the pending read is a visible error, not a silently empty list; it clears once a read works', async () => {
+    setLocale('nl');
+    const { renderHook, waitFor } = await import('@testing-library/react');
+    const { usePendingPermissions } = await import('@/views/chat/permissions/use-pending-permissions');
+    let status = 403;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        status === 200
+          ? ({ ok: true, status: 200, json: async () => ({ ok: true, pending: [] }) } as Response)
+          : ({ ok: false, status, json: async () => ({ ok: false, error: `refused ${status}` }) } as Response),
+      ),
+    );
+    const { result } = renderHook(() => usePendingPermissions('c1', 30));
+    await waitFor(() => expect(result.current.readError).toBe('refused 403'));
+    const shown = render(<PermissionCards pending={[]} readError={result.current.readError} onAnswer={vi.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(translate('nl', 'chatCards.permissions.readRefused'));
+    shown.unmount();
+    status = 401;
+    await waitFor(() => expect(result.current.readError).toBe('refused 401'));
+    status = 200;
+    await waitFor(() => expect(result.current.readError).toBeNull());
+  });
 });

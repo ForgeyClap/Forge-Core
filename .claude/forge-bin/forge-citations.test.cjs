@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-citations.test.cjs — behaviour tests for the citation ledger (W2-CITATIONS).
 // Hermetic: every fixture lives in a fresh os.tmpdir() folder that is removed in `finally`.
 // Covers: verbatim match, honest normalisation, near-miss = mismatch, missing source = unverified,
@@ -205,12 +209,23 @@ try {
     r = cli(root, ['report', '--run', 'r1', '--min-verified', '50']);
     assert.strictEqual(r.code, 0);
   });
-  t('report on an empty/missing ledger => total 0, exit 0, and --min-verified fails it', () => {
+  // FB-VERIFY-1-F14: no claims is not a passing citation gate; --allow-empty is the explicit opt-out.
+  t('report on an empty/missing ledger => total 0, exit 1 ("no claims"), --allow-empty => exit 0', () => {
     const root = freshRoot();
     const r = cli(root, ['report', '--run', 'empty', '--json']);
-    assert.strictEqual(r.code, 0);
+    assert.strictEqual(r.code, 1);
     assert.strictEqual(JSON.parse(r.out).total, 0);
-    assert.strictEqual(cli(root, ['report', '--run', 'empty', '--min-verified', '1']).code, 1);
+    assert.match(JSON.parse(r.out).failures.join(' '), /no claims/);
+    assert.strictEqual(cli(root, ['report', '--run', 'empty']).code, 1);
+    assert.strictEqual(cli(root, ['report', '--run', 'empty', '--allow-empty']).code, 0);
+    assert.strictEqual(cli(root, ['report', '--run', 'empty', '--allow-empty', '--min-verified', '1']).code, 1);
+  });
+  t('check on a run with no ledger => exit 2 and no run folder is created', () => {
+    const root = freshRoot();
+    const r = cli(root, ['check', '--run', 'typo-run']);
+    assert.strictEqual(r.code, 2);
+    assert.match(r.err, /no citation ledger/);
+    assert.strictEqual(fs.existsSync(path.join(root, '.claude', 'forge-runs', 'typo-run')), false);
   });
   t('a corrupt ledger line is an error (exit 2), not silently skipped', () => {
     const root = freshRoot();

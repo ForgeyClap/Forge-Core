@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-consolidate.test.cjs — real tests for the honesty-safe lesson-store consolidator (WAVE E / E2,
 // 2026-07-18). Every fixture lives under a fresh os.tmpdir() directory — this file NEVER touches this
 // repo's real .claude/agent-memory/.
@@ -106,6 +110,52 @@ t('a fully canonical record (real text + real evidence.run_id + valid ts) surviv
   assert.strictEqual(r.after, 1);
   assert.strictEqual(r.rejected.length, 0);
   assert.deepStrictEqual(r.keptIds, ['keep-me']);
+});
+
+// FB-MEMORY-F1: owner corrections are real evidence; a rejected record is archived, never lost.
+t('an owner-correction lesson (forge-reflect evidence: source + quote, no run_id) is canonical and kept', () => {
+  const dir = freshDir('consolidate-owner');
+  const store = path.join(dir, 'lessons.jsonl');
+  writeJsonl(store, [lesson({ id: 'owner-1', evidence: JSON.stringify({ source: 'owner-correction', quote: 'nee, gebruik knop X', ts: '2026-06-01T00:00:00.000Z', confidence: 'high' }) })]);
+  const r = consolidate.consolidate({ store });
+  assert.strictEqual(r.rejected.length, 0, JSON.stringify(r.rejected));
+  assert.deepStrictEqual(readJsonl(store).map((x) => x.id), ['owner-1']);
+});
+t('owner-correction evidence with an empty quote is still rejected', () => {
+  assert.strictEqual(consolidate.validateCanonical(lesson({ evidence: JSON.stringify({ source: 'owner-correction', quote: '  ' }) })).ok, false);
+});
+t('a rejected record is moved to a dated archive file next to the store, not dropped', () => {
+  const dir = freshDir('consolidate-archive');
+  const store = path.join(dir, 'lessons.jsonl');
+  writeJsonl(store, [lesson({ id: 'good-one' }), lesson({ id: 'bad-one', evidence: 'not json' })]);
+  const r = consolidate.consolidate({ store, now: Date.parse('2026-11-12T10:00:00Z') });
+  const archives = fs.readdirSync(dir).filter((f) => /^lessons\.rejected-2026-11-12\.jsonl$/.test(f));
+  assert.strictEqual(archives.length, 1, fs.readdirSync(dir).join(','));
+  assert.deepStrictEqual(readJsonl(path.join(dir, archives[0])).map((x) => x.id), ['bad-one']);
+  assert.ok(r.archive && r.archive.endsWith(archives[0]));
+});
+// FB-MEMORY-F7: decay once per period, and malformed lines are kept and counted.
+t('decay runs once per period: a second call at the same time does not decay again', () => {
+  const dir = freshDir('consolidate-decay-once');
+  const store = path.join(dir, 'lessons.jsonl');
+  writeJsonl(store, [lesson({ id: 'old', utility: 4, ts: '2026-01-01T00:00:00.000Z' })]);
+  const now = Date.parse('2026-06-01T00:00:00Z');
+  consolidate.consolidate({ store, now });
+  const u1 = readJsonl(store)[0].utility;
+  consolidate.consolidate({ store, now });
+  consolidate.consolidate({ store, now });
+  assert.ok(u1 < 4, 'the first call decays');
+  assert.strictEqual(readJsonl(store)[0].utility, u1, 'later calls inside the same period do not decay again');
+});
+t('a malformed line is kept in the store and counted in the result', () => {
+  const dir = freshDir('consolidate-malformed');
+  const store = path.join(dir, 'lessons.jsonl');
+  fs.writeFileSync(store, JSON.stringify(lesson({ id: 'ok-1' })) + '\n{not json\n', 'utf8');
+  const r = consolidate.consolidate({ store });
+  assert.strictEqual(r.malformedCount, 1);
+  const lines = fs.readFileSync(store, 'utf8').split(/\r?\n/).filter(Boolean);
+  assert.strictEqual(lines.length, 2, 'the malformed line survives the rewrite: ' + JSON.stringify(lines));
+  assert.ok(lines.includes('{not json'));
 });
 
 t('rejected records never end up in the rewritten store file on disk', () => {

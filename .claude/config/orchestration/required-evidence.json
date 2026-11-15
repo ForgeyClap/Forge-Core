@@ -1,6 +1,7 @@
 {
-  "_doc": "Required-evidence gate, piece C2. Per domain, the PROOF artifacts/events that MUST exist for a run to honestly be called 'done' — encodes the repeated owner ask 'prove it with REAL proof' and kills the failure mode where a doctor/verify pass says done but the underlying evidence was never produced. Consumed ONLY via .claude/forge-bin/forge-evidence.cjs::check({domain, artifacts, events}, opts) — no other file may re-implement this matching logic (same single-source-of-truth discipline forge-actiongate.cjs established for hard-gates.json). Each domain lists its own required evidence set; a domain's requirement set is deliberately the PROOF-shaped counterpart of that same domain's requirements in domain-presets.json (a requirement there names the standard, an evidence item here names how a run shows it met that standard) but the two files are independent — forge-evidence.cjs never reads domain-presets.json. Evidence 'presence' is judged ONLY from the artifact paths/ids and logged event types a caller actually passes in — forge-evidence.cjs never scans the filesystem or invents proof; absence is reported honestly as missing. kind:'artifact' items are satisfied when ANY supplied artifact string contains (case-insensitive) ANY of any_of_substrings; kind:'event' items are satisfied when ANY supplied event type exactly matches (case-insensitive) ANY of any_of_events; kind:'artifact_or_event' items are satisfied by either path. Advisory, matches this project's light-security governance (CLAUDE.md: 'no mandatory security gates') — a 'missing' result is a loud, honest report for the Lead/owner to act on, not a hook that silently blocks anything.",
+  "_doc": "Forge — Required-evidence gate, piece C2. Per domain, the PROOF artifacts/events that MUST exist for a run to honestly be called 'done' — encodes the repeated owner ask 'prove it with REAL proof' and kills the failure mode where a doctor/verify pass says done but the underlying evidence was never produced. Consumed ONLY via .claude/forge-bin/forge-evidence.cjs::check({domain, artifacts, events}, opts) — no other file may re-implement this matching logic (same single-source-of-truth discipline forge-actiongate.cjs established for hard-gates.json). Each domain lists its own required evidence set; a domain's requirement set is deliberately the PROOF-shaped counterpart of that same domain's requirements in domain-presets.json (a requirement there names the standard, an evidence item here names how a run shows it met that standard) but the two files are independent — forge-evidence.cjs never reads domain-presets.json. Evidence 'presence' is judged ONLY from the artifact paths/ids and logged event types a caller actually passes in — forge-evidence.cjs never scans the filesystem or invents proof; absence is reported honestly as missing. kind:'artifact' items are satisfied when ANY supplied artifact string contains (case-insensitive) ANY of any_of_substrings; kind:'event' items are satisfied when ANY supplied event type exactly matches (case-insensitive) ANY of any_of_events; kind:'artifact_or_event' items are satisfied by either path. Advisory, matches this project's light-security governance (CLAUDE.md: 'no mandatory security gates') — a 'missing' result is a loud, honest report for the Lead/owner to act on, not a hook that silently blocks anything.",
   "_doc_tooling_domain": "tooling / meta / dev-tooling domain added 2026-07-22 — closes a real config gap the forge-2026-07-22-v9-selfaudit self-audit run surfaced honestly: FORGE_HARD_RULES.json's cannot_override 'evidence-satisfied' rule could NEVER be satisfied for domain 'tooling' because this file had no 'tooling' entry at all (forge-evidence.cjs::listDomains() confirmed it absent, and forge-verify.cjs::evidenceCheck() returns null — not ok:true — for any domain unrecognized here). The 3 items below are the GENUINE, defensible standard for what ANY properly-done tooling/dev-tooling/meta task (CLAUDE.md's per-domain-principles 'Tooling / dev-systems / meta' bullet: 'change the canonical template first then sync, ship real tests with honest proof, never fake agents/runs/reviews, and back up before any destructive edit') must actually produce — deliberately NOT reverse-engineered from what the one existing self-audit run happens to already have (that run's own honest run-contract result, including whichever item(s) it genuinely still lacks, is recorded verbatim in this project's build-boss memory rather than papered over here). (1) 'verified-check-or-doctor-run' — a real verification signal. check_passed is trustworthy proof BY CONSTRUCTION here, not by mere convention: log-event.cjs's own CONTENT ORACLE (its PROOF_EVENTS/PASS_ASSERTION_EVENTS table, see verifyEvent()) REFUSES — under this project's default STRICT mode, exit code 2 — to even write a check_passed event whose own proof_verified check already failed (a non-zero exit_code, or none of command/output/evidence/output_artifact present); so under normal operation the mere PRESENCE of a check_passed event_type in a run's events.jsonl already means it was proof-verified at write time, and this file deliberately does not re-derive proof_verified itself a second time (that would duplicate log-event.cjs's own oracle, against this project's single-source-of-truth discipline). doctor_run is accepted as an OR-alternative: a weaker but still tool-written (never agent-self-claimed free text) signal — forge-doctor.cjs's own '--run' CLI flag writes doctor_run directly from its real computed rep.ok result, alongside a doctor.json artifact. (2) 'final-report-artifact' — a real, non-empty final-report artifact must exist for the run, mirroring the run-artifact contract CLAUDE.md already documents (.claude/forge-runs/<run_id>/final-report.md) and FORGE_HARD_RULES.json's separate 'report-present' hard rule already enforces via a real directory scan — required again here, independently, so a direct forge-evidence.cjs::check({domain:'tooling',...}) call (bypassing forge-runcontract.cjs entirely) still demands it on its own. (3) 'audit-or-analysis-artifact' — at least one real audit/analysis signal: this project's own two dedicated tooling self-audit tools (forge-audit-loop.cjs's audit_iteration/audit_finding events, forge-capabilities.cjs's capabilities_reported event — all three already registered in log-event.cjs KNOWN_EVENT_TYPES, per this task's own grounding instruction) or a real audit-evidence/capabilities-report artifact file reference — never a bare narrative 'note' field merely mentioning that an audit tool was run (a free-text note is not evidence forge-evidence.cjs can honestly credit). Seeded under THREE domain keys with an IDENTICAL evidence array — 'tooling' (canonical: matches FORGE_PROJECT_PROFILE.md's own declared project type and the real self-audit run's logged domain=tooling), 'meta', and 'dev-tooling' (both named alongside 'tooling' in CLAUDE.md's 'Tooling / dev-systems / meta' bullet) — because forge-evidence.cjs's schema/loader has NO alias or pointer mechanism today (confirmed by reading loadConfig()/check(): each domains{} key is looked up directly, only case-folded, never redirected to another key); duplicating the same 3-item array under all three keys honestly covers the whole naming family without inventing a new alias feature outside this task's scope.",
+  "_doc_needles_2026_11_13": "Audit CF-4-F3 (2026-11-13): generic needles that a folder name or an unrelated file could meet were replaced: cli 'usage' -> 'help-output'/'usage-output'; electron 'dist'/'build'/'screenshot' -> named installer and launch-screenshot names (a build log is not proof the app built); voice 'call' -> 'call-log'/'call-recording'; cms and figma '.png'/'desktop'/'mobile' -> 'screen-capture' beside 'screenshot'. Still open in code (forge-evidence.cjs matchesArtifact): the needle is matched against the WHOLE claim string, absolute path included, so 'desktop' in a C:\\Users\\<name>\\Desktop project folder or '320' inside a run id such as forge-2026-11-12-132045 still meets the website breakpoint items. Name screenshot files by breakpoint (mobile-375.png, tablet-768.png, desktop-1440.png) and pass them relative to the run folder until the matcher uses the path relative to the run folder.",
   "version": 1,
   "domains": {
     "website": {
@@ -531,7 +532,8 @@
           "any_of_substrings": [
             "cli-output",
             "exit-code",
-            "usage"
+            "help-output",
+            "usage-output"
           ],
           "any_of_events": [
             "command_run"
@@ -572,9 +574,7 @@
           "kind": "artifact_or_event",
           "any_of_substrings": [
             "screenshot",
-            ".png",
-            "desktop",
-            "mobile"
+            "screen-capture"
           ],
           "any_of_events": [
             "browser_screenshot_captured",
@@ -697,9 +697,10 @@
           "kind": "artifact_or_event",
           "any_of_substrings": [
             "installer",
-            "dist",
-            "build",
-            "screenshot"
+            "setup.exe",
+            "portable.exe",
+            "launch-screenshot",
+            "app-screenshot"
           ],
           "any_of_events": [
             "browser_screenshot_captured"
@@ -782,9 +783,7 @@
           "kind": "artifact_or_event",
           "any_of_substrings": [
             "screenshot",
-            ".png",
-            "desktop",
-            "mobile"
+            "screen-capture"
           ],
           "any_of_events": [
             "browser_screenshot_captured",
@@ -947,18 +946,25 @@
           ]
         },
         {
-          "id": "device-or-build-evidence",
-          "label": "The app really built or ran on a device/simulator (build artifact or a device screenshot).",
-          "kind": "artifact_or_event",
+          "id": "build-evidence",
+          "label": "The app really built: the installable package exists in the run (.apk, .aab or .ipa).",
+          "kind": "artifact",
           "any_of_substrings": [
-            "apk",
-            "ipa",
-            "simulator",
-            "device",
-            "screenshot"
+            ".apk",
+            ".aab",
+            ".ipa"
           ],
-          "any_of_events": [
-            "browser_screenshot_captured"
+          "specific": true
+        },
+        {
+          "id": "device-run-evidence",
+          "label": "The built app really ran on an emulator, simulator or device: a device screenshot in the run (also when logged as a browser_screenshot_captured screenshot_path), or the saved forge-device-env result that found no emulator and no device.",
+          "kind": "artifact",
+          "any_of_substrings": [
+            "device-screenshot",
+            "emulator-screenshot",
+            "simulator-screenshot",
+            "device-env-no-device"
           ],
           "specific": true
         }
@@ -1055,7 +1061,8 @@
           "kind": "artifact",
           "any_of_substrings": [
             "transcript",
-            "call",
+            "call-log",
+            "call-recording",
             "turn-taking",
             "barge-in"
           ],
@@ -1064,5 +1071,6 @@
       ]
     }
   },
-  "_doc_domain_coverage": "COVERAGE FIX 2026-08-04 (audit sweep). FORGE_HARD_RULES.json rule \"evidence-satisfied\" is severity:block + cannot_override:true + domain_aware, yet only 10 domains had an entry here while config/rubrics/ defined 17. A run classified payments/mobile/game/api/... could therefore NEVER satisfy a rule it could never be excused from — the same coverage gap the tooling domain hit on 2026-07-22, left open for 16 other domains. Every block added references ONLY event types really registered in log-event.cjs KNOWN_EVENT_TYPES (verified at authoring time), so none of these is a rule that cannot be met."
+  "_doc_domain_coverage": "COVERAGE FIX 2026-08-04 (audit sweep). FORGE_HARD_RULES.json rule \"evidence-satisfied\" is severity:block + cannot_override:true + domain_aware, yet only 10 domains had an entry here while config/rubrics/ defined 17. A run classified payments/mobile/game/api/... could therefore NEVER satisfy a rule it could never be excused from — the same coverage gap the tooling domain hit on 2026-07-22, left open for 16 other domains. Every block added references ONLY event types really registered in log-event.cjs KNOWN_EVENT_TYPES (verified at authoring time), so none of these is a rule that cannot be met.",
+  "_doc_mobile_device_run": "R8B-F5 (2026-11-08). The mobile item 'device-or-build-evidence' was met by any artifact whose name held 'apk', so a run that only built an APK counted as proven: in category round 8b the android Lead never ran its APK on the emulator this machine has and wrote 'no device available'. It is split in two. 'build-evidence' = the package itself. 'device-run-evidence' = a device screenshot (the commands printed by .claude/forge-bin/forge-device-env.cjs save it as <run>/artifacts/device-screenshot-1.png; a browser_screenshot_captured event whose screenshot_path names it also counts, through that path field, and log-event.cjs checks that file's size). A plain browser_screenshot_captured event is NOT accepted on its own: a browser screenshot is not a device run. Waiver: when forge-device-env finds no bootable emulator and no attached device it prints how to save its --json result as <run>/artifacts/device-env-no-device.json; that file, referenced by an event (decision_logged with artifact plus a reason that quotes the result), meets the item. Limits, said plainly: forge-evidence.cjs matches names, not file contents, so the waiver file is trusted by its name (the verdict inside it is for the reader); and log-event.cjs has no waiver_logged or device-run event type, so both routes are artifacts (any_of_events may only name registered types, forge-evidence.test.cjs pins that)."
 }

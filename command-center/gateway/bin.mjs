@@ -88,6 +88,7 @@ async function stopActiveWork(kind, waitMs) {
     const r = await ds.stopDiscordService();
     console.error('Forge Command Center gateway: Discord-service gestopt bij ' + kind + ' (' + JSON.stringify(r).slice(0, 120) + ')');
   } catch (e) { console.error('drain: discord-stop faalde (door met exit): ' + (e && e.message)); }
+  try { await (await import('./src/remote/manager.mjs')).stopRemoteBridge(); } catch (e) { console.error('drain: remote-bridge stop failed (exit goes on): ' + (e && e.message)); }
 }
 
 // Normal stop (WP B8-3). On Windows the desktop cannot send a signal a handler would see: child.kill() and
@@ -254,6 +255,14 @@ function onListening() {
   // was restarted by the supervisor, whose drain stops the bot). Off paths are explained in the log and
   // in GET /api/discord/status; see discord-autostart.mjs for the exact rule. Never blocks startup and
   // never takes the gateway down. A temp/test gateway sets CC_DISCORD_AUTOSTART=off.
+  // Remote Bridge (docs/REMOTE-BRIDGE-CONTRACT.md): off by default; started again only when the owner
+  // enabled it through the loopback admin API IN THIS gateway (same project root + data dir). A
+  // temp/test gateway sets FORGE_REMOTE_BRIDGE_AUTOSTART=off (the state folder is per user, so it would
+  // otherwise bind the owner's Tailscale address). Never blocks startup, never takes the gateway down.
+  import('./src/remote/manager.mjs')
+    .then((m) => m.restoreRemoteBridgeOnBoot({ env: process.env }))
+    .then((r) => { if (r.outcome !== 'off') console.log('[remote-bridge] ' + r.outcome + ': ' + (r.detail || '')); })
+    .catch((err) => console.error('Forge Command Center gateway: remote bridge restore failed (server stays up):', err && err.message ? err.message : err));
   import('./src/discord-autostart.mjs')
     .then((m) => m.autostartDiscordOnBoot())
     .then((r) => console.log('[discord-autostart] ' + r.outcome + ': ' + r.detail))

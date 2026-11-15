@@ -210,7 +210,7 @@ function safeReadContained(filePath, baseDir) {
 // install (realpath match): it may not redirect this CLI to read a different project's runs/memory.
 // WP 2.1: forge-paths.cjs (guarded: a missing or older copy keeps every legacy answer below). An INSTALLED copy
 // (<project>/.claude/forge-bin, scriptRootInfo source 'script') keeps the isolation guard exactly as before. A
-// PLUGIN copy has no own install inside any project, so the realpath guard above could never pass: there the
+// PLUGIN copy has no own install inside any project, so the realpath guard above could never pass (R1): there the
 // owner's FORGE_PROJECT_ROOT is honored when it is an existing folder, else the project is discovered from the
 // working folder - and when there is none, PROJECT_DIR is null and every command refuses with a clear message.
 const forgePaths = (() => { try { const m = require('./forge-paths.cjs'); return m && typeof m.stateDir === 'function' && typeof m.scriptRootInfo === 'function' ? m : null; } catch { return null; } })();

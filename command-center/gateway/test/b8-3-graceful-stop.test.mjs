@@ -30,7 +30,7 @@ function freePort() {
 
 async function startWithIpc(t) {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'b8-3-stop-'));
-  const env = { ...process.env, CC_DISCORD_AUTOSTART: 'off', FORGE_DATA_DIR: data, CC_PORT: String(await freePort()) };
+  const env = { ...process.env, CC_DISCORD_AUTOSTART: 'off', FORGE_REMOTE_BRIDGE_AUTOSTART: 'off', FORGE_DATA_DIR: data, CC_PORT: String(await freePort()) };
   for (const k of ['FORGE_GATEWAY_PORT', 'CC_TEST_PREFERRED_PORT', 'CC_TEST_THROW_AFTER_MS']) delete env[k];
   const child = spawn(process.execPath, [BIN], { env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
   const out = { stdout: '', stderr: '' };

@@ -41,16 +41,318 @@
       ],
       "families": "purple = mission owner; yellow = coordination and bookkeeping; blue = code builders; pink = interface; orange = external systems and payments; cyan = data, research and docs; green = verification and tests; red = review and security gates"
     },
-    "skills": "Preloaded at startup: the full skill content is injected, first 32 distinct names, a disable-model-invocation skill cannot be preloaded. Taken from agent-skill-map.json, keeping only skills on disk under .claude/skills that are not disable-model-invocation and carry no situational invocation note (grilling, resolving-merge-conflicts, claude-md-improver stay out). No shipped agent has the Skill tool, so a skill that is not preloaded reaches an agent only through its dispatch prompt.",
+    "skills": "Preloaded at startup: the full skill content is injected, first 32 distinct names, a disable-model-invocation skill cannot be preloaded. Generated from .claude/config/orchestration/FORGE_DEFAULT_SKILLS.json by forge-agent-skills-sync.cjs: forge-conduct, then the role baseline (a specialist borrows its Boss baseline), then the agent's own domain skills; only skills that ship under .claude/skills. agent-skill-map.json must list every preload. Exec-class agents (full-build, exec-reviewer) also hold the Skill tool; the others Read a SKILL.md by path.",
     "disallowedTools": "Added only where the tools allowlist does not already exclude a tool the class forbids. Every shipped agent has an explicit tools allowlist and no read-only agent carries memory, so none needs it today; the check fails if a forbidden tool becomes effective.",
     "isolation": "Not set on any agent (2026-10-24). Frontmatter isolation applies to EVERY dispatch, but forge-worktrees keeps single-agent sequential work in the main tree; a subagent worktree branches from the remote default branch unless the setting worktree.baseRef is \"head\", and never carries uncommitted work; it holds only tracked files (no node_modules); and log-event.cjs run from a worktree writes into that worktree's forge-runs. Use the Agent tool isolation parameter on parallel dispatches until these are resolved. When set, only \"worktree\" on a full-build agent is valid."
   },
   "counts": {
-    "agents": 20,
+    "agents": 66,
     "bosses": 12,
-    "specialists": 8
+    "specialists": 54
   },
   "agents": [
+    {
+      "name": "ai-eval-engineer",
+      "file": ".claude/agents/ai-eval-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-verify",
+        "forge-agent",
+        "forge-graded-verify",
+        "forge-skill-testing"
+      ],
+      "memory": null,
+      "color": "purple"
+    },
+    {
+      "name": "ai-rag-engineer",
+      "file": ".claude/agents/ai-rag-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-rag",
+        "forge-agent",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "purple"
+    },
+    {
+      "name": "ai-voice-designer",
+      "file": ".claude/agents/ai-voice-designer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-voice",
+        "humanizer"
+      ],
+      "memory": "project",
+      "color": "purple"
+    },
+    {
+      "name": "app-architect",
+      "file": ".claude/agents/app-architect.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-brainstorm",
+        "forge-fullstack",
+        "forge-api",
+        "forge-database",
+        "forge-auth"
+      ],
+      "memory": "project",
+      "color": "blue"
+    },
+    {
+      "name": "app-backend-engineer",
+      "file": ".claude/agents/app-backend-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-api",
+        "forge-database",
+        "forge-auth",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "blue"
+    },
+    {
+      "name": "app-data-reviewer",
+      "file": ".claude/agents/app-data-reviewer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-code-review",
+        "forge-craft",
+        "forge-database",
+        "forge-verify"
+      ],
+      "memory": null,
+      "color": "blue"
+    },
+    {
+      "name": "app-domain-reviewer",
+      "file": ".claude/agents/app-domain-reviewer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-code-review",
+        "forge-craft",
+        "forge-verify",
+        "forge-graded-verify"
+      ],
+      "memory": null,
+      "color": "blue"
+    },
+    {
+      "name": "auto-bot-engineer",
+      "file": ".claude/agents/auto-bot-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-bots",
+        "forge-integration",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "yellow"
+    },
+    {
+      "name": "auto-n8n-engineer",
+      "file": ".claude/agents/auto-n8n-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-n8n",
+        "forge-integration"
+      ],
+      "memory": "project",
+      "color": "yellow"
+    },
+    {
+      "name": "auto-n8n-validator",
+      "file": ".claude/agents/auto-n8n-validator.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Bash",
+        "PowerShell",
+        "Read",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-verify",
+        "forge-n8n"
+      ],
+      "memory": null,
+      "color": "yellow"
+    },
     {
       "name": "boss",
       "file": ".claude/agents/boss.md",
@@ -71,9 +373,10 @@
       "maxTurns": 100,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-brainstorm",
         "forge-router",
         "forge-prd",
-        "forge-brainstorm",
         "forge-report"
       ],
       "memory": "project",
@@ -95,13 +398,17 @@
         "PowerShell",
         "Grep",
         "Glob",
-        "SendMessage"
+        "SendMessage",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-testing",
         "forge-debug",
+        "ponytail",
         "forge-code-review",
         "forge-worktrees"
       ],
@@ -121,14 +428,73 @@
         "PowerShell",
         "Read",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 40,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-code-review",
+        "forge-craft"
+      ],
       "memory": null,
       "color": "green"
+    },
+    {
+      "name": "data-backtest-auditor",
+      "file": ".claude/agents/data-backtest-auditor.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Bash",
+        "PowerShell",
+        "Read",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-verify",
+        "forge-prediction",
+        "forge-graded-verify"
+      ],
+      "memory": null,
+      "color": "purple"
+    },
+    {
+      "name": "data-compliance-reviewer",
+      "file": ".claude/agents/data-compliance-reviewer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "read-only-audit",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-security-review",
+        "forge-scraping"
+      ],
+      "memory": null,
+      "color": "purple"
     },
     {
       "name": "data-scientist",
@@ -145,14 +511,114 @@
         "Bash",
         "PowerShell",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail"
+      ],
       "memory": "project",
       "color": "cyan"
+    },
+    {
+      "name": "data-scraper-engineer",
+      "file": ".claude/agents/data-scraper-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-scraping",
+        "forge-data",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "purple"
+    },
+    {
+      "name": "desk-installer-engineer",
+      "file": ".claude/agents/desk-installer-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-electron",
+        "forge-release",
+        "forge-windows-shell"
+      ],
+      "memory": "project",
+      "color": "orange"
+    },
+    {
+      "name": "desk-qa-tester",
+      "file": ".claude/agents/desk-qa-tester.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-verify",
+        "forge-electron"
+      ],
+      "memory": null,
+      "color": "orange"
     },
     {
       "name": "docs-boss",
@@ -174,6 +640,8 @@
       "maxTurns": 80,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "humanizer",
         "forge-report",
         "forge-prd"
       ],
@@ -195,14 +663,112 @@
         "Bash",
         "PowerShell",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail"
+      ],
       "memory": "project",
       "color": "blue"
+    },
+    {
+      "name": "game-designer",
+      "file": ".claude/agents/game-designer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-brainstorm",
+        "forge-game",
+        "prototype-fast",
+        "level-design",
+        "game-feel"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "game-playtester",
+      "file": ".claude/agents/game-playtester.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-verify",
+        "forge-game"
+      ],
+      "memory": null,
+      "color": "green"
+    },
+    {
+      "name": "game-programmer",
+      "file": ".claude/agents/game-programmer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-game",
+        "input-systems",
+        "save-systems",
+        "performance-optimization",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "green"
     },
     {
       "name": "head-chef",
@@ -224,6 +790,8 @@
       "maxTurns": 60,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-quality",
         "forge-worktrees",
         "forge-router"
       ],
@@ -246,12 +814,16 @@
         "PowerShell",
         "Grep",
         "Glob",
-        "SendMessage"
+        "SendMessage",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
         "forge-integration"
       ],
       "memory": "project",
@@ -272,12 +844,18 @@
         "Bash",
         "PowerShell",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-mcp-clients"
+      ],
       "memory": "project",
       "color": "blue"
     },
@@ -296,14 +874,114 @@
         "Bash",
         "PowerShell",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail"
+      ],
       "memory": "project",
       "color": "cyan"
+    },
+    {
+      "name": "mob-app-engineer",
+      "file": ".claude/agents/mob-app-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-mobile",
+        "forge-android-app",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "blue"
+    },
+    {
+      "name": "mob-qa-tester",
+      "file": ".claude/agents/mob-qa-tester.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Bash",
+        "PowerShell",
+        "Read",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-verify",
+        "forge-mobile",
+        "forge-android-app"
+      ],
+      "memory": null,
+      "color": "blue"
+    },
+    {
+      "name": "mob-release-engineer",
+      "file": ".claude/agents/mob-release-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-android-app",
+        "forge-mobile",
+        "forge-release"
+      ],
+      "memory": "project",
+      "color": "blue"
     },
     {
       "name": "payment-integration",
@@ -320,14 +998,501 @@
         "Bash",
         "PowerShell",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-security-review"
+      ],
       "memory": "project",
       "color": "orange"
+    },
+    {
+      "name": "rbx-blender-artist",
+      "file": ".claude/agents/rbx-blender-artist.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "create-game-assets",
+        "roblox-studio-workflow",
+        "performance-optimization"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-game-director",
+      "file": ".claude/agents/rbx-game-director.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-brainstorm",
+        "roblox-game-design",
+        "roblox-player-psychology",
+        "roblox-economy-ethics",
+        "roblox-new-system",
+        "roblox-simulator-economy",
+        "level-design",
+        "game-feel",
+        "game-ai",
+        "prototype-fast"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-integrator",
+      "file": ".claude/agents/rbx-integrator.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "roblox-studio-workflow",
+        "roblox-publish-checklist",
+        "roblox-luau",
+        "roblox-security",
+        "forge-worktrees"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-liveops-producer",
+      "file": ".claude/agents/rbx-liveops-producer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "humanizer",
+        "forge-report",
+        "roblox-economy-ethics",
+        "roblox-player-psychology",
+        "roblox-game-design",
+        "roblox-publish-checklist"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-luau-engineer",
+      "file": ".claude/agents/rbx-luau-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "roblox-luau",
+        "roblox-networking",
+        "roblox-datastores",
+        "roblox-security",
+        "roblox-new-system",
+        "roblox-physics",
+        "roblox-characters",
+        "roblox-simulator-economy",
+        "save-systems",
+        "performance-optimization",
+        "roblox-studio-workflow"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-qa-tester",
+      "file": ".claude/agents/rbx-qa-tester.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-verify",
+        "roblox-studio-workflow",
+        "roblox-luau",
+        "roblox-security",
+        "performance-optimization",
+        "roblox-publish-checklist"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-security-reviewer",
+      "file": ".claude/agents/rbx-security-reviewer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "deep",
+      "model": "opus",
+      "effort": "xhigh",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-security-review",
+        "roblox-security",
+        "roblox-networking",
+        "roblox-datastores",
+        "roblox-economy-ethics",
+        "roblox-game-audit"
+      ],
+      "memory": null,
+      "color": "green"
+    },
+    {
+      "name": "rbx-skill-monitor",
+      "file": ".claude/agents/rbx-skill-monitor.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-skill-authoring",
+        "forge-skill-testing",
+        "forge-security-review"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-ui-engineer",
+      "file": ".claude/agents/rbx-ui-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-craft",
+        "forge-ui-polish",
+        "roblox-luau",
+        "roblox-ui",
+        "game-ui-ux",
+        "game-feel",
+        "input-systems",
+        "roblox-security"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-verifier",
+      "file": ".claude/agents/rbx-verifier.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-verify",
+        "roblox-luau",
+        "roblox-security",
+        "roblox-publish-checklist"
+      ],
+      "memory": null,
+      "color": "green"
+    },
+    {
+      "name": "rbx-vfx-audio",
+      "file": ".claude/agents/rbx-vfx-audio.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-craft",
+        "forge-ui-polish",
+        "roblox-luau",
+        "roblox-vfx",
+        "audio-design",
+        "game-feel"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "rbx-world-builder",
+      "file": ".claude/agents/rbx-world-builder.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "roblox-luau",
+        "roblox-studio-workflow",
+        "level-design",
+        "camera-systems",
+        "roblox-physics",
+        "performance-optimization"
+      ],
+      "memory": "project",
+      "color": "green"
+    },
+    {
+      "name": "res-analyst",
+      "file": ".claude/agents/res-analyst.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "read-only-audit",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-research-evidence",
+        "forge-scout"
+      ],
+      "memory": null,
+      "color": "cyan"
+    },
+    {
+      "name": "res-fact-checker",
+      "file": ".claude/agents/res-fact-checker.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "read-only-audit",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-verify",
+        "forge-research-evidence",
+        "forge-graded-verify"
+      ],
+      "memory": null,
+      "color": "cyan"
+    },
+    {
+      "name": "res-plan-writer",
+      "file": ".claude/agents/res-plan-writer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "humanizer",
+        "forge-report",
+        "forge-prd",
+        "writing-plans"
+      ],
+      "memory": "project",
+      "color": "cyan"
     },
     {
       "name": "review-boss",
@@ -347,7 +1512,9 @@
       "maxTurns": 100,
       "isolation": null,
       "skills": [
+        "forge-conduct",
         "forge-code-review",
+        "forge-craft",
         "forge-verify"
       ],
       "memory": null,
@@ -365,14 +1532,46 @@
         "Read",
         "Grep",
         "Glob",
-        "Bash"
+        "Bash",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 30,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "humanizer",
+        "forge-report",
+        "forge-scribe"
+      ],
       "memory": null,
       "color": "yellow"
+    },
+    {
+      "name": "scribe-acker",
+      "file": ".claude/agents/scribe-acker.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "quick",
+      "model": "sonnet",
+      "effort": "low",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 20,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-verify",
+        "forge-scribe"
+      ],
+      "memory": null,
+      "color": "green"
     },
     {
       "name": "search-boss",
@@ -394,6 +1593,8 @@
       "maxTurns": 80,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-research-evidence",
         "forge-scout"
       ],
       "memory": null,
@@ -417,6 +1618,8 @@
       "maxTurns": 100,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-security-review",
         "forge-verify"
       ],
       "memory": null,
@@ -442,12 +1645,128 @@
       "maxTurns": 60,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-web-quality",
         "forge-website",
         "forge-scout",
         "forge-verify"
       ],
       "memory": null,
       "color": "cyan"
+    },
+    {
+      "name": "shop-catalog-engineer",
+      "file": ".claude/agents/shop-catalog-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-debug",
+        "ponytail",
+        "forge-ecommerce",
+        "forge-payments",
+        "forge-integration"
+      ],
+      "memory": "project",
+      "color": "orange"
+    },
+    {
+      "name": "shop-listing-writer",
+      "file": ".claude/agents/shop-listing-writer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "humanizer",
+        "forge-report",
+        "forge-ecommerce"
+      ],
+      "memory": "project",
+      "color": "orange"
+    },
+    {
+      "name": "shop-ops-analyst",
+      "file": ".claude/agents/shop-ops-analyst.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Bash",
+        "PowerShell",
+        "Read",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-code-review",
+        "forge-craft",
+        "forge-ecommerce",
+        "forge-verify"
+      ],
+      "memory": null,
+      "color": "orange"
+    },
+    {
+      "name": "shop-product-researcher",
+      "file": ".claude/agents/shop-product-researcher.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "read-only-audit",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "WebSearch",
+        "WebFetch"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-research-evidence",
+        "forge-ecommerce"
+      ],
+      "memory": null,
+      "color": "orange"
     },
     {
       "name": "skill-boss",
@@ -469,8 +1788,10 @@
       "maxTurns": 60,
       "isolation": null,
       "skills": [
+        "forge-conduct",
         "forge-scout",
-        "forge-skill-testing"
+        "forge-skill-testing",
+        "forge-skill-authoring"
       ],
       "memory": "project",
       "color": "yellow"
@@ -491,13 +1812,15 @@
         "PowerShell",
         "Grep",
         "Glob",
-        "SendMessage"
+        "SendMessage",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 150,
       "isolation": null,
       "skills": [
-        "forge-skill-testing",
+        "forge-conduct",
+        "forge-testing",
         "forge-verify",
         "forge-debug"
       ],
@@ -520,12 +1843,16 @@
         "PowerShell",
         "Grep",
         "Glob",
-        "SendMessage"
+        "SendMessage",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 200,
       "isolation": null,
       "skills": [
+        "forge-conduct",
+        "forge-craft",
+        "forge-ui-polish",
         "forge-website",
         "forge-mobile",
         "forge-verify"
@@ -546,14 +1873,170 @@
         "PowerShell",
         "Read",
         "Grep",
-        "Glob"
+        "Glob",
+        "Skill"
       ],
       "disallowedTools": [],
       "maxTurns": 80,
       "isolation": null,
-      "skills": [],
+      "skills": [
+        "forge-conduct",
+        "forge-verify"
+      ],
       "memory": null,
       "color": "green"
+    },
+    {
+      "name": "web-art-director",
+      "file": ".claude/agents/web-art-director.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-craft",
+        "forge-ui-polish",
+        "frontend-design",
+        "forge-website"
+      ],
+      "memory": "project",
+      "color": "pink"
+    },
+    {
+      "name": "web-content-writer",
+      "file": ".claude/agents/web-content-writer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "write-no-exec",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Grep",
+        "Glob"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 100,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "humanizer",
+        "forge-report",
+        "forge-website",
+        "forge-long-form-writing"
+      ],
+      "memory": "project",
+      "color": "pink"
+    },
+    {
+      "name": "web-dataviz-engineer",
+      "file": ".claude/agents/web-dataviz-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-craft",
+        "forge-ui-polish",
+        "forge-website",
+        "forge-fullstack"
+      ],
+      "memory": "project",
+      "color": "pink"
+    },
+    {
+      "name": "web-frontend-engineer",
+      "file": ".claude/agents/web-frontend-engineer.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "full-build",
+      "route": "build",
+      "model": "opus",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "PowerShell",
+        "Grep",
+        "Glob",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 200,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-debug",
+        "ponytail",
+        "forge-website",
+        "frontend-design",
+        "test-driven-development"
+      ],
+      "memory": "project",
+      "color": "pink"
+    },
+    {
+      "name": "web-qa-proof",
+      "file": ".claude/agents/web-qa-proof.md",
+      "bossOrSpecialist": "specialist",
+      "roleClass": "exec-reviewer",
+      "route": "verifier",
+      "model": "sonnet",
+      "effort": "medium",
+      "tools": [
+        "Read",
+        "Grep",
+        "Glob",
+        "Bash",
+        "PowerShell",
+        "Skill"
+      ],
+      "disallowedTools": [],
+      "maxTurns": 80,
+      "isolation": null,
+      "skills": [
+        "forge-conduct",
+        "forge-testing",
+        "forge-verify",
+        "forge-a11y",
+        "forge-web-quality"
+      ],
+      "memory": null,
+      "color": "pink"
     }
   ]
 }

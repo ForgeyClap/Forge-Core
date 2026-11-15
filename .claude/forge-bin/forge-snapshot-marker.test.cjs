@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-snapshot-marker.test.cjs — real tests for the PreCompact hook target. Every fixture runs under a
 // fresh os.tmpdir() project — this file NEVER writes to this repo's real .claude/.
 const fs = require('fs');
@@ -249,7 +253,7 @@ t('a copy with NO sibling forge-config.cjs (the global ~/.claude/forge-bin deplo
   fs.mkdirSync(pbin, { recursive: true });
   // forge-config-once.cjs is a required sibling of forge-config.cjs — any copy of
   // the latter needs it too, exactly like forge-config-text.cjs already did. forge-config-once-store.cjs (
-  // the exactly-once pending -> consumed store) joined that list the same way: a vendored forge-config.cjs
+  // V09: the exactly-once pending -> consumed store) joined that list the same way: a vendored forge-config.cjs
   // without it throws MODULE_NOT_FOUND, and the marker's fail-open default would then hide the missing sibling.
   for (const f of ['forge-config.cjs', 'forge-config-text.cjs', 'forge-config-once.cjs', 'forge-config-once-store.cjs']) fs.copyFileSync(path.join(__dirname, f), path.join(pbin, f));
   const orch = path.join(proj, '.claude', 'config', 'orchestration');

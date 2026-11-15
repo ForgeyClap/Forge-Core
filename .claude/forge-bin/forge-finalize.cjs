@@ -419,7 +419,7 @@ function rulesetPinOf(root) {
     const j = JSON.parse(buf.toString('utf8'));
     if (j && (typeof j.version === 'number' || typeof j.version === 'string')) version = j.version;
   } catch { version = null; }
-  // the exact bytes travel with the pin so finalize can store a content-addressed copy next to the receipt
+  // F02: the exact bytes travel with the pin so finalize can store a content-addressed copy next to the receipt
   return { sha256, version, bytes: buf };
 }
 function rulesetHashOf(root) {
@@ -439,7 +439,7 @@ const kort = (v) => String(v).slice(0, 12) + '…';
  *  Two generations are allowlistable:
  *   - 'pre-evidence'        schema 2, pins log + ruleset, no evidence_digest/code_commit/IV (finalized 2026-08-06..09)
  *   - 'pre-pinned-ruleset'  evidence-bearing, but finalized before the rules bytes were stored next to the receipt
- *                           accepted as HISTORICAL cause 'ruleset' (reverified:false) when the rules
+ *                           (F02) — accepted as HISTORICAL cause 'ruleset' (reverified:false) when the rules
  *                           changed, and its evidence may match an older canonical form (legacy_digests). */
 const LEGACY_RECEIPTS_REL = path.join('.claude', 'config', 'orchestration', 'FORGE_LEGACY_RECEIPTS.user.json');
 const LEGACY_RECEIPTS_SCHEMA = 'forge-legacy-receipts/v1';
@@ -471,7 +471,7 @@ function allowlistedReceipt(root, runId, receiptBytes) {
 }
 function rulesetPinnedFileOf(root, runId) { return path.join(runsBaseOf(root, runId), runId, RULESET_PINNED_FILE); }
 /** pinnedRulesetOf(root, runId, expectedSha) -> {state:'present'|'absent'|'mismatch', path, sha256?} — the
- *  content-addressed copy of the rules a receipt was judged under. */
+ *  content-addressed copy of the rules a receipt was judged under (F02). */
 function pinnedRulesetOf(root, runId, expectedSha) {
   const p = rulesetPinnedFileOf(root, runId);
   let buf;
@@ -534,11 +534,14 @@ function pinnedRulesetOf(root, runId, expectedSha) {
  *       cause:'ruleset'         — judged against a ruleset that is no longer the current one (ruleset_then/
  *                                  now, ruleset_version_then/now); reverified:false; the current-rules
  *                                  outcome is in contract_under_current_ruleset {ok, missing, unevaluated}.
+ *       cause:'contract-inputs' — FB-FINALIZE-1-F1: the contract is red now ONLY on complexity-triggered rules that
+ *                                  an unpinned input (live hook log, request floor) brought into play by raising
+ *                                  the level above the sealed one (complexity_then/now); reverified:false.
  *   {status:'undetermined', reason} — the LIVE git state of this root right now is neither a confirmed
  *                                  repo nor a confirmed no-repo (`gitProbe`'s `state:'undetermined'` —
  *                                  dubious ownership, no commits yet, a poisoned GIT_DIR, git missing,
  *                                  timeout). Also-noted fix (2026-09-26 independent review, alongside N2/
- *                                  this receipt is bound to a REAL commit (`code_commit`),
+ *                                  N3/N4/N6/N8): this receipt is bound to a REAL commit (`code_commit`),
  *                                  so a right-now-unreadable HEAD can never honestly be called either
  *                                  'current' (we do not know it still matches) or 'historical' (we do not
  *                                  know it does not) — it is reported as exactly what it is, undetermined,
@@ -554,7 +557,7 @@ function pinnedRulesetOf(root, runId, expectedSha) {
  *  Never throws — a re-check failure folds into {status:'fail'}. */
 function evaluateAcceptance(root, runId, receipt, ctx) {
   ctx = ctx || {};
-  // an OLDER canonical evidence form is accepted ONLY for a receipt on the checked-in allowlist
+  // F01/F03: an OLDER canonical evidence form is accepted ONLY for a receipt on the checked-in allowlist
   const allow = ctx.allowlisted !== undefined ? ctx.allowlisted : allowlistedReceipt(root, runId, readReceiptBytes(root, runId));
   const nuSet = canonicalEvidenceOf(root, runId);
   const nu = nuSet ? nuSet.digest : null;
@@ -579,7 +582,7 @@ function evaluateAcceptance(root, runId, receipt, ctx) {
   if (!nuSet || (nuSet.failed || []).length) {
     return { status: 'fail', reason: 'de huidige bewijsset bevat gefaalde poort(en) (' + ((nuSet && nuSet.failed) || []).join(', ') + ') — een receipt met bijpassende hash maar rode uitvoer wordt niet geaccepteerd' };
   }
-  /** the manifest still matches the pin, but the raw gate output(s) cannot be read back on this machine
+  /** F03: the manifest still matches the pin, but the raw gate output(s) cannot be read back on this machine
    *  — nothing proves them wrong, nothing can re-verify them. Not 'fail' (no tamper evidence), never
    *  'current' or a re-verified 'historical' either: an archival record that is not a completion proof. */
   if (nuSet.allGreen !== true || (nuSet.unverified || []).length) {
@@ -591,7 +594,7 @@ function evaluateAcceptance(root, runId, receipt, ctx) {
   const nuPin = rulesetPinOf(root);
   const rulesetChanged = (nuPin ? nuPin.sha256 : null) !== receipt.ruleset_sha256;
   const RC = require(path.join(__dirname, 'forge-runcontract.cjs'));
-  // the contract re-run may accept an older evidence form in the review binding ONLY for an allowlisted receipt
+  // F03: the contract re-run may accept an older evidence form in the review binding ONLY for an allowlisted receipt
   const checkOpts = { root, acceptLegacyEvidenceDigests: evidenceCanon === 'legacy' };
   /** Also-noted fix (2026-09-26 independent review): this used to call `RC.resolveHeadCommit(root)`
    *  directly, which collapses gitProbe's THREE states into just a commit-or-null — so an UNDETERMINED
@@ -621,6 +624,12 @@ function evaluateAcceptance(root, runId, receipt, ctx) {
   try { contractNow = RC.check({ run_id: runId, domain: receipt.domain || undefined, commit_sha: judgedCommit }, checkOpts); }
   catch (e) { return { status: 'fail', reason: 'het contract kon bij acceptatie niet worden herbeoordeeld (' + (e && e.message ? e.message : String(e)) + ') — een receipt die niet herbevestigd kan worden, wordt niet vertrouwd' }; }
   if (!contractNow || contractNow.ok !== true) {
+    const cxDrift = contractNow ? complexityDriftOnly(RC, root, receipt, contractNow, checkOpts) : null;
+    if (cxDrift) {
+      return Object.assign({ status: 'historical', cause: 'contract-inputs', reverified: false,
+        reason: 'het contract is nu rood op ' + contractNow.missing.join(', ') + ', maar ALLEEN omdat een niet-gepinde invoer (' + contractNow.complexity_source + ') de run van ' + cxDrift.then + ' naar ' + cxDrift.now + ' tilde; op het gesealde niveau ' + cxDrift.then + ' geldt geen van die regels — geen manipulatie, wel niet opnieuw bevestigd: HISTORISCH, geen completion-bewijs',
+        complexity_then: cxDrift.then, complexity_now: cxDrift.now, complexity_source_now: contractNow.complexity_source, missing_now: contractNow.missing.slice() }, canonInfo);
+    }
     return { status: 'fail', reason: 'het contract is bij acceptatie NIET meer groen (missing: ' + ((contractNow && contractNow.missing) || []).join(', ') + ') — een opgeslagen contract:"ok" wordt niet blind vertrouwd; deze receipt wordt niet geaccepteerd' };
   }
   const domainNow = runDomainOf(root, runId);
@@ -631,6 +640,34 @@ function evaluateAcceptance(root, runId, receipt, ctx) {
     return Object.assign({ status: 'historical', cause: 'domain', reverified: true, reason: 'deze receipt geldt voor domein ' + JSON.stringify(receipt.domain) + ' maar run.json declareert nu ' + JSON.stringify(domainNow) + ' — dit eindverdict is HISTORISCH, niet actueel', domain_then: receipt.domain, domain_now: domainNow }, canonInfo);
   }
   return Object.assign({ status: 'current' }, canonInfo);
+}
+
+/** complexityDriftOnly(RC, root, receipt, contractNow, checkOpts) -> {then, now} | null — FB-FINALIZE-1-F1.
+ *  The contract resolves a run's complexity partly from inputs no receipt pin covers: the live SubagentStart hook log
+ *  ('harness') and the request floor ('request-floor'). When one of those raised the level after the seal, a
+ *  complexity:>=Ln rule can turn red on a receipt nothing tampered with. Returns the levels only when ALL of these hold:
+ *  the new level came from such an unpinned source, it is higher than the sealed level (receipt.complexity_pinned, or
+ *  for an older receipt the max of what the sealed log and run.json declare/derive), and EVERY missing rule is a
+ *  complexity-triggered rule that does NOT apply at the sealed level. Anything else stays a real failure (null). */
+const UNPINNED_COMPLEXITY_SOURCES = new Set(['harness', 'request-floor']);
+function complexityDriftOnly(RC, root, receipt, contractNow, checkOpts) {
+  try {
+    if (!UNPINNED_COMPLEXITY_SOURCES.has(contractNow.complexity_source)) return null;
+    const lv = (l) => { const m = /^L([1-4])$/.exec(String(l || '')); return m ? Number(m[1]) : 0; };
+    const pinned = receipt.complexity_pinned && lv(receipt.complexity_pinned.level) ? receipt.complexity_pinned.level : null;
+    const then = pinned || 'L' + Math.max(lv(contractNow.complexity_declared), lv(contractNow.complexity_derived), 1);
+    const now = contractNow.complexity;
+    if (!(lv(now) > lv(then))) return null;
+    const missing = Array.isArray(contractNow.missing) ? contractNow.missing : [];
+    if (!missing.length || typeof RC.listRules !== 'function' || !RC.COMPLEXITY_TRIGGER_RE) return null;
+    const rules = RC.listRules({ rulesPath: (checkOpts && checkOpts.rulesPath) || path.join(root, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json') });
+    for (const id of missing) {
+      const rule = (rules || []).find((r) => r && r.id === id);
+      if (!rule || !RC.COMPLEXITY_TRIGGER_RE.test(String(rule.trigger || ''))) return null;
+      if (RC.ruleApplies(rule, receipt.domain || null, then)) return null; // red at the sealed level too: a real failure
+    }
+    return { then, now };
+  } catch { return null; }
 }
 
 /** rulesetSupersededAcceptance(root, runId, receipt, ctx) -> {status:'historical', cause:'ruleset', ...} —
@@ -672,8 +709,10 @@ function rulesetSupersededAcceptance(root, runId, receipt, ctx) {
   const pinned = pinnedRulesetOf(root, runId, receipt.ruleset_sha256);
   if (pinned.state === 'present') {
     let underPinned;
+    let cPinned = null;
+    const pinnedOpts = Object.assign({}, checkOpts, { rulesPath: pinned.path });
     try {
-      const c = RC.check({ run_id: runId, domain: receipt.domain || undefined, commit_sha: judgedCommit }, Object.assign({}, checkOpts, { rulesPath: pinned.path }));
+      const c = cPinned = RC.check({ run_id: runId, domain: receipt.domain || undefined, commit_sha: judgedCommit }, pinnedOpts);
       underPinned = { ok: !!(c && c.ok === true), missing: (c && c.missing) || [], unevaluated: ((c && c.unevaluated) || []).map((u) => u.id), ruleset_sha256_used: c && c.ruleset_sha256_used };
     } catch (e) {
       return Object.assign({ status: 'fail', reason: 'het contract kon niet worden herbeoordeeld onder de GEPINDE regelset ' + label(receipt.ruleset_sha256, versionThen) + ' (' + (e && e.message ? e.message : String(e)) + ') — een receipt die niet herbevestigd kan worden, wordt niet vertrouwd' }, common);
@@ -682,6 +721,14 @@ function rulesetSupersededAcceptance(root, runId, receipt, ctx) {
       return Object.assign({ status: 'fail', reason: 'de gepinde regelset-kopie werd gelezen als ' + kort(underPinned.ruleset_sha256_used) + ' terwijl de receipt ' + kort(receipt.ruleset_sha256) + ' pint — de kopie wisselde tijdens de herbeoordeling' }, common);
     }
     if (!underPinned.ok) {
+      // FB-FINALIZE-1-F1 rework: the same unpinned-complexity drift rule as the unchanged-ruleset branch, judged with the PINNED rules
+      const cxDrift = cPinned ? complexityDriftOnly(RC, root, receipt, cPinned, pinnedOpts) : null;
+      if (cxDrift) {
+        return Object.assign({ status: 'historical', cause: 'contract-inputs', reverified: false, judged_under: 'pinned-ruleset',
+          reason: 'het contract is onder de GEPINDE regelset ' + label(receipt.ruleset_sha256, versionThen) + ' nu rood op ' + underPinned.missing.join(', ') + ', maar ALLEEN omdat een niet-gepinde invoer (' + cPinned.complexity_source + ') de run van ' + cxDrift.then + ' naar ' + cxDrift.now + ' tilde; op het gesealde niveau ' + cxDrift.then + ' geldt geen van die regels — geen manipulatie, wel niet opnieuw bevestigd: HISTORISCH, geen completion-bewijs; onder de huidige regels is het ' + huidig + driftNote,
+          complexity_then: cxDrift.then, complexity_now: cxDrift.now, complexity_source_now: cPinned.complexity_source, missing_now: underPinned.missing.slice(),
+          contract_under_pinned_ruleset: underPinned, contract_under_current_ruleset: underCurrent }, common, driftFields);
+      }
       return Object.assign({ status: 'fail', reason: 'het contract is onder de GEPINDE regelset ' + label(receipt.ruleset_sha256, versionThen) + ' NIET meer groen (missing: ' + underPinned.missing.join(', ') + ') — een regelwijziging verzacht een rood contract niet tot HISTORICAL' + driftNote, contract_under_pinned_ruleset: underPinned }, common, driftFields);
     }
     return Object.assign({
@@ -792,6 +839,7 @@ function maybeUpdateVault(root, runId, opts) {
     if (!vault || typeof vault.updateVault !== 'function') return;
     const r = vault.updateVault(root, runId, {});
     if (r && r.ok === false) console.error('forge-finalize: vault update skipped (' + r.reason + ')');
+    try { require(path.join(__dirname, 'forge-brain.cjs')).afterRun(root); } catch (e) { console.error('forge-finalize: brain update failed (' + e.message + ')'); }
   } catch (e) {
     console.error('forge-finalize: vault update failed (' + (e && e.message ? e.message : String(e)) + ') — finalize itself is unaffected');
   }
@@ -915,7 +963,7 @@ function finalizeLocked(root, runId) {
    *  met een direct ongeldige receipt kon opleveren. Nu echt vóór, welgevormd geëist, en na elke stap
    *  opnieuw vergeleken. Wat je pint moet de staat zijn die BEOORDEELD is, niet de staat die daarna
    *  toevallig op schijf stond. */
-  /** ÉÉN canonieke lezing voor digest én commit — de eerdere aparte tweede lezing op het
+  /** R10-02: ÉÉN canonieke lezing voor digest én commit — de eerdere aparte tweede lezing op het
    *  receipt-schrijfpunt was zelf een TOCTOU-venster. */
   const evidenceSetPre = canonicalEvidenceOf(root, runId);
   const evidencePre = evidenceSetPre ? evidenceSetPre.digest : null;
@@ -1083,12 +1131,12 @@ function finalizeLocked(root, runId) {
   // the receipt's scribe fields must agree with the slot event and still be a prefix of today's ledger
   const sbFinal = scribeBindingOf(root, scribeFields, lastFinal);
   if (!sbFinal.ok) return { ok: false, verdict: 'refused', reason: 'scribe binding: ' + sbFinal.reason + ' — receipt geweigerd' };
-  /** een receipt zonder bindbare bewijsset is geen receipt. Eerder schreef finalize dan
+  /** R5-06/R5-07: een receipt zonder bindbare bewijsset is geen receipt. Eerder schreef finalize dan
    *  gewoon `evidence_digest: null`, waarna check() de vergelijking oversloeg (die was conditioneel) en
    *  alsnog FINALIZED gaf. Nu weigert finalize eerlijk. De pins worden HIER bepaald en na de
    *  receipt-write opnieuw geverifieerd, zodat een wijziging tussen contractcheck en write niet als
    *  nooit-beoordeeld bewijs kan worden ingepind. */
-  /** de pins die het CONTRACT beoordeeld heeft, moeten na het slotevent nog exact gelden — anders
+  /** R7-02: de pins die het CONTRACT beoordeeld heeft, moeten na het slotevent nog exact gelden — anders
    *  pinnen we een staat die niemand heeft beoordeeld. */
   const evidenceDigest = evidencePre;
   const rulesetPin = rulesetPre;
@@ -1097,7 +1145,7 @@ function finalizeLocked(root, runId) {
   }
   const dFinal = digestOf(file);
   const lastSeq = finalEvents.reduce((m, e) => Number.isFinite(Number(e.seq)) ? Math.max(m, Number(e.seq)) : m, 0);
-  /** een receipt die tegelijk FINALIZED en een RODE toepasselijke IV-status draagt, geeft twee
+  /** R10-02: een receipt die tegelijk FINALIZED en een RODE toepasselijke IV-status draagt, geeft twee
    *  tegenstrijdige gezaghebbende signalen af (HEAD-race tussen contractcheck en statusbepaling). Dat
    *  is geen metadata-detail: dan is niet bewezen wat de receipt claimt. Fail-closed. */
   const ivStatus = independentVerificationStatus(root, runId);
@@ -1122,6 +1170,10 @@ function finalizeLocked(root, runId) {
      *  FINALIZED bleven zeggen. De commit waarop het bewijs draaide staat nu in de receipt en wordt bij
      *  elke check hervergeleken; verschuift hij, dan is het oordeel over andere code geveld. */
     code_commit: (evidenceSetPre && evidenceSetPre.commit) || null,
+    /** FB-FINALIZE-1-F1: the complexity the green contract was judged at. Part of it comes from inputs no
+     *  other pin covers (the live hook log, the request floor); a later rise there reads HISTORICAL cause
+     *  'contract-inputs', never STALE (see complexityDriftOnly). Additive field: an older checker ignores it. */
+    complexity_pinned: { level: kind.complexity || null, source: kind.complexity_source || null, units: Number.isFinite(kind.complexity_units) ? kind.complexity_units : null, harness_units: Number.isFinite(kind.complexity_harness_units) ? kind.complexity_harness_units : null },
     /** R4-07/R5-08 (twee rondes, zelfde punt): de gezaghebbende receipt droeg de owner-gated caveat NIET.
      *  Een consument las FINALIZED en kon dat als principal-onafhankelijk opvatten, terwijl OWNER-GATED.md
      *  juist vastlegt dat de scheiding op agentLABEL rust. Een eindverdict dat zijn eigen beperking niet
@@ -1136,7 +1188,7 @@ function finalizeLocked(root, runId) {
     ...scribeFields,
     finalized_at: new Date().toISOString(), ...(danglingSlot ? { recovered_dangling_slot: true } : {}),
   };
-  /** the pinned copy is written BEFORE the receipt (never a receipt without its rules), from the SAME
+  /** F02: the pinned copy is written BEFORE the receipt (never a receipt without its rules), from the SAME
    *  bytes rulesetPinOf() hashed for the pin, and read back to the pin's hash before the receipt lands. A
    *  failure here is a refusal — a receipt whose rules cannot be reproduced is not a completion proof. */
   try {
@@ -1151,7 +1203,7 @@ function finalizeLocked(root, runId) {
   /** r5 #9 (staart): landde er een append tussen dFinal en de receipt-write, dan zou finalize "ok"
    *  teruggeven met een direct-STALE receipt. Naverificatie: matcht de log de receipt niet meer exact,
    *  dan gaat de receipt weg en faalt de finalize eerlijk. */
-  /** de log werd na de receipt-write al nageverifieerd, maar bewijs en regelset niet — een
+  /** R5-07: de log werd na de receipt-write al nageverifieerd, maar bewijs en regelset niet — een
    *  wijziging in dat venster belandde ongezien als "nieuwe" pin in de receipt. */
   if (evidenceDigestOf(root, runId) !== evidenceDigest || rulesetHashOf(root) !== rulesetPin) {
     try { fs.unlinkSync(receiptFileOf(root, runId)); } catch { }
@@ -1330,7 +1382,7 @@ function check(root, runId) {
   if (d.digest !== receipt.digest || d.bytes !== receipt.bytes) {
     return { verdict: 'STALE', receipt, reason: 'de log matcht de receipt niet meer exact (digest/bytes gewijzigd — afgekapt, aangegroeid of bewerkt)' };
   }
-  /** a receipt over a run whose terminal run_completed is an honest FAILURE close claims a completion the
+  /** F04: a receipt over a run whose terminal run_completed is an honest FAILURE close claims a completion the
    *  run itself never claimed — never accepted, whatever else matches. */
   const lastCompleted = [...cls.entries].reverse().find((e) => e.event_type === 'run_completed');
   if (lastCompleted && isFailureCloseEvent(lastCompleted)) {
@@ -1341,14 +1393,14 @@ function check(root, runId) {
   const sb = scribeBindingOf(root, receipt, last, { runId, events: cls.entries });
   if (!sb.ok) return { verdict: 'STALE', receipt, reason: 'scribe binding: ' + sb.reason };
   /** V22 (2026-09-24 second Codex recheck, out-p7.md) — the evidence/ruleset/HEAD/domain/contract
-   *  acceptance checks that used to live here inline (FINALIZE-STALE-CODE, RECEIPT-FORGERY)
+   *  acceptance checks that used to live here inline (R3-05, R4-03, FINALIZE-STALE-CODE, RECEIPT-FORGERY)
    *  are now ONE shared judgement (`evaluateAcceptance`, also used by the idempotent finalize path) so the
    *  two entry points can never again disagree about the same receipt. Ordering matters: `evaluateAcceptance`
    *  re-runs the contract BEFORE ever reporting `historical` — a receipt whose commit/domain has drifted
    *  AND whose contract is currently red is reported as the real failure (STALE), never masked behind a
    *  softer-sounding HISTORICAL. */
   // a legacy-generation receipt has nothing beyond the log (re-verified just above) to re-verify.
-  // a HISTORICAL verdict carries the cutoff-aware completion_proof (withCompletionProof).
+  // R2/N03b: a HISTORICAL verdict carries the cutoff-aware completion_proof (withCompletionProof).
   if (rs.state === 'legacy') return withCompletionProof(root, verdictForAcceptance(legacyAcceptance(root, runId, receipt), receipt), cls.entries);
   return withCompletionProof(root, verdictForAcceptance(evaluateAcceptance(root, runId, receipt, { allowlisted: rs.allowlisted || null }), receipt), cls.entries);
 }
@@ -1384,13 +1436,14 @@ function verdictForAcceptance(acceptance, receipt) {
     };
     /** WHY it is historical (cause) and whether the contract was re-judged under its own rules
      *  (reverified) — copied only when present, so the long-standing four fields above keep their shape. */
-    for (const k of ['legacy_receipt', 'evidence_canon', 'allowlisted', 'judged_under', 'pinned_ruleset', 'unverified_gates', 'ruleset_then', 'ruleset_now', 'ruleset_version_then', 'ruleset_version_now', 'contract_under_current_ruleset', 'contract_under_pinned_ruleset']) {
+    for (const k of ['legacy_receipt', 'evidence_canon', 'allowlisted', 'judged_under', 'pinned_ruleset', 'unverified_gates', 'ruleset_then', 'ruleset_now', 'ruleset_version_then', 'ruleset_version_now', 'contract_under_current_ruleset', 'contract_under_pinned_ruleset',
+      'complexity_then', 'complexity_now', 'complexity_source_now', 'missing_now']) {
       if (acceptance[k] !== undefined) out[k] = acceptance[k];
     }
     return out;
   }
   if (acceptance.status === 'current') {
-    /** ook de UITSLAG draagt de caveat, niet alleen de receipt — een consument die alleen
+    /** R4-07/R5-08: ook de UITSLAG draagt de caveat, niet alleen de receipt — een consument die alleen
      *  `verdict` leest, mag de owner-gated beperking niet mislopen. */
     return Object.assign({
       verdict: 'FINALIZED', receipt, completion_proof: true, archival: false,
@@ -1416,11 +1469,11 @@ function verdictForAcceptance(acceptance, receipt) {
 // consumers read the acceptance status (current/historical/fail) instead of re-running check() themselves.
 module.exports = {
   finalize, check, claimCheckRefusal, readReceipt, receiptFileOf, classify, verdictForAcceptance, evaluateAcceptance, receiptState, rulesetPinOf,
-  // the legacy-receipt allowlist and the pinned-ruleset copy
+  // the legacy-receipt allowlist (F01) and the pinned-ruleset copy (F02)
   loadLegacyReceipts, allowlistedReceipt, legacyReceiptsFileOf, pinnedRulesetOf, rulesetPinnedFileOf,
   LEGACY_RECEIPTS_REL, LEGACY_RECEIPTS_SCHEMA, LEGACY_GENERATIONS, RULESET_PINNED_FILE, isFailureCloseEvent,
-  // Codex R2 class-A fixes: finalize's own completion-sequence re-check and the cutoff-aware
-  // completion_proof on a HISTORICAL verdict.
+  // Codex R2 class-A fixes: finalize's own completion-sequence re-check (N07) and the cutoff-aware
+  // completion_proof on a HISTORICAL verdict (N03b/N06).
   completionSequenceRecheck, withCompletionProof,
   // part ii: the owner-requests (scribe) ledger binding.
   scribePinOf, scribeBindingOf, scribeFieldsOf, SCRIBE_LEDGER_REL, SCRIBE_PIN_FIELDS,

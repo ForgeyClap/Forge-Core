@@ -7,6 +7,8 @@
  *
  * Never throws: a failed poll keeps the last known list (an unanswered request stays "Wacht op
  * jou", never failed); a failed answer rejects, which the card shows as "Je antwoord kwam niet aan".
+ * The pending read needs the dashboard credential (gateway round 11). A 401/403 there is NOT an
+ * empty list: it sets `readError`, which the cards show, until a read works again.
  *
  * Switching conversations clears the list at once, and a poll that was still on its way for the
  * previous conversation is dropped when it lands: one conversation's request never shows under
@@ -54,11 +56,14 @@ export function parsePending(data: Record<string, unknown>): PendingPermission[]
 
 export interface PendingPermissionsApi {
   readonly pending: readonly PendingPermission[];
+  /** The gateway refused the read (401/403): requests may wait that this window cannot see. */
+  readonly readError: string | null;
   readonly answer: (id: string, behavior: PermissionBehavior) => Promise<void>;
 }
 
 export function usePendingPermissions(conversationId: string | null | undefined, pollMs = PERMISSION_POLL_MS): PendingPermissionsApi {
   const [pending, setPending] = useState<readonly PendingPermission[]>([]);
+  const [readError, setReadError] = useState<string | null>(null);
   // The conversation the view shows right now; a response for any other one is dropped.
   // After unmount it holds UNMOUNTED, so an answer that lands then (in tests: after jsdom teardown)
   // never touches state. Written in a layout effect, in the same commit as the switch.
@@ -73,12 +78,16 @@ export function usePendingPermissions(conversationId: string | null | undefined,
   const refresh = useCallback(async () => {
     if (!conversationId) {
       setPending([]);
+      setReadError(null);
       return;
     }
     const asked = conversationId;
-    const result = await gwGet(PERMISSION_ROUTES.pending(asked));
+    const result = await gwGet(PERMISSION_ROUTES.pending(asked), { auth: true });
     if (current.current !== asked) return;
-    if (result.ok) setPending(parsePending(result.data));
+    if (result.ok) {
+      setPending(parsePending(result.data));
+      setReadError(null);
+    } else if (result.status === 401 || result.status === 403) setReadError(result.error);
   }, [conversationId]);
 
   // A new conversation starts with an empty list, before its first poll has answered.
@@ -116,5 +125,5 @@ export function usePendingPermissions(conversationId: string | null | undefined,
     [refresh],
   );
 
-  return { pending, answer };
+  return { pending, readError, answer };
 }

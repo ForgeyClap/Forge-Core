@@ -1,0 +1,32 @@
+{
+  "_doc": "Forge graded-verify rubric for scraped-data results and their summaries (audit SK-8-F6). Owner-editable. Used by the forge-graded-verify skill: review-boss scores each criterion 1-4 with evidence + feedback. Advisory only — never gates irreversible actions. ADAPT per project; do not drop-in blindly.",
+  "domain": "scraping",
+  "threshold": 3,
+  "criteria": [
+    {
+      "id": "permitted_sources",
+      "descriptor": "1=uses a login, paywall, private endpoint or leaked data; 2=public source but robots or terms not checked; 3=public or permitted sources, robots checked; 4=every source is public or permitted, robots and terms recorded per source",
+      "raise": "list each source with why it is permitted (public page, official API, owner permission) and drop any that needs a login or bypass"
+    },
+    {
+      "id": "data_fidelity",
+      "descriptor": "1=fields invented or misread; 2=many fields wrong or shifted; 3=fields match the source with a few errors; 4=a spot check of rows against the live source shows every sampled field correct",
+      "raise": "spot-check a sample of rows against the source page and fix the selectors or parsers that misread a field"
+    },
+    {
+      "id": "failure_visibility",
+      "descriptor": "1=failed pages silently missing and an empty result looks like success; 2=failures logged but not counted; 3=failures counted in the result; 4=every page reports ok, empty or failed with a reason, and the totals add up",
+      "raise": "count fetched, empty and failed pages separately and report them beside the data"
+    },
+    {
+      "id": "rate_and_load",
+      "descriptor": "1=no pacing, retries forever; 2=pacing but unbounded retries; 3=paced with bounded retries; 4=paced, bounded retries with backoff, and it stops on repeated blocks instead of evading them",
+      "raise": "add a delay between requests, cap retries with backoff, and stop on a 403 or 429 streak"
+    },
+    {
+      "id": "personal_data",
+      "descriptor": "1=personal data stored or shown without need; 2=personal data kept but not flagged; 3=personal data minimised; 4=only the fields the task needs, personal data minimised and its storage stated, outreach drafted only",
+      "raise": "drop fields the task does not need and state where any personal data is stored and for how long"
+    }
+  ]
+}

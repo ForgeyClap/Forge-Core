@@ -103,11 +103,13 @@ function checkRun(runDir, opts) {
     if (agent == null || agent === '') return; // skip events without an agent — no SYNTH fallback
     if (!STARTED_TYPES.has(e.event_type) && !byAgent.has(agent)) return; // only track agents that have started
     if (!byAgent.has(agent)) {
-      byAgent.set(agent, { agent, started: false, finished: false, lastTs: null, lastEventType: null, eventCount: 0 });
+      byAgent.set(agent, { agent, started: false, finished: false, open: 0, lastTs: null, lastEventType: null, eventCount: 0 });
     }
     const rec = byAgent.get(agent);
-    if (STARTED_TYPES.has(e.event_type)) rec.started = true;
-    if (FINISHED_TYPES.has(e.event_type)) rec.finished = true;
+    // Each start opens a dispatch and each finish closes one, so a re-dispatch (or a parallel lane) under the same
+    // name is watched again until it has its own finish event (FB-LANES-F4). A start begins a new episode count.
+    if (STARTED_TYPES.has(e.event_type)) { rec.started = true; rec.open++; rec.finished = false; rec.eventCount = 0; }
+    if (FINISHED_TYPES.has(e.event_type)) { rec.open = Math.max(0, rec.open - 1); rec.finished = rec.open === 0; }
     rec.eventCount++;
     const ts = parseTs(e);
     if (ts !== null && (rec.lastTs === null || ts >= rec.lastTs)) {
@@ -176,7 +178,9 @@ if (require.main === module) {
       for (const a of result.stalled) lines.push(fmtStalledLine(a));
       lines.push('⚠ ' + result.stalled.length + ' stalled agent(s) — silence is a flag to CHECK the agent, not to auto-kill it.');
     }
-    console.log(lines.join('\n'));
+    // FB-LANES-F10: with --json, stdout carries only the JSON document; the human lines go to stderr
+    if (opts.json) console.error(lines.join('\n'));
+    else console.log(lines.join('\n'));
 
     if (opts.json) {
       console.log(JSON.stringify({ run_id: opts.run_id, root, window_ms: windowMs, agents: result.agents, stalled: result.stalled, malformed: result.malformed }, null, 2));

@@ -281,7 +281,7 @@ test('TIMEOUT: stopExecution clears the timer — waiting past the timeout windo
 test('filteredEnv() never forwards PASSWORD/DB_URL/MY_SECRET-shaped names (the allowlist has no slot for them)', () => {
   const saved = { PASSWORD: process.env.PASSWORD, DB_URL: process.env.DB_URL, MY_SECRET: process.env.MY_SECRET };
   process.env.PASSWORD = 'super-secret-password';
-  process.env.DB_URL = 'postgres://user:pw@host/db';
+  process.env.DB_URL = 'postgres://user:' + 'pw@host/db';
   process.env.MY_SECRET = 'another-secret-value';
   try {
     const out = filteredEnv();

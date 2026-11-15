@@ -14,10 +14,11 @@
  *   check({ domain, artifacts, events }, opts) -> { ok:boolean, domain:string, missing:[id,...], satisfied:[id,...] }
  *     domain    — required domain slug (must match a key in required-evidence.json's "domains", e.g.
  *                 "website", "fullstack", "n8n", "scraping", "rag", "prediction", "integration").
- *     artifacts — array (or single string) of artifact paths/ids the caller can actually point to. Evidence
- *                 "presence" is judged ONLY from what is passed here — this function never scans the
- *                 filesystem and never invents proof; an empty/omitted artifacts list simply means no
- *                 artifact-kind evidence can be satisfied, honestly.
+ *     artifacts — array (or single string) of artifact paths/ids the caller can actually point to. With a run
+ *                 directory (opts.runDir, or opts.root + run_id) each claim must be a real, non-empty file inside
+ *                 that run (see artifactsOnDisk); without one only the names are matched and the result says
+ *                 artifacts_verified:false. It never invents proof; an empty/omitted artifacts list simply means
+ *                 no artifact-kind evidence can be satisfied, honestly.
  *     events    — array (or single string) of logged event types the caller can actually point to (e.g.
  *                 from events.jsonl). Same honesty rule as artifacts.
  *   opts.evidencePath overrides the default config/orchestration/required-evidence.json location (test
@@ -33,8 +34,10 @@
  *   `ok` is true only when `missing` is empty.
  *
  * CLI:
- *   node forge-evidence.cjs check --domain <domain> [--artifacts <a,b,...>] [--events <a,b,...>] [--json]
- * Exit codes: 0 = ok (every required evidence item present) · 3 = not ok (at least one missing — mirrors
+ *   node forge-evidence.cjs check --domain <domain> [--run <run_id> [--root <dir>]] [--artifacts <a,b,...>] [--events <a,b,...>] [--json]
+ *   (--run checks the artifacts on disk in that run and reads the events from its events.jsonl; without it the
+ *   result is UNVERIFIED (names only), exit 3.)
+ * Exit codes: 0 = ok (every required evidence item present, checked against a run) · 3 = not ok (at least one missing, or names only — mirrors
  * the sibling *-gate tools' STOP=3 convention, e.g. forge-actiongate's gate=3) · 2 = usage/config error.
  */
 const fs = require('fs');
@@ -163,8 +166,10 @@ function artifactsOnDisk(artifacts, opts) {
   const path2 = require('path');
   const runDir = opts && opts.runDir ? path2.resolve(opts.runDir)
     : (opts && opts.root && opts.runId ? runDirOf(path2.resolve(opts.root), String(opts.runId)) : null);
-  if (!runDir) return { verified: false, artifacts };
+  // CF-4-F3: requirements match on `names`, never on the folders above the run ("Desktop", a run id holding "320")
+  if (!runDir) return { verified: false, artifacts, names: artifacts.map((a) => (path2.win32.isAbsolute(String(a)) || path2.posix.isAbsolute(String(a)) ? path2.win32.basename(String(a)) : a)) };
   const kept = [];
+  const names = [];
   for (const a of artifacts) {
     const candidates = [path2.resolve(runDir, a), path2.resolve(runDir, 'artifacts', a), path2.isAbsolute(a) ? path2.resolve(a) : null].filter(Boolean);
     for (const c of candidates) {
@@ -175,10 +180,11 @@ function artifactsOnDisk(artifacts, opts) {
       try { st = fs2.lstatSync(c); } catch { continue; }
       if (!st.isFile() || st.size === 0) continue; // a symlink/dir/empty file is not evidence
       kept.push(a);
+      names.push(rel.split(path2.sep).join('/'));
       break;
     }
   }
-  return { verified: true, artifacts: kept };
+  return { verified: true, artifacts: kept, names };
 }
 
 function isSatisfied(item, artifacts, events) {
@@ -215,7 +221,7 @@ function check(params, opts) {
   const missing = [];
   const satisfied = [];
   for (const item of domainEntry.evidence) {
-    if (isSatisfied(item, artifacts, events)) satisfied.push(item.id);
+    if (isSatisfied(item, disk.names, events)) satisfied.push(item.id);
     else missing.push(item.id);
   }
 
@@ -239,10 +245,12 @@ module.exports = { check, loadConfig, listDomains, matchesArtifact, matchesEvent
 function parseArgs(argv) {
   const cmd = argv[0] || null;
   const rest = argv.slice(1);
-  const opts = { cmd, domain: null, artifacts: [], events: [], json: false, positional: [] };
+  const opts = { cmd, domain: null, artifacts: [], events: [], json: false, run: null, root: null, positional: [] };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--domain') opts.domain = rest[++i];
+    else if (a === '--run') opts.run = rest[++i] || null;
+    else if (a === '--root') opts.root = rest[++i] || null;
     else if (a === '--artifacts') opts.artifacts = (rest[++i] || '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--events') opts.events = (rest[++i] || '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--json') opts.json = true;
@@ -251,7 +259,15 @@ function parseArgs(argv) {
   return opts;
 }
 function printUsage() {
-  console.error('Usage: node forge-evidence.cjs check --domain <domain> [--artifacts <a,b,...>] [--events <a,b,...>] [--json]');
+  console.error('Usage: node forge-evidence.cjs check --domain <domain> [--run <run_id> [--root <dir>]] [--artifacts <a,b,...>] [--events <a,b,...>] [--json]');
+}
+/** runEventTypes(runDir) -> the event types the run's own events.jsonl holds ([] when it has none). */
+function runEventTypes(runDir) {
+  let text = '';
+  try { text = fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8'); } catch { return []; }
+  const out = new Set();
+  for (const l of text.split(/\r?\n/)) { if (!l.trim()) continue; try { const e = JSON.parse(l); if (e && typeof e.event_type === 'string') out.add(e.event_type); } catch { /* a bad line proves nothing */ } }
+  return [...out];
 }
 
 if (require.main === module) {
@@ -260,16 +276,31 @@ if (require.main === module) {
     if (opts.cmd === 'check') {
       if (!opts.domain) { console.error('forge-evidence: check requires --domain <domain>'); process.exitCode = 2; }
       else {
-        const result = check({ domain: opts.domain, artifacts: opts.artifacts, events: opts.events }, {});
+        // FB-FINALIZE-1-F2: with --run the artifact claims are checked on disk inside that run, and the event list
+        // comes from the run's own events.jsonl (a typed --events name counts only when the log holds it). Without a
+        // run folder only NAMES can be matched: that is reported as UNVERIFIED with exit 3, never as OK.
+        let runDir = null, events = opts.events;
+        if (opts.run) {
+          if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(opts.run)) throw new Error('--run id may only hold A-Z a-z 0-9 _ -');
+          runDir = runDirOf(path.resolve(opts.root || process.cwd()), opts.run);
+          if (!fs.existsSync(runDir)) throw new Error('no run folder for --run ' + opts.run + ' (' + runDir + ')');
+          const logged = runEventTypes(runDir);
+          events = opts.events.length ? opts.events.filter((e) => logged.includes(e)) : logged;
+        }
+        const result = check({ domain: opts.domain, artifacts: opts.artifacts, events }, runDir ? { runDir } : {});
+        const verified = result.artifacts_verified === true;
         if (opts.json) {
           console.log(JSON.stringify(result));
-        } else if (result.ok) {
+        } else if (result.ok && verified) {
           console.log('OK — all required evidence present for domain "' + result.domain + '" (' + result.satisfied.length + ' item(s)).');
+        } else if (result.ok) {
+          console.log('UNVERIFIED (names only) — every required item is NAMED for domain "' + result.domain + '", but no run folder was given, so no file or logged event was checked. Re-run with --run <run_id>.');
         } else {
           console.log('MISSING EVIDENCE for domain "' + result.domain + '": ' + result.missing.join(', '));
           console.log('satisfied: ' + (result.satisfied.length ? result.satisfied.join(', ') : '(none)'));
+          if (!verified) console.log('(names only: no run folder was given, nothing was checked on disk)');
         }
-        process.exitCode = result.ok ? 0 : 3;
+        process.exitCode = result.ok && verified ? 0 : 3;
       }
     } else {
       printUsage();

@@ -1,0 +1,32 @@
+Forge Roblox pack copy of the "prototype-fast" skill
+
+This folder contains a modified version of a skill from:
+
+  awesome-gamedev-agent-skills
+  https://github.com/gamedev-skills/awesome-gamedev-agent-skills
+  commit dcf3bbbb83f365632402c086bf595048aa24aaa8
+  Copyright 2026 Abhishek Barali and the awesome-gamedev-agent-skills contributors
+  Licensed under the Apache License, Version 2.0 (see LICENSE in this folder).
+
+Upstream NOTICE (reproduced as required by Apache-2.0 section 4(d)):
+
+  All skills in this repository are original works. They were authored from primary
+  documentation (engine and framework docs, language references, and platform
+  specifications). Third-party sources and other skill collections were studied for
+  general patterns only; no text or code was copied from them.
+
+  Game engine, framework, and platform names referenced in this repository
+  (including but not limited to Godot, Unity, Unreal Engine, Phaser, PixiJS,
+  three.js, Babylon.js, Bevy, GameMaker, LÖVE, and MonoGame) are trademarks of
+  their respective owners and are used for identification and descriptive purposes
+  only. Their use does not imply any affiliation with or endorsement by those owners.
+
+Changes (Apache-2.0 section 4(b)), 2026-11-11, Forge Roblox pack:
+  - The frontmatter was rewritten (one-line description, licence and source keys) and a
+    "Roblox binding" section binds the concept to Roblox APIs and the pack rules.
+  - roblox-simulator-economy: the paid random items section, the openEgg example and the
+    luck-boost guidance were removed (they conflict with roblox-economy-ethics).
+  - create-game-assets: the pip install instruction was removed (an owner gate).
+  - The agents/openai.yaml files were not copied.
+
+Roblox is a trademark of Roblox Corporation; this pack is not affiliated with or endorsed by it.

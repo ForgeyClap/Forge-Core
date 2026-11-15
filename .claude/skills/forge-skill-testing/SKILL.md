@@ -40,14 +40,15 @@ a linter. Step 2 after `forge-skill-evals.cjs`'s binary evals (see that tool's o
    specific skill (they belong to a sibling skill, or a different domain entirely). Judge each phrase against
    the competing skills by name (the nearest descriptions in the listing), not against this skill alone. A near-miss that
    accidentally activates the skill is a real precision problem, not a pass.
-3. Run each phrase in a fresh session (or ask "would this skill fire on X?" against the current
-   frontmatter honestly) and record activation Y/N per phrase.
-4. **Target: >= 95% correct** (trigger phrases activate AND near-miss phrases don't, combined). Below
+3. Run each phrase in a fresh session and record activation Y/N per phrase. Asking "would this skill fire
+   on X?" against the current frontmatter is a quick judged check: allowed, but it is logged as `judged`.
+4. **Target: >= 95% correct** (trigger phrases activate AND near-miss phrases don't, combined), counted
+   only from a `fresh-session` run; a `judged` score never meets the target by itself. Below
    that, the description likely needs sharper "when to use" language — rewrite and re-test, don't just
    accept a low score.
 5. **Log the result in `.claude/FORGE_SKILL_REGISTRY.md`** — that table has no dedicated activation-test
    column (see its own legend), so append a compact, dated note to the skill's existing **Safety notes**
-   cell in the exact shape `activation <correct>/<total> (<YYYY-MM-DD>)` (see the template below for a
+   cell in the exact shape `activation <correct>/<total> (<YYYY-MM-DD>, fresh-session|judged)` (see the template below for a
    worked example). Never touch any other skill's row while doing this.
 
 Template with the exact phrase-count/scoring/logging worksheet: `references/activation-test-template.md`.
@@ -167,7 +168,7 @@ copied). Fetched read-only with `gh api`, scanned for hidden Unicode (clean), tr
 | Source | Path | Pinned SHA | Licence | Taken | Excluded |
 |---|---|---|---|---|---|
 | davila7/claude-code-templates | `cli-tool/components/skills/productivity/skill-judge/SKILL.md` | 3fb3205142fa453d4079ebad48a94d5a4aa19564 | MIT | the 8-dimension, 120-point rubric shape, grade bands, expert/activation/redundant ratio, failure patterns | the report template wording, the "MANDATORY - READ ENTIRE FILE" pointer advice |
-| alchaincyf/darwin-skill | `SKILL.md` (Chinese) and `README_EN.md` | 8a8b66258e3c45d6ae4aea39719468c6428fcb0a | MIT | method only: paired same-judge before/after comparison, odd-N majority, absolute score for triage only (about 8 points of judge noise), fresh judges per round, one dimension per round, dry-run share over 30% invalidates, early stop | the upstream scripts/screenshot.mjs, the result-card templates and HTML charts, the git ls-remote update check, the `npx skills add` install line, its 9-dimension weights |
+| alchaincyf/darwin-skill | `SKILL.md` (v2.1, Chinese) and `README_EN.md` | 8a8b66258e3c45d6ae4aea39719468c6428fcb0a | MIT | method only: paired same-judge before/after comparison, odd-N majority, absolute score for triage only (about 8 points of judge noise), fresh judges per round, one dimension per round, dry-run share over 30% invalidates, early stop | the upstream scripts/screenshot.mjs, the result-card templates and HTML charts, the git ls-remote update check, the `npx skills add` install line, its 9-dimension weights |
 | samber/cc-skills | `skills/skill-progressive-disclosure-design/SKILL.md` | 50a33836b20f690c668af557bd9ef9d07a8c7ef2 | MIT | architecture-eval query design and the per-reference decision table | its `run_loop.py` and skill-creator harness references |
 | olelehmann1337/autoresearch-skill | `SKILL.md`, `eval-guide.md` | 5860fa717f44c85c80647d673f6f3c335facfcf2 | none found (no licence file, no licence in the API) | idea only: 3-6 binary checks times N runs, an equal score reverts | all text; the live HTML dashboard with a CDN chart library, the `open` command, "never stop" |
 

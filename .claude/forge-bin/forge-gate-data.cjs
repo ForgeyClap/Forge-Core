@@ -42,7 +42,7 @@
  * thin wrappers around the shared engine in forge-gate-quotes.cjs (scanQuotes()/findHeredocDelim()), the ONE
  * place that resolves quote/heredoc structure for both this file's INERT-DATA rule AND
  * forge-actiongate-position.cjs's command-position/`-c`-argument reading — see that file's own header for the
- * full "why" (three straight regressions, were all two divergent scanners disagreeing at a seam)
+ * full "why" (three straight regressions, N02/N04/N05, were all two divergent scanners disagreeing at a seam)
  * and its N05 termination fix (an empty heredoc used to hang this function forever).
  *
  * API: stripInertData(command, shell) -> { text, regions } · stripHeredocs(text) · scanWords(s, shell) ·
@@ -110,7 +110,9 @@ const segCanRunText = (ws) => {
     return false;
   });
 };
-const SCRIPT_EXT_RE = /\.(sh|bash|zsh|ps1|psm1|cmd|bat|js|cjs|mjs|ts|py|rb|pl|php)$/i;
+// FB-GATEHOOK-F1: an extensionless file in a hooks folder (.git/hooks/pre-commit, .husky/pre-push)
+// is run later by git itself, so it counts as a script destination too.
+const SCRIPT_EXT_RE = /\.(sh|bash|zsh|ps1|psm1|cmd|bat|js|cjs|mjs|ts|py|rb|pl|php)$|(?:^|[\\/])(?:hooks|\.husky)[\\/][^\\/.]+$/i; // extensionless only: docs/hooks/notes.md stays plain data
 // MARKER_RE/MARKER_AT_RE (the heredoc-marker regexes) now live in forge-gate-quotes.cjs — this file no longer
 // scans for a marker itself, it only supplies the writer/commit-head detection stripHeredocs() there consumes.
 // C02: `^\s*` admits leading indentation before the writer; the `between` group now also accepts a fully
@@ -121,10 +123,21 @@ const LOG_EVENT_RE = /(^|[\\/])\.claude[\\/]forge-dashboard[\\/]log-event\.cjs$/
 const SMART_QUOTE_RE = /[‘’“”]/; // ‘ ’ “ ”
 
 /** laterRisk(text) -> true when `text` (what comes AFTER a data region) runs an interpreter or changes the file
- *  layout anywhere — as any whitespace token (basename, lower-case, `.exe` dropped), `.` only at a segment start. */
+ *  layout anywhere — as any whitespace token (basename, lower-case, `.exe` dropped), `.` only at a segment start —
+ *  or (FB-GATEHOOK-F1) starts a segment with a PATH (`./runme`, `/tmp/x`, `C:\x`): bash runs a file
+ *  given by its path directly, no interpreter word needed, so a body written earlier in the command may be run.
+ *  FIX-GATE rework: a segment that starts with a VAR=value assignment, a wrapper that runs its argument (sudo,
+ *  nohup, time, timeout N, ...) or a shell keyword (then, do, if, !) counts any later path-shaped word as risk, so
+ *  `FOO=1 ./runme`, `timeout 5 ./runme` and `sudo -u bob ./runme` stay classified. */
+const RUN_PREFIX_RE = /^(?:[A-Za-z_]\w*\+?=.*|sudo|doas|nohup|time|timeout|nice|ionice|setsid|stdbuf|chrt|taskset|watch|command|builtin|exec|env|then|do|else|elif|if|while|until|!)$/;
+const PATHY = (t) => /[\\/]/.test(t.replace(/^["']+|["']+$/g, ''));
 function laterRisk(text) {
   for (const seg of String(text).split(/&&|\|\||[;|&\n(){}]/)) {
-    const toks = seg.trim().split(/\s+/).filter(Boolean)
+    const raw = seg.trim().split(/\s+/).filter(Boolean);
+    if (raw.length && PATHY(raw[0])) return true;
+    // FIX-GATE-R2: bash drops quotes before it runs a word, so `"sudo" ./x` and `s'ud'o ./x` are sudo too
+    if (raw.length && RUN_PREFIX_RE.test(raw[0].replace(/["']/g, '')) && raw.slice(1).some(PATHY)) return true;
+    const toks = raw
       .map((t) => t.replace(/^["']+|["']+$/g, '').split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, ''));
     if (toks[0] === '.') return true;
     if (toks.some((t) => INTERPRETER_RE.test(t) || LAYOUT.has(t))) return true;
@@ -209,6 +222,18 @@ function scanWords(s, shell) {
 }
 
 const wholeInert = (x) => x && x.spans.length === 1 && x.spans[0].start === x.start && x.spans[0].end === x.end && x.spans[0].inert;
+
+/** plainOrQuoted(x) -> the word's text with no quote spans, or the inside of one whole inert quote span; else null. */
+const plainOrQuoted = (x) => (!x ? null : !x.spans.length ? x.raw : wholeInert(x) ? x.raw.slice(1, -1) : null);
+/** isLogEventCall(ws) -> true for `node <path>/.claude/forge-dashboard/log-event.cjs ...`. FB-GATEHOOK-F8:
+ *  the head may be a node path (`node.exe`, quoted) and the script path may be one quoted word, because this project's own
+ *  folder name (`my project (v2)!`) forces absolute paths into quotes. Any other mix of quotes and text stays unrecognised. */
+function isLogEventCall(ws) {
+  const head = plainOrQuoted(ws[0]);
+  const script = plainOrQuoted(ws[1]);
+  if (head === null || script === null) return false;
+  return /^node(?:\.exe)?$/i.test(head.split(/[\\/]/).pop()) && LOG_EVENT_RE.test(script);
+}
 
 /** gitSubcommand(ws) -> { index, word } | null — the actual git SUBCOMMAND token: the first word after `git`
  *  that is not one of git's own global options (`-c <k=v>`, `-C <path>`, `--git-dir=…`, `--work-tree=…`, or any
@@ -310,7 +335,8 @@ function literalDataSpans(segs) {
   segs.forEach((seg, k) => {
     const ws = seg.words;
     const h = head(seg);
-    if (!h || seg.sepAfter === '|') return;
+    const logEvent = isLogEventCall(ws); // FB-GATEHOOK-F8: may have a quoted node head, so it is checked before `!h`
+    if ((!h && !logEvent) || seg.sepAfter === '|') return;
     if (suffixRisk[k + 1]) return;
     let picked = [];
     if (h === 'echo' || h === 'printf') {
@@ -330,7 +356,11 @@ function literalDataSpans(segs) {
       const subWord = sub && !sub.word.spans.length ? sub.word.raw.toLowerCase() : '';
       const subAt = sub ? sub.index : 1;
       if (subWord === 'commit') ws.forEach((x, n) => { if (/^(-m|-am|--message)$/.test(x.raw) && wholeInert(ws[n + 1])) picked.push(ws[n + 1]); });
-      if (subWord === 'grep' && !segHasExecFlag(ws) && !segCanRunText(ws)) picked.push(...ws.slice(subAt + 1).filter(wholeInert));
+      // FB-GATEHOOK-F10: the same PATTERN-position rule as grep, never a quoted FILE argument.
+      if (subWord === 'grep' && !segHasExecFlag(ws) && !segCanRunText(ws)) {
+        const patternWords = searchPatternWords('grep', ws.slice(subAt));
+        picked.push(...ws.slice(subAt + 1).filter((x) => patternWords.has(x) && wholeInert(x)));
+      }
       if (subWord === 'log') {
         ws.forEach((x, n) => {
           if (x.raw === '--grep' && wholeInert(ws[n + 1])) picked.push(ws[n + 1]);
@@ -340,7 +370,7 @@ function literalDataSpans(segs) {
           }
         });
       }
-    } else if (h === 'node' && ws[1] && !ws[1].spans.length && LOG_EVENT_RE.test(ws[1].raw)) {
+    } else if (logEvent) {
       picked = ws.slice(2).filter(wholeInert);
     }
     for (const x of picked) spans.push(x.spans[0]);

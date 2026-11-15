@@ -24,7 +24,7 @@ description: "Playbook for CLIs and dev tools: flags, exit codes (gebruik bij ee
 Full text of every rule: `references/hard-rules.md`.
 
 ## Team (conditional)
-Lead: `architect` for a multi-subcommand tool, else `build-boss` directly. Full roster: `references/team-and-tools.md`.
+Lead: `build-boss`; `architect` is an optional read-only design advisor (not a Boss) for a multi-subcommand tool. Full roster: `references/team-and-tools.md`.
 
 ## Skills / commands / MCP
 Skills, commands, MCP and opt-in dependencies: `references/team-and-tools.md`.

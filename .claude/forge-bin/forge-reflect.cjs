@@ -160,6 +160,9 @@ function cmdAdd(opts, root) {
   const evidence = buildEvidence(opts.quote, opts.confidence);
   const tags = buildTags(opts.tags);
   const rec = memory.addLesson(resolved.slug, { type: opts.type, text, tags, evidence }, root);
+  if (rec && rec.skipped) { // FB-MEMORY-F5: same contract as `forge-memory.cjs add` (exit 3), never a false "stored"
+    return { code: 3, message: `forge-reflect: SKIPPED (config) — ${rec.reason}: no lesson stored for ${resolved.slug} (turn it back on: /forge config set agent-memory aan)`, json: { status: 'skipped', boss: resolved.slug, reason: rec.reason } };
+  }
   return { code: 0, message: `forge-reflect: lesson ${rec.id} (${rec.type}) stored for ${resolved.slug} [owner-correction]`, json: { status: 'written', boss: resolved.slug, lesson: rec } };
 }
 

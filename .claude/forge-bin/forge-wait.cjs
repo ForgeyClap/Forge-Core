@@ -59,6 +59,18 @@ function readTail(file) {
   } catch { return ''; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } } }
 }
 
+/** unreadableLog(dirs) -> {file, code} for the first start/stop hook log that exists but cannot be read, else null. */
+function unreadableLog(dirs) {
+  for (const d of dirs) for (const base of ['subagent-start', 'subagent-stop']) for (const n of [base + '.1.jsonl', base + '.jsonl']) {
+    const file = path.join(d, HOOKS, n);
+    let fd = null;
+    try { fd = fs.openSync(file, 'r'); fs.readSync(fd, Buffer.alloc(1), 0, 1, 0); }
+    catch (e) { if (!e || e.code !== 'ENOENT') return { file, code: (e && e.code) || 'read error' }; }
+    finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } } }
+  }
+  return null;
+}
+
 /** hookRecords(dirs, base) -> parsed lines of <dir>/_hooks/<base>.1.jsonl and <base>.jsonl. Bad lines skipped. */
 function hookRecords(dirs, base) {
   const out = [];
@@ -138,6 +150,10 @@ function wait(opts, log) {
       const tick = () => {
         try {
           const dirs = runsDirsFor(root);
+          // FB-LANES-F11: no runs folder, or a hook log that exists but cannot be read, can never mean "all done"
+          if (!dirs.length) { resolve({ code: 1, text: '[forge-wait] error: no runs folder under ' + root + ' — cannot tell whether subagents are open', open: [] }); return; }
+          const bad = unreadableLog(dirs);
+          if (bad) { resolve({ code: 1, text: '[forge-wait] error: cannot read ' + bad.file + ' (' + bad.code + ') — cannot tell whether subagents are open', open: [] }); return; }
           if (!session) session = latestOpenSession(dirs);
           const open = session ? openAgents(dirs, { session }) : [];
           if (!open.length) { resolve({ code: 0, text: '[forge-wait] all done: no open subagents' + (session ? ' in session ' + session : '') + ' (' + secs() + ' s)', open }); return; }

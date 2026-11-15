@@ -182,11 +182,11 @@ async function cmdStatus() {
 
 // Paperclip's embedded Postgres port (isolated, NEVER the system DB on 5432).
 const PC_DB_PORT = process.env.PAPERCLIP_DB_PORT || '54329';
-function pidsOnPort(port) {
+function pidsOnPort(port, strict) {
   try {
     const out = execSync('powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort ' + port + ' -State Listen -EA SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique"', { encoding: 'utf8' });
     return out.split(/\s+/).filter((x) => /^\d+$/.test(x));
-  } catch { return []; }
+  } catch { return strict ? null : []; } // strict: "could not query" (null) is not "no listener" ([])
 }
 // taskkill a process tree. force=false sends a graceful terminate (lets shutdown handlers run);
 // force=true is /F (hard kill) — last resort only, since hard-killing Postgres can leave a stale lock.
@@ -246,7 +246,7 @@ function killEmbeddedPgByPath() {
 // Clear an ORPHANED embedded PG so a fresh runtime can start. Sweeps the embedded port AND the
 // next few ports it drifts to (54329..54331) when the first is held, plus a path-based kill, then
 // removes the stale postmaster.pid lock once nothing is listening (so we never strand a live cluster).
-// Every kill below is gated through ownedPids()/isUnderPcHome() (PC_HOME containment guard): a
+// Every kill below is gated through ownedPids()/isUnderPcHome() (PC_HOME containment guard, F3): a
 // listener on "our" port that is proven NOT ours is left alone. A consequence, accepted deliberately:
 // if a genuinely unrelated process holds one of these ports, freeEmbeddedPg() can no longer force it
 // off — the port sweep's job was never to evict unrelated processes, only to reclaim OUR own orphans.
@@ -258,26 +258,102 @@ function freeEmbeddedPg() {
   }
   killEmbeddedPgByPath();                                                          // path-based backstop
   sleepMs(800);
-  if (PC_DB_PORTS.every((p) => pidsOnPort(p).length === 0)) {
-    try { const lock = path.join(PC_HOME, 'instances', 'default', 'db', 'postmaster.pid'); if (fs.existsSync(lock)) fs.unlinkSync(lock); } catch {}
+  const lock = path.join(PC_HOME, 'instances', 'default', 'db', 'postmaster.pid');
+  let lockPid = null;
+  try { lockPid = parseInt(fs.readFileSync(lock, 'utf8').split(/\r?\n/)[0], 10) || null; } catch { lockPid = null; }
+  if (mayRemovePgLock(PC_DB_PORTS.map((p) => pidsOnPort(p, true)), lockPid, pidAlive)) {
+    try { if (fs.existsSync(lock)) fs.unlinkSync(lock); } catch (e) { console.error('note: could not remove the stale postmaster.pid (' + e.message + ')'); }
   }
+}
+/** mayRemovePgLock(portResults, lockPid, isAlive) -> true only when every port query worked (an array, not null) and
+ *  found no listener, and the PID written in postmaster.pid is not alive (FB-MISC-1-F5: a failed query is not "free"). */
+function mayRemovePgLock(portResults, lockPid, isAlive) {
+  if (!Array.isArray(portResults) || !portResults.every((r) => Array.isArray(r) && r.length === 0)) return false;
+  return !(Number.isInteger(lockPid) && lockPid > 0 && isAlive(lockPid));
+}
+function pidAlive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); } }
+
+// ---- FB-MISC-1-F1/F2/F4: pure helpers, exported and tested without any process or port work ----
+/** gitGuardPlan({ownGit, enclosingTop}) -> {init}: git init only when no repository holds the folder yet (FB-MISC-1-F6:
+ *  a folder inside a parent repo gets no nested repo). */
+function gitGuardPlan(o) { return { init: !(o && o.ownGit) && !(o && o.enclosingTop) }; }
+const SECRET_PATH_RE = /(^|\/)(\.env(\.(?!example$)[^/]+)?|id_(rsa|dsa|ecdsa|ed25519)[^/]*|[^/]+\.(pem|key|p12|pfx)|secrets?(\.[a-z0-9]+)?)$/i;
+const SECRET_FILE_RE = /(^|\/)credentials(\.json)?$/i; // a file NAME to keep out of a baseline commit, never read
+/** secretShapedPaths(porcelainLines) -> the paths in `git status --porcelain` output that look like secrets. */
+function secretShapedPaths(lines) {
+  const out = [];
+  for (const l of lines || []) {
+    if (!l || l.length < 4) continue;
+    let p = l.slice(3); if (p.includes(' -> ')) p = p.split(' -> ').pop();
+    p = p.replace(/^"(.*)"$/, '$1');
+    if (SECRET_PATH_RE.test(p) || SECRET_FILE_RE.test(p)) out.push(p);
+  }
+  return out;
+}
+/** basePort(url) -> the port string of the runtime URL (PAPERCLIP_URL), or null when it is not a URL. */
+function basePort(url) {
+  try { const u = new URL(String(url)); return u.port || (u.protocol === 'https:' ? '443' : '80'); } catch { return null; }
+}
+/** pickStopPids({recordedPid, recordedCmd, owned}) -> the PIDs `stop` may end: the PID `up` recorded, only while its
+ *  command line still names paperclipai (a reused PID is not ours), plus port listeners proven ours (ownedPids). */
+function pickStopPids(o) {
+  const out = [];
+  const rec = o && o.recordedPid;
+  if (Number.isInteger(rec) && rec > 0 && /paperclipai/i.test(String((o && o.recordedCmd) || ''))) out.push(String(rec));
+  for (const p of (o && Array.isArray(o.owned) ? o.owned : [])) if (/^\d+$/.test(String(p)) && !out.includes(String(p))) out.push(String(p));
+  return out;
+}
+/** liveStopPids(recordedPid, infoOf, owned) -> pickStopPids with the recorded PID's command line read NOW (infoOf =
+ *  processInfo), so a PID the force step killed, or one reused by another program, no longer counts as ours. */
+function liveStopPids(recordedPid, infoOf, owned) {
+  const info = Number.isInteger(recordedPid) && recordedPid > 0 && typeof infoOf === 'function' ? infoOf(recordedPid) : null;
+  return pickStopPids({ recordedPid: info ? recordedPid : null, recordedCmd: info ? info.cmd : '', owned });
+}
+/** stopVerdict({healthy, runtimePids, dbPids}) -> {stopped}: a stop is proven only when the health endpoint is gone and
+ *  nothing of ours still listens. */
+function stopVerdict(o) {
+  const empty = (v) => !Array.isArray(v) || v.length === 0;
+  return { stopped: !(o && o.healthy) && empty(o && o.runtimePids) && empty(o && o.dbPids) };
+}
+const PAPERCLIP_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const LAUNCH_ENV_NAMES = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'TEMP', 'TMP', 'USERPROFILE', 'HOME',
+  'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'ProgramData', 'ProgramFiles', 'ProgramFiles(x86)', 'NUMBER_OF_PROCESSORS',
+  'PROCESSOR_ARCHITECTURE', 'OS', 'npm_config_cache', 'npm_config_registry', 'NODE_EXTRA_CA_CERTS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY'];
+/** launchSpec(version, env, pcHome) -> {args, env} | {refused}. The runtime runs an EXACT pinned version
+ *  (FORGE_PAPERCLIP_VERSION or the binding's paperclip_version), never whatever npm serves as latest, with a minimal env
+ *  (no API keys or tokens of the owner's shell). */
+function launchSpec(version, env, pcHome) {
+  if (typeof version !== 'string' || !PAPERCLIP_VERSION_RE.test(version)) {
+    return { refused: 'no exact Paperclip version pinned: set FORGE_PAPERCLIP_VERSION=<x.y.z> (or paperclip_version in ' + path.basename(BINDING_FILE) + '); an unpinned npx download is refused' };
+  }
+  const src = env || {};
+  const out = {};
+  for (const k of LAUNCH_ENV_NAMES) if (typeof src[k] === 'string') out[k] = src[k];
+  Object.assign(out, { PAPERCLIP_HOME: pcHome, PAPERCLIP_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1' });
+  return { args: ['--yes', 'paperclipai@' + version, 'run'], env: out };
 }
 
 async function cmdUp() {
   let h = await health();
   if (h) { console.log('Paperclip already running at ' + BASE + ' (v' + h.version + ') — reusing.'); logEvent('paperclip_runtime_reused', { agent: 'paperclip', role: 'control plane', status: 'done', note: 'Runtime reused at ' + BASE, evidence: '/api/health v' + h.version }); return 0; }
+  const binding = readBinding();
+  const spec = launchSpec(process.env.FORGE_PAPERCLIP_VERSION || binding.paperclip_version, process.env, PC_HOME);
+  if (spec.refused) { console.error('BLOCKED: ' + spec.refused); logEvent('paperclip_runtime_blocked', { agent: 'paperclip', role: 'control plane', status: 'failed', reason: 'no pinned version' }); return 1; }
   freeEmbeddedPg(); // clear any orphaned embedded PG (drifted ports + path-based) before starting
-  console.log('Starting Paperclip runtime (loopback, home: ' + PC_HOME + ') …');
+  console.log('Starting Paperclip runtime (loopback, home: ' + PC_HOME + ', ' + spec.args[1] + ') …');
   const logFile = path.join(PC_HOME, 'forge-bridge-server.log');
+  fs.mkdirSync(PC_HOME, { recursive: true }); // FB-MISC-1-F3: a fresh project has no paperclip-home yet
   const out = fs.openSync(logFile, 'a');
   // Use `run` (serves the API on :3100), NOT `onboard` — onboard is an interactive setup flow that
   // never binds the server, so `up` used to time out at 120s. `run` reads instances/default/config.json
   // (local_trusted, loopback) and serves immediately. Detached + unref so it OUTLIVES this process.
-  const child = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['--yes', 'paperclipai', 'run'], {
+  const child = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', spec.args, {
     cwd: path.dirname(PC_HOME), detached: true, stdio: ['ignore', out, out], windowsHide: true, shell: process.platform === 'win32',
-    env: Object.assign({}, process.env, { PAPERCLIP_HOME: PC_HOME, PAPERCLIP_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1' }),
+    env: spec.env,
   });
   child.unref();
+  // Record our own PID so `stop` ends exactly this runtime, never another program on the port (FB-MISC-1-F1).
+  try { writeBinding(Object.assign(readBinding(), { runtime_pid: child.pid, runtime_started_at: new Date().toISOString() })); } catch (e) { console.error('note: could not record the runtime PID (' + e.message + ') — stop will only end listeners proven ours'); }
   for (let i = 0; i < 60; i++) { await new Promise((r) => setTimeout(r, 2000)); h = await health(); if (h) break; process.stdout.write('.'); }
   console.log('');
   if (!h) { console.error('BLOCKED: Paperclip did not become healthy within 120s — see ' + logFile); logEvent('paperclip_runtime_blocked', { agent: 'paperclip', role: 'control plane', status: 'failed', reason: 'health timeout', evidence: logFile }); return 1; }
@@ -511,15 +587,20 @@ async function cmdEnsure() {
   // guard BLOCKER-14: git init + baseline commit before any claude_local agent writes here.
   // Steps are separate + identity is provided inline so the commit can't fail silently on a box without git config.
   try {
-    if (!fs.existsSync(path.join(PROJECT_DIR, '.git'))) { execSync('git init', { cwd: PROJECT_DIR, stdio: 'ignore' }); console.log('git: repo initialized (claude_local guard)'); }
+    let enclosingTop = null;
+    try { enclosingTop = execSync('git rev-parse --show-toplevel', { cwd: PROJECT_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { enclosingTop = null; }
+    if (gitGuardPlan({ ownGit: fs.existsSync(path.join(PROJECT_DIR, '.git')), enclosingTop }).init) { execSync('git init', { cwd: PROJECT_DIR, stdio: 'ignore' }); console.log('git: repo initialized (claude_local guard)'); }
+    else if (enclosingTop && !fs.existsSync(path.join(PROJECT_DIR, '.git'))) console.log('git: ' + enclosingTop + ' already holds this folder — no nested repo created');
     const hasCommit = (() => { try { execSync('git rev-parse HEAD', { cwd: PROJECT_DIR, stdio: 'ignore' }); return true; } catch { return false; } })();
     if (!hasCommit) {
       // Ensure a .gitignore covering .env exists FIRST, so a fresh-folder baseline can never stage secrets.
       const gi = path.join(PROJECT_DIR, '.gitignore');
       if (!fs.existsSync(gi)) fs.writeFileSync(gi, '.env\n.env.*\n!.env.example\nnode_modules/\n*.log\n');
       else if (!/^\.env\s*$/m.test(fs.readFileSync(gi, 'utf8'))) fs.appendFileSync(gi, '\n.env\n.env.*\n!.env.example\n');
+      const risky = secretShapedPaths(execSync('git status --porcelain --untracked-files=all', { cwd: PROJECT_DIR, encoding: 'utf8' }).split(/\r?\n/));
+      if (risky.length) throw new Error('baseline refused: secret-shaped file(s) would be committed (' + risky.slice(0, 5).join(', ') + ') — add them to .gitignore or move them, then run ensure again');
       execSync('git add -A', { cwd: PROJECT_DIR, stdio: 'ignore' });
-      execSync('git -c user.name="Forge Bridge" -c user.email="forge-bridge@local" commit -m "forge-paperclip baseline" --no-verify --allow-empty', { cwd: PROJECT_DIR, stdio: 'ignore' });
+      execSync('git -c user.name="Forge Bridge" -c user.email="forge-bridge@local" commit -m "forge-paperclip baseline" --allow-empty', { cwd: PROJECT_DIR, stdio: 'ignore' });
       console.log('git: baseline commit created (claude_local guard)');
     }
   } catch (e) { console.log('git guard WARNING: ' + e.message.split('\n')[0] + ' — claude_local runs may fail (BLOCKER-14)'); logEvent('paperclip_git_guard_warning', { agent: 'paperclip', status: 'failed', reason: 'git init/baseline failed', note: String(e.message).slice(0, 120) }); }
@@ -573,7 +654,7 @@ async function cmdEnsure() {
       const desiredAdapter = pcAdapter(a.adapterType);
       try {
         const cur = await api('GET', '/api/agents/' + found.id);
-        const mdl = modelFor(a); // the entry, not just the role: its slug may name the Forge agent
+        const mdl = modelFor(a); // the entry, not just the role: its slug may name the Forge agent (F2)
         const body = {};
         if (cur.json && cur.json.adapterType !== desiredAdapter) body.adapterType = desiredAdapter;
         if (desiredAdapter === 'claude_local') body.adapterConfig = Object.assign({ command: toForwardSlashes(CLAUDE_BIN) }, mdl); // set/refresh model tier (Paperclip merges adapterConfig)
@@ -663,7 +744,15 @@ async function cmdStop() {
     // 1) GRACEFUL: ask the Paperclip node runtime to close (no /F) so it shuts its embedded Postgres
     //    down cleanly (checkpoints + releases the data-dir lock). Force-killing PG is what left an
     //    undead cluster holding :54329 last time — this avoids that entirely.
-    const pids = pidsOnPort('3100');
+    //    FB-MISC-1-F1: only OUR runtime — the PID `up` recorded (while its command line is still paperclipai) and
+    //    listeners on the runtime port proven under PC_HOME. Another program on that port is left running.
+    const port = basePort(BASE) || '3100';
+    const recordedPid = Number(readBinding().runtime_pid);
+    const ourPids = () => liveStopPids(recordedPid, processInfo, ownedPids(pidsOnPort(port)));
+    const pids = ourPids();
+    const foreign = pidsOnPort(port).filter((p) => !pids.includes(p));
+    if (foreign.length) console.log('NOTE: port ' + port + ' is also held by PID ' + foreign.join(', ') + ', which is not this Paperclip runtime — left running.');
+    if (!pids.length) console.log('No Paperclip runtime PID of ours was found (none recorded by up, no listener under ' + PC_HOME + ').');
     for (const pid of pids) killTree(pid, false);
     let clean = false;
     for (let i = 0; i < 10; i++) { sleepMs(1000); if (!(await health()) && pidsOnPort(PC_DB_PORT).length === 0) { clean = true; break; } }
@@ -674,10 +763,18 @@ async function cmdStop() {
     }
     // 2) LAST RESORT: it didn't close in ~10s → force-kill node + embedded PG and clear any stale lock.
     console.log('Graceful stop timed out — force-stopping (last resort).');
-    for (const pid of pidsOnPort('3100')) killTree(pid, true);
+    for (const pid of ourPids()) killTree(pid, true);
     freeEmbeddedPg();
+    // FB-MISC-1-F2: prove the stop before saying so (a failed taskkill used to be reported as done).
+    sleepMs(1000);
+    const v = stopVerdict({ healthy: !!(await health()), runtimePids: ourPids(), dbPids: ownedPids(pidsOnPort(PC_DB_PORT)) });
+    if (!v.stopped) {
+      console.error('Paperclip is NOT stopped: the runtime still answers or a process of ours still listens (port ' + port + ' / ' + PC_DB_PORT + ').');
+      logEvent('paperclip_runtime_stopped', { agent: 'paperclip', role: 'control plane', status: 'failed', note: 'Force-stop did not take: health or a listener of ours is still there.' });
+      return 1;
+    }
     console.log('Paperclip runtime force-stopped + embedded Postgres freed.');
-    logEvent('paperclip_runtime_stopped', { agent: 'paperclip', role: 'control plane', status: 'done', note: 'Force-stop after graceful timeout (Postgres force-killed + lock cleared).' });
+    logEvent('paperclip_runtime_stopped', { agent: 'paperclip', role: 'control plane', status: 'done', note: 'Force-stop after graceful timeout (Postgres force-killed + lock cleared); health gone and no listener left.' });
   } catch (e) { console.error('stop failed: ' + e.message); return 1; }
   return 0;
 }
@@ -698,6 +795,7 @@ module.exports = {
   agentDocs,
   list,
   paperclipGate, PAPERCLIP_OFF_MESSAGE,
+  basePort, pickStopPids, liveStopPids, stopVerdict, launchSpec, mayRemovePgLock, gitGuardPlan, secretShapedPaths,
   ROLE_MAP, LOCAL_ADAPTERS, ROUTER_ROLES, ROLE_AGENT, PAPERCLIP_MODEL_IDS, SKILLS_BY_ROLE,
 };
 
@@ -721,6 +819,6 @@ if (require.main === module) {
       const fn = { status: cmdStatus, up: cmdUp, ensure: cmdEnsure, ticket: cmdTicket, pause: cmdPause, resume: cmdResume, stop: cmdStop }[cmd];
       if (!fn) { console.error('unknown command: ' + cmd + ' (use status|up|ensure|ticket|pause|resume|stop)'); process.exit(1); }
       process.exit(await fn());
-    })();
+    })().catch((e) => { console.error('forge-paperclip ' + cmd + ': ' + String((e && e.message) || e).split('\n')[0]); process.exitCode = 1; });
   }
 }

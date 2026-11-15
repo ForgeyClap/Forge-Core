@@ -91,10 +91,13 @@ test('GET /api/missions returns this run\'s real derived mission state', { skip:
   assert.ok(res.json.tasks.some((t) => t.role === 'cc-wp3-gateway'));
 });
 
-test('GET /api/agents returns the real 20-agent registry (12 Bosses + 8 specialists)', async () => {
+test('GET /api/agents returns the real registry (12 Bosses + the registered specialists)', async () => {
   const res = await request(port, '/api/agents?project=' + encodeURIComponent(THIS_PROJECT_NAME));
   assert.equal(res.statusCode, 200);
-  assert.equal(res.json.total_agents, 20);
+  // follows agent-registry.json instead of a literal 20 (the Roblox pack registered 12 rbx-* specialists)
+  const reg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, '.claude', 'config', 'agents', 'agent-registry.json'), 'utf8'));
+  const registered = [...Object.keys(reg.agents || {}), ...Object.keys(reg.specialistAgents || {})].filter((k) => !k.startsWith('_'));
+  assert.equal(res.json.total_agents, registered.length);
   assert.equal(res.json.permanent_boss_count, 12);
 });
 

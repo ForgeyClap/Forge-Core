@@ -25,7 +25,7 @@ function zaaiOutput(root) {
   fs.writeFileSync(path.join(root, 'gate-output', 'suite.txt'), OUT_TEXT);
   return root;
 }
-/** legacy eligibility is AUTHENTICATED by the per-project allowlist (run id + sha256 of the receipt bytes).
+/** F01: legacy eligibility is AUTHENTICATED by the per-project allowlist (run id + sha256 of the receipt bytes).
  *  allowlistReceipt() registers the receipt file AS IT IS ON DISK RIGHT NOW under the given generation. */
 function allowlistReceipt(root, run, generation) {
   const file = path.join(root, F.LEGACY_RECEIPTS_REL);
@@ -292,7 +292,7 @@ console.log('forge-finalize (hermetisch, root=' + ROOT + ')');
   t('11 en check() zegt hetzelfde (geen ingang die milder is)', F.check(ROOT, RUN).verdict === 'STALE');
 }
 {
-  // een gewijzigde REGELSET betekent dat het oordeel tegen ANDERE regels gold. (2026-10-09, audit
+  // R4-03: een gewijzigde REGELSET betekent dat het oordeel tegen ANDERE regels gold. (2026-10-09, audit
   // S7): dat is HISTORICAL (cause 'ruleset'), niet langer STALE — elke regelwijziging maakte anders ELKE
   // receipt ooit rood (gemeten: 6 van de 14 echte receipts). De herbevestiging weigert nog steeds (finalize
   // bevestigt alleen de HUIDIGE staat) en na herstel is hij weer FINALIZED.
@@ -373,7 +373,7 @@ console.log('forge-finalize (hermetisch, root=' + ROOT + ')');
   t('14 basisfinalisatie slaagt', F.finalize(ROOT, RUN).ok === true);
   const echt = JSON.parse(fs.readFileSync(path.join(dir, 'run-finalized.json'), 'utf8'));
 
-  // de IDEMPOTENTE tak valideerde de receipt niet via receiptState
+  // R7-01: de IDEMPOTENTE tak valideerde de receipt niet via receiptState
   for (const [veld, waarde] of [['schema', 1], ['run_id', 'een-andere-run'], ['contract', 'nope']]) {
     fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(Object.assign({}, echt, { [veld]: waarde }), null, 2));
     const r = F.finalize(ROOT, RUN);
@@ -383,13 +383,13 @@ console.log('forge-finalize (hermetisch, root=' + ROOT + ')');
   fs.writeFileSync(path.join(dir, 'run-finalized.json'), JSON.stringify(echt, null, 2));
   t('14 R7-01 de echte receipt is daarna weer gewoon FINALIZED', F.check(ROOT, RUN).verdict === 'FINALIZED');
 
-  // receipt en independent_verification mogen elkaar niet tegenspreken
+  // R7-08: receipt en independent_verification mogen elkaar niet tegenspreken
   const iv = echt.independent_verification;
   t('14 R7-08 de receipt spreekt zichzelf niet tegen (FINALIZED naast een rode iv-status)',
     !!iv && (iv.applicable === false || iv.ok === true || iv.available === false), JSON.stringify(iv));
 }
 {
-  // pins worden VOOR de contractcheck genomen; een lege/ongeldige regelset is fataal, geen null
+  // R7-02: pins worden VOOR de contractcheck genomen; een lege/ongeldige regelset is fataal, geen null
   const RUN = 'fin-r7-pins';
   log(RUN, 'run_started', { note: 's' });
   log(RUN, 'run_completed', { command: 'x', output: 'klaar' });
@@ -1051,6 +1051,60 @@ console.log('\n23) WP-1 — ruleset edits are HISTORICAL, tampering is still STA
   };
   const runDirV = (run) => path.join(V, '.claude', 'forge-runs', run);
   const receiptV = (run) => path.join(runDirV(run), 'run-finalized.json');
+
+  // 24 (FB-FINALIZE-1-F1) a receipt sealed at L1 turns HISTORICAL (cause contract-inputs, reverified:false), not STALE,
+  // when only the live harness hook log later raises the run to L3 and a complexity:>=L3 rule then reads red
+  try {
+    const heavy = { id: 'prd-heavy', rule: 'heavy work owes a PRD', trigger: 'complexity:>=L3', check: { type: 'event-present', key: ['prd_generated'] }, severity: 'block', override: 'n/a', source: 'test' };
+    const W = maakRoot('finalize-cx-', { version: 1, owners_allowlist: ['owner'], rules: [basisRegel, heavy] });
+    const runW = 'fin-cx';
+    const dW = path.join(W, '.claude', 'forge-runs', runW);
+    fs.mkdirSync(dW, { recursive: true });
+    fs.writeFileSync(path.join(dW, 'gate-evidence.json'), bewijsVan(runW));
+    const logW = (type, extra) => spawnSync(process.execPath, [path.join(W, '.claude', 'forge-dashboard', 'log-event.cjs'), runW, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    logW('run_started', { note: 's' });
+    logW('run_completed', { command: 'x', output: 'klaar' });
+    const fw = F.finalize(W, runW);
+    t('24a finalize pins the resolved complexity in the receipt', fw.ok === true && fw.receipt.complexity_pinned && fw.receipt.complexity_pinned.level === 'L1', JSON.stringify(fw).slice(0, 300));
+    t('24a FINALIZED before the hook log grows', F.check(W, runW).verdict === 'FINALIZED');
+    const hooksDir = path.join(W, '.claude', 'forge-runs', '_hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    const lines = [];
+    for (let i = 0; i < 7; i++) lines.push(JSON.stringify({ event: 'SubagentStart', agent_id: 'a' + String(i).repeat(16), agent_type: 'build-boss', run: runW, ts: new Date().toISOString() }));
+    fs.writeFileSync(path.join(hooksDir, 'subagent-start.jsonl'), lines.join('\n') + '\n');
+    const cw = F.check(W, runW);
+    t('24b only an unpinned contract input (harness units) changed -> HISTORICAL cause contract-inputs, reverified:false, never STALE', cw.verdict === 'HISTORICAL' && cw.cause === 'contract-inputs' && cw.reverified === false, JSON.stringify(cw).slice(0, 400));
+    try { fs.rmSync(W, { recursive: true, force: true }); } catch { }
+  } catch (e) { t('24 block ran without throwing', false, e && e.stack); }
+
+  // 24c (FB-FINALIZE-1-F1 rework) the same drift on a receipt whose ruleset ALSO changed since the seal: the pinned-
+  // ruleset branch must apply the same contract-inputs rule (the three real STALE receipts went through that branch)
+  try {
+    const heavy = { id: 'prd-heavy', rule: 'heavy work owes a PRD', trigger: 'complexity:>=L3', check: { type: 'event-present', key: ['prd_generated'] }, severity: 'block', override: 'n/a', source: 'test' };
+    const W2 = maakRoot('finalize-cxp-', { version: 1, owners_allowlist: ['owner'], rules: [basisRegel, heavy] });
+    const runW2 = 'fin-cxp';
+    const dW2 = path.join(W2, '.claude', 'forge-runs', runW2);
+    fs.mkdirSync(dW2, { recursive: true });
+    fs.writeFileSync(path.join(dW2, 'gate-evidence.json'), bewijsVan(runW2));
+    const logW2 = (type, extra) => spawnSync(process.execPath, [path.join(W2, '.claude', 'forge-dashboard', 'log-event.cjs'), runW2, type, JSON.stringify(Object.assign({ agent: 'orchestrator' }, extra || {}))], { encoding: 'utf8' });
+    logW2('run_started', { note: 's' });
+    logW2('run_completed', { command: 'x', output: 'klaar' });
+    const fw2 = F.finalize(W2, runW2);
+    t('24c finalize seals under ruleset v1', fw2.ok === true, JSON.stringify(fw2).slice(0, 300));
+    const rulesW2 = path.join(W2, '.claude', 'config', 'orchestration', 'FORGE_HARD_RULES.json');
+    fs.writeFileSync(rulesW2, JSON.stringify({ version: 2, owners_allowlist: ['owner'], rules: [basisRegel, heavy, { id: 'harmless', rule: 'start again', trigger: 'always', check: { type: 'event-present', key: ['run_started'] }, severity: 'block', override: 'n/a', source: 'test' }] }, null, 2));
+    t('24c ruleset change alone -> HISTORICAL cause ruleset (re-verified under the pinned copy)', (() => { const c = F.check(W2, runW2); return c.verdict === 'HISTORICAL' && c.cause === 'ruleset'; })());
+    const hooksDir2 = path.join(W2, '.claude', 'forge-runs', '_hooks');
+    fs.mkdirSync(hooksDir2, { recursive: true });
+    const lines2 = [];
+    for (let i = 0; i < 7; i++) lines2.push(JSON.stringify({ event: 'SubagentStart', agent_id: 'b' + String(i).repeat(16), agent_type: 'build-boss', run: runW2, ts: new Date().toISOString() }));
+    fs.writeFileSync(path.join(hooksDir2, 'subagent-start.jsonl'), lines2.join('\n') + '\n');
+    const cw2 = F.check(W2, runW2);
+    t('24c ruleset changed AND harness units raised the level -> HISTORICAL cause contract-inputs under the pinned ruleset, never STALE', cw2.verdict === 'HISTORICAL' && cw2.cause === 'contract-inputs' && cw2.reverified === false, JSON.stringify(cw2).slice(0, 400));
+    const rulesPinnedW2 = path.join(dW2, 'ruleset-pinned.json');
+    t('24c a pinned ruleset copy exists for this receipt', fs.existsSync(rulesPinnedW2));
+    try { fs.rmSync(W2, { recursive: true, force: true }); } catch { }
+  } catch (e) { t('24c block ran without throwing', false, e && e.stack); }
 
   // 23a the receipt records the ruleset version (and null when the ruleset declares none)
   const RUN = 'fin-wp1';

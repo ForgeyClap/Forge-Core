@@ -412,7 +412,10 @@ function recordVerdict(verdict, opts) {
  *  being dropped — a silently discarded verdict is a silently clean run. */
 function readVerdicts(runDir) {
   let raw;
-  try { raw = fs.readFileSync(path.join(runDir || '', VERDICT_FILE), 'utf8'); } catch { return []; }
+  try { raw = fs.readFileSync(path.join(runDir || '', VERDICT_FILE), 'utf8'); } catch (e) {
+    // only "no verdict file yet" is an empty list; any other read error is a record we cannot read, so it counts
+    return e && e.code === 'ENOENT' ? [] : [{ parse_error: true, raw: (e && e.code) || 'read error' }];
+  }
   const out = [];
   for (const line of raw.split(/\r?\n/)) {
     const s = line.trim();
@@ -497,6 +500,7 @@ if (require.main === module) {
       const resolvedStops = resolveRunDir(rawRun, { root: arg('root', undefined) });
       if (!resolvedStops.ok) { console.error('forge-run-budget stops: ' + resolvedStops.reason); process.exit(1); }
       const dir = resolvedStops.dir;
+      if (!fs.existsSync(dir)) { console.error('forge-run-budget stops: no run folder ' + dir + ' (a run that does not exist is not "0 stops")'); process.exit(1); }
       const s = budgetStops(dir);
       console.log(s.count + ' budget stop(s) in ' + s.verdicts.length + ' verdict(s)');
       for (const st of s.stops) console.log('  ' + (st.parse_error ? 'UNREADABLE: ' + st.raw : st.status + ' — ' + (st.reason || '')));

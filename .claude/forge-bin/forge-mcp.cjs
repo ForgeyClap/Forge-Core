@@ -61,23 +61,35 @@ try { const store = require('./forge-store.cjs'); if (typeof store.redactValue =
 function log(...a) { process.stderr.write('[forge-mcp] ' + a.join(' ') + '\n'); }
 function safeRead(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
 function runIdOk(id) { return typeof id === 'string' && /^[A-Za-z0-9_-]+$/.test(id); }
+/** listRunIds() — real run folders only (a valid id, not a _hook/.lock folder, holding run.json or events.jsonl),
+ *  newest first by start time (FB-GUARDS-1-F8: hook folders were listed and the latest run was guessed). */
 function listRunIds() {
   const ids = [];
   for (const d of runsDirs()) {
-    try { for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory() && !ids.includes(e.name)) ids.push(e.name); } catch { /* unreadable folder: skipped */ }
+    try {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (!e.isDirectory() || ids.includes(e.name) || !runIdOk(e.name) || /^[_.]/.test(e.name)) continue;
+        if (fs.existsSync(path.join(d, e.name, 'run.json')) || fs.existsSync(path.join(d, e.name, 'events.jsonl'))) ids.push(e.name);
+      }
+    } catch { /* unreadable folder: skipped */ }
   }
-  return ids;
+  const t = new Map(ids.map((id) => [id, runStartMs(id)]));
+  return ids.sort((a, b) => (t.get(b) - t.get(a)) || (a < b ? 1 : a > b ? -1 : 0));
+}
+/** runStartMs(id) — run.json started, else the first event's timestamp, else the folder mtime. */
+function runStartMs(id) {
+  const s = Date.parse(readRunMeta(id).started);
+  if (Number.isFinite(s)) return s;
+  const f = runFile(id, 'events.jsonl');
+  const first = ((f && safeRead(f)) || '').split(/\r?\n/).find((l) => l.trim());
+  try { const ts = Date.parse(JSON.parse(first).timestamp); if (Number.isFinite(ts)) return ts; } catch { /* no usable first event */ }
+  try { return fs.statSync(runDir(id)).mtimeMs; } catch { return 0; }
 }
 function runFile(id, file) { const d = runDir(id); return d ? path.join(d, file) : null; }
 function readRunMeta(id) { const f = runFile(id, 'run.json'); const rj = f ? safeRead(f) : null; if (!rj) return {}; try { return JSON.parse(rj); } catch { return { parse_error: true }; } }
 function readEvents(id) { const f = runFile(id, 'events.jsonl'); const raw = f ? safeRead(f) : null; if (!raw) return []; const out = []; for (const l of raw.split(/\r?\n/)) { const t = l.trim(); if (!t) continue; try { const v = JSON.parse(t); if (v && typeof v === 'object' && !Array.isArray(v)) out.push(v); } catch { /* skip */ } } return out; }
 function projectName() { if (!PROJECT_ROOT) return '(no project)'; try { const s = JSON.parse(safeRead(path.join(CLAUDE_DIR, 'forge-dashboard', 'DASHBOARD_STATE.json')) || '{}'); if (s.project_name) return s.project_name; } catch {} return path.basename(PROJECT_ROOT); }
-function latestRunId() {
-  const ids = listRunIds(); if (!ids.length) return null;
-  let best = null, bestT = -Infinity;
-  for (const id of ids) { let t = NaN; try { t = Date.parse(readRunMeta(id).started); } catch {} if (Number.isFinite(t) && t > bestT) { bestT = t; best = id; } }
-  return best || ids.sort().reverse()[0];
-}
+function latestRunId() { return listRunIds()[0] || null; }
 function isRegularFile(p) { try { return fs.lstatSync(p).isFile(); } catch { return false; } }
 /** memoryFileNames() -> the shared memory files that exist: the fixed MEMORY_FILES, then their FORGE_*_ARCHIVE_*.md (sorted). */
 function memoryFileNames() {
@@ -108,7 +120,7 @@ const TOOLS = [
 function callTool(name, args) {
   args = args || {};
   if (name === 'forge_status') { const id = latestRunId(); return { project: projectName(), project_root: PROJECT_ROOT, latest_run: id ? runSummary(id) : null, total_runs: listRunIds().length }; }
-  if (name === 'forge_list_runs') { return { runs: listRunIds().map(runSummary).sort((a, b) => (a.started < b.started ? 1 : -1)) }; }
+  if (name === 'forge_list_runs') { return { runs: listRunIds().map(runSummary) }; }
   if (name === 'forge_get_run') { const id = args.run_id; if (!runIdOk(id)) throw new Error('invalid run_id'); const evs = readEvents(id); const n = Number.isFinite(args.last) ? Math.max(0, args.last) : 20; return { id, run: readRunMeta(id), event_count: evs.length, last_events: evs.slice(-n) }; }
   if (name === 'forge_read_report') { const id = args.run_id; if (!runIdOk(id)) throw new Error('invalid run_id'); const f = runFile(id, 'final-report.md'); const rep = f ? safeRead(f) : null; if (rep == null) throw new Error('no report for run ' + id); return { id, report: rep }; }
   throw new Error('unknown tool: ' + name);

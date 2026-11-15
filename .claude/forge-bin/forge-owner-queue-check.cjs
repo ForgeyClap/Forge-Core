@@ -32,9 +32,14 @@ const fs = require('fs');
 
 const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/;
 const NUM = '(?:\\d+[a-z]?\\.?[ \\t]+)?';
-const QUEUE_TITLE_RE = new RegExp('^' + NUM + '(?:owner[ -]?(?:queue|action|actions|actie|acties|wachtrij|gated|decisions?|to-?do)|'
+// FB-FINALIZE-2-F1: real reports also title the queue "Eigenaar-keuze (…)", "6. Eigenaarswachtrij",
+// "Openstaand voor jou" and "Not done here (owner-gated)", so an owner/eigenaar word plus a queue word ANYWHERE in the
+// title counts, as does "openstaand/wacht … voor jou/u".
+const QUEUE_TITLE_RE = new RegExp('(?:^' + NUM + '(?:owner[ -]?(?:queue|action|actions|actie|acties|wachtrij|gated|decisions?|to-?do)|'
   + 'what i need from you|for you|for the owner|voor (?:jou|u|de eigenaar)|wat ik (?:nog )?van (?:je|jou|u) nodig heb|'
-  + 'eigenaar[ -]?(?:wachtrij|acties?|beslissingen)|jouw acties|wat jij (?:nog )?moet doen|what you need to do)\\b', 'i');
+  + 'eigenaar[ -]?(?:wachtrij|acties?|beslissingen)|jouw acties|wat jij (?:nog )?moet doen|what you need to do)\\b)'
+  + '|(?:\\b(?:owner|eigenaar\\w*)[ -]?(?:queue|gated|actions?|decisions?|choices?|wachtrij|acties?|beslissingen|keuzes?)\\b)'
+  + '|(?:\\b(?:openstaand|wacht\\w*)\\b.*\\bvoor (?:jou|u)\\b)', 'i');
 const NEXT_TITLE_RE = new RegExp('^' + NUM + '(?:next(?: steps?)?|volgende stap(?:pen)?|wat nu)\\b', 'i');
 const SELF_REVIEW_RE = new RegExp('^' + NUM + 'self-review\\b', 'i');
 const ITEM_RE = /^(?:\d+[.)]|[-*])[ \t]+/;
@@ -69,10 +74,18 @@ const GATE_RE = new RegExp('(?:--force|\\b(?:' + [
   'only you (?:can|may|have|hold|own|know the)', 'only the owner (?:can|may|has|holds|owns)', 'alleen (?:jij|u) (?:kunt|kan|mag|hebt|heeft|weet)',
 ].join('|') + '))(?![\\w-])', 'i');
 
+const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 function sectionsOf(lines) {
   const out = [];
-  let cur = null;
+  let cur = null, fence = null;
   for (let i = 0; i < lines.length; i++) {
+    // FB-FINALIZE-2-F2: a "#" line inside a ``` / ~~~ code fence is code, not a heading
+    const fm = FENCE_RE.exec(lines[i]);
+    if (fence || fm) {
+      if (!fence) fence = fm[1][0]; else if (fm && fm[1][0] === fence) fence = null;
+      if (cur) cur.body.push({ n: i + 1, text: lines[i], fenced: true });
+      continue;
+    }
     const h = HEADING_RE.exec(lines[i]);
     if (h) { cur = { title: h[2].trim(), level: h[1].length, start: i + 1, body: [] }; out.push(cur); continue; }
     if (cur) cur.body.push({ n: i + 1, text: lines[i] });
@@ -89,7 +102,11 @@ const NESTED_ITEM_RE = /^([ \t]+)(?:\d+[.)]|[-*])[ \t]+/;
 function itemsOf(body) {
   const items = [];
   let cur = null, tableHeader = true, afterBlank = false, stack = [];
-  for (const { n, text } of body) {
+  for (const { n, text, fenced } of body) {
+    if (fenced) { // fenced lines (and the fence itself) belong to the item they sit under
+      if (cur) cur.parts.push(text.trim()); else { cur = { line: n, parts: [text.trim()], plain: true, parent: -1 }; stack = []; items.push(cur); }
+      afterBlank = false; continue;
+    }
     if (!text.trim()) { afterBlank = true; continue; }
     const blank = afterBlank; afterBlank = false;
     if (TABLE_RE.test(text)) {

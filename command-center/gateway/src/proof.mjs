@@ -368,7 +368,7 @@ function readGateEvidence(runDir) {
 // run-finalized.json genuinely exists but failed validation — an honest "this claims to be a receipt
 // but isn't a trustworthy one", never confused with the ordinary "no receipt yet" case.
 //
-// WP-RB-CC (M-1), made strict by the Codex review of 2026-09-28: a receipt is checked against
+// WP-RB-CC (M-1), made strict by the Codex review of 2026-09-28 (R1): a receipt is checked against
 // the run log's real fingerprint (byte size AND sha256, see events-digest.mjs), and only when a
 // receipt exists at all; a missing or unreadable log never counts as finalized.
 
@@ -621,7 +621,7 @@ export async function buildProof(projectPath, runId) {
   const linkRefusal = !identity.ok && identity.reason !== 'absent' && identity.reason !== 'run folder missing' ? identity.reason : null;
   const read = linkRefusal ? { receipt: null, invalidReason: linkRefusal } : readFinalizeReceipt(runDir, runId);
   const { receipt: structuralReceipt, invalidReason: finalizeInvalidReason } = read;
-  // the authoritative acceptance runs only for a receipt the structural validator accepted
+  // R2/N06: the authoritative acceptance runs only for a receipt the structural validator accepted
   const [runContract, finalizeAcceptance] = await Promise.all([
     buildRunContract(projectPath, runId),
     structuralReceipt && identity.ok ? getFinalizeAcceptance(projectPath, runId, identity.key) : Promise.resolve(null),
@@ -653,7 +653,7 @@ export async function buildProof(projectPath, runId) {
     gate_evidence: gateEvidence,
     gate_evidence_present: gateEvidence !== null,
     finalize_receipt: finalizeReceipt,
-    // finalized means "a completion proof", read from the authoritative acceptance result — never merely
+    // R2/N06: finalized means "a completion proof", read from the authoritative acceptance result — never merely
     // "a receipt file exists". finalize_acceptance carries verdict, cause, reverified, archival, completion_proof
     // (null when there is no structurally valid receipt to judge; available:false with a note when the central
     // check could not run).
@@ -716,7 +716,7 @@ export function buildProofAll(projectPath, maxRuns = DEFAULT_MAX_RUNS_FOR_ALL) {
     }
   }
 
-  // Codex review 2026-09-28, made cheap and honest by its verification: the gallery covers only the
+  // Codex review 2026-09-28 (R3), made cheap and honest by its verification (N3): the gallery covers only the
   // newest `maxRuns` real runs. An existence-only probe asks whether an OLDER real run holds a gallery item
   // (the same rule as the lists above: a file in artifacts/, or a final report, gate evidence, PRD or mission
   // blueprint), stops at the first hit and spends at most OLDER_RUNS_PROBE_BUDGET directory entries per

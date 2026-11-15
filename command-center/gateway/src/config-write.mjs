@@ -58,7 +58,7 @@ const GATE_HOOK_KEY = 'gate-hook';
 // here rather than a require() of that CJS schema, since this is only a pre-flight REFUSAL filter,
 // never a second implementation of resolution/validation (forge-config.cjs itself still validates
 // the value for real once spawned). An ALLOWLIST, not a denylist of known-off spellings (lesson
-// a reject-list falls through to the strongest verdict on anything it did not anticipate)
+// wp-r2 F6: a reject-list falls through to the strongest verdict on anything it did not anticipate)
 // — every value NOT in this list is refused for gate-hook specifically, which also closes the gap a
 // denylist of just "off/false/0/no/uit/nee" would leave open ("disabled"/"disable" are ALSO real
 // false-synonyms forge-config.cjs itself accepts).

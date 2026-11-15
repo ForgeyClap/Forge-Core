@@ -108,7 +108,9 @@ function scanCalls(entries, now) {
   for (const e of entries) {
     const ts = Date.parse(e.timestamp || '') || null;
     if (ts && (firstTs === null || ts < firstTs)) firstTs = ts;
-    const content = e.message && Array.isArray(e.message.content) ? e.message.content : [];
+    // Only real turns count: api-request-blob entries replay earlier tool_use blocks that were already answered.
+    const real = e.type === 'assistant' || e.type === 'user';
+    const content = real && e.message && Array.isArray(e.message.content) ? e.message.content : [];
     for (const p of content) {
       if (!p || typeof p !== 'object') continue;
       if (p.type === 'tool_use') {
@@ -127,12 +129,15 @@ function scanCalls(entries, now) {
   return { pending, calls, toolCalls, firstTs, errStreak };
 }
 
-// Finished = the last substantive entry is an assistant message that ended its turn with no open tool call.
+// Finished = the last substantive entry is an assistant message that ended its turn with no open tool call, or the
+// result of a turn-ending tool (SubagentHandback, StructuredOutput: the harness marks it toolEndsTurn) (FB-LANES-F5).
 function isFinished(entries, pendingCount) {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (e.type === 'attachment' || e.type === 'system') continue;
-    return !!(e.type === 'assistant' && e.message && e.message.stop_reason === 'end_turn' && pendingCount === 0);
+    if (pendingCount !== 0) return false;
+    if (e.type === 'user' && e.toolEndsTurn === true) return true;
+    return !!(e.type === 'assistant' && e.message && e.message.stop_reason === 'end_turn');
   }
   return false;
 }

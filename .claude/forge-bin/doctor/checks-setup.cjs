@@ -310,7 +310,8 @@ function settingsWired(root, opts) {
   }
   if (r.ok) return beginnerResult('settings-wired', 'ok', 'every Forge hook and deny rule from the template is already wired into settings.json', { target, source });
   const upgraded = Array.isArray(r.upgraded) ? r.upgraded : [];
-  return beginnerResult('settings-wired', 'warn', 'settings.json is missing ' + r.added.length + ' hook entry/entries, ' + r.adjusted.length + ' timeout fix(es), ' + upgraded.length + ' hook command update(s), ' + r.deny_added.length + ' deny rule(s) from the template — run forge-sync (or forge-settings-merge.cjs apply) to wire it in', { target, source, added: r.added, adjusted: r.adjusted, upgraded, deny_added: r.deny_added });
+  const moved = Array.isArray(r.moved) ? r.moved : []; // FB-INSTALL-1-F3: a pending move is named too
+  return beginnerResult('settings-wired', 'warn', 'settings.json is missing ' + r.added.length + ' hook entry/entries, ' + r.adjusted.length + ' timeout fix(es), ' + upgraded.length + ' hook command update(s), ' + (moved.length ? moved.length + ' hook move(s), ' : '') + r.deny_added.length + ' deny rule(s) from the template — run forge-sync (or forge-settings-merge.cjs apply) to wire it in', { target, source, added: r.added, adjusted: r.adjusted, upgraded, moved, deny_added: r.deny_added });
 }
 
 /** model-choice-hint — wp-l4 (loop iteration 4): a paraphrase of the owner's own

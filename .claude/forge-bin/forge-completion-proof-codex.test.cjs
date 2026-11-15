@@ -30,7 +30,7 @@
  *   N10  the exported appendChainedLocked stamps run_started baselines like the CLI path
  *   N11  unresolved attribution checks every assignee field on unkeyed package/dispatch events
  *   N12  shipcheck: protected paths over the release enumeration; release placeholders exist and hold no secret
- *   the gateway's /api/proof — is tested in command-center/gateway/test/proof-acceptance.test.mjs.)
+ *   (N06 — the gateway's /api/proof — is tested in command-center/gateway/test/proof-acceptance.test.mjs.)
  *  Every fixture lives in its own os.mkdtemp root (copies of the real writer, contract, finalize, proof-gate,
  *  rules, agent registry and agents); the real project is only READ. */
 const fs = require('fs');
@@ -103,7 +103,7 @@ function seedEvidence(root, run, extra) {
   fs.writeFileSync(path.join(runDirOf(root, run), 'gate-evidence.json'), JSON.stringify({ run_id: run, gates: [Object.assign({ name: 'suite', command: 'node suite.test.cjs', output_file: 'gate-output/suite.txt', exit_code: 0, output_sha256: OUT_SHA, evidence_verified: true, code: { commit: 'a'.repeat(40), worktree_clean: true, stable: true } }, extra || {})] }));
 }
 /** greenRun — the documented completion sequence through the real writer copy, up to (not including) run_completed.
- *  opts.skipProof: leave out the step-3 complete-phase proof, so a later run_completed is a claim made
+ *  opts.skipProof (R2/N07): leave out the step-3 complete-phase proof, so a later run_completed is a claim made
  *  before the contract was proven green. */
 function greenRun(root, run, opts) {
   opts = opts || {};
@@ -599,7 +599,7 @@ try {
   }
 
   // ##############################################################################################
-  // class A (N07..N12). N06 lives in the gateway suite.
+  // class A (N03b, N05, N07..N12). N06 lives in the gateway suite.
   // ##############################################################################################
 
   // ==============================================================================================

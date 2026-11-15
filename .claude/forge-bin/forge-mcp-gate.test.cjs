@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic + real-config tests for forge-mcp-gate.cjs (WAVE G1). Fixture files live under a
  *  fresh os.mkdtemp temp dir so nothing touches the real project config except the explicit "real config
  *  sanity" section, which only READS the real registry/grants files. Convention (matches nvidia-provider.
@@ -38,8 +42,29 @@ t('no registry entry is ever pre-ACTIVATED (the real dormancy invariant)',
   realRegistry.servers.every((s) => s.status !== 'active' && s.active !== true));
 t('an entry that records a REAL connected server still grants nothing by itself (status is reality, not permission)',
   realRegistry.servers.filter((s) => s.status === 'connected').every((s) => G.status({}).find((x) => x.id === s.id).active === false));
-t('the registry has NOT drifted away from what this machine actually configures',
-  G.unregisteredServers({}).ok === true, JSON.stringify(G.unregisteredServers({}).unregistered));
+// HERMETIC: this used to read the REAL ~/.claude.json, so forge-sync's post-install validation
+// failed (and rolled back) in any user project that has its own MCP server there (seen: Roblox_Studio). The
+// suite checks the SHIPPED registry against the SHIPPED config only: a temp project root holding a copy of
+// .claude/settings.json (owner-local settings.local.json and .mcp.json left out) and an empty temp home.
+// Real-machine drift stays visible through the doctor's advisory mcp_dormancy check.
+{
+  const realRoot = path.resolve(__dirname, '..', '..');
+  const shipRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-mcpgate-shipped-'));
+  const shipHome = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-mcpgate-home-'));
+  fs.mkdirSync(path.join(shipRoot, '.claude'), { recursive: true });
+  const realSettings = path.join(realRoot, '.claude', 'settings.json');
+  if (fs.existsSync(realSettings)) fs.copyFileSync(realSettings, path.join(shipRoot, '.claude', 'settings.json'));
+  const shipped = G.unregisteredServers({ projectRoot: shipRoot, homeDir: shipHome });
+  t('the shipped registry covers every MCP server the shipped config enables (hermetic: no real home, no owner-local files)',
+    shipped.ok === true, JSON.stringify(shipped.unregistered));
+  // The check keeps its power: the same shipped registry with ONE extra server in the (fake) home config is ok:false.
+  fs.writeFileSync(path.join(shipHome, '.claude.json'), JSON.stringify({ projects: { [shipRoot]: { mcpServers: { 'forge-test-unregistered-srv': {} } } } }));
+  const drifted = G.unregisteredServers({ projectRoot: shipRoot, homeDir: shipHome });
+  t('the drift check still reports a server absent from the shipped registry (ok:false, names it and its source)',
+    drifted.ok === false && drifted.unregistered.some((u) => u.id === 'forge-test-unregistered-srv' && u.sources.includes('~/.claude.json (this project)')));
+  fs.rmSync(shipRoot, { recursive: true, force: true });
+  fs.rmSync(shipHome, { recursive: true, force: true });
+}
 t('every real server has a valid tier 0-3', realRegistry.servers.every((s) => [0, 1, 2, 3].includes(s.tier)));
 {
   const r = realRegistry.servers.find((s) => s.id === 'github-read');
@@ -160,7 +185,8 @@ fs.writeFileSync(registryPath, JSON.stringify({
 fs.writeFileSync(grantsPath, JSON.stringify({
   bosses: {
     'build-boss': { max_tier: 0, allow_servers: ['serena-lsp'], why: 'fixture' },
-    'search-boss': { max_tier: 1, allow_servers: ['context7'], why: 'fixture' },
+    'search-boss': { max_tier: 1, allow_servers: ['context7', 'github-write'], why: 'fixture' },
+    'docs-boss': { max_tier: 0, allow_servers: [], why: 'fixture: FB-GUARDS-1-F4, no server at all' },
     'ui-boss': { max_tier: 2, allow_servers: ['playwright'], why: 'fixture' },
   },
 }));
@@ -227,6 +253,13 @@ const baseOptsNoOptIn = () => ({ registryPath, grantsPath, optInPath: optInNoneP
   // custom action text still flows through to the real classifier.
   const r = G.validateGrant({ boss: 'search-boss', server: 'github-write' }, { ...baseOpts(), ...ownerGrantOpts(), gatesPath: gatesAlwaysPath, text: 'push commits to origin' });
   t('opts.text is forwarded to the real actiongate classify() call', r.allowed === true && r.gate.matched.includes('test-always-gate'));
+}
+
+{
+  // FB-GUARDS-1-F4: a verified owner token and a matching gate phrase do not open a tier-3 server
+  // for a Boss whose allow_servers does not name it (docs-boss: max_tier 0, allow_servers []).
+  const r = G.validateGrant({ boss: 'docs-boss', server: 'github-write', tool: 'push' }, { ...baseOpts(), ...ownerGrantOpts(), gatesPath: gatesAlwaysPath, text: 'deploy to production' });
+  t('F4 tier-3: a Boss without the server in allow_servers is denied even with a verified owner grant', r.allowed === false && r.tier === 3 && /not granted server/.test(r.reason), r.reason);
 }
 
 // ---- validateGrant: opt-in gating ----
@@ -463,6 +496,29 @@ function run(args) { return spawnSync(process.execPath, [BIN, ...args], { encodi
     t('D4 when the registry knows every configured server the check is clean', r.ok === true && r.unregistered.length === 0, r.reason);
   }
   {
+    // FB-GUARDS-1-F6: servers of ENABLED plugins are seen; account connectors are a named blind spot;
+    // a ~/.claude.json project key that differs only in case still names this project on Windows.
+    const pRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plug-root-'));
+    const pHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plug-home-'));
+    const inst = path.join(pHome, '.claude', 'plugins', 'cache', 'mkt', 'mcp', '1.0.0');
+    const inst2 = path.join(pHome, '.claude', 'plugins', 'cache', 'mkt', 'off', '1.0.0');
+    fs.mkdirSync(path.join(inst, '.claude-plugin'), { recursive: true });
+    fs.mkdirSync(inst2, { recursive: true });
+    fs.writeFileSync(path.join(inst, '.mcp.json'), JSON.stringify({ mcpServers: { forgegui: {} } }));
+    fs.writeFileSync(path.join(inst, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'mcp', mcpServers: { second: {} } }));
+    fs.writeFileSync(path.join(inst2, '.mcp.json'), JSON.stringify({ mcpServers: { disabledone: {} } }));
+    fs.writeFileSync(path.join(pHome, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'mcp@mkt': [{ installPath: inst }], 'off@mkt': [{ installPath: inst2 }] } }));
+    fs.writeFileSync(path.join(pHome, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'mcp@mkt': true, 'off@mkt': false } }));
+    fs.writeFileSync(path.join(pHome, '.claude.json'), JSON.stringify({ projects: { [process.platform === 'win32' ? pRoot.toLowerCase() : pRoot]: { mcpServers: { 'case-key': {} } } } }));
+    const pOpts = { projectRoot: pRoot, homeDir: pHome, registryPath, grantsPath, optInPath: optInAllPath };
+    const ids = G.discoverConfiguredServers(pOpts).map((s) => s.id);
+    t('F6 an enabled plugin\'s MCP servers are discovered (.mcp.json and plugin.json)', ids.includes('plugin:mcp:forgegui') && ids.includes('plugin:mcp:second'), ids.join(','));
+    t('F6 a disabled plugin\'s server is not counted', !ids.includes('plugin:off:disabledone'), ids.join(','));
+    t('F6 a project key differing only in case still matches this project (win32)', ids.includes('case-key'), ids.join(','));
+    const r = G.unregisteredServers(pOpts);
+    t('F6 the drift check reports the plugin server as unregistered and names the account-connector blind spot', r.ok === false && r.unregistered.some((u) => u.id === 'plugin:mcp:forgegui') && Array.isArray(r.blind_spots) && r.blind_spots.some((b) => /connector/i.test(b)), JSON.stringify(r));
+  }
+  {
     // no config sources at all -> honest empty, never a crash
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-bare-'));
     const r = G.unregisteredServers({ projectRoot: bare, homeDir: bare, registryPath, grantsPath, optInPath: optInAllPath });
@@ -592,11 +648,25 @@ function run(args) { return spawnSync(process.execPath, [BIN, ...args], { encodi
     // The REAL registry through the REAL gate: opt every server in and grant every tier<=2 one to a fixture
     // boss — exactly the verified (SAFE-pinned) entries may pass, every UNVERIFIED one must be refused.
     const realTierLe2 = realRegistry.servers.filter((s) => s.tier <= 2).map((s) => s.id);
+    // CF-3-F3: a host_policy server is grantable only when the host config denies its deny_tools, so this fixture
+    // project settings file denies every deny_tools entry of the real registry (and allows nothing).
+    const hpRoot = path.join(mRoot, 'hp-project'); const hpHome = path.join(mRoot, 'hp-home');
+    fs.mkdirSync(path.join(hpRoot, '.claude'), { recursive: true }); fs.mkdirSync(hpHome, { recursive: true });
+    const realDeny = [];
+    for (const s of realRegistry.servers) for (const tool of ((s.host_policy || {}).deny_tools || [])) realDeny.push('mcp__' + s.id + '__' + tool);
+    fs.writeFileSync(path.join(hpRoot, '.claude', 'settings.json'), JSON.stringify({ permissions: { deny: realDeny, allow: [] } }));
     const realOpts = {
       registryPath: G.REGISTRY_PATH,
       grantsPath: w('grants-real.json', { bosses: { 'test-boss': { max_tier: 2, allow_servers: realTierLe2, why: 'fixture' } } }),
       optInPath: w('optin-real.json', { opted_in: realRegistry.servers.map((s) => s.id) }),
+      projectRoot: hpRoot, homeDir: hpHome,
     };
+    {
+      const emptyRoot = path.join(mRoot, 'hp-empty'); fs.mkdirSync(emptyRoot, { recursive: true });
+      const r = G.validateGrant({ boss: 'test-boss', server: 'playwright' }, Object.assign({}, realOpts, { projectRoot: emptyRoot, homeDir: hpHome }));
+      t('CF-3-F3 real registry: playwright is refused while no host settings deny browser_run_code_unsafe',
+        r.allowed === false && /mcp__playwright__browser_run_code_unsafe/.test(r.reason), r.reason);
+    }
     const allowedReal = realTierLe2.filter((id) => G.validateGrant({ boss: 'test-boss', server: id }, realOpts).allowed).sort();
     const verifiedReal = realRegistry.servers.filter((s) => s.tier <= 2 && s.pin !== 'UNVERIFIED').map((s) => s.id).sort();
     t('M1 real registry: exactly the verified (pinned) entries are grantable once opted in; every UNVERIFIED one is refused',
@@ -609,6 +679,63 @@ function run(args) { return spawnSync(process.execPath, [BIN, ...args], { encodi
     }
   } finally {
     fs.rmSync(mRoot, { recursive: true, force: true }); // lanes clean the fixtures they create
+  }
+}
+
+// ============================================================================================
+// CF-3-F3: host_policy is enforced. A server whose registry entry carries host_policy is granted only
+// when the host permissions (project .claude/settings.json + settings.local.json + ~/.claude/settings.json) deny
+// every deny_tools entry as mcp__<id>__<tool>, and, in allow-list mode, allow nothing outside allow_tools.
+// ============================================================================================
+{
+  const hRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-gate-hostpolicy-'));
+  try {
+    const w = (name, data) => { const p = path.join(hRoot, name); fs.writeFileSync(p, JSON.stringify(data)); return p; };
+    const entry = (id, hp) => Object.assign({ id, purpose: 'fixture', tier: 1, network: 'read', credentials_needed: false, install_hint: 'x', status: 'not-installed', notes: '', host_policy: hp }, PIN('fixture-' + id, '1.0.0'));
+    const reg = w('registry.json', { servers: [
+      entry('pw', { mode: 'deny-list', allow_tools: [], deny_tools: ['run_unsafe', 'evaluate'] }),
+      entry('ctx', { mode: 'allow-list', allow_tools: ['resolve', 'query'], deny_tools: [] }),
+    ] });
+    const grants = w('grants.json', { bosses: { 'search-boss': { max_tier: 1, allow_servers: ['pw', 'ctx'], why: 'fixture' } } });
+    const optin = w('optin.json', { opted_in: ['pw', 'ctx'] });
+    let n = 0;
+    // project = settings for <root>/.claude/settings.json, local = settings.local.json, user = ~/.claude/settings.json
+    const env = (project, local, user) => {
+      const root = path.join(hRoot, 'p' + (++n)); const home = path.join(hRoot, 'h' + n);
+      fs.mkdirSync(path.join(root, '.claude'), { recursive: true }); fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+      const put = (p, v) => { if (v !== undefined) fs.writeFileSync(p, typeof v === 'string' ? v : JSON.stringify(v)); };
+      put(path.join(root, '.claude', 'settings.json'), project);
+      put(path.join(root, '.claude', 'settings.local.json'), local);
+      put(path.join(home, '.claude', 'settings.json'), user);
+      return { registryPath: reg, grantsPath: grants, optInPath: optin, projectRoot: root, homeDir: home };
+    };
+    const v = (server, o, tool) => G.validateGrant({ boss: 'search-boss', server, tool }, o);
+    const fullDeny = { permissions: { deny: ['mcp__pw__run_unsafe', 'mcp__pw__evaluate'] } };
+
+    { const r = v('pw', env(undefined, undefined, undefined));
+      t('H1 deny-list server with no host settings at all is refused and names the missing deny rule', r.allowed === false && /mcp__pw__run_unsafe/.test(r.reason), r.reason); }
+    { const r = v('pw', env({ permissions: { deny: ['mcp__pw__run_unsafe'] } }));
+      t('H2 one deny_tools entry missing is enough to refuse (names exactly the missing one)', r.allowed === false && /mcp__pw__evaluate/.test(r.reason) && !/mcp__pw__run_unsafe/.test(r.reason), r.reason); }
+    { const r = v('pw', env(fullDeny));
+      t('H3 every deny_tools entry denied in project settings -> allowed', r.allowed === true, r.reason); }
+    { const r = v('pw', env({ permissions: { deny: ['mcp__pw__run_unsafe'] } }, undefined, { permissions: { deny: ['mcp__pw__evaluate'] } }));
+      t('H4 deny rules merge across project and user settings (a deny in any scope counts)', r.allowed === true, r.reason); }
+    { const r = v('pw', env(fullDeny), 'run_unsafe');
+      t('H5 a request for a deny_tools tool itself is refused even when the host denies it', r.allowed === false && /run_unsafe/.test(r.reason), r.reason); }
+    { const r = v('ctx', env(undefined));
+      t('H6 allow-list server with nothing allowed -> allowed (tools outside allow_tools stay behind a prompt)', r.allowed === true, r.reason); }
+    { const r = v('ctx', env(undefined, { permissions: { allow: ['mcp__ctx__resolve', 'mcp__ctx__query'] } }));
+      t('H7 allow-list server with only allow_tools allowed -> allowed', r.allowed === true, r.reason); }
+    { const r = v('ctx', env(undefined, { permissions: { allow: ['mcp__ctx'] } }));
+      t('H8 allow-list server allowed as a whole (mcp__ctx) is refused', r.allowed === false && /mcp__ctx/.test(r.reason), r.reason); }
+    { const r = v('ctx', env(undefined, undefined, { permissions: { allow: ['mcp__ctx__other'] } }));
+      t('H9 allow-list server with a tool outside allow_tools allowed (user scope) is refused', r.allowed === false && /mcp__ctx__other/.test(r.reason), r.reason); }
+    { const r = v('ctx', env(undefined), 'other');
+      t('H10 a request for a tool outside allow_tools is refused', r.allowed === false && /other/.test(r.reason), r.reason); }
+    { const r = v('pw', env('{ not json'));
+      t('H11 an unreadable settings file refuses the grant (fail closed, never read as empty)', r.allowed === false && /settings/.test(r.reason), r.reason); }
+  } finally {
+    fs.rmSync(hRoot, { recursive: true, force: true });
   }
 }
 

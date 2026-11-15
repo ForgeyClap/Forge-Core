@@ -88,7 +88,7 @@ test('rejects a case-variant of the home folder on win32 (skipped elsewhere)', {
   assert.ok(lines.some((l) => l.includes('home folder itself')));
 });
 
-// a folder that CONTAINS home (an ancestor, e.g. the home folder's own parent) must be
+// N5 fix: a folder that CONTAINS home (an ancestor, e.g. the home folder's own parent) must be
 // rejected too — scanning it would scan home along with it.
 test('rejects an ancestor of the home folder (a folder that contains home)', () => {
   const ancestor = path.dirname(path.resolve(os.homedir()));
@@ -102,7 +102,7 @@ test('rejects an ancestor of the home folder (a folder that contains home)', () 
   assert.ok(lines.some((l) => l.includes('contains the home folder')));
 });
 
-// a junction/symlink whose literal path looks like an ordinary folder but actually points
+// N5 fix: a junction/symlink whose literal path looks like an ordinary folder but actually points
 // AT home must be rejected — the literal path alone must never be trusted, only its real target.
 test('rejects a junction that points at the home folder', () => {
   const linkPath = path.join(tempDir, 'junction-to-home');
@@ -138,7 +138,7 @@ test('rejects a junction that points at a drive root', () => {
   assert.ok(lines.some((l) => l.includes('drive root')));
 });
 
-// the RESOLVED target must be returned, never the typed/link path — so re-pointing the
+// F2 fix: the RESOLVED target must be returned, never the typed/link path — so re-pointing the
 // link after startup has no effect on what SYNC_SCAN_ROOTS actually scans.
 test('returns the RESOLVED real target, not the symlink/junction path itself', () => {
   const realDir = path.join(tempDir, 'resolved-target-real');

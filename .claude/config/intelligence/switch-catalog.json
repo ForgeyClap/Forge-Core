@@ -61,18 +61,18 @@
     {
       "id": "parallel-lanes", "kind": "workflow",
       "label": { "en": "parallel lanes", "nl": "parallelle lanes" },
-      "how_to_enable": "Dispatch every non-colliding work package of a wave at once (Agent tool or .claude/workflows/forge-build.js), up to 8 lanes or config team-max, and start the next one the moment a lane finishes",
+      "how_to_enable": "Dispatch every non-colliding work package of a wave at once (Agent tool or .claude/workflows/forge-build.js), as many at once as node .claude/forge-bin/forge-lane-budget.cjs reports (read-only lanes count too; the lane budget wins over team-max), and start the next one the moment a lane finishes",
       "scope": "run", "reversible": true, "revert": "dispatch the remaining packages one at a time",
       "class": "SAFE", "class_reason": ["none"],
       "triggers": [{ "min_lanes": 2 }],
       "announce": { "en": "The task has independent parts, so they run as parallel lanes (one writer per file) instead of one after the other.", "nl": "De taak heeft onafhankelijke delen, dus die draaien als parallelle lanes (één schrijver per bestand) in plaats van na elkaar." },
-      "evidence": "intelligence-evidence.md section 1 #1; standing rule parallel-lanes-8 (stop starting new lanes at 80 % usage)",
+      "evidence": "intelligence-evidence.md section 1 #1; standing rule parallel-lanes-8; global HARD MUST parallel lanes rule 9 (the lane budget tapers with usage, down to lanes.min at lanes.stop-at, 80 % by default)",
       "evidence_ref": [{ "type": "evidence-row", "target": "1" }, { "type": "owner-rule", "target": "parallel-lanes-8" }],
       "evidence_row": 1, "evidence_class": "ALREADY-DEFAULT",
       "pre_authorized_by": "parallel-lanes-8",
       "default_state": "on",
       "enforcement": { "status": "partial", "by": [".claude/config/orchestration/FORGE_HARD_RULES.json (parallelism-considered, trigger run-shape:serial-plan; I.6)", ".claude/forge-bin/forge-plan-card.cjs (planLanes predicts lanes per wave)", ".claude/workflows/forge-build.js (routed build workflow)"], "gap": "the run contract refuses a serial plan (a recorded card with 4+ packages, no shared file inside a wave, 1 expected lane) unless a decision names the blocking file, lock or dependency; nothing starts the next lane by itself, and a run without a recorded plan card is not checked (evidence #1)" },
-      "verify": [{ "type": "file", "target": ".claude/workflows/forge-build.js" }, { "type": "schema-key", "target": "team-max" }]
+      "verify": [{ "type": "file", "target": ".claude/workflows/forge-build.js" }, { "type": "file", "target": ".claude/forge-bin/forge-lane-budget.cjs" }, { "type": "schema-key", "target": "lanes.max" }, { "type": "schema-key", "target": "team-max" }]
     },
     {
       "id": "proactive-status", "kind": "check",
@@ -369,7 +369,7 @@
       "scope": "project", "reversible": true, "revert": "node .claude/forge-bin/usage-guard.cjs stop",
       "class": "OWNER-GATED", "class_reason": ["credentials", "outbound"],
       "triggers": [{ "signals_any": ["long_running"] }, { "min_lanes": 2 }],
-      "announce": { "en": "The usage guard pauses Forge at 98 % of your limit (80 % stops new lanes); it reads your login token, so only your own setting turns it on.", "nl": "De usage guard pauzeert Forge op 98 % van je limiet (80 % stopt nieuwe lanes); hij leest je login-token, dus alleen jouw eigen instelling zet hem aan." },
+      "announce": { "en": "The usage guard pauses Forge at 98 % of your limit (above lanes.full-until the lane budget tapers, down to the minimum at lanes.stop-at, 80 % by default); it reads your login token, so only your own setting turns it on.", "nl": "De usage guard pauzeert Forge op 98 % van je limiet (boven lanes.full-until bouwt het lane-budget af, tot het minimum op lanes.stop-at, standaard 80 %); hij leest je login-token, dus alleen jouw eigen instelling zet hem aan." },
       "evidence": "intelligence-evidence.md section 1 #3 (defaults on, usage guard at 98 %)",
       "evidence_ref": [{ "type": "evidence-row", "target": "3" }],
       "evidence_row": 3, "evidence_class": "SAFE-LOCAL-ONLY",

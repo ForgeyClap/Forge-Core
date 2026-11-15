@@ -5,9 +5,12 @@
 //
 //   POST /api/permissions/request           ask-mcp.mjs registers one request   (AGENT token only)
 //   POST /api/permissions/:id/wait          ask-mcp.mjs long-polls the decision (AGENT token only)
-//   GET  /api/permissions/pending           the dashboard lists open requests (+ groups)
+//   GET  /api/permissions/pending           the dashboard lists open requests (+ groups) (DASHBOARD only)
 //   POST /api/permissions/:id/answer        the dashboard answers: allow | allow_session | deny
 //                                           (DASHBOARD token only)
+//   GET  /api/permissions/autonomy          autonomy per project (WP-AUTONOMY-GW, owner R-0203)
+//   PUT  /api/permissions/autonomy          { project, enabled } switches one project (DASHBOARD only)
+//   GET  /api/permissions/auto-log?limit=N  the cards allowed without asking, newest first (DASHBOARD only)
 //
 // NOT registered in this release (Security Boss decision, docs/forge-systeem/B3-permissions-
 // security-decision.md, Step 2 waits for the owner): GET/POST /api/permissions/trust. Their handlers
@@ -35,16 +38,28 @@ import {
   answerPermission,
   listPendingPermissions,
   groupPendingPermissions,
+  listAutoAllowed,
+  enableCodeMarkPersistence,
 } from '../permissions/store.mjs';
 import { isProjectTrusted, setProjectTrusted, TRUST_FILE_INSIDE_PROJECT } from '../permissions/trust.mjs';
+import { readAutonomy, effectiveAutonomy, setAutonomy } from '../permissions/autonomy.mjs';
+import { listProjects } from '../projects.mjs';
 import { sendJson, readBodyOrRespond, projectOrRespond } from './http.mjs';
 import { ASK_RE } from './ask.mjs';
 
 export const MODULE = 'permissions';
 
+// Verify round 8 (F3): the gateway that serves these routes keeps the write-then-run marks across a restart
+// (permissions/code-marks.mjs, ~/.forge/permissions/code-marks.json). Switched on here, where only the running
+// gateway (server.mjs) loads it, so a script that imports the store never touches the owner's file. Under the Node
+// test runner the file is still never touched without a test folder.
+enableCodeMarkPersistence();
+
 export const PERMISSION_REQUEST_PATH = '/api/permissions/request';
 export const PERMISSION_PENDING_PATH = '/api/permissions/pending';
 export const PERMISSION_TRUST_PATH = '/api/permissions/trust';
+export const PERMISSION_AUTONOMY_PATH = '/api/permissions/autonomy';
+export const PERMISSION_AUTO_LOG_PATH = '/api/permissions/auto-log';
 export const PERMISSION_WAIT_RE = /^\/api\/permissions\/([^/]+)\/wait$/;
 export const PERMISSION_ANSWER_RE = /^\/api\/permissions\/([^/]+)\/answer$/;
 
@@ -55,6 +70,9 @@ export const REGISTERED_ROUTES = Object.freeze([
   Object.freeze(['GET', PERMISSION_PENDING_PATH, 'pending']),
   Object.freeze(['POST', PERMISSION_WAIT_RE, 'wait']),
   Object.freeze(['POST', PERMISSION_ANSWER_RE, 'answer']),
+  Object.freeze(['GET', PERMISSION_AUTONOMY_PATH, 'autonomyGet']),
+  Object.freeze(['PUT', PERMISSION_AUTONOMY_PATH, 'autonomyPut']),
+  Object.freeze(['GET', PERMISSION_AUTO_LOG_PATH, 'autoLog']),
 ]);
 
 /** The registered POST paths of this family, for requestListener's write-route allowlist. The trust
@@ -213,6 +231,8 @@ export async function wait(req, res, { match }) {
 }
 
 export async function pending(req, res, { searchParams }) {
+  const refused = dashboardTokenRefusal(req); // round 11 (L3): card inputs are not for an unpaired reader
+  if (refused) return sendJson(res, refused.status, refused.body);
   const conversation = searchParams.get('conversation');
   if (conversation !== null && !safeConvIdOk(conversation)) return sendJson(res, 400, { ok: false, error: 'invalid conversation id' });
   const list = listPendingPermissions({ convId: conversation || undefined });
@@ -232,6 +252,40 @@ export async function answer(req, res, { match }) {
   const result = answerPermission(id, body.behavior);
   if (!result.ok) return sendJson(res, result.status, { ok: false, error: result.error });
   return sendJson(res, 200, { ok: true, id, behavior: result.behavior, remembered: result.remembered });
+}
+
+/** Autonomy per project: every registered project with its effective value, plus stored ones. */
+export async function autonomyGet(req, res) {
+  const registry = await listProjects();
+  const a = readAutonomy();
+  const names = registry.ok ? registry.projects.map((p) => p.name) : [];
+  return sendJson(res, 200, { ok: true, default: a.default, projects: effectiveAutonomy(names), problem: a.problem });
+}
+
+export async function autonomyPut(req, res) {
+  const refused = dashboardTokenRefusal(req);
+  if (refused) return sendJson(res, refused.status, refused.body);
+  const read = await readBodyOrRespond(req, res);
+  if (read.answered) return undefined;
+  const body = read.body;
+  const schemaErr = validateSchema(body, ['project', 'enabled'], ['project', 'enabled']);
+  if (schemaErr) return sendJson(res, 400, { ok: false, error: schemaErr });
+  if (typeof body.enabled !== 'boolean') return sendJson(res, 400, { ok: false, error: 'enabled must be true or false' });
+  if (typeof body.project !== 'string') return sendJson(res, 400, { ok: false, error: 'project must be a string' });
+  const entry = await projectOrRespond(res, body.project);
+  if (!entry) return undefined;
+  const saved = setAutonomy(entry.name, body.enabled, { source: 'dashboard' });
+  if (!saved.ok) return sendJson(res, saved.code === 'invalid_request' ? 400 : 409, { ok: false, error: saved.error, code: saved.code });
+  return sendJson(res, 200, { ok: true, project: entry.name, enabled: body.enabled });
+}
+
+export async function autoLog(req, res, { searchParams }) {
+  const refused = dashboardTokenRefusal(req); // round 11 (L3)
+  if (refused) return sendJson(res, refused.status, refused.body);
+  const raw = searchParams.get('limit');
+  const limit = raw === null ? 50 : /^\d{1,3}$/.test(raw) ? Number(raw) : NaN;
+  if (!(limit >= 1 && limit <= 200)) return sendJson(res, 400, { ok: false, error: 'limit must be a whole number from 1 to 200' });
+  return sendJson(res, 200, { ok: true, items: listAutoAllowed({ limit }) });
 }
 
 // NOT registered in this release (see the header). Kept for Security Boss Step 2.

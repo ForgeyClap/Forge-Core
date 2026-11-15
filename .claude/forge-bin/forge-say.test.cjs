@@ -1,4 +1,8 @@
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-say.test.cjs — WP A1. Standalone, own TEMP project root, cleaned up at the end.
 const fs = require('fs');
 const os = require('os');
@@ -95,11 +99,38 @@ t('invalid run id is refused', () => {
   eq(run(['../escape', '--from', 'lead', '--to', 'build-boss', '--wp', 'A1', 'x']).code, 1);
 });
 
-t('--event is a visible no-op while agent_message is unregistered (chat line still written)', () => {
+t('--event is a visible no-op when log-event.cjs is absent or does not register agent_message (chat line still written)', () => {
   const r = run([RUN, '--from', 'lead', '--to', 'test-boss', '--wp', 'A1', '--event', 'go']);
   eq(r.code, 0);
   ok(r.out.some((l) => /NOTICE --event: "agent_message" is not registered/.test(l)), 'notice printed');
   ok(!fs.existsSync(path.join(root, '.claude', 'forge-runs', RUN, 'events.jsonl')), 'no event written');
+});
+
+t('FB-MISC-2-F9: --event with the real log-event.cjs writes an agent_message event (it is registered)', () => {
+  const real = path.join(__dirname, '..', 'forge-dashboard', 'log-event.cjs');
+  w(root, '.claude/forge-dashboard/log-event.cjs', fs.readFileSync(real, 'utf8'));
+  w(root, '.claude/forge-runs/' + RUN + '/run.json', JSON.stringify({ run_id: RUN }));
+  try {
+    const r = run([RUN, '--from', 'lead', '--to', 'test-boss', '--wp', 'A1', '--event', 'mirror me']);
+    eq(r.code, 0);
+    ok(!r.out.some((l) => /not registered/.test(l)), 'no "unregistered" notice: ' + r.out.join(' | ') + r.err.join(' | '));
+    const ev = fs.readFileSync(path.join(root, '.claude', 'forge-runs', RUN, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    ok(ev.some((e) => (e.event_type || e.type) === 'agent_message' && JSON.stringify(e).includes('mirror me')), 'agent_message event on disk');
+  } finally { fs.rmSync(path.join(root, '.claude', 'forge-dashboard'), { recursive: true, force: true }); }
+});
+
+t('FB-MISC-2-F9: --event that log-event.cjs refuses returns 1 and says so (the chat line is still written)', () => {
+  const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-say-refuse-'));
+  try {
+    w(root2, '.claude/config/agents/agent-registry.json', JSON.stringify({ agents: { 'test-boss': { name: 'Test Boss' } } }));
+    fs.mkdirSync(path.join(root2, '.claude', 'forge-runs', RUN), { recursive: true });
+    w(root2, '.claude/forge-dashboard/log-event.cjs', "module.exports = { KNOWN_EVENT_TYPES: new Set(['agent_message']) };\nif (require.main === module) { console.error('refused by the stub'); process.exit(2); }\n");
+    const out = [], err = [];
+    const code = say.main([RUN, '--from', 'lead', '--to', 'test-boss', '--wp', 'A1', '--event', 'x', '--root', root2], { out: (s) => out.push(s), err: (s) => err.push(s) });
+    eq(code, 1);
+    ok(err.some((l) => /refused by log-event\.cjs \(exit 2\)/.test(l)), err.join(' | '));
+    ok(fs.readFileSync(path.join(root2, '.claude', 'forge-runs', RUN, say.CHAT_FILE), 'utf8').includes('"x"'), 'chat line written');
+  } finally { fs.rmSync(root2, { recursive: true, force: true }); }
 });
 
 t('CLI process: exit code and printed line', () => {

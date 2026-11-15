@@ -34,7 +34,7 @@ export async function agents(req, res, { searchParams }) {
 
 // Order: slug shape (400) -> body read/schema (400/413) -> project resolution (502/404) -> the
 // actual patch (agents-write.mjs owns every remaining 400/404/500/200 outcome). The exec token
-// itself is checked once in requestListener, before any handler is reached.
+// itself is checked once in requestListener (N6 fix), before any handler is reached.
 export async function agentModel(req, res, { searchParams, match }) {
   let slug;
   try { slug = decodeURIComponent(match[1]); } catch { return sendJson(res, 400, { ok: false, error: 'invalid agent slug' }); }

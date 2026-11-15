@@ -1,4 +1,4 @@
-# Auto Web-Quality Contract (WAVE C / C3)
+# Forge — Auto Web-Quality Contract (WAVE C / C3)
 
 The default quality bar for every website/full-stack/landing/SPA build — auto-prepended to the
 builder's dispatch prompt by `forge-router` (Step 3 domain routing) so the owner never has to

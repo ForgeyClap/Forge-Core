@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-projectbrain.test.cjs — real hermetic tests for the project-CLAUDE.md generator (Piece P4).
 // Uses os.mkdtemp fixtures for three real project shapes (Astro-ish website, plain node-tool, n8n-ish
 // automation) so detectStack is proven against REAL files, never mocked. Proves the generated CLAUDE.md is

@@ -49,7 +49,7 @@ function runSupervisorCli(envOverrides, { timeoutMs = 8000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SUPERVISOR_SCRIPT], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ...envOverrides },
+      env: { ...process.env, CC_DISCORD_AUTOSTART: 'off', FORGE_REMOTE_BRIDGE_AUTOSTART: 'off', ...envOverrides },
     });
     let stdout = '';
     let stderr = '';

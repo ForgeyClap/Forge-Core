@@ -77,16 +77,18 @@ const RISKY_ATOMS = {
   // the classifier also expands globs and braces that can reach a secret name (`cat .e*`, `grep x id_*`, `cat .{e,x}nv`,
   // `cat ~/.ssh/*`) and fails closed on too many expansions; here a reading verb plus ANY glob/brace character counts
   // (broader: `cat *.md` is refused too while the hook is broken)
-  readVerb: riskyWord('cat|type|gc|Get-Content|more|less|head|tail|bat|grep|egrep|fgrep|rg|Select-String|sls|findstr'),
+  readVerb: riskyWord('cat|type|gc|Get-Content|more|less|head|tail|bat|grep|egrep|fgrep|rg|Select-String|sls|findstr'
+    + '|sed|awk|gawk|sort|uniq|tac|nl|cut|paste|rev|fold|strings|od|xxd|hexdump|base64'), // CF-1-F1
   gitRead: riskyWord('show|log|whatchanged|diff|blame|annotate|cat-file'),
   globChar: /[*?[{]/,
   claudeWord: /(?:(?<![.\w-])|(?<=\\[nrtbf]))claude(?:-code)?(?:\.exe|\.cmd|\.ps1)?(?![\w-])/i,
   pluginVerb: new RegExp(RISKY_LEFT + String.raw`plugins?\s+(?:install|i|enable|update|marketplace\s+add)(?![\w-])`, 'i'),
   configVerb: new RegExp(RISKY_LEFT + String.raw`config\s+(?:set|add|remove)(?![\w-])`, 'i'),
-  settingsFile: /\.claude[\\/]+settings/i,
+  // FB-GATEHOOK-F4: Forge's own config store (FORGE_CONFIG.json, FORGE_CONFIG.once.*.json) is guarded too
+  settingsFile: /\.claude[\\/]+(?:settings|FORGE_CONFIG)/i,
   // a redirect INTO the settings path (the run after `>` stops at the next `>`, so the bounded scan stays linear), or a
   // writer verb anywhere next to a settings mention; a plain read (`cat .claude/settings.json`) is no keyword (WP33B)
-  settingsRedirect: />{1,2}\s*(?:\\?["'])?[^\s"'<>|;&()]{0,200}\.claude[\\/]+settings/i,
+  settingsRedirect: />{1,2}\s*(?:\\?["'])?[^\s"'<>|;&()]{0,200}\.claude[\\/]+(?:settings|FORGE_CONFIG)/i,
   // every writer the classifier names for this gate: shell and PowerShell writers, delete/move/copy/link verbs, dd, and
   // the interpreter write APIs of its line_all_of rule (fs.*Sync, Python write_text/shutil/os); `open(` + a write mode
   // is the separate pair openCall + writeMode below
@@ -99,13 +101,17 @@ const RISKY_ATOMS = {
   writeMode: /['"][wax]\+?b?['"]/i,
   // a file NAMED settings(.local).json next to a .claude folder and a writer: `cp ./settings.json .claude/`, and the
   // path.join / string-concatenation form of the classifier (`join(home, '.claude', 'settings.json')`)
-  settingsName: /(?<![\w.-])settings(?:\.local)?\.json(?!\w)/i,
+  settingsName: /(?<![\w.-])(?:settings(?:\.local)?|FORGE_CONFIG(?:\.once\.[\w.-]+)?)\.json(?!\w)/i,
   claudeDir: /\.claude(?![\w.-])/i,
   // global keyboard/mouse input, read as plain words (broader than the classifier's code shapes;
   // `SendKeys` is matched inside `.SendKeys(` and `[System.Windows.Forms.SendKeys]` because `.`/`[` is no word char)
   globalInput: new RegExp(String.raw`(?:(?<![\w])|(?<=\\[nrtbf]))(?:SendKeys|SendWait|SendInput|keybd_event|mouse_event|AppActivate)(?!\w)`, 'i'),
   gateHookWord: riskyWord('gate-hook'),
   forgeConfig: /forge-config|(?<![\w-])forge(?:\.cmd|\.ps1|\.sh)?(?![\w-])/i,
+  // G-SKILLS-3-F10: `claude-flow init` writes the Claude Code settings without naming the file; the
+  // classifier gained the arm, so the cannot-judge scan carries the same two words (broader on purpose: any order)
+  claudeFlowWord: new RegExp(RISKY_LEFT + String.raw`@?claude-flow(?![\w-])`, 'i'),
+  initWord: riskyWord('init'),
 };
 const RISKY_ATOM_NAMES = Object.keys(RISKY_ATOMS);
 // [gate id, atoms that must ALL appear somewhere in the text]
@@ -121,7 +127,7 @@ const RISKY_SIGNALS = [
   ['plugin-install-command', ['claudeWord', 'pluginVerb']],
   ['settings-edit-command', ['settingsRedirect']], ['settings-edit-command', ['settingsFile', 'settingsWriter']],
   ['settings-edit-command', ['settingsFile', 'openCall', 'writeMode']], ['settings-edit-command', ['settingsName', 'claudeDir', 'settingsWriter']],
-  ['settings-edit-command', ['claudeWord', 'configVerb']],
+  ['settings-edit-command', ['claudeWord', 'configVerb']], ['settings-edit-command', ['claudeFlowWord', 'initWord']],
   ['global-input-command', ['globalInput']],
   ['gate-hook-self-disable', ['gateHookWord', 'forgeConfig']],
 ];

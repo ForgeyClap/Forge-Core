@@ -3,7 +3,9 @@
 // forge-ramguard.cjs — machine-load probe for the Forge lane scheduler (WP-RAMGUARD).
 //
 // OWNER RULE: new lanes may start only while RAM use is below 95%.
-// The Lead's Monitor calls `check` every 60 s and stops starting NEW lanes on STOP-NEW-LANES or DISK-LOW.
+// Meant for the Lead's Monitor (call `check` and stop starting NEW lanes on STOP-NEW-LANES or DISK-LOW). Audit
+// FB-LANES-F13: no command, skill, hook or Monitor step calls it today; forge-lane-budget.cjs already caps
+// lanes on RAM and disk and is the wired tool. Run this one by hand, or wire it into a lane-start step first.
 // Running lanes are never killed by this tool; it only reports.
 //
 // Usage:

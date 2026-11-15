@@ -21,22 +21,32 @@
  *
  * STORAGE (project-local, honors isolation — never a global/shared dir): one JSON file per held hotspot under
  * .claude/forge-runs/.hotspot-locks/<sha1(hotspot)[..16]>.json. The record:
- *   { hotspot, run_id, owner, acquired_at, ttl_ms, expires_at, note }
+ *   { hotspot, run_id, owner, token, acquired_at, ttl_ms, expires_at, note }
  * A hotspot is HELD iff its lock file exists AND now < expires_at. Held-set is a projection over that dir.
  *
+ * OWNERSHIP IS THE CAS TOKEN, NOT THE RUN ID (FB-GUARDS-1-F14: this header used to describe a same-run refresh and a
+ * run-only release; the code has required the token since audit G2 / Codex r4 #3). acquire returns a unique token
+ * (printed by the CLI as token=<...>); keep it. A refresh or release without that exact token is refused, also for
+ * the same run, so two agents of one run cannot take over or free each other's lock. A lost token is not fatal:
+ * the lock expires after its TTL (default 30 min) and is then free for anyone. Legacy locks without a token fall
+ * back to the run_id check.
+ *
  * MODEL (pure except the explicit lock-file writes; every fn takes opts.dir / opts.now for hermetic tests):
- *   acquire({hotspot, runId, owner, note}, opts) -> {ok, lock?|conflict?, refreshed?, stolenFromExpired?, reason?}
- *     ok:true  — lock is now yours (fresh, refreshed by same run, or stolen from an EXPIRED holder).
- *     ok:false — a DIFFERENT run holds it and it has not expired; `conflict` names the owning run_id + remaining_ms.
- *   release({hotspot, runId}, opts) -> {ok, released, reason?}  (only the owning run may release; unknown lock = no-op ok)
+ *   acquire({hotspot, runId, owner, note, token?}, opts) -> {ok, lock?|conflict?, token?, refreshed?, stolenFromExpired?, reason?}
+ *     ok:true  — lock is now yours (fresh, refreshed by the holder of the same token, or stolen from an EXPIRED holder).
+ *     ok:false — another holder (any run, also yours without the token) has it and it has not expired; `conflict`
+ *                names the owning run_id + remaining_ms.
+ *   refresh({hotspot, runId, token}, opts) -> {ok, lock?, reason?}  (only the exact token holder; gone or taken = lost)
+ *   release({hotspot, runId, token}, opts) -> {ok, released, reason?}  (the owning run AND its token; unknown lock = no-op ok)
  *   check({hotspot}, opts)          -> {held, expired?, lock?}
  *   heldLocks(opts)                 -> [{...lock, expired}]  every lock file currently on disk (expired flagged)
  *   reapStale(opts)                 -> {reaped, reapedList}   deletes only EXPIRED lock files (housekeeping)
  *   keyOf(hotspot) / normHotspot(hotspot) — deterministic key + normalization (case/sep-insensitive).
  *
  * CLI (exit codes mirror forge-mcp-gate/forge-actiongate: 0 ok · 3 conflict/denied · 2 usage/config error):
- *   node forge-lock-guard.cjs acquire <hotspot> --run <id> [--owner <name>] [--ttl <ms>] [--note "..."] [--json]
- *   node forge-lock-guard.cjs release <hotspot> --run <id> [--json]
+ *   node forge-lock-guard.cjs acquire <hotspot> --run <id> [--owner <name>] [--ttl <ms>] [--token <t>] [--note "..."] [--json]
+ *   node forge-lock-guard.cjs refresh <hotspot> --run <id> --token <t> [--ttl <ms>] [--json]
+ *   node forge-lock-guard.cjs release <hotspot> --run <id> --token <t> [--json]
  *   node forge-lock-guard.cjs check   <hotspot> [--json]
  *   node forge-lock-guard.cjs list    [--json]
  *   node forge-lock-guard.cjs reap    [--json]
@@ -60,7 +70,16 @@ const LOCK_DIR = PROJECT_ROOT ? path.join(statePath(PROJECT_ROOT, 'runs'), '.hot
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min — long enough for a real Boss task, short enough to auto-heal a crash
 
 function normHotspot(h) {
-  return String(h || '').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '').replace(/\/{2,}/g, '/').toLowerCase().trim();
+  let s = String(h || '').trim();
+  // FB-GUARDS-1-F13: a path inside the project is keyed on its resolved project-relative form, so ./x, a/../x and
+  // the absolute path a PreToolUse hook passes all hit ONE lock. Free text and paths outside the root keep the old key.
+  if (PROJECT_ROOT && s && (path.isAbsolute(s) || /[\\/]/.test(s))) {
+    try {
+      const rel = path.relative(PROJECT_ROOT, path.resolve(PROJECT_ROOT, s));
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) s = rel;
+    } catch { /* unresolvable: keep the text */ }
+  }
+  return s.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '').replace(/\/{2,}/g, '/').toLowerCase().trim();
 }
 function keyOf(h) { return crypto.createHash('sha1').update(normHotspot(h)).digest('hex').slice(0, 16); }
 function dirOf(opts) {

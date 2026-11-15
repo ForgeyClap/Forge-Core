@@ -102,6 +102,17 @@ function defaultStateFile(root, opts) {
 
 function norm(s) { return String(s || '').replace(/\\/g, '/').toLowerCase(); }
 
+/** hasRoot(text, rootN) — the normalised root appears as a whole path, followed by a separator, a quote,
+ *  white space or the end (FB-GUARDS-1-F12): C:/proj/forge must not match C:/proj/forge-v2/... */
+function hasRoot(text, rootN) {
+  const s = norm(text);
+  for (let i = s.indexOf(rootN); i >= 0; i = s.indexOf(rootN, i + 1)) {
+    const next = s.charAt(i + rootN.length);
+    if (next === '' || /[\/"'\s]/.test(next)) return true;
+  }
+  return false;
+}
+
 /** Quote-aware split of a Windows command line. `"C:\Program Files\nodejs\node.exe" script.mjs` must come
  *  back as two tokens, not four — the executable path contains spaces on every normal install. */
 function commandTokens(cmd) {
@@ -243,7 +254,7 @@ function resolveTargets(opts) {
    *  signals, because the real supervisor is started with a RELATIVE script path and therefore cannot be
    *  anchored from its command line alone. */
   function anchored(proc, extra) {
-    if (norm(proc.cmd).includes(rootN)) return 'its command line contains the project root';
+    if (hasRoot(proc.cmd, rootN)) return 'its command line contains the project root';
     if (proc.cwd && norm(proc.cwd) === rootN) return 'its working directory is the project root';
     if (extra) return extra;
     return null;
@@ -337,10 +348,14 @@ function resolveTargets(opts) {
     if (!found) {
       targets.push({ kind: 'task', pid: null, task: known, state: 'not-running', verified: false,
         evidence: 'scheduled task ' + known + ' is not registered' + errSuffix, why: null });
-    } else if (!norm(found.action).includes(rootN)) {
+    } else if (!hasRoot(found.action, rootN)) {
       targets.push({ kind: 'task', pid: null, task: found.name, state: 'refused', verified: false,
         evidence: 'task ' + found.name + ' runs: ' + found.action,
         why: 'its action does not point inside this project root (' + root + '), so it is not ours to disable' });
+    } else if (/^disabled$/i.test(String(found.state || '').trim())) {
+      // FB-GUARDS-1-F11: the owner disabled it; no step, so it never enters disabled_tasks and restore leaves it off.
+      targets.push({ kind: 'task', pid: null, task: found.name, state: 'not-running', verified: false,
+        evidence: 'task ' + found.name + ' is already disabled; this switch leaves it alone and restore will not enable it', why: null });
     } else {
       targets.push({ kind: 'task', pid: null, task: found.name, state: 'running', verified: true,
         evidence: 'task ' + found.name + ' (' + (found.state || 'unknown state') + ') runs: ' + found.action, why: null });
@@ -389,7 +404,7 @@ function realExec(cmd, args) {
 
 function stillAlive(pid, opts) {
   try { return ((opts.listProcesses || listProcessesWindows)() || []).some((p) => p.pid === pid); }
-  catch { return false; }
+  catch { return true; } // FB-GUARDS-1-F2: an unknown state is never reported as "gone"
 }
 
 /**
@@ -458,7 +473,11 @@ function run(opts) {
   let wrote = true;
   try { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8'); }
   catch (e) { wrote = false; plan.errors.push('could not write the state ledger: ' + e.message); }
-  return Object.assign({ ok: wrote, dry_run: false, state_file: stateFile, state }, plan);
+  // FB-GUARDS-1-F2: ok means "everything we meant to stop is stopped", not only "the ledger was written".
+  const stepFailed = plan.steps.some((s) => s.result && (s.kind === 'task' ? !s.result.ok : s.result.verdict === 'failed'));
+  const refused = plan.targets.some((t) => t.state === 'refused');
+  const ok = wrote && !stepFailed && !refused && plan.errors.length === 0;
+  return Object.assign({ ok, dry_run: false, state_file: stateFile, state }, plan);
 }
 
 // ---- the way back ------------------------------------------------------------------------------------
@@ -509,6 +528,17 @@ function restore(opts) {
     // The waakvlam is a daemon: start it detached, never wait on it (see realSpawnDetached's header for
     // the live incident this comes from). Everything else here is a short command that really does exit.
     s.result = (s.kind === 'supervisor') ? spawnDetached(s.cmd, s.args) : exec(s.cmd, s.args);
+  }
+  // FB-GUARDS-1-F3: clear the ledger only when every executed step worked; otherwise keep it, listing the
+  // tasks that are still disabled, so a second restore can finish the job.
+  const failed = steps.filter((s) => !s.manual && !(s.result && s.result.ok));
+  if (failed.length) {
+    const stillDisabled = failed.filter((s) => s.kind === 'task').map((s) => s.task);
+    let kept = true;
+    try { fs.writeFileSync(stateFile, JSON.stringify(Object.assign({}, st, { disabled_tasks: stillDisabled }), null, 2) + '\n', 'utf8'); }
+    catch { kept = false; }
+    return { ok: false, dry_run: false, steps, state_file: stateFile, ledger_cleared: false, ledger_kept: kept, state: st,
+      reason: failed.length + ' restore step(s) failed: ' + failed.map((s) => s.describe).join('; ') + (kept ? ' — the ledger is kept, run restore --confirm again' : ' — and the ledger could not be rewritten') };
   }
   // Clear the ledger so a second restore cannot double-fire against a state that no longer exists.
   let cleared = true;
@@ -598,13 +628,14 @@ if (require.main === module) {
       printSteps(r.steps, r.dry_run);
       console.log('');
       if (r.dry_run) console.log('DRY RUN. Nothing was stopped, disabled or written. Add --confirm to actually do this.');
-      else console.log('Stopped. Ledger: ' + r.state_file + '  |  undo with: node .claude/forge-bin/forge-killswitch.cjs restore --confirm');
+      else if (r.ok) console.log('Stopped. Ledger: ' + r.state_file + '  |  undo with: node .claude/forge-bin/forge-killswitch.cjs restore --confirm');
+      else console.log('NOT STOPPED: a step failed, a target was refused or a lookup failed (see above). Ledger: ' + r.state_file);
       process.exit(r.ok ? 0 : 1);
     }
     if (cmd === 'restore') {
       const r = restore(base);
       if (json) { console.log(JSON.stringify(r, null, 2)); process.exit(r.ok ? 0 : 1); }
-      if (!r.ok) { console.log('RESTORE REFUSED: ' + r.reason); process.exit(1); }
+      if (!r.ok) { if (r.steps.length) printSteps(r.steps, r.dry_run); console.log((r.dry_run === false && r.steps.length ? 'RESTORE INCOMPLETE: ' : 'RESTORE REFUSED: ') + r.reason); process.exit(1); }
       printSteps(r.steps, r.dry_run);
       console.log('');
       console.log(r.dry_run ? 'DRY RUN. Nothing was restored. Add --confirm to actually do this.' : 'Restored. The ledger has been cleared.');

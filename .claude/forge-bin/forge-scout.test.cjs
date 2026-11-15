@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-scout.test.cjs — real tests for the Scout term-generator + persistent vetting ledger (PIECE P5,
 // 2026-07-22). Every fixture-based section writes ONLY under a fresh os.tmpdir() directory (freshDir()) via
 // opts.vettingPath / the FORGE_SCOUT_VETTING_PATH env var — this file NEVER writes to this repo's real
@@ -631,6 +635,66 @@ t('CLI adopt-plan exits 3 for a capability that is not approved, 0 with the plan
   assert.ok(/^scout\/adopt-ok-tool-\d{8}$/.test(JSON.parse(ok.stdout).branch), ok.stdout);
   const no = runCLI(['adopt-plan', '--capability', 'other'], env);
   assert.strictEqual(no.status, 3, no.stdout + no.stderr);
+});
+
+// ---------------------------------------------------------------------------
+// 10) salvage verdict (CF-5-F7, SK-7-F2): an owner-supplied item is salvaged piece by piece, never rejected whole
+// ---------------------------------------------------------------------------
+console.log('\n10) salvage verdict (CF-5-F7, SK-7-F2)');
+
+t('CF-5-F7: a salvage verdict needs keep, remove and a rebuild work package id', () => {
+  const p = freshLedgerPath('forge-scout-salvage-req');
+  assert.throws(() => scout.record({ capability: 'kit', verdict: 'salvage', reason: 'r', remove: ['hook'], rebuild: 'WP-KIT' }, { vettingPath: p }), /keep/);
+  assert.throws(() => scout.record({ capability: 'kit', verdict: 'salvage', reason: 'r', keep: ['idea'], rebuild: 'WP-KIT' }, { vettingPath: p }), /remove/);
+  assert.throws(() => scout.record({ capability: 'kit', verdict: 'salvage', reason: 'r', keep: ['idea'], remove: ['hook'] }, { vettingPath: p }), /rebuild/);
+  assert.throws(() => scout.record({ capability: 'kit', verdict: 'salvage', reason: 'r', keep: ['idea'], remove: ['hook'], rebuild: 'not a wp id!' }, { vettingPath: p }), /rebuild/);
+  const e = scout.record({ capability: 'kit', verdict: 'salvage', reason: 'r', keep: ['idea'], remove: ['hook'], rebuild: 'WP-KIT', owner_supplied: true }, { vettingPath: p });
+  assert.deepStrictEqual([e.verdict, e.keep, e.remove, e.rebuild, e.owner_supplied], ['salvage', ['idea'], ['hook'], 'WP-KIT', true]);
+});
+
+t('CF-5-F7: a hard-pass on an owner-supplied item without a rebuild is refused', () => {
+  const p = freshLedgerPath('forge-scout-owner-hardpass');
+  assert.throws(() => scout.record({ capability: 'owner kit', verdict: 'hard-pass', reason: 'unsafe hook', owner_supplied: true }, { vettingPath: p }), /salvage/);
+  assert.ok(!fs.existsSync(p), 'nothing was written');
+  const ok = scout.record({ capability: 'owner kit', verdict: 'hard-pass', reason: 'unsafe hook', owner_supplied: true, rebuild: 'WP-OWN' }, { vettingPath: p });
+  assert.strictEqual(ok.rebuild, 'WP-OWN');
+});
+
+t('SK-7-F2: a later salvage outranks an earlier hard-pass, so rank keeps the item instead of skipping it', () => {
+  const p = freshLedgerPath('forge-scout-salvage-rank');
+  scout.record({ capability: 'rtk-like', verdict: 'hard-pass', reason: 'binary hook' }, { vettingPath: p });
+  scout.record({ capability: 'rtk-like', verdict: 'salvage', reason: 'keep the idea', keep: ['compress shell output'], remove: ['native PreToolUse hook'], rebuild: 'WP-SUMMARISER' }, { vettingPath: p });
+  assert.strictEqual(scout.isVetted('rtk-like', { vettingPath: p }).verdict, 'salvage');
+  const r = scout.rank([{ name: 'rtk-like', url: 'https://github.com/x/rtk' }], { query: 'rtk', vettingPath: p });
+  assert.deepStrictEqual(r.skipped_hard_pass, []);
+  assert.strictEqual(r.ranked[0].prior_verdict, 'salvage');
+  scout.record({ capability: 'rtk-like', verdict: 'approve', reason: 'later approve' }, { vettingPath: p });
+  assert.strictEqual(scout.isVetted('rtk-like', { vettingPath: p }).verdict, 'salvage', 'a later approve never adopts a salvaged item whole');
+});
+
+t('CF-5-F7: adoptPlan refuses a salvaged item (it is rebuilt, never adopted whole); the CLI exits 3', () => {
+  const p = freshLedgerPath('forge-scout-salvage-adopt');
+  scout.record({ capability: 'kit2', verdict: 'salvage', reason: 'r', keep: ['a'], remove: ['b'], rebuild: 'WP-K2' }, { vettingPath: p });
+  assert.throws(() => scout.adoptPlan('kit2', { vettingPath: p, now: NOW }), /salvage.*WP-K2/);
+  const no = runCLI(['adopt-plan', '--capability', 'kit2'], { ...process.env, FORGE_SCOUT_VETTING_PATH: p });
+  assert.strictEqual(no.status, 3, no.stdout + no.stderr);
+});
+
+t('CF-5-F7: a ledger file with a salvage entry missing its rebuild is refused on read (fail closed)', () => {
+  const p = freshLedgerPath('forge-scout-salvage-bad');
+  fs.writeFileSync(p, JSON.stringify({ version: 1, entries: [{ capability: 'x', verdict: 'salvage', reason: 'r', keep: ['a'], remove: ['b'] }] }));
+  assert.throws(() => scout.list({ vettingPath: p }), /rebuild/);
+});
+
+t('CF-5-F7: CLI record --verdict salvage with repeatable --keep/--remove, --rebuild and --owner-supplied', () => {
+  const p = freshLedgerPath('forge-scout-salvage-cli');
+  const env = { ...process.env, FORGE_SCOUT_VETTING_PATH: p };
+  const r = runCLI(['record', '--capability', 'kit3', '--verdict', 'salvage', '--reason', 'r', '--keep', 'idea one', '--keep', 'idea two', '--remove', 'hook', '--rebuild', 'WP-K3', '--owner-supplied', '--json'], env);
+  assert.strictEqual(r.status, 0, r.stderr);
+  const e = JSON.parse(r.stdout);
+  assert.deepStrictEqual([e.keep, e.remove, e.rebuild, e.owner_supplied], [['idea one', 'idea two'], ['hook'], 'WP-K3', true]);
+  const hp = runCLI(['record', '--capability', 'kit4', '--verdict', 'hard-pass', '--reason', 'r', '--owner-supplied'], env);
+  assert.strictEqual(hp.status, 2, hp.stdout + hp.stderr);
 });
 
 console.log('');

@@ -45,10 +45,12 @@ a compact, dated note to that skill's row in the **Safety notes** column, in thi
 the free-text convention that column already uses):
 
 ```
-activation <correct>/<total> (<YYYY-MM-DD>)
+activation <correct>/<total> (<YYYY-MM-DD>, fresh-session|judged)
 ```
 
-Example: `activation 11/12 `. Never edit any OTHER skill's row while doing this. Never
+Example: `activation 11/12 (fresh-session)`. The method tag is required: `fresh-session` when every
+phrase ran in a fresh session, `judged` when the phrases were judged against the frontmatter. Only a
+`fresh-session` score counts toward the 95% target; an older note without a tag counts as `judged`. Never edit any OTHER skill's row while doing this. Never
 invent a score — a skill with no protocol run yet keeps its existing Safety notes unchanged.
 
 ## 2. Fresh-session A/B benchmark (OPT-IN — costs real runs, never a gate)

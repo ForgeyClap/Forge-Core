@@ -14,6 +14,7 @@
 // the CLI), so every field is type-checked before use and nothing here ever throws.
 import path from 'node:path';
 import { getGatewayPort, DEFAULT_GATEWAY_PORT, configuredGatewayPort } from '../runtime-state.mjs';
+import { webSearchProblem } from './allow-list.mjs';
 
 export const PERMISSION_CATEGORIES = Object.freeze(['network', 'delete', 'outside_folder', 'exec', 'edit']);
 
@@ -296,7 +297,8 @@ export function sessionRuleKey(toolName, input, options) {
     if (categories.some((c) => NEVER_REMEMBERED_CATEGORIES.has(c))) return null;
     const suffix = ' [' + [...categories].sort().join(',') + ']';
     // ALLOW-LIST: only tools whose whole effect the key captures.
-    if (name === 'WebSearch') return name + suffix;
+    // round 8 (LOW): a query that may carry data out (an address, a token, a secret) is allowed once at most
+    if (name === 'WebSearch') return webSearchProblem(inp) ? null : name + suffix;
     if (name === 'WebFetch') {
       const origin = webFetchKey(inp.url);
       return origin ? 'WebFetch:' + origin + suffix : null;

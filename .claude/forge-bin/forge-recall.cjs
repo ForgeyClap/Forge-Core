@@ -19,9 +19,11 @@
  * THE GLOBAL/LEAD GUARANTEE: lessons stored under the reserved GLOBAL_NAMESPACE ("global") are NEVER
  * filtered out by a zero/negative relevance score the way a namespace-specific lesson is — recall()
  * reserves at least half of the requested top-K slots (or every global lesson there is, if fewer) for the
- * best-scoring global lessons before filling any remaining slots with namespace-specific ones. This is
- * what "recalled before every dispatch" means here: a caller that queries any namespace still gets the
- * standing global lessons back, not just whatever happens to keyword-match.
+ * best-scoring global lessons before filling any remaining slots with namespace-specific ones: a caller that
+ * queries any namespace still gets the standing global lessons back, not just whatever happens to keyword-match.
+ * NOT WIRED YET (FB-MEMORY-F8): the documented dispatch recall is `forge-distill.cjs --recall`
+ * (one namespace, keyword + recency, no utility); no command, skill or step doc calls this file at dispatch, so
+ * global lessons and reinforced utility reach a Boss only when a caller runs forge-recall.cjs itself.
  *
  * CROSS-PROJECT LESSONS (forge-harvest.cjs): the reserved global namespace this file blends
  * into every recall() call is no longer only fed by THIS project's own forge-distill.cjs runs — an owner-

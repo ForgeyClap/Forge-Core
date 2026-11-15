@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-dispatch-fit.test.cjs — tests for the dispatch tool-fit guard (W2-DISPATCHLINT).
 const fs = require('fs');
 const os = require('os');
@@ -66,6 +70,20 @@ try {
   });
   t('infer pure-read brief infers nothing risky', () => {
     assert.deepStrictEqual(F.inferTools('summarise the docs'), []);
+  });
+  // FB-CONTRACT-2-F5: a negated verb is not a need (the Verify Boss prompt forbids edits)
+  t('infer: a negated write/edit/fix is not a need', () => {
+    assert.deepStrictEqual(F.inferTools('You only read and execute: never edit, create, delete'), []);
+    assert.deepStrictEqual(F.inferTools('Do not write or edit any file.'), []);
+    assert.deepStrictEqual(F.inferTools('You only read: never edit, create, delete or fix files.'), []);
+    assert.deepStrictEqual(F.inferTools('Never edit files. Then fix the bug.'), ['Write', 'Edit']);
+  });
+  // FB-CONTRACT-2-F6: a brief that opens skills needs the Skill tool
+  t('infer: opening skills needs the Skill tool', () => {
+    assert.deepStrictEqual(F.inferTools('First open these skills with the Skill tool'), ['Skill']);
+    assert.deepStrictEqual(F.inferTools('open the skills listed below'), ['Skill']);
+    const r = F.checkFit('reader', ['Skill'], { agentsDirs: [dir] });
+    assert.strictEqual(r.ok, false); assert.deepStrictEqual(r.missing, ['Skill']);
   });
   t('module: checkFit', () => {
     const r = F.checkFit('reader', ['Bash'], { agentsDirs: [dir] });

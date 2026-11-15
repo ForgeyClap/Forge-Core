@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * usage-guard-status.test.cjs — SA-P1-USAGE (PHASE2-PLAN A1): `usage-guard status` reads REAL usage but used to write
  * only FORGE_USAGE_PRESSURE.json, so FORGE_USAGE_GUARD_STATE.json kept a 22-day-old failed check and the lane budget
@@ -42,6 +46,13 @@ test('transform: ok-mode same account -> fresh percents + lastCheckAt, failed-ch
   assert.equal(next.pauseAt, 99);
   assert.equal(next.heartbeatAt, OLD.heartbeatAt, 'status is not the watcher: its heartbeat is not touched');
   assert.equal(OLD.lastError, 'usage endpoint HTTP 429', 'the input object is never mutated');
+});
+
+test('FB-USAGE-F3 transform: stores the reset times; an unknown side keeps the earlier value', () => {
+  const R = { session: { pct: 12, resetsAt: '2026-11-04T23:00:00.000Z' }, week: { pct: 60, resetsAt: null } };
+  const prev = Object.assign({}, OLD, { resets: { session: '2026-11-04T18:00:00.000Z', week: '2026-11-09T08:00:00.000Z' } });
+  const next = ST.statusPersistTransform(prev, R, SAME, NOW_ISO, guard.detectAccountSwitch);
+  assert.deepEqual(next.resets, { session: '2026-11-04T23:00:00.000Z', week: '2026-11-09T08:00:00.000Z' });
 });
 
 test('transform: refuses a paused / corrupt state, another account, or a reading without any number', () => {

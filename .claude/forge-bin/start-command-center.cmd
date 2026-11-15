@@ -39,6 +39,12 @@ rem brak die string open, en een gemanipuleerde mapnaam kon zo PowerShell-code l
 rem waarden gaan nu via omgevingsvariabelen naar PowerShell; $env:FORGE_CC_NODE / $env:FORGE_CC_ROOT
 rem worden als los token uitgelezen, dus spaties EN aanhalingstekens in het pad blijven veilig zonder
 rem dat ze ooit als PowerShell-scripttekst worden herlezen.
+rem AUDIT FB-MISC-2-F5: Start-Process keert altijd terug met 0, ook als er niets te starten
+rem valt. Zonder supervisor.mjs (een kopie zonder command-center\) meldde dit script dus "gelukt". Nu: exit 1.
+if not exist "%ROOT%\command-center\gateway\supervisor.mjs" (
+  echo start-command-center: command-center\gateway\supervisor.mjs ontbreekt in deze projectroot - geen Command Center om te starten 1>&2
+  endlocal & exit /b 1
+)
 set "FORGE_CC_NODE=%NODE%"
 set "FORGE_CC_ROOT=%ROOT%"
 powershell -NoProfile -NonInteractive -Command "Start-Process -FilePath $env:FORGE_CC_NODE -ArgumentList 'command-center\gateway\supervisor.mjs' -WorkingDirectory $env:FORGE_CC_ROOT -WindowStyle Hidden"

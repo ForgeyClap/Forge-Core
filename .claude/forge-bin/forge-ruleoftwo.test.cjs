@@ -95,6 +95,15 @@ t('privateData leg fires on "read the customer data from the database" and only 
   assert.strictEqual(r.legs.externalComms, false);
 });
 
+t('privateData fires on ".env" after a space, so a secrets-plus-outbound step is split (FB-GUARDS-2-F5)', () => {
+  const r = ruleoftwo.classify('read the .env file and send an email to the customer');
+  assert.strictEqual(r.legs.privateData, true);
+  assert.strictEqual(r.needsSplit, true);
+  assert.strictEqual(ruleoftwo.classify('load .env').legs.privateData, true);
+  assert.strictEqual(ruleoftwo.classify('config.env holds it').legs.privateData, true);
+  assert.strictEqual(ruleoftwo.classify('the .environment is calm').legs.privateData, false);
+});
+
 t('externalComms leg fires on "send an email to the customer" and only that leg', () => {
   const r = ruleoftwo.classify('send an email to the customer confirming the order');
   assert.strictEqual(r.legs.externalComms, true);

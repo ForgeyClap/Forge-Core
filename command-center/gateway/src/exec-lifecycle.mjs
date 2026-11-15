@@ -319,7 +319,7 @@ export function startExecution({ convId, turnId, requestId, text, cwd, mode, eff
   // model remembers earlier turns (before A4 every spawn was a fresh session). The tracker stores
   // the session id from this run's first main system/init line (see gateway-sessions.mjs).
   const sessionOptions = resumeOptionsFor(convId, routed ? { cwd, fork, targetId: route.target_id } : { cwd, fork });
-  // WP B3: what the turn is SPAWNED with. No mode / 'execute' -> acceptEdits (every other tool
+  // WP B3 (F17): what the turn is SPAWNED with. No mode / 'execute' -> acceptEdits (every other tool
   // asks through the permission card); 'bypass' only for a project the user marked trusted.
   const effective = resolveEffectiveMode(mode, { trusted: mode === 'bypass' && isProjectTrusted(cwd) });
   const { cmd, args, askMcpConfigPath } = (spawnSpecOverride || buildSpawnSpec)(text, effective.mode, effort, model, { convId, turnId, requestId }, sessionOptions);

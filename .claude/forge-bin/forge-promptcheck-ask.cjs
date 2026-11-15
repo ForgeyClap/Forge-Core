@@ -24,7 +24,7 @@
  * request is anchored (file/path/URL) or a bug report — the audience is then already fixed; `alles` counts for F7 only
  * next to a deliverable noun or `platform` in the same sentence; `weer` counts for F8 only within two words of
  * werkt/doet/laadt; a negated send/pay verb ("Niet: online betalen") is not an F13 action; `update`/`change` after an
- * article is a noun, not a change intent.
+ * article is a noun, not a change intent (F11).
  *
  * JSON (every text is bilingual): { score, passed, total:5, verdict, dimensions:[{id, pass, fix:{nl,en}|null}],
  *   missing, gaps:[F-ids], gapDetails:[{id, midrun}], nextQuestion:{id, nl, en, options:[{key, label:{nl,en},
@@ -106,7 +106,13 @@ const SYMPTOM_PHRASES = ['sinds', 'verwacht', 'since', 'expected'];
 const TASTE_WORDS = wordSet('modern moderne moderner strak strakke strakker mooi mooie mooier professioneel professionele professioneler cool clean sleek beautiful professional');
 const REFERENCE_PHRASES = ['zoals', 'like', 'net als', 'bijvoorbeeld', 'for example', 'such as'];
 const OUTWARD_VERBS = wordSet('stuur verstuur sturen versturen mail mailen post posten betaal betalen publiceer publiceren send email publish pay deploy');
-const LIMIT_PHRASES = ['na mijn ok', 'concept', 'concepten', 'alleen', 'draft', 'drafts', 'eerst', 'after my ok', 'only', 'first'];
+// FB-SCRIBE-1-F7: mail/email/post are also nouns ("een email veld", "POST endpoint", "blog post"): they count only in
+// verb position (sentence start, after a joiner, or before naar/to/aan). Only explicit limits switch F13 off; a bare
+// "alleen"/"only"/"eerst"/"first" does not ("alleen de NL lijst", "email all customers first thing").
+const NOUN_LIKE_OUTWARD = wordSet('mail email post');
+const VERB_LEADS = wordSet('en and dan then daarna ook also graag please of or maar but');
+const VERB_TARGETS = wordSet('naar to aan');
+const LIMIT_PHRASES = ['na mijn ok', 'after my ok', 'concept', 'concepten', 'draft', 'drafts', 'draft only', 'eerst klaarzetten', 'klaarzetten', 'klaar zetten', 'prepare it first', 'prepare first'];
 const NEGATIONS = wordSet('niet geen zonder nooit not no never without don dont');
 const VAGUE_VERB_FWD = wordSet('verbeter verbetert optimaliseer fix improve improves optimize optimise enhance polish');
 const VAGUE_VERB_BACK = wordSet('verbeteren optimaliseren regelen fixen opschonen');
@@ -323,7 +329,9 @@ function detectGaps(text, s) {
   const errorText = /\b\w*(?:Error|Exception)\b|["“`][^"”`\n]{4,}["”`]|\bat \S+:\d+/.test(text);
   if (bug && !errorText && !/\b(?:als ik|when i)\b[\s\S]*\b(?:dan|then)\b/i.test(text) && !SYMPTOM_PHRASES.some(has)) found.add('F9');
   if (tk.some((w) => TASTE_WORDS.has(w)) && !REFERENCE_PHRASES.some(has) && !ASK_URL_RE.test(text)) found.add('F10');
-  const outward = tk.some((w, i) => OUTWARD_VERBS.has(w) && tk[i - 1] !== 'e' && !tk.slice(Math.max(0, i - 3), i).some((x) => NEGATIONS.has(x)));
+  const outward = sentencesOf(text).some((st) => st.some((w, i) => OUTWARD_VERBS.has(w) && st[i - 1] !== 'e'
+    && !st.slice(Math.max(0, i - 3), i).some((x) => NEGATIONS.has(x))
+    && (!NOUN_LIKE_OUTWARD.has(w) || i === 0 || VERB_LEADS.has(st[i - 1]) || VERB_TARGETS.has(st[i + 1]))));
   if (outward && !LIMIT_PHRASES.some(has)) found.add('F13');
   if (!(DONE_SIGNALS.some(has) || NUMBER_TOKEN_RE.test(text) || s.listItems >= 2)) found.add('F2');
   const solution = tk.some((w, i) => SOLUTION_WORDS.has(w) && !tk.slice(Math.max(0, i - 2), i).some((x) => CONTEXT_LEADS.has(x)));
@@ -442,7 +450,7 @@ function runAsk(argv, deps) {
   if (o.run && deps && typeof deps.logRunNote === 'function') {
     deps.logRunNote(o.run, 'forge-promptcheck ask: ' + result.passed + '/' + result.total + ' ' + result.verdict, 'raw-request prompt-doctor (deterministic, offline)');
   }
-  // review-boss M2: exit 3 means "a question is due" — VAGUE, OR an outward/irreversible action or a
+  // review-boss M2: exit 3 means "a question is due" — VAGUE, OR an outward/irreversible action (F13) or a
   // mid-run goal change (F12 under --midrun) that must be confirmed even when the request scores CLEAR. forge.md and
   // forge-intake key the ONE allowed owner question on this exit code, so a nextQuestion with exit 0 was never asked.
   process.exitCode = (/^VAGUE/.test(result.verdict) || result.nextQuestion) ? 3 : 0;

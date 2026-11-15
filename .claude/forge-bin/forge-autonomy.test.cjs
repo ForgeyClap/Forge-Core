@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-autonomy.test.cjs — real tests for the continue-within-mission autonomy policy (WAVE B / B3,
 // 2026-07-18). Central claim under test: decide() ALWAYS defers to a usage-limit pause and to the SHARED
 // forge-actiongate hard-gates classifier BEFORE ever consulting a mode — proven at all three modes,
@@ -439,10 +443,39 @@ t('decideLive: guard state mode ok proceeds', () => {
   const r = autonomy.decideLive({ text: 'moving on', phaseTransition: true }, { statePath: g.statePath, configOpts: configFixture({}).configOpts });
   assert.strictEqual(r.proceed, true);
 });
-t('CFG-01: usage-guard OFF in the config still honours a fresh unexpired pause (the switch only labels an ABSENT pause)', () => {
+t('LEAD-U2: usage-guard switched OFF by the owner (a readable config) does not enforce a recorded pause', () => {
   const g = guardState({ mode: 'paused' });
   const u = autonomy.usageLimitActive({ statePath: g.statePath, configOpts: configFixture({ 'usage-guard': false }).configOpts });
-  assert.deepStrictEqual([u.active, u.source], [true, 'state'], u.reason);
+  assert.deepStrictEqual([u.active, u.source], [false, 'guard-off'], u.reason);
+  assert.match(u.reason, /a recorded pause is not enforced/);
+  const r = autonomy.decideLive({ text: 'moving on', phaseTransition: true }, { statePath: g.statePath, configOpts: configFixture({ 'usage-guard': false, autonomy: 'full-auto-within-mission' }).configOpts });
+  assert.notStrictEqual(r.interruptedBy, 'usage-limit', 'decideLive is not interrupted by a pause the owner switched off');
+});
+t('FB-SCRIBE-2-F1: a torn (unparsable) usage-guard state file is treated as an active pause (source corrupt)', () => {
+  const g = guardState(null);
+  fs.writeFileSync(g.statePath, '{"mode":"pau');
+  const u = autonomy.usageLimitActive({ statePath: g.statePath, configOpts: configFixture({}).configOpts });
+  assert.deepStrictEqual([u.active, u.source], [true, 'corrupt'], u.reason);
+  const r = autonomy.decideLive({ text: 'moving on', phaseTransition: true }, { statePath: g.statePath, configOpts: configFixture({ autonomy: 'full-auto-within-mission' }).configOpts });
+  assert.strictEqual(r.interruptedBy, 'usage-limit');
+});
+t('FB-SCRIBE-2-F1: a state file with mode corrupt is an active pause, also with usage-guard ON', () => {
+  const g = guardState({ mode: 'corrupt' });
+  const u = autonomy.usageLimitActive({ statePath: g.statePath, configOpts: configFixture({ 'usage-guard': true }).configOpts });
+  assert.deepStrictEqual([u.active, u.source], [true, 'corrupt'], u.reason);
+});
+t('FB-SCRIBE-2-F1: a corrupt state file the guard stopped touching long ago is stale, not a pause forever', () => {
+  const g = guardState({ mode: 'corrupt' });
+  const old = new Date(Date.now() - 24 * 3600 * 1000);
+  fs.utimesSync(g.statePath, old, old);
+  const u = autonomy.usageLimitActive({ statePath: g.statePath, configOpts: configFixture({}).configOpts });
+  assert.deepStrictEqual([u.active, u.source], [false, 'stale'], u.reason);
+});
+t('FB-SCRIBE-2-F1: a corrupt state file with the guard switched OFF is not enforced (guard-off)', () => {
+  const g = guardState(null);
+  fs.writeFileSync(g.statePath, 'not json');
+  const u = autonomy.usageLimitActive({ statePath: g.statePath, configOpts: configFixture({ 'usage-guard': false }).configOpts });
+  assert.deepStrictEqual([u.active, u.source], [false, 'guard-off'], u.reason);
 });
 t('usageLimitActive: with usage-guard OFF and no pause on file at all, the reason is worded "guard-off"', () => {
   const noPause = guardState(null);

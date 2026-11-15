@@ -23,11 +23,11 @@
       "section": "Business automation"
     },
     {
-      "path": ".claude/agents/docs-boss.md",
+      "path": ".claude/docs/agents/docs-boss.md",
       "section": "Clarity & usability"
     },
     {
-      "path": ".claude/agents/docs-boss.md",
+      "path": ".claude/docs/agents/docs-boss.md",
       "section": "Handoff completeness"
     },
     {
@@ -122,7 +122,7 @@
       "severity": "warn",
       "honesty_note": "A step that only works on the builder's machine is reported, not hidden.",
       "source": {
-        "path": ".claude/agents/docs-boss.md",
+        "path": ".claude/docs/agents/docs-boss.md",
         "section": "Clarity & usability",
         "quote": "Setup instructions give exact commands and exact file paths"
       }
@@ -135,7 +135,7 @@
       "severity": "warn",
       "honesty_note": "Judgement, not a test; say who the reader is assumed to be.",
       "source": {
-        "path": ".claude/agents/docs-boss.md",
+        "path": ".claude/docs/agents/docs-boss.md",
         "section": "Handoff completeness",
         "quote": "What was verified vs. assumed is stated explicitly."
       }

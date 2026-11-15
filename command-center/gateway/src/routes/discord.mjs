@@ -1,6 +1,6 @@
 // Discord bot routes (moved verbatim out of server.mjs, WP A11 part 1). Registered in server.mjs's
 // ordered route table; every write route here is token-checked once in server.mjs's
-// requestListener before any handler runs.
+// requestListener (N6 fix) before any handler runs.
 import { validateSchema } from '../body.mjs';
 import {
   getDiscordStatus, startDiscordService, stopDiscordService, connectDiscordService, selectDiscordGuild,

@@ -921,12 +921,12 @@ t('M2: an internal error outside the classifier -> exit 1 (visible), never a sil
   assert.ok(/NOT checked: seam exploded/.test(r.stderr), r.stderr);
 });
 
-t('inline-script hint: Bash node -e "..." with a double backslash -> allowed WITH a visible notice; without one, or in PowerShell -> no notice', () => {
+t('inline-script hint: Bash node -e "..." with a double backslash -> allowed WITH an agent hint (FB-GATEHOOK-F9: model context, not a user warning); without one, or in PowerShell -> no hint', () => {
   const withDouble = String.raw`node -e "const p='C:\\Users\\x'; console.log(p)"`;
   const d = hook.decide(bash(withDouble), { config: null });
   assert.strictEqual(d.block, false, JSON.stringify(d));
-  assert.strictEqual(d.warn, true, JSON.stringify(d));
-  assert.ok(/inline-script-hint/.test(d.why) && /bash turns/.test(d.notice), JSON.stringify(d));
+  assert.ok(!d.warn, 'the hint is for the agent, not an exit-1 warning: ' + JSON.stringify(d));
+  assert.ok(/inline-script-hint/.test(d.why) && /bash turns/.test(d.agentContext), JSON.stringify(d));
   const single = hook.decide(bash(String.raw`node -e "console.log('a\nb')"`), { config: null });
   assert.ok(!/inline-script-hint/.test(single.why || ''), JSON.stringify(single));
   const ps = hook.decide({ tool_name: 'PowerShell', tool_input: { command: withDouble } }, { config: null });
@@ -1452,7 +1452,7 @@ t('N05: findHeredocDelim() locates the exact delimiter line, honours the dash ta
 // ---------------------------------------------------------------------------
 console.log('\n4c-wave5) N05 termination — externally bounded spawns for empty heredocs, CRLF, and the wrapped V05 fixtures');
 
-// the external spawnSync `timeout` below is the ACTUAL hang guard (a genuinely stuck process gets
+// N3: the external spawnSync `timeout` below is the ACTUAL hang guard (a genuinely stuck process gets
 // killed and r.signal is checked separately); HANG_DESIGN_MS is only the fast-hardware expectation printed
 // as an advisory. HANG_KILL_MS (the spawnSync timeout) stays comfortably above HANG_ASSERT_MS so the
 // assertion never races the kill itself on slow hardware.
@@ -1639,20 +1639,34 @@ t('wp-v1: forge-gate-watchdog.cjs exports the documented timeout constant', () =
   assert.ok(watchdog.WATCHDOG_TIMEOUT_MS < 10000, 'the watchdog timeout must stay well under the 10s hook timeout');
 });
 
+/** cpuMsOf(fn) -> {cpuMs, wallMs}. process.cpuUsage() is process-wide (RUSAGE_SELF / GetProcessTimes), so the watchdog
+ *  Worker's own CPU is included. 2026-11-08 (category round 8): on a loaded machine a new Worker waits on the scheduler,
+ *  so the two wall-clock latency bounds below flaked inside the full doctor (1 failed under 15 lanes, 450/0 alone).
+ *  Reproduced with a CPU-free 1.5 s worker-start delay (NODE_OPTIONS preload + Atomics.wait in non-main threads): 448/2,
+ *  at 1581 ms and 1572.6 ms. CPU time measures what the code costs and still catches a real regression (a Worker that
+ *  does heavy work per call burns CPU); the wall time is printed as an advisory. */
+function cpuMsOf(fn) {
+  const c0 = process.cpuUsage();
+  const t0 = Date.now();
+  fn();
+  const c = process.cpuUsage(c0);
+  return { cpuMs: (c.user + c.system) / 1000, wallMs: Date.now() - t0 };
+}
+
 t('wp-v1: everyday commands stay fast even though every command now goes through the watchdog by default', () => {
   for (const cmd of ['git status', 'npm run build']) {
-    const times = [];
+    const times = [], walls = [];
     for (let i = 0; i < 10; i++) {
-      const t0 = Date.now();
-      hook.decide(bash(cmd), {});
-      times.push(Date.now() - t0);
+      const m = cpuMsOf(() => hook.decide(bash(cmd), {}));
+      times.push(m.cpuMs);
+      walls.push(m.wallMs);
     }
     const max = Math.max(...times);
-    console.log('    "' + cmd + '" x10: ' + JSON.stringify(times) + 'ms, max=' + max + 'ms');
+    console.log('    "' + cmd + '" x10: cpu ' + JSON.stringify(times.map((x) => Math.round(x))) + 'ms (max=' + max.toFixed(1) + 'ms), wall ' + JSON.stringify(walls) + 'ms (advisory)');
     // measured baseline after sec-v1 M2: ~27-30ms typical, worker spawn is the dominant cost; the 150ms
     // design target reached 128ms of its own budget on ordinary hardware (2026-09-26 re-audit) — the
     // hard bound below gives real headroom for a loaded CI runner while still catching a genuine regression.
-    timingAssert('"' + cmd + '" per call (worker spawn dominates)', max, 150, 600);
+    timingAssert('"' + cmd + '" per call (worker spawn dominates, CPU time)', max, 150, 600);
   }
 });
 
@@ -1715,12 +1729,14 @@ t('sec-v1 M1: a worker that NEVER answers (busy-loop past the timeout) resolves 
 t('sec-v1 M2: routing every command through the watchdog adds only a small, bounded latency versus watchdog-unavailable inline classification', () => {
   const commitMsg2kb = 'git commit -m "' + 'a fairly long, realistic commit message body describing a normal change in detail. '.repeat(30).slice(0, 2000) + '"';
   const commands = { 'git status': 'git status', 'npm run build': 'npm run build', 'node --version': 'node --version', 'ls -la': 'ls -la', '2kB commit message': commitMsg2kb };
-  const runs = (cmd, opts, n) => { const t = []; for (let i = 0; i < n; i++) { const t0 = Date.now(); hook.decide(bash(cmd), opts); t.push(Date.now() - t0); } return t; };
+  // CPU time per call (cpuMsOf above): a wall-clock delta also measured how long the scheduler made the new
+  // Worker wait on a loaded machine (reproduced at 1572.6 ms with a CPU-free 1.5 s worker-start delay).
+  const runs = (cmd, opts, n) => { const t = []; for (let i = 0; i < n; i++) t.push(cpuMsOf(() => hook.decide(bash(cmd), opts)).cpuMs); return t; };
   const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
   let worstDelta = 0;
   for (const [label, cmd] of Object.entries(commands)) {
     const before = runs(cmd, { watchdog: null }, 5); // watchdog unavailable -> pre-wp-v1-equivalent inline path
-    const after = runs(cmd, {}, 5); // default -- always through the watchdog
+    const after = runs(cmd, {}, 5); // default -- always through the watchdog (sec-v1 M2)
     const beforeAvg = avg(before);
     const afterAvg = avg(after);
     const delta = afterAvg - beforeAvg;
@@ -1734,7 +1750,7 @@ t('sec-v1 M2: routing every command through the watchdog adds only a small, boun
   // swallowed by ordinary noise. The design target (~40ms) stays advisory; the hard bound is generous
   // enough to absorb that noise while still catching an actual regression (e.g. the watchdog adding
   // hundreds of ms), which is the real thing this test protects against.
-  timingAssert('added watchdog latency (before/after delta, worst of 5 commands)', worstDelta, 40, 300);
+  timingAssert('added watchdog latency (before/after CPU-time delta, worst of 5 commands)', worstDelta, 40, 300);
 });
 
 // ---------------------------------------------------------------------------
@@ -2063,7 +2079,7 @@ const WPV4_HARMLESS = 'git status';
 const WPV4_DESTRUCTIVE_SHAPED = 'rm -rf ./this-path-is-never-created';
 
 // Exact expected exit code for the HARMLESS command per (dependency, mode) -- a deliberate, documented choice
-// "block destructive verbs through FALLBACK_RE (or block everything; choose and justify)"), not a
+// (sec-v3 M1: "block destructive verbs through FALLBACK_RE (or block everything; choose and justify)"), not a
 // guess: 0 when the real classifier still works despite the loss (selfdisable/messages degrade gracefully,
 // watchdog/classify-worker missing falls back to the inline classifier), 1 when the classifier truly cannot run
 // at all (inspect missing -> the pre-wave-13 classifier-unavailable "NOT checked" notice), 2 only for the one
@@ -2151,7 +2167,7 @@ for (const dep of Object.keys(WPV4_HARMLESS_EXPECT)) {
 // ---------------------------------------------------------------------------
 console.log('\n4f-6) wp-v5 sec-v3r M2/L1/L2/L3');
 
-// ---- shell-variable / glob key-or-value bypass, and line-continuation joining ----
+// ---- M2: shell-variable / glob key-or-value bypass, and line-continuation joining ----
 t('wp-v5 M2: a dynamic KEY via a bash variable ("set $KEY off") is blocked as an ambiguous self-disable attempt', () => {
   const r = spawnHook(bash(CFG + ' set $KEY off'));
   assert.strictEqual(r.status, 2, 'exit ' + r.status + ' stderr ' + r.stderr);
@@ -2627,6 +2643,20 @@ t('WP-2c: a lock older than 6 h is ignored (fail-open) -> the LIVE block is reco
     const live = spawnWp6(WP6_ROOT, wp6Live(WP6_ROOT, WP6_CMD));
     assert.strictEqual(live.status, 2);
     assert.strictEqual(wp6Blocked(WP6_ROOT).length, n + 1);
+  } finally { fs.rmSync(WP6_LOCK, { force: true }); }
+});
+t('FB-SYNC-C-F1: a lock of THIS host whose pid is not running and that is older than 2 min is not maintenance (killed install)', () => {
+  const dead = spawnSync(process.execPath, ['-e', '0']).pid;
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  try {
+    fs.writeFileSync(WP6_LOCK, JSON.stringify({ pid: dead, host: os.hostname(), started_at: ago(5 * 60 * 1000) }));
+    assert.strictEqual(hook.syncMaintenance(WP6_ROOT), false, 'dead owner on this host, 5 min old');
+    fs.writeFileSync(WP6_LOCK, JSON.stringify({ pid: dead, host: os.hostname(), started_at: ago(30 * 1000) }));
+    assert.strictEqual(hook.syncMaintenance(WP6_ROOT), true, 'within the 2 min grace it still counts');
+    fs.writeFileSync(WP6_LOCK, JSON.stringify({ pid: dead, host: 'another-machine', started_at: ago(5 * 60 * 1000) }));
+    assert.strictEqual(hook.syncMaintenance(WP6_ROOT), true, 'another host keeps the 6 h rule');
+    fs.writeFileSync(WP6_LOCK, JSON.stringify({ pid: process.pid, host: os.hostname(), started_at: ago(5 * 60 * 1000) }));
+    assert.strictEqual(hook.syncMaintenance(WP6_ROOT), true, 'a live owner keeps maintenance');
   } finally { fs.rmSync(WP6_LOCK, { force: true }); }
 });
 t('WP-2c: syncMaintenance — no lock / unreadable body uses the file time / never throws on junk roots', () => {
@@ -3155,6 +3185,166 @@ for (const mode of ['deleted', 'corrupted']) {
     } finally { fs.writeFileSync(cjPath, keep, 'utf8'); }
   });
 }
+
+// ---------------------------------------------------------------------------
+// FIX-GATE: shapes that got past the data rule and the tool list.
+// Each case below failed on commit 65e454f (red first) and is the regression guard for its finding id.
+// ---------------------------------------------------------------------------
+console.log('\nFIX-GATE) write-then-run by path, escaped quotes, log-event quoted path, git grep file, self-disable routes, Monitor, agent hint');
+const KILL = 'pk' + 'ill node'; // assembled so this test file's own text never spells the gated command in one piece
+const fixDecide = (payload) => hook.decide(payload, { config: null });
+
+t('FB-GATEHOOK-F3: a Monitor tool call is inspected like a shell call (kill-by-name blocks)', () => {
+  const d = fixDecide({ hook_event_name: 'PreToolUse', tool_name: 'Monitor', tool_input: { command: KILL } });
+  assert.strictEqual(d.block, true, JSON.stringify(d));
+  assert.ok(d.gates.includes('kill-by-name'), JSON.stringify(d));
+  assert.ok(hook.SHELL_TOOLS.has('Monitor'));
+});
+t('FB-GATEHOOK-F3: an unknown tool carrying a string command is a visible notice, never a silent pass', () => {
+  const d = fixDecide({ hook_event_name: 'PreToolUse', tool_name: 'SomeNewTool', tool_input: { command: KILL } });
+  assert.strictEqual(d.block, false, JSON.stringify(d));
+  assert.strictEqual(d.warn, true, JSON.stringify(d));
+  assert.ok(/non-shell-tool-with-command/.test(d.why) && /NOT checked/.test(d.notice), JSON.stringify(d));
+  assert.strictEqual(fixDecide({ tool_name: 'Write', tool_input: { file_path: 'x' } }).why, 'not-a-shell-tool');
+});
+
+for (const [name, cmd] of [
+  ['heredoc written then run by ./path', "cat > runme <<'EOF'\n" + KILL + "\nEOF\n./runme"],
+  ['echo literal written then run by ./path', "echo '" + KILL + "' > runme; ./runme"],
+  ['heredoc written then run by an absolute path', "cat > /tmp/runme <<'EOF'\n" + KILL + "\nEOF\n/tmp/runme"],
+  ['heredoc written into a git hooks folder (git runs it later)', "cat > .git/hooks/pre-commit <<'EOF'\n" + KILL + "\nEOF"],
+  ['echo literal written into a .husky hook', "echo '" + KILL + "' > .husky/pre-commit"],
+]) {
+  t('FB-GATEHOOK-F1/F17: ' + name + ' -> nothing stripped, the body is classified and blocked', () => {
+    assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 0, 'a body that can run must not be stripped');
+    const d = fixDecide(bash(cmd));
+    assert.strictEqual(d.block, true, JSON.stringify(d));
+    assert.ok(d.gates.includes('kill-by-name'), JSON.stringify(d));
+  });
+}
+// FIX-GATE rework (Verify Boss round 1): a path run behind a leading assignment, a wrapper word or a shell keyword
+// is still a path run; laterRisk() used to test only the first raw token of the segment.
+for (const prefix of ['FOO=1 ', 'nohup ', 'sudo ', 'sudo -u bob ', 'time ', 'timeout 5 ', 'nice -n 5 ', 'setsid ',
+  'stdbuf -oL ', 'doas ', 'if true; then ', 'while ', '! ',
+  // FIX-GATE-R2: bash drops the quotes around a wrapper word, so a quoted wrapper is the same path run
+  '"sudo" ', '"timeout" 5 ', "'nohup' "]) {
+  for (const [name, cmd] of [
+    ['heredoc', "cat > runme <<'EOF'\n" + KILL + "\nEOF\n" + prefix + './runme'],
+    ['echo', "echo '" + KILL + "' > runme; " + prefix + './runme'],
+  ]) {
+    t('FB-GATEHOOK-F1 rework: ' + name + ' write then `' + prefix + './runme` -> nothing stripped, blocked', () => {
+      assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 0, 'a body that can run must not be stripped');
+      const d = fixDecide(bash(cmd));
+      assert.strictEqual(d.block, true, JSON.stringify(d));
+      assert.ok(d.gates.includes('kill-by-name'), JSON.stringify(d));
+    });
+  }
+}
+t('FB-GATEHOOK-F1 rework: control — an assignment or wrapper in front of a plain command with no path stays inert', () => {
+  for (const tail of ['FOO=1 git add notes.txt', 'time git status', 'nohup npm test']) {
+    const cmd = "cat > notes.txt <<'EOF'\n" + KILL + "\nEOF\n" + tail;
+    assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 1, tail);
+  }
+});
+t('FB-GATEHOOK-F1: control — a heredoc written to a plain notes file and then git-added is still inert data', () => {
+  const cmd = "cat > notes.txt <<'EOF'\n" + KILL + "\nEOF\ngit add notes.txt";
+  assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 1);
+  assert.strictEqual(fixDecide(bash(cmd)).block, false);
+  const doc = "cat > docs/hooks/notes.md <<'EOF'\n" + KILL + "\nEOF"; // a file WITH an extension in a hooks folder is no hook
+  assert.strictEqual(data.stripInertData(doc, 'Bash').regions, 1);
+});
+
+for (const [name, cmd] of [
+  ['an escaped quote outside quotes shifts the pairing', "echo \\' '\ncat > x.txt <<'EOF'\n'\n" + KILL + "\nEOF"],
+  ['ANSI-C $\'...\' quoting with an escaped quote', "echo $'a\\'b' '\ncat > x.txt <<'EOF'\n'\n" + KILL + "\nEOF"],
+]) {
+  t('FB-GATEHOOK-F2/F17: ' + name + ' -> the line bash executes stays visible and blocks', () => {
+    assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 0, 'the executed line must not be stripped as heredoc data');
+    const d = fixDecide(bash(cmd));
+    assert.strictEqual(d.block, true, JSON.stringify(d));
+    assert.ok(d.gates.includes('kill-by-name'), JSON.stringify(d));
+  });
+}
+t('FB-GATEHOOK-F2: scanQuotes reads a backslash-escaped quote outside quotes as one literal character', () => {
+  const q = require('./forge-gate-quotes.cjs').scanQuotes("echo \\' ok");
+  assert.strictEqual(q.unterminated, false);
+  assert.strictEqual(q.spans.length, 0, JSON.stringify(q.spans));
+});
+
+for (const [name, cmd] of [
+  ['an absolute, double-quoted log-event.cjs path', 'node "C:/Users/x/my project (v2)!/.claude/forge-dashboard/log-event.cjs" wp_verified --evidence \'' + KILL + ' was not run\''],
+  ['a single-quoted log-event.cjs path', "node 'C:/Users/x/my project (v2)!/.claude/forge-dashboard/log-event.cjs' wp_verified --evidence '" + KILL + " was not run'"],
+  ['a quoted node.exe head and a quoted path', '"C:/Program Files/nodejs/node.exe" "C:/Users/x/my project (v2)!/.claude/forge-dashboard/log-event.cjs" wp_verified --evidence \'' + KILL + ' was not run\''],
+]) {
+  t('FB-GATEHOOK-F8: log-event evidence text via ' + name + ' is inert data, not a command', () => {
+    assert.ok(data.stripInertData(cmd, 'Bash').regions >= 1);
+    const d = fixDecide(bash(cmd));
+    assert.strictEqual(d.block, false, JSON.stringify(d));
+  });
+}
+t('FB-GATEHOOK-F8: control — a quoted path to some OTHER script keeps its quoted words classified', () => {
+  const cmd = 'node "C:/Users/x/tools/other.cjs" \'' + KILL + '\'';
+  assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 0);
+});
+
+t('FB-GATEHOOK-F10: git grep with a quoted secret-shaped FILE argument keeps the file word and blocks secret-print', () => {
+  for (const cmd of ["git grep -e KEY '.env'", "git grep --no-index KEY '.env'", 'git grep KEY ".env.local"']) {
+    const d = fixDecide(bash(cmd));
+    assert.strictEqual(d.block, true, cmd + ' ' + JSON.stringify(d));
+    assert.ok(d.gates.includes('secret-print'), cmd + ' ' + JSON.stringify(d));
+  }
+});
+t('FB-GATEHOOK-F10: control — git grep\'s quoted PATTERN is still inert data', () => {
+  const cmd = "git grep -e '" + KILL + "' -- src";
+  assert.strictEqual(data.stripInertData(cmd, 'Bash').regions, 1);
+  assert.strictEqual(fixDecide(bash(cmd)).block, false);
+});
+
+t('FB-GATEHOOK-F4: an inline library call of forge-config set()/unset() for gate-hook is a self-disable attempt', () => {
+  for (const cmd of [
+    "node -e \"require('./.claude/forge-bin/forge-config.cjs').set('gate-hook', 'off')\"",
+    "node -e \"require('./.claude/forge-bin/forge-config').unset('gate-hook')\"",
+    "node -e \"require('./.claude/forge-bin/forge-config-cli.cjs').main(['set','gate-hook','off'])\"",
+  ]) {
+    const d = fixDecide(bash(cmd));
+    assert.strictEqual(d.block, true, cmd + ' ' + JSON.stringify(d));
+    assert.ok(d.gates.includes('gate-hook-self-disable'), cmd + ' ' + JSON.stringify(d));
+  }
+  const read = fixDecide(bash("node -e \"console.log(require('./.claude/forge-bin/forge-config.cjs').get('gate-hook'))\""));
+  assert.strictEqual(read.block, false, 'a library get() stays allowed: ' + JSON.stringify(read));
+});
+t('FB-GATEHOOK-F4: a shell write to FORGE_CONFIG.json or a once-grant file is blocked (settings-edit-command)', () => {
+  for (const [shell, cmd] of [
+    ['Bash', "echo '{}' > .claude/FORGE_CONFIG.json"],
+    ['Bash', 'cp /tmp/x.json ~/.claude/FORGE_CONFIG.json'],
+    ['Bash', "echo '{}' > .claude/FORGE_CONFIG.once.gate-hook.pending.json"],
+    ['PowerShell', "Set-Content -Path .claude\\FORGE_CONFIG.json -Value '{}'"],
+    ['Bash', "node -e \"require('fs').writeFileSync('.claude/FORGE_CONFIG.json', '{}')\""],
+  ]) {
+    const d = fixDecide({ hook_event_name: 'PreToolUse', tool_name: shell, tool_input: { command: cmd } });
+    assert.strictEqual(d.block, true, cmd + ' ' + JSON.stringify(d));
+    assert.ok(d.gates.includes('settings-edit-command'), cmd + ' ' + JSON.stringify(d));
+  }
+  for (const cmd of ['cat .claude/FORGE_CONFIG.json', 'node .claude/forge-bin/forge-config.cjs get gate-hook', 'cp .claude/FORGE_CONFIG.json _scratch/cfg.backup.json']) {
+    assert.strictEqual(fixDecide(bash(cmd)).block, false, cmd);
+  }
+});
+
+t('FB-GATEHOOK-F9: the inline-script hint reaches the MODEL (exit 0 + PreToolUse additionalContext on stdout), not only the user', () => {
+  const withDouble = String.raw`node -e "const p='C:\\Users\\x'; console.log(p)"`;
+  const r = hook.run(JSON.stringify(bash(withDouble)), { config: null });
+  assert.strictEqual(r.exitCode, 0, JSON.stringify(r));
+  const out = JSON.parse(r.stdout);
+  assert.strictEqual(out.hookSpecificOutput.hookEventName, 'PreToolUse');
+  assert.ok(/bash turns/.test(out.hookSpecificOutput.additionalContext), r.stdout);
+  assert.strictEqual(out.hookSpecificOutput.permissionDecision, undefined, 'the hint must not decide the permission');
+  const s = spawnHook(bash(withDouble));
+  assert.strictEqual(s.status, 0, 'exit ' + s.status + ' ' + s.stderr);
+  assert.ok(/bash turns/.test(JSON.parse(s.stdout).hookSpecificOutput.additionalContext), s.stdout);
+  const plain = hook.run(JSON.stringify(bash('git status')), { config: null });
+  assert.strictEqual(plain.exitCode, 0);
+  assert.ok(!plain.stdout, 'no hint -> nothing on stdout');
+});
 
 for (const d of [TMP, TP_PARENT, SIBLING, TILDE_DIR, WPV4_ROOT, WP6_ROOT, WP6_NOHELPER, WP6_MOD_ROOT]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ } }
 

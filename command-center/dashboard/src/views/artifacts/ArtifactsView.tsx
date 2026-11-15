@@ -9,7 +9,7 @@
  * `GET /api/artifacts/:id/content` whenever an active project is known (build-lastdemos), an honest
  * disabled button otherwise. Screenshot and diagram records render as a described capture frame (the
  * recorded dimensions and size) rather than an inline image: fetching the bytes inline is a separate,
- * not-yet-built capability, named honestly instead of implied (fix-cert-claims).
+ * not-yet-built capability, named honestly instead of implied (F2, fix-cert-claims).
  *
  * `redactDeep` (redact.mjs) covers JSON responses this gateway builds itself; a raw file download is the
  * user's own explicit request for those exact bytes and is intentionally NOT redacted.

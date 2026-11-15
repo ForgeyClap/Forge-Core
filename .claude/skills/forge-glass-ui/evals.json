@@ -1,0 +1,9 @@
+{
+  "skill": "forge-glass-ui",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-glass-ui/SKILL.md", "why": "skill file must exist" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200, "why": "listing budget" },
+    { "id": "no-blur-on-lists", "type": "contains", "path": ".claude/skills/forge-glass-ui/SKILL.md", "needle": "Blur never sits on a scrolling list", "why": "core speed rule" },
+    { "id": "screenshot-checklist", "type": "contains", "path": ".claude/skills/forge-glass-ui/SKILL.md", "needle": "1440x900", "why": "screenshot sizes stated" }
+  ]
+}

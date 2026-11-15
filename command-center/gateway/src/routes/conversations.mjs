@@ -25,6 +25,7 @@ import { readRawBody, parseMultipart, storeAttachment, AttachmentTooLargeError }
 import { EXEC_MODE_VALUES, EXEC_EFFORT_VALUES, EXEC_MODEL_VALUES } from './exec-options.mjs';
 import { checkRateLimit } from './rate-limit.mjs';
 import { sendJson, readBodyOrRespond, projectOrRespond, refuseIfSyncLocked } from './http.mjs';
+import { setTurnFromLanPhone } from '../permissions/store.mjs';
 
 export const MODULE = 'conversations';
 
@@ -141,7 +142,8 @@ function execOptionsOrRespond(res, body) {
   return { mode, effort, model };
 }
 
-export async function sendMessage(req, res, { match }) {
+// `fromLanPhone` is set only by the phone bridge (remote/phone-routes.mjs) for a turn sent over a LAN bridge.
+export async function sendMessage(req, res, { match, fromLanPhone } = {}) {
   if (!checkRateLimit('conversationMessage', res)) return undefined;
   const convId = match[1];
   if (!safeConvIdOk(convId) || !conversationExists(convId)) {
@@ -186,7 +188,12 @@ export async function sendMessage(req, res, { match }) {
   // degraded but truthful product beats a fake send button").
   const { turnId, requestId } = appendUserTurn(convId, body.text, { mode, effort, model });
   // `fork` is not a send option: a pending fork lives in the session record (sessions/argv-session.mjs).
+  // F8: a turn sent from a phone over LAN (cleartext) gets no autonomy. M1 (rv-autonomy-sec-2): the mark is
+  // set before that turn starts, and only a dashboard turn that really started clears it, so a concurrent
+  // send that loses the race (or never starts) cannot take the mark off a phone turn that is running.
+  if (fromLanPhone === true) setTurnFromLanPhone(convId, true);
   const startResult = await startRoutedTurn({ convId, turnId, requestId, text: body.text, cwd: entry.path, mode, effort, model });
+  if (fromLanPhone !== true && startResult.started === true) setTurnFromLanPhone(convId, false);
   if (!startResult.started) {
     // `code` (for example 'router_exhausted') is added only when the router gave one, so a router-off
     // refusal writes exactly the event it always wrote.

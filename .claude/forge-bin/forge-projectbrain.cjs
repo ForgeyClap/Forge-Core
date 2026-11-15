@@ -60,7 +60,7 @@
  *     `FORGE_HARD_RULES.json`: that basename is already Forge's OWN internal run-contract single-source-of-truth
  *     at `.claude/config/orchestration/FORGE_HARD_RULES.json` (read only by forge-runcontract.cjs, a different
  *     `{id,rule,trigger,check,severity,...}` shape describing how a Forge RUN must behave, not this project's
- *     own code conventions) — laptop re-audit 2026-09-26 found the two colliding on name, which is why this
+ *     own code conventions) — laptop re-audit 2026-09-26 (N9) found the two colliding on name, which is why this
  *     project-local extension file now has its own, unambiguous name. Malformed config THROWS (fail-closed, same
  *     discipline forge-evidence.cjs/forge-actiongate.cjs use for their own config files) rather than silently
  *     falling back — a broken hard-rules file should never look like "no extra rules".

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * Hermetic tests for forge-manifest.cjs (WAVE D / D1). EVERY fixture lives under a fresh
  * os.tmpdir() directory (see freshDir()) passed as opts.root / --run-dir-equivalent — this file NEVER
@@ -361,6 +365,37 @@ console.log('13) N2 fix (2026-09-26, fresh-laptop re-audit) — subagent_complet
   writeEvents(rootU, 'run-n2u', [{ event_type: 'subagent_completed', agent: 'Build Boss', timestamp: '2026-09-26T10:00:00Z' }]);
   const ru = mf.reconcile({ run_id: 'run-n2u' }, { root: rootU });
   t('N2: a subagent_completed with NO wp_id at all flips no work package (matching is still purely on wp_id)', ru.manifest[0].status === 'armed');
+}
+
+console.log('FB-INSTALL-2-F1) a Verify Boss verdict outranks builder events; a check_passed never undoes a failure');
+{
+  const wp = [{ wp_id: 'a', status: 'armed' }];
+  const ev = (event_type, extra) => Object.assign({ event_type, wp_id: 'a', agent: 'x' }, extra || {});
+  const st = (events) => mf.projectManifest(wp, events)[0].status;
+  t('subagent_completed then wp_verified FAIL -> failed', st([ev('subagent_completed'), ev('wp_verified', { verdict: 'FAIL' })]) === 'failed');
+  t('subagent_completed then wp_verified PASS -> done', st([ev('subagent_completed'), ev('wp_verified', { verdict: 'PASS' })]) === 'done');
+  t('wp_verified FAIL then a builder subagent_completed stays failed until a new verdict', st([ev('wp_verified', { verdict: 'FAIL' }), ev('subagent_completed')]) === 'failed');
+  t('wp_verified FAIL, rework, then wp_verified PASS -> done', st([ev('wp_verified', { verdict: 'FAIL' }), ev('subagent_completed'), ev('wp_verified', { verdict: 'pass' })]) === 'done');
+  t('a wp_verified without a verdict is not a pass', st([ev('subagent_completed'), ev('wp_verified')]) === 'failed');
+  t('subagent_failed then a bare check_passed (lint) stays failed', st([ev('subagent_failed'), ev('check_passed', { command: 'lint', exit_code: 0 })]) === 'failed');
+  t('subagent_failed then a real retry subagent_completed -> done (retry still flips back)', st([ev('subagent_failed'), ev('subagent_completed')]) === 'done');
+}
+
+console.log('FB-INSTALL-2-F10) reconcile derives status from events only; a stored done with no event is not kept');
+{
+  t('projectManifest: a stored done with zero events becomes armed, last_proof null', (() => {
+    const r = mf.projectManifest([{ wp_id: 'z', status: 'done', last_proof: { event_type: 'wp_completed', evIdx: 0 } }], [])[0];
+    return r.status === 'armed' && r.last_proof === null;
+  })());
+  const root = freshDir('mf-stored-done');
+  mf.arm({ run_id: 'run-stored', wps: [{ wp_id: 'wpS', agent: 'Build Boss', narrowed_prompt: 's' }] }, { root });
+  const file = path.join(root, '.claude', 'forge-runs', 'run-stored', 'manifest.json');
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  stored[0].status = 'done';
+  fs.writeFileSync(file, JSON.stringify(stored, null, 2) + '\n');
+  t('status() still shows the stored value', mf.status('run-stored', { root }).manifest[0].status === 'done');
+  writeEvents(root, 'run-stored', [{ event_type: 'agent_note', agent: 'Build Boss', note: 'x', timestamp: '2026-11-13T10:00:00Z' }]);
+  t('reconcile(): a hand-set done with no supporting event is armed again', mf.reconcile({ run_id: 'run-stored' }, { root }).manifest[0].status === 'armed');
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

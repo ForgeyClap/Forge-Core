@@ -60,7 +60,7 @@ try {
   try { fs.rmSync(proj, { recursive: true, force: true }); } catch { /* best effort */ }
 }
 
-// ---- gitignore: the git-checkpoint pre-step keeps secret-shaped names out of git, append-only ----
+// ---- gitignore (M5): the git-checkpoint pre-step keeps secret-shaped names out of git, append-only ----
 const gi = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-setup-gitignore-'));
 try {
   const giFile = path.join(gi, '.gitignore');
@@ -124,6 +124,10 @@ try {
     ['id_rsa', 'id_ed25519', 'server.pem', 'api.key', 'credentials-prod.json', '.env.local', '.env.production'].every((n) => setup.isSecretShapedName(n))
     && setup.isSecretShapedName('nested/dir/id_ed25519') && setup.isSecretShapedName('secrets/x.txt')
     && !setup.isSecretShapedName('.env.example') && !setup.isSecretShapedName('README.md'));
+  // FB-INSTALL-1-F4: the names forge-adopt-post-sync isSecretLike already treats as secret, case-insensitive.
+  for (const n of ['.claude/.credentials.json', 'id_ecdsa', 'id_dsa', 'cert.p12', 'store.pfx', 'prod.KEY', 'Secrets/x.txt', '.ENV']) {
+    t('isSecretShapedName also recognizes ' + n, setup.isSecretShapedName(n));
+  }
   const gitInit = spawnSync('git', ['init', '-q'], { cwd: scanDir, encoding: 'utf8' });
   if (!gitInit.error && gitInit.status === 0) {
     spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: scanDir });
@@ -397,6 +401,27 @@ try {
   }
 } finally {
   try { fs.rmSync(fixDir, { recursive: true, force: true }); } catch { /* best effort */ }
+}
+
+// FB-INSTALL-1-F2: place-keys strips the quotes of a pasted value and upsertEnvFile wrote it bare,
+// so a value holding # or a space was cut off by every .env parser. The written .env must parse back to the value.
+{
+  const util = require('util');
+  const setupMod = require(ENGINE);
+  const envDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-setup-env-'));
+  try {
+    const envFile = path.join(envDir, '.env');
+    fs.writeFileSync(envFile, 'KEEP=plain\nDATABASE_URL=old\n');
+    const values = { DATABASE_URL: 'postgres://u:pa#ss@db.internal/app', SPACED: 'two words', QUOTED: "it's #1", PLAIN: 'sk-abc123' }; // FAKE test fixture (reviewed for the public release verify)
+    const written = setupMod.upsertEnvFile(envFile, values);
+    const parsed = util.parseEnv(written);
+    for (const [k, v] of Object.entries(values)) t('upsertEnvFile round-trips ' + k + ' through util.parseEnv', parsed[k] === v, JSON.stringify(parsed[k]));
+    t('a plain value is still written bare (no quote churn)', /^PLAIN=sk-abc123$/m.test(written) && /^KEEP=plain$/m.test(written), written);
+    t('extractKeyValueFromLine reads the written line back to the same value',
+      written.split(/\r?\n/).map((l) => setupMod.extractKeyValueFromLine(l)).filter(Boolean).every((kv) => kv.key === 'KEEP' || kv.value === values[kv.key]));
+  } finally {
+    try { fs.rmSync(envDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

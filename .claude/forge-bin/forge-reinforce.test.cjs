@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-reinforce.test.cjs — real tests for the outcome-gated lesson utility scorer (WAVE E / E2,
 // 2026-07-18). Every fixture (store + runs directory) lives under a fresh os.tmpdir() directory — this
 // file NEVER touches this repo's real .claude/agent-memory/ or .claude/forge-runs/.
@@ -33,13 +37,13 @@ function lesson(overrides) {
 }
 
 // ---- run fixture builders ------------------------------------------------------------------------
-// A "good" run: an event with no `agent` field is skipped entirely by forge-verify's verifyRun (never
-// counted as an agent task) -> agents:[] -> mismatches:0 -> outcome.ok === true. Trivial, honest fixture.
+// A "good" run: an agent claims agent_completed with no open task -> mismatches:0 -> outcome.ok === true.
+// (A run where no agent claims done or failed is undeterminable: see the FB-MEMORY-F4 test.)
 function writeGoodRun(runsDir, runId, startedAt) {
   const dir = path.join(runsDir, runId);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'run.json'), JSON.stringify({ run_id: runId, started_at: startedAt }), 'utf8');
-  const events = [{ event_type: 'run_started', note: 'no agent field — not attributable to any task', timestamp: startedAt }];
+  const events = [{ event_type: 'run_started', timestamp: startedAt }, { agent: 'Build Boss', event_type: 'agent_completed', timestamp: startedAt }];
   fs.writeFileSync(path.join(dir, 'events.jsonl'), events.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
   return dir;
 }
@@ -238,10 +242,46 @@ t('a run whose events.jsonl cannot be read (e.g. a directory in its place) is un
   assert.strictEqual(readStore(store)[0].utility, 0);
 });
 
+t('FB-MEMORY-F4: a run where no agent claims done or failed (only run_started) is undeterminable, never good', () => {
+  const dir = freshDir('reinforce-noclaim');
+  const store = path.join(dir, 'lessons.jsonl');
+  const runsDir = path.join(dir, 'runs');
+  writeStore(store, [lesson({ id: 'L1', ts: '2026-01-01T00:00:00.000Z' })]);
+  const runDir = path.join(runsDir, 'forge-2026-02-01-empty');
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify({ started_at: '2026-02-01T00:00:00.000Z' }), 'utf8');
+  fs.writeFileSync(path.join(runDir, 'events.jsonl'), JSON.stringify({ event_type: 'run_started', timestamp: '2026-02-01T00:00:00.000Z' }) + '\n', 'utf8');
+  const r = reinforce.reinforce({ store, runs: runsDir });
+  assert.deepStrictEqual([r.undeterminable, r.reinforcedGood, r.reinforcedBad, readStore(store)[0].utility], [1, 0, 0, 0]);
+});
+
 // ---------------------------------------------------------------------------
 // 7) dry-run
 // ---------------------------------------------------------------------------
 console.log('\n7) dry-run never writes');
+
+// FB-MEMORY-F1/F7 follow-up: an owner-correction lesson (canonical, but no run_id to gate on) is
+// never scored, and a malformed line survives the rewrite.
+t('an owner-correction lesson (no run_id) is not scored by unrelated runs', () => {
+  const dir = freshDir('reinforce-owner');
+  const store = path.join(dir, 'lessons.jsonl');
+  const runsDir = path.join(dir, 'runs');
+  writeStore(store, [lesson({ id: 'O1', evidence: JSON.stringify({ source: 'owner-correction', quote: 'nee, knop X', ts: '2026-06-01T00:00:00.000Z' }) })]);
+  writeGoodRun(runsDir, 'forge-2026-06-10-good', '2026-06-10T00:00:00.000Z');
+  const r = reinforce.reinforce({ store, runs: runsDir });
+  assert.strictEqual(r.reinforcedGood, 0);
+  assert.strictEqual(readStore(store)[0].utility, 0);
+});
+t('a malformed line in the store survives a reinforce rewrite', () => {
+  const dir = freshDir('reinforce-malformed');
+  const store = path.join(dir, 'lessons.jsonl');
+  const runsDir = path.join(dir, 'runs');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(store, JSON.stringify(lesson({ id: 'L1' })) + '\n{half written\n', 'utf8');
+  writeGoodRun(runsDir, 'forge-2026-06-10-good', '2026-06-10T00:00:00.000Z');
+  reinforce.reinforce({ store, runs: runsDir });
+  assert.ok(fs.readFileSync(store, 'utf8').split(/\r?\n/).includes('{half written'));
+});
 
 t('dry-run reports what would happen but leaves the store file untouched', () => {
   const dir = freshDir('reinforce-dry');

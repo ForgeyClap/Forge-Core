@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-run-file.test.cjs — category tests O25. In windows-game-v2 (a headless `claude -p` session, the way
  * the dashboard and the category tests start Forge) the Lead could not write `run.json` or `final-report.md`: Claude
@@ -88,6 +92,19 @@ t('the /forge steps that create run.json and final-report.md name forge-run-file
     assert.ok(/forge-run-file\.cjs put/.test(txt), f + ' does not name forge-run-file.cjs put');
   }
 });
+t('FB-CONTRACT-2-F10: in the .forge layout put writes into the active runs folder (forge-paths), not .claude/forge-runs', () => {
+  const root = fs.mkdtempSync(path.join(TMP, 'f-'));
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
+  const runs = require('./forge-paths.cjs').stateDir(root, 'runs');
+  assert.ok(!runs.startsWith(path.join(root, '.claude')), 'fixture is not in the forge layout: ' + runs);
+  fs.mkdirSync(path.join(runs, RUN), { recursive: true });
+  const R = require('./forge-run-file.cjs');
+  const r = R.putRunFile({ run: RUN, name: 'final-report.md', content: '# Verslag\n' }, { root });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.strictEqual(fs.readFileSync(path.join(runs, RUN, 'final-report.md'), 'utf8'), '# Verslag\n');
+});
+
 t('the always-loaded core forge.md rows 1 and 14 name forge-run-file.cjs put (the android run still tried Write)', () => {
   const core = fs.readFileSync(path.join(__dirname, '..', 'commands', 'forge.md'), 'utf8').split('\n');
   for (const n of ['1', '14']) {

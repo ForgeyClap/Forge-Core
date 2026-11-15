@@ -4,6 +4,8 @@ Use this template when dispatching a re-review after a fix round. The
 re-reviewer verifies the findings were addressed and checks the fix diff for
 new breakage. It is not a fresh review — the full review already happened.
 
+> **Forge addendum (not upstream):** in a Forge project the re-reviewer is `review-boss` or `verify-boss`, never a `general-purpose` agent. Dispatch it with the triaged route's model and effort (Workflow `agent({agentType, model, effort})`), or with no opts so the Boss frontmatter route applies. A model without an effort is denied by the GOAT workflow guard.
+
 **Purpose:** Verify each finding from the previous review was addressed, and
 that the fix itself broke nothing.
 

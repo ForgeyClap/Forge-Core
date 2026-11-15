@@ -5,7 +5,7 @@
  * Never touches a gateway: the page under test is a story-like harness build given in CARDS_DIST
  * (built from _scratch/b3/cards/harness with fixture props, zero network calls), served by a
  * throwaway static server on a free port. Shots go to CARDS_SHOTS (default
- * test-results/cards-shots), prefixed with CARDS_ROUND (...).
+ * test-results/cards-shots), prefixed with CARDS_ROUND (r1, r2, ...).
  *
  * A screenshot run never passes without screenshots: when the run asks for them (CARDS_DIST set, or
  * CARDS_REQUIRED=1, which the scratch config `_scratch/b3/cards/pw.shots.config.mjs` sets) and the

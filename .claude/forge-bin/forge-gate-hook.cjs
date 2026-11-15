@@ -52,8 +52,12 @@
  * exit 1 keeps meaning "visible and non-blocking" and the settings carry no onFailure (see "CANNOT JUDGE" below; the
  * keyword scan itself lives in forge-gate-cannot-judge.cjs since FU-A7).
  * The structural envelope cases (a non-object payload, an unknown hook event, a missing tool name or command) keep
- * their plain exit 1: there is no shell command there to read.
- * Never writes stdout; zero dependencies beyond Node core (fs/os/path/crypto). PowerShell is matched
+ * their plain exit 1 (V01): there is no shell command there to read.
+ * AUDIENCE (FB-GATEHOOK-F9): exit 2 stderr reaches the MODEL; exit 1 stderr is shown to the USER only
+ * (the agent never reads it), so exit 1 is kept for owner-facing notices ("NOT checked", gate-hook off, write-scope). A
+ * hint meant for the agent (the inline-script hint) is printed on stdout as PreToolUse JSON with `additionalContext`
+ * and exit 0 — the only stdout this hook writes; it carries no permission decision.
+ * Zero dependencies beyond Node core (fs/os/path/crypto). PowerShell is matched
  * because the tool ledger shows real PowerShell tool calls (same `command` field) and kill-by-name's forbidden
  * forms are PowerShell-native.
  *
@@ -158,7 +162,13 @@ function fallbackBlockReason(ids) {
     + 'restore forge-gate-messages.cjs (run the doctor).';
 }
 
-const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+// FB-GATEHOOK-F3: Monitor also runs a shell command from tool_input.command (watchdog loops), so it is
+// read like a Bash call. It reaches this hook only once the settings matcher names it too (an owner-gated settings write).
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell', 'Monitor']);
+// Claude Code tools that never run a shell command: a stray `command` field there is positively unrelated (silent).
+// Any OTHER tool name carrying a command string is not known to be harmless, so decide() makes it visible (F3).
+const KNOWN_NON_SHELL_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Glob', 'Grep', 'WebFetch',
+  'WebSearch', 'TodoWrite', 'Task', 'Agent', 'Skill', 'SendMessage', 'StructuredOutput', 'ToolSearch']);
 // V01 (codex-recheck 2026-09-24): only a hook_event_name Claude Code ACTUALLY sends for something other than a
 // tool call may pass silently as "not-pretooluse" — an unrecognised/corrupted name (a bogus envelope, not a
 // real Claude Code event) is never proof this call is unrelated, so it stays VISIBLE (exit 1) instead.
@@ -245,7 +255,7 @@ const FALLBACK_RE = /\b(rm|Remove-Item|rd|rmdir|del|taskkill|Stop-Process|pkill|
 function sha256(s) { return crypto.createHash('sha256').update(String(s), 'utf8').digest('hex'); }
 
 // WORDS/blockReason/cap/passNotice/ONCE_HINT now live in forge-gate-messages.cjs (wp-v3) so BOTH this file and
-// the worker build the exact same message text from one source. wp-v4: read defensively (never
+// the worker build the exact same message text from one source. wp-v4 (sec-v3 M1): read defensively (never
 // destructure MSG directly — that would throw immediately at require-time if MSG is null) and fall back to the
 // minimal local implementations above when the real module could not load.
 const WORDS = MSG ? MSG.WORDS : {};
@@ -276,7 +286,7 @@ function gateHookEnabled(opts) {
 }
 
 /** commandGateIds(gateModule) -> Set of the "command"-kind gate ids — delegates to forge-gate-inspect.cjs so
- *  there is exactly one implementation. wp-v4: INSPECT may be null (guarded require) — an empty
+ *  there is exactly one implementation. wp-v4 (sec-v3 M1): INSPECT may be null (guarded require) — an empty
  *  Set is the honest, fail-safe answer (this export is a convenience for callers/tests, never part of the real
  *  block/allow decision, which lives entirely inside forge-gate-inspect.cjs::inspect() itself). */
 function commandGateIds(gateModule) {
@@ -297,7 +307,7 @@ const resolveTarget = (...a) => (SCRATCH ? SCRATCH.resolveTarget(...a) : null);
 const areaOf = (...a) => (SCRATCH ? SCRATCH.areaOf(...a) : null);
 
 // selfDisable/parseConfigCall/isSelfDisableCall/isOnceExempt now live in forge-gate-selfdisable.cjs (wp-v3) so
-// BOTH this file (fallback path) and the worker call the exact same implementation. wp-v4: read
+// BOTH this file (fallback path) and the worker call the exact same implementation. wp-v4 (sec-v3 M1): read
 // defensively — SELFDISABLE may be null (guarded require); these exports are backward-compat/test surface only
 // (the real pipeline's self-disable check lives inside forge-gate-inspect.cjs, independently guarded there).
 const selfDisable = SELFDISABLE ? SELFDISABLE.selfDisable : (seen) => fallbackSelfDisableTest(seen);
@@ -448,7 +458,7 @@ function glueRedirectAmpersands(text) {
  *  `&`/`|` after it is a real separator the re-check's glue must never merge). So `grep "<tag>.*\.env" src/a.cjs
  *  2>/dev/null` is search data again, while the same text unquoted is refused. Unplaceable quoting (unterminated,
  *  mask unavailable or throwing) refuses.
- *  in PowerShell `*>` / `*>>` / `*>&1` at a token start is a real all-streams redirect (verified: `*>$null X`
+ *  G5: in PowerShell `*>` / `*>>` / `*>&1` at a token start is a real all-streams redirect (verified: `*>$null X`
  *  passes only `X`), so that `*` is no glob there; in bash (and for any other or omitted shell) it stays refused. */
 const RELAX_REFUSE_BLIND_RES = [
   />[>&|]?[ \t]*(?:\$(?!null(?=$|[\s;|&)]))|`|\()/i,
@@ -484,7 +494,7 @@ function relaxRefused(command, shell) {
 
 /** relaxSecretPrint(verdict, command, shell, pass) -> `verdict`, or the cleared verdict when ONLY harmless output
  *  redirects made a search pattern look like a file (WP-GATEFP). Subtractive only and FAIL CLOSED (WP-GATEFP2, Codex
- *  it has its own try/catch, so an exception, a refused shape, unjudgeable quoting, a watchdog failure or a
+ *  r9 F3): it has its own try/catch, so an exception, a refused shape, unjudgeable quoting, a watchdog failure or a
  *  re-check that is not fully clean all keep the ORIGINAL block — never evaluate()'s classifier-unavailable branch. */
 function relaxSecretPrint(verdict, command, shell, pass) {
   try {
@@ -525,7 +535,7 @@ function evaluate(payload, command, opts) {
   const startedAt = now();
 
   const watchdogModule = opts.watchdog !== undefined ? opts.watchdog : WATCHDOG;
-  // wp-v4 ("the watchdog and worker included"): a missing/deleted WORKER SCRIPT FILE means the same
+  // wp-v4 (sec-v3 M1, "the watchdog and worker included"): a missing/deleted WORKER SCRIPT FILE means the same
   // thing as the watchdog MODULE itself being unavailable (no working watchdog-protected path) — both must
   // degrade identically to the inline fallback below, not one gracefully and the other by blocking everything.
   // Only checked for the REAL, non-test-injected watchdog (opts.watchdog === undefined); a test supplying its
@@ -714,7 +724,7 @@ function applyWriteScope(verdict, payload, command, opts) {
   return notes.length ? withNotice(notes.join('\n')) : verdict;
 }
 
-/** applyInlineScriptHint(verdict, payload, command) -> the verdict, plus a VISIBLE notice (exit 1, never a block) when a
+/** applyInlineScriptHint(verdict, payload, command) -> the verdict, plus an agent hint (agentContext; never a block) when a
  *  Bash call runs `node -e "..."` whose double-quoted script holds a double backslash. Bash turns `\\` into `\` inside
  *  double quotes, so Windows paths and regex escapes reach Node changed (2026-11-05, three times in one session: a
  *  broken regex in checks-hygiene.cjs, a lost path in a settings edit, a regex that matched the start of a file).
@@ -726,7 +736,9 @@ function applyInlineScriptHint(verdict, payload, command) {
   if (!m || !m[1].includes('\\\\')) return verdict;
   const text = 'FORGE HINT: node -e "..." met \\\\ binnen dubbele aanhalingstekens: bash maakt van \\\\ een enkele \\, dus paden en regex-escapes komen veranderd aan. Schrijf het script naar een bestand en draai dat. / '
     + 'node -e "..." with \\\\ inside double quotes: bash turns \\\\ into a single \\, so paths and regex escapes arrive changed. Write the script to a file and run the file.';
-  return Object.assign({}, verdict, { warn: true, notice: verdict.notice ? verdict.notice + '\n' + cap(text) : cap(text), why: (verdict.why || 'no-gate') + ' + inline-script-hint' });
+  // FB-GATEHOOK-F9: the hint is for the AGENT. An exit-1 stderr line is shown to the user only, so it
+  // travels as agentContext; run() turns it into PreToolUse additionalContext on stdout with exit 0.
+  return Object.assign({}, verdict, { agentContext: cap(text), why: (verdict.why || 'no-gate') + ' + inline-script-hint' });
 }
 
 /** decide(payload, opts) -> { block, warn, gates, reason, notice, why }. Seams: opts.gate (classifier), opts.config,
@@ -743,15 +755,19 @@ function decide(payload, opts) {
   if (payload.hook_event_name !== undefined && payload.hook_event_name !== null) {
     if (typeof payload.hook_event_name !== 'string') return unchecked('invalid-hook-event');
     if (payload.hook_event_name !== 'PreToolUse') {
-      // an unrecognised event name is never positively known to be unrelated — visible, not silent.
+      // V01: an unrecognised event name is never positively known to be unrelated — visible, not silent.
       if (!KNOWN_HOOK_EVENTS.has(payload.hook_event_name)) return unchecked('unknown-hook-event');
       return none('not-pretooluse');
     }
   }
   if (typeof payload.tool_name !== 'string' || !payload.tool_name) return unchecked('missing-tool-name');
-  if (!SHELL_TOOLS.has(payload.tool_name)) return none('not-a-shell-tool');
   const input = payload.tool_input;
   const command = input && typeof input === 'object' && !Array.isArray(input) ? input.command : null;
+  if (!SHELL_TOOLS.has(payload.tool_name)) {
+    // FB-GATEHOOK-F3: a tool this hook does not know that still carries a command string may run it: say so out loud.
+    if (!KNOWN_NON_SHELL_TOOLS.has(payload.tool_name) && typeof command === 'string' && command.trim()) return unchecked('non-shell-tool-with-command (' + payload.tool_name.slice(0, 60) + ')');
+    return none('not-a-shell-tool');
+  }
   if (typeof command !== 'string') return unchecked('missing-or-non-string-command');
   if (!command.trim()) return none('no-command'); // an empty command runs nothing; nothing to classify
   const en = gateHookEnabled(opts);
@@ -788,7 +804,13 @@ function decide(payload, opts) {
   return { block: false, warn: true, gates: verdict.gates, notice: offNotice(en, verdict.gates), why: 'gate-hook-off, would have blocked' };
 }
 
-/** run(rawStdin, opts) -> { exitCode, stderr, why, gates? }. Never throws. FU-A7: unparseable stdin and an internal
+/** agentContextJson(text) -> the PreToolUse JSON that hands `text` to the model as additionalContext. No permission
+ *  decision: the normal permission flow still runs (FB-GATEHOOK-F9). */
+function agentContextJson(text) {
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: String(text) } });
+}
+
+/** run(rawStdin, opts) -> { exitCode, stderr, stdout?, why, gates? }. Never throws. FU-A7: unparseable stdin and an internal
  *  error go through cannotJudgeResult (exit 2 only when the command text shows a hard-gate keyword). */
 function run(rawStdin, opts) {
   const raw = String(rawStdin || '');
@@ -800,7 +822,10 @@ function run(rawStdin, opts) {
   try {
     const d = decide(payload, opts);
     if (d.block) return { exitCode: 2, stderr: d.reason, why: d.why, gates: Array.isArray(d.gates) ? d.gates.slice() : [] };
-    return { exitCode: d.warn ? 1 : 0, stderr: d.notice || '', why: d.why };
+    // FB-GATEHOOK-F9: exit 1 output reaches the user only; with a warning too the hint rides along on stderr.
+    if (d.warn) return { exitCode: 1, stderr: [d.notice, d.agentContext].filter(Boolean).join('\n'), why: d.why };
+    if (d.agentContext) return { exitCode: 0, stderr: '', stdout: agentContextJson(d.agentContext), why: d.why };
+    return { exitCode: 0, stderr: d.notice || '', why: d.why };
   } catch (e) {
     const msg = firstLine(e);
     let ids;
@@ -811,17 +836,23 @@ function run(rawStdin, opts) {
 
 /** syncMaintenance(root) -> true while <root>/.claude/.forge-sync.lock is younger than SYNC_LOCK_STALE_MS (6 h): a
  *  forge-sync run is replacing files there (SYNC-02 maintenance mode). The age comes from the lock's own
- *  started_at/ts, else the file time. Fail-open: no lock, an unreadable root or a lock older than 6 h (left behind by a
- *  crashed run) is "no maintenance". Never throws, never writes. Same rule as forge-sync.cjs::readLockStatus. */
+ *  started_at/ts, else the file time. Fail-open: no lock, an unreadable root, a lock older than 6 h (left behind by a
+ *  crashed run) or a lock of this host whose pid is gone (after 2 min, FB-SYNC-C-F1) is "no maintenance". Never throws, never writes. Same rule as forge-sync.cjs::readLockStatus. */
 const SYNC_LOCK_STALE_MS = 6 * 60 * 60 * 1000;
+const SYNC_LOCK_DEAD_OWNER_GRACE_MS = 2 * 60 * 1000; // forge-sync.cjs LOCK_DEAD_OWNER_GRACE_MS
 function syncMaintenance(root) {
   try {
     const lp = path.join(root, '.claude', '.forge-sync.lock');
     const st = fs.statSync(lp);
     let started = NaN;
-    try { const b = JSON.parse(fs.readFileSync(lp, 'utf8')); started = Date.parse(b && (b.started_at || b.ts)); } catch { /* unreadable body: use the file time */ }
+    let b = null;
+    try { b = JSON.parse(fs.readFileSync(lp, 'utf8')); started = Date.parse(b && (b.started_at || b.ts)); } catch { /* unreadable body: use the file time */ }
     let age = Date.now() - (Number.isFinite(started) ? started : st.mtimeMs);
     if (!(age >= 0)) age = Date.now() - st.mtimeMs; // a lock dated in the future is judged by its file time
+    // FB-SYNC-C-F1: forge-sync.cjs deadOwnerOnThisHost — a lock of THIS host whose pid is not running is left by a killed run
+    if (age > SYNC_LOCK_DEAD_OWNER_GRACE_MS && b && typeof b.host === 'string' && b.host === os.hostname() && Number.isInteger(b.pid) && b.pid > 0) {
+      try { process.kill(b.pid, 0); } catch (e) { if (e && e.code === 'ESRCH') return false; }
+    }
     return age < SYNC_LOCK_STALE_MS;
   } catch { return false; }
 }
@@ -860,11 +891,12 @@ module.exports = {
 if (require.main === module) {
   let finished = false;
   // `after` runs after the verdict text is written; whatever it does or throws, the exit code stays `code`.
-  const finish = (code, text, after) => {
+  const finish = (code, text, after, out) => {
     if (finished) return;
     finished = true;
     // synchronous write: an async stderr write can be cut off by process.exit() on a pipe
     if (text) { try { fs.writeSync(2, text + '\n'); } catch { /* nothing left to report to */ } }
+    if (out && code === 0) { try { fs.writeSync(1, out + '\n'); } catch { /* the hint is advice; losing it changes no verdict */ } } // F9
     if (typeof after === 'function') { try { after(); } catch { /* best effort — never changes the verdict */ } }
     process.exit(code);
   };
@@ -901,7 +933,7 @@ if (require.main === module) {
       const notice = 'forge-gate-hook: internal error, this call was NOT checked: ' + firstLine(e);
       r = cannotJudgeResult({ why: 'internal-error', cause: shortCause(e), notice }, riskySignals(rawCommandText(raw)), {});
     }
-    finish(r.exitCode, r.stderr, r.exitCode === 2 ? () => { recordGateBlocked(raw, r, { elapsedMs: process.uptime() * 1000 }); } : null);
+    finish(r.exitCode, r.stderr, r.exitCode === 2 ? () => { recordGateBlocked(raw, r, { elapsedMs: process.uptime() * 1000 }); } : null, r.stdout);
   });
   process.stdin.resume();
 }

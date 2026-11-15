@@ -10,6 +10,7 @@
 // Directories are created only on the first write, so `status` and `--help` never create anything.
 const fs = require('fs');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 
 const keyOf = (repo, p) => `${String(repo).toLowerCase()}|${p}`;
 
@@ -18,6 +19,7 @@ function forEachLine(file, fn) {
   const fd = fs.openSync(file, 'r');
   const buf = Buffer.alloc(1 << 20);
   let rest = ''; let bad = 0; let n;
+  const dec = new StringDecoder('utf8'); // keeps a multi-byte character split across two chunks whole
   const take = (line) => {
     if (!line.trim()) return;
     let obj;
@@ -26,12 +28,12 @@ function forEachLine(file, fn) {
   };
   try {
     while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) {
-      const chunk = rest + buf.toString('utf8', 0, n);
+      const chunk = rest + dec.write(buf.subarray(0, n));
       const lines = chunk.split('\n');
       rest = lines.pop();
       lines.forEach(take);
     }
-    take(rest);
+    take(rest + dec.end());
   } finally { fs.closeSync(fd); }
   return bad;
 }

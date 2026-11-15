@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** forge-v9-events.test.cjs — V9-INTEGRATE real end-to-end proof that the 7 new event types
  *  declared by P1 (forge-runcontract.cjs), P2 (forge-capabilities.cjs), P4 (forge-projectbrain.cjs), and
  *  P5 (forge-scout.cjs) are genuinely registered in both required places (the event-registration discipline

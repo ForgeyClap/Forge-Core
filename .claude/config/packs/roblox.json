@@ -1,0 +1,93 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "roblox",
+  "_doc": "The Roblox pack (owner 2026-11-11: the Forge template must also contain the Roblox agents). Generic version of the Roblox team of an owner Roblox project: 12 rbx-* SPECIALIST agents (never Bosses; the 12 permanent Bosses are unchanged) and the Roblox and game-dev skills they need. They ship like every other specialist and skill (.claude/agents/*.md, .claude/skills/<name>/). forge-router sends a Roblox request to this pack; forge-roblox-pack.cjs (doctor check roblox_pack) is red when a pack agent or skill is missing, unrouted or not a registered specialist. The presets below are expanded by forge-lane-skills.cjs (--require roblox-all,process): owner rule R-0093 says every Roblox lane opens EVERY roblox-all and process skill first; gamedev-extra is opened per role (the agent frontmatter preloads its role set) and may be required in full for an audit.",
+  "projectTypes": ["roblox"],
+  "signals": ["roblox", "luau", "roblox studio", "rojo", "obby", "simulator", "tycoon", "robux", "game pass", "datastore", "rbxl", "rbxlx"],
+  "agents": [
+    "rbx-game-director",
+    "rbx-luau-engineer",
+    "rbx-ui-engineer",
+    "rbx-world-builder",
+    "rbx-vfx-audio",
+    "rbx-blender-artist",
+    "rbx-integrator",
+    "rbx-qa-tester",
+    "rbx-security-reviewer",
+    "rbx-verifier",
+    "rbx-liveops-producer",
+    "rbx-skill-monitor"
+  ],
+  "skills": [
+    "roblox-luau",
+    "roblox-networking",
+    "roblox-datastores",
+    "roblox-security",
+    "roblox-game-design",
+    "roblox-player-psychology",
+    "roblox-publish-checklist",
+    "roblox-economy-ethics",
+    "roblox-game-audit",
+    "roblox-new-system",
+    "roblox-vfx",
+    "roblox-ui",
+    "roblox-characters",
+    "roblox-physics",
+    "roblox-studio-workflow",
+    "roblox-simulator-economy",
+    "game-feel",
+    "game-ui-ux",
+    "game-ai",
+    "save-systems",
+    "input-systems",
+    "create-game-assets",
+    "camera-systems",
+    "level-design",
+    "performance-optimization",
+    "audio-design",
+    "prototype-fast"
+  ],
+  "presets": {
+    "roblox-all": [
+      "roblox-luau",
+      "roblox-networking",
+      "roblox-datastores",
+      "roblox-security",
+      "roblox-game-design",
+      "roblox-player-psychology",
+      "roblox-publish-checklist",
+      "roblox-economy-ethics",
+      "roblox-game-audit",
+      "roblox-new-system",
+      "roblox-vfx",
+      "forge-game"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ],
+    "gamedev-extra": [
+      "roblox-ui",
+      "roblox-characters",
+      "roblox-physics",
+      "roblox-studio-workflow",
+      "roblox-simulator-economy",
+      "game-feel",
+      "game-ui-ux",
+      "game-ai",
+      "save-systems",
+      "input-systems",
+      "create-game-assets",
+      "camera-systems",
+      "level-design",
+      "performance-optimization",
+      "audio-design",
+      "prototype-fast"
+    ]
+  },
+  "optional_external": {
+    "_doc": "Skills from plugins or MCP servers the owner may have installed; named in lane prompts when present, never required to ship (the pack check skips the mcp: prefix).",
+    "skills": ["mcp:forgegui-roblox-builder"]
+  }
+}

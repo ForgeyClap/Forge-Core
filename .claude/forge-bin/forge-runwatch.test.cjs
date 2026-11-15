@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-runwatch.test.cjs — tests the completion/stall predicate. Pure core: feed synthetic
 // event arrays + an injected clock, assert overall/complete/evidence. One file-path case via a temp events.jsonl.
 const assert = require('assert');
@@ -83,6 +87,31 @@ t('mixed: one done + one genuinely stalled -> overall stalled (not done)', () =>
   assert.strictEqual(st.complete, false);
   assert.strictEqual(st.counts.done, 1);
   assert.strictEqual(st.counts.stalled, 1);
+});
+
+t('FB-LANES-F1: a re-dispatch of the same agent (start, complete, start) is NOT done', () => {
+  const ev = [
+    { agent: 'build-boss', event_type: 'agent_started', wp_id: 'WP-1', timestamp: iso(T0) },
+    { agent: 'build-boss', event_type: 'agent_completed', wp_id: 'WP-1', timestamp: iso(T0 + 1000) },
+    { agent: 'build-boss', event_type: 'agent_started', wp_id: 'WP-2', timestamp: iso(T0 + 2000) },
+  ];
+  const st = rw.projectRunWatch(ev, { now: T0 + 3000 });
+  assert.strictEqual(st.overall, 'running');
+  assert.strictEqual(st.complete, false);
+  assert.deepStrictEqual(st.runningAgents, ['build-boss']);
+});
+
+t('FB-LANES-F1: two parallel dispatches under one name need two terminal events', () => {
+  const ev = [
+    { agent: 'build-boss', event_type: 'agent_started', timestamp: iso(T0) },
+    { agent: 'build-boss', event_type: 'agent_started', timestamp: iso(T0) },
+    { agent: 'build-boss', event_type: 'agent_completed', timestamp: iso(T0 + 1000) },
+  ];
+  assert.strictEqual(rw.projectRunWatch(ev, { now: T0 + 2000 }).complete, false);
+  ev.push({ agent: 'build-boss', event_type: 'agent_completed', timestamp: iso(T0 + 1500) });
+  const st = rw.projectRunWatch(ev, { now: T0 + 2000 });
+  assert.strictEqual(st.overall, 'done');
+  assert.strictEqual(st.complete, true);
 });
 
 t('watch() reads a real events.jsonl file and projects it', () => {

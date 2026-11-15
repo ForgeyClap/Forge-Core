@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * log-event.cjs concurrency + JSONL-semantiek (audits G1/G3/G6) — hermetisch: draait tegen
  * een KOPIE van de writer in een temp-.claude-boom; echte runs worden nooit aangeraakt.
  *
- * de append was read-tail→hash→append zonder lock — 120 gelijktijdige writers vorkte de hash-keten
+ * G1: de append was read-tail→hash→append zonder lock — 120 gelijktijdige writers vorkte de hash-keten
  * (meerdere events met dezelfde prev_hash) en elke lineaire chain-walk las de run als getamperd. Nu:
  * exclusieve wx-lock + retry/backoff + monotone seq. Deze suite bewijst het met ECHTE processen.
  */
@@ -126,7 +130,7 @@ console.log('\n2) lock-eerlijkheid');
 }
 
 // ============================================================================================
-// 3) BATCH-MODUS: N events, EEN proces, EEN lock — keten + seq lopen gewoon door; een
+// 3) BATCH-MODUS (G3): N events, EEN proces, EEN lock — keten + seq lopen gewoon door; een
 //    STRICT-geweigerde regel geeft exit 2 en wordt NIET geschreven (zelfde semantiek als losse calls).
 // ============================================================================================
 console.log('\n3) batch-modus');
@@ -162,7 +166,7 @@ console.log('\n3) batch-modus');
 }
 
 // ============================================================================================
-// 4) readEventsClassified: missing | empty | partial | corrupt | valid — de centrale semantiek
+// 4) readEventsClassified (G6): missing | empty | partial | corrupt | valid — de centrale semantiek
 //    waarop completion-gates fail-closed kunnen bouwen.
 // ============================================================================================
 console.log('\n4) JSONL-foutsemantiek');

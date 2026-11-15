@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-skill-harvest-flow.test.cjs — enumerate / fetch / index / CLI flow tests with fake gh + HTTPS.
 // Every fixture lives in a fresh os.tmpdir() root; this file never touches the real corpus or network.
 const nodeTest = require('node:test');
@@ -113,6 +117,24 @@ test('skillssh reads the sitemap, resolves entries to GitHub paths, records unre
   assert.strictEqual(st.resolved, 2);
   assert.deepStrictEqual(st.unresolved, { no_match: 1, repo_not_found: 1 });
   assert.strictEqual(store.candidates('skillssh').length, 3);
+});
+
+test('skillssh: a sitemap that never answers is not saved as a finished, empty enumeration (FB-SKILLTOOLS-F5)', async () => {
+  const root = tmpRoot();
+  let up = false;
+  const pages = {
+    'https://www.skills.sh/robots.txt': 'Sitemap: https://www.skills.sh/sitemap.xml',
+    'https://www.skills.sh/sitemap.xml': ['o/r2/solo'].map((s) => `<url><loc>https://www.skills.sh/${s}</loc></url>`).join(''),
+  };
+  const get = async (u) => (up && pages[u] ? { status: 200, body: pages[u] } : { status: 503, body: '' });
+  const gh = treeFake({ 'o/r2': ['SKILL.md'] });
+  await E.enumerate(baseCtx(gh, get), S.openStore(root), { source: 'skillssh' });
+  assert.strictEqual(S.openStore(root).state('skillssh').repos, undefined, 'a failed sitemap must leave the source unstarted');
+  up = true;
+  await E.enumerate(baseCtx(gh, get), S.openStore(root), { source: 'skillssh' });
+  const st = S.openStore(root).state('skillssh');
+  assert.strictEqual(st.entries, 1, 'the next run retries and reads the sitemap');
+  assert.strictEqual(st.resolved, 1);
 });
 
 test('lists follows every GitHub link in a curated list and trees each linked repo', async () => {

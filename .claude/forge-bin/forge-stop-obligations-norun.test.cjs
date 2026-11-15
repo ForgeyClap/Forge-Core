@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-stop-obligations-norun.test.cjs — I.7 (Forge modernization, Phase I): the Stop-time check that
 // blocks ONCE per session when a multi-agent session (>= 3 finished subagents in the harness-written
 // <runs>/_hooks/subagent-stop.jsonl) never started or updated a mission run. HERMETIC: every fixture is a fresh
@@ -172,6 +176,16 @@ t('an older genuine run that gets ANY event during the session counts (it was to
   addStops(root, SID, 5);
   addRun(root, 'old-run', [{ type: 'run_started', ms: BASE - 30 * HOUR }, { type: 'agent_note', ms: BASE + 4 * MIN }]);
   assert.strictEqual(stop(root).block, false);
+});
+// FB-CONTRACT-1-F5: a hook-written event (gate_blocked / session_resumed by agent system) is not this
+// session updating a run, so it must not silence the run-required block.
+t('a run touched only by a hook-written gate_blocked or session_resumed does not count -> fires', () => {
+  const root = proj('hook-only');
+  addStops(root, SID, 5);
+  addRun(root, 'hook-run', [{ type: 'run_started', ms: BASE - 20 * HOUR },
+    { type: 'gate_blocked', ms: BASE + 3 * MIN, extra: { agent: 'system', role: 'gate-hook', gate: 'destructive-delete' } },
+    { type: 'session_resumed', ms: BASE + 4 * MIN, extra: { agent: 'system' } }]);
+  assert.strictEqual(stop(root).block, true);
 });
 t('a run whose every event is from before the session window does not count -> fires', () => {
   const root = proj('stale');

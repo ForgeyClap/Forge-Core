@@ -3,7 +3,7 @@
 /**
  * forge-retention.cjs — begrensde retentie voor logs, toollogs en backups.
  *
- * PROBLEEM: forge-usage-guard.log groeide onbegrensd (nu geroteerd door usage-guard zelf), de
+ * PROBLEEM: forge-usage-guard.log groeide onbegrensd (nu geroteerd door usage-guard zelf, G9a), de
  * per-project _toollog en forge-backups en de centrale .forge-backup-hub en de globale
  * template-backup-* mappen kenden GEEN enkele prune. Dit tool maakt retentie expliciet, begrensd en
  * testbaar — en verliest nooit rollbackvermogen zonder dat dat zichtbaar is.

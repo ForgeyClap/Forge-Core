@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // account-rotator-verify.test.cjs — escalation-round regression tests for: one test
 // (or more) per Codex VERIFICATION finding AR-V01..AR-V11, named by ID, with crash / interleaving injection where the
 // finding describes a probe, plus the token-mode default and the launch/env argument hardening. HERMETIC: temp dirs,
@@ -319,6 +323,26 @@ t('AR-V07: a login that stays unauthorized is bounded — after PENDING_VERIFY_M
   assert.deepStrictEqual([r2.action, r2.reason, r2.needsRelogin], ['none', 'unverified-timeout', 'v10b'], JSON.stringify(r2));
   assert.strictEqual(credsRT(fx2), b.rt, 'a manual switch is never rolled back automatically');
   assert.strictEqual(vault.readState(fx2.P).pendingVerify, null, 'no longer pending forever');
+});
+// FB-ROTATOR-F4: a measurement that keeps failing with something other than 401/403 (network, ECONNRESET) is bounded
+// by PENDING_VERIFY_MAX_MS too, as the header promises for ANY pending state
+t('AR-V07 / FB-ROTATOR-F4: a pending verification whose measurement keeps THROWING is bounded too — rollback (automatic) or needs-relogin + dropped (manual)', async () => {
+  const a = fakeAccount('v12a'); const b = fakeAccount('v12b'); const fx = setup([a, b], 'v12b');
+  await vault.updateState(fx.P, (s) => { s.pendingVerify = { to: 'v12b', from: 'v12a', at: iso(NOW - core.PENDING_VERIFY_MAX_MS - 60e3), auto: true, failures: 0, credsGen: vault.generation(fx.P.creds), trigger: [] }; });
+  const f = fetchStub({ [a.at]: usage(a, 10, 10), [b.at]: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) });
+  const r = await R.tick({ P: fx.P, S: FILE(), deps: deps(fx, { fetch: f }) });
+  assert.strictEqual(r.action, 'rolled-back-needs-relogin', JSON.stringify(r));
+  assert.deepStrictEqual([credsRT(fx), profUuid(fx)], [a.rt, a.uuid]);
+  assert.ok(/TIMED OUT/.test(vault.readRaw(fx.P.log)), 'the timeout is logged');
+  const fx2 = setup([a, b], 'v12b');
+  await vault.updateState(fx2.P, (s) => { s.pendingVerify = { to: 'v12b', from: 'v12a', at: iso(NOW - core.PENDING_VERIFY_MAX_MS - 60e3), auto: false, failures: 0, credsGen: vault.generation(fx2.P.creds), trigger: [] }; });
+  const r2 = await R.tick({ P: fx2.P, S: FILE(), deps: deps(fx2, { fetch: f }) });
+  assert.deepStrictEqual([r2.action, r2.reason], ['none', 'unverified-timeout'], JSON.stringify(r2));
+  assert.strictEqual(vault.readState(fx2.P).pendingVerify, null, 'no longer pending forever');
+  const fx3 = setup([a, b], 'v12b');
+  await vault.updateState(fx3.P, (s) => { s.pendingVerify = { to: 'v12b', from: 'v12a', at: iso(NOW - 60e3), auto: true, failures: 0, credsGen: vault.generation(fx3.P.creds), trigger: [] }; });
+  const r3 = await R.tick({ P: fx3.P, S: FILE(), deps: deps(fx3, { fetch: f }) });
+  assert.deepStrictEqual([r3.action, r3.reason], ['none', 'check-failed'], 'a young pending state still just waits: ' + JSON.stringify(r3));
 });
 t('AR-V07: enrolling a (third) account while logged in supersedes an unresolved transaction; --force on a consistent login does too; neither works on an unknown token', async () => {
   const a = fakeAccount('v11a'); const b = fakeAccount('v11b'); const c = fakeAccount('v11c'); const fx = setup([a, b], 'v11a');

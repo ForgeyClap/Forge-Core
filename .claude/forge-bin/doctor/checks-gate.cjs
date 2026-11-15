@@ -74,7 +74,7 @@ let CFG = null;
 try { CFG = require('../forge-config.cjs'); } catch { CFG = null; }
 
 /** buildIsolatedGateProject() -> { root, home, env, cleanup() } — a throwaway, fully isolated project+home
- *  pair for gateWatchdogHealth's own end-to-end spawn (fixing a regression introduced in wp-v4).
+ *  pair for gateWatchdogHealth's own end-to-end spawn (sec-v3r M1, fixing a regression introduced in wp-v4).
  *  `root`/`home` are freshly created empty directories; NO FORGE_CONFIG.json is ever written into either, so
  *  forge-config.cjs's own get('gate-hook') resolves to the schema DEFAULT (protective, ON) with no once-grant
  *  ever pending — never the real project's or the real machine's actual current setting or once-store.

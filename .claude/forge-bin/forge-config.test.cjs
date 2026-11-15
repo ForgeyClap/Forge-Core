@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-config.test.cjs — real tests for the settings resolver/validator/writer.
 // HERMETIC: every fixture (config home, project root, owner profile, session state, stub log-event) lives in
 // a fresh os.tmpdir() directory. Before the module is even required, FORGE_CONFIG_HOME / FORGE_PROJECT_ROOT
@@ -1228,23 +1232,45 @@ t('CFG-03: a schema that fails validation is REJECTED IN FULL — safeGet never 
 });
 
 t('CFG-04: a global-scope BOOL project value may only STRENGTHEN a global protective default, never weaken it', () => {
+  // `dashboard` is an UNFLAGGED global bool (default true): the schema default is the protective side.
   const fx = fixture();
   // global OFF, project ON (matches the schema default true) -> the project value WINS: strengthened.
-  writeJson(fx.globalFile, { version: 1, settings: { 'usage-guard': { value: false } } });
-  writeJson(fx.projectFile, { version: 1, settings: { 'usage-guard': { value: true } } });
+  writeJson(fx.globalFile, { version: 1, settings: { dashboard: { value: false } } });
+  writeJson(fx.projectFile, { version: 1, settings: { dashboard: { value: true } } });
   const r1 = cfg.resolve(withOpts(fx, { lang: 'en' }));
-  assert.deepStrictEqual([r1.settings['usage-guard'].value, r1.settings['usage-guard'].source], [true, 'project']);
-  assert.deepStrictEqual(r1.strengthened_project_values, ['usage-guard']);
+  assert.deepStrictEqual([r1.settings.dashboard.value, r1.settings.dashboard.source], [true, 'project']);
+  assert.deepStrictEqual(r1.strengthened_project_values, ['dashboard']);
   assert.deepStrictEqual(r1.ignored_project_values, []);
   assert.ok(r1.notes.some((n) => /can only STRENGTHEN/.test(n)), JSON.stringify(r1.notes));
   // global ON, project OFF (away from the default) -> still ignored, exactly as before.
   const fx2 = fixture();
-  writeJson(fx2.globalFile, { version: 1, settings: { 'usage-guard': { value: true } } });
-  writeJson(fx2.projectFile, { version: 1, settings: { 'usage-guard': { value: false } } });
+  writeJson(fx2.globalFile, { version: 1, settings: { dashboard: { value: true } } });
+  writeJson(fx2.projectFile, { version: 1, settings: { dashboard: { value: false } } });
   const r2 = cfg.resolve(withOpts(fx2, { lang: 'en' }));
-  assert.deepStrictEqual([r2.settings['usage-guard'].value, r2.settings['usage-guard'].source], [true, 'global']);
-  assert.deepStrictEqual(r2.ignored_project_values, ['usage-guard']);
+  assert.deepStrictEqual([r2.settings.dashboard.value, r2.settings.dashboard.source], [true, 'global']);
+  assert.deepStrictEqual(r2.ignored_project_values, ['dashboard']);
   assert.deepStrictEqual(r2.strengthened_project_values, []);
+});
+
+t('CFG-04 (FB-CONFIG-1-F2): a project file can never switch a FLAGGED global bool back ON over a machine-wide OFF', () => {
+  const schema = readJson(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json'));
+  const keys = Object.entries(schema.settings).filter(([, s]) => s.scope === 'global' && s.type === 'bool' && Array.isArray(s.flags) && s.flags.length).map(([k]) => k);
+  for (const k of ['account-rotator', 'discord-autostart', 'portfolio', 'usage-guard']) assert.ok(keys.includes(k), k + ' must be a flagged global bool');
+  for (const k of keys) {
+    const fx = fixture();
+    writeJson(fx.globalFile, { version: 1, settings: { [k]: { value: false } } });
+    writeJson(fx.projectFile, { version: 1, settings: { [k]: { value: true } } });
+    const r = cfg.resolve(withOpts(fx, { lang: 'en' }));
+    assert.deepStrictEqual([k, r.settings[k].value, r.settings[k].source], [k, false, 'global']);
+    assert.ok(r.ignored_project_values.includes(k) && !r.strengthened_project_values.includes(k), k);
+    // the safe side is still allowed: global ON, project OFF -> the project value wins
+    const fx2 = fixture();
+    writeJson(fx2.globalFile, { version: 1, settings: { [k]: { value: true } } });
+    writeJson(fx2.projectFile, { version: 1, settings: { [k]: { value: false } } });
+    const r2 = cfg.resolve(withOpts(fx2, { lang: 'en' }));
+    assert.deepStrictEqual([k, r2.settings[k].value, r2.settings[k].source], [k, false, 'project']);
+    assert.ok(r2.strengthened_project_values.includes(k), k);
+  }
 });
 
 t('CFG-08: gate-hook (ignore_global) is never read from the global file — a reset can never expose a hidden global OFF', () => {
@@ -1635,6 +1661,28 @@ t('nothing landed in the trap dir (every call carried its own fixture paths)', (
   assert.strictEqual(fs.existsSync(path.join(TRAP, 'home', 'FORGE_CONFIG.json')), false);
   assert.strictEqual(fs.existsSync(path.join(TRAP, 'proj', '.claude', 'FORGE_CONFIG.json')), false);
   assert.strictEqual(fs.existsSync(path.join(TRAP, 'proj', '.claude', 'FORGE_ECC_MODE.json')), false);
+});
+// BRAIN-PATH-1 (FIX-BRAIN-PATH hand-over): the 'string' type, used by brain-path (an absolute folder, or empty for the default)
+t('BRAIN-PATH-1: brain-path is a string setting; a full folder path is accepted and stored as given', () => {
+  const fx = fixture();
+  const abs = path.join(fx.root, 'My vault');
+  cfg.set('brain-path', abs, fx.o);
+  assert.strictEqual(cfg.get('brain-path', fx.o).value, abs);
+  assert.strictEqual(readJson(fx.globalFile).settings['brain-path'].value, abs, 'brain-path is global scope');
+  assert.strictEqual(cfg.parseValue('brain-path', ''), '', 'empty means the default folder');
+});
+t('BRAIN-PATH-1: a relative brain-path is refused (exit 2) with the plain folder-path message', () => {
+  const fx = fixture();
+  const err = throwsCode(() => cfg.set('brain-path', 'relative/vault', fx.o), 'invalid_value', 2);
+  assert.match(err.message, /full folder path/);
+  const r = cli(fx, ['set', 'brain-path', 'relative/vault']);
+  assert.strictEqual(r.status, 2, r.all);
+  assert.strictEqual(fs.existsSync(fx.globalFile), false, 'nothing written');
+});
+t('BRAIN-PATH-1: a non-string brain-path in the settings file is refused as malformed', () => {
+  const fx = fixture();
+  writeJson(fx.globalFile, { version: 1, settings: { 'brain-path': { value: 42 } } });
+  throwsCode(() => cfg.resolve(fx.o), 'malformed', 2);
 });
 t('the real ~/.claude/FORGE_CONFIG.json and this repo\'s .claude/FORGE_CONFIG.json + FORGE_ECC_MODE.json are untouched', () => {
   assert.strictEqual(sig(REAL_GLOBAL), REAL_BEFORE.g);

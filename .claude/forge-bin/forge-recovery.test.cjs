@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-recovery.test.cjs — real behavior tests for the solution-first recovery engine.
 // Maps 1:1 to the mission's 20 mandatory recovery tests, plus engine invariants. Hermetic: ledger
 // writes use dryRun or a fresh os.tmpdir() path; the fixture-merge test writes ONLY under os.tmpdir();
@@ -79,6 +83,15 @@ t('malicious_code => hardStop, REJECTED_UNSAFE, missionContinue=true', () => {
 });
 
 console.log('\n8) Forge-native replacement can be proposed');
+t('FB-QUALITY-F6: a defensive item whose name or description holds a deny word still gets alternatives', () => {
+  for (const item of [{ name: 'brute-force-guard' }, { name: 'private-repo-sync' }, { name: 'paywall-checker' }, { name: 'x', description: 'Detect brute force login attempts' }]) {
+    const g = R.generateAlternatives(item, {});
+    assert.ok(g.routes.length >= 3, item.name);
+  }
+  // an agent-proposed route that describes a bypass is still refused
+  assert.throws(() => R.assertNoAuthBypass({ route: 'x', method: 'bypass the paywall' }));
+});
+
 t('generateAlternatives includes forge_native_reimplementation', () => {
   const g = R.generateAlternatives({ name: 'x' }, {});
   assert.ok(g.routes.some((r) => r.route === 'forge_native_reimplementation'));

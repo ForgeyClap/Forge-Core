@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-wpsize.test.cjs — the Head Chef work-package size classifier. Pure function + CLI;
 // no file is written anywhere (the CLI reads --files-from only from a fixture under os.tmpdir()).
 const fs = require('fs');
@@ -36,6 +40,13 @@ t('security path words: session, token, secret, crypto, permission, oauth, jwt, 
   for (const f of ['lib/session.ts', 'api/token-store.js', 'config/secrets.yaml', 'util/crypto.go', 'core/permissions.py', 'oauth/callback.js', 'mw/jwt.js', 'pay/payment.ts', 'billing/invoice.rb', 'forms/password-reset.tsx']) {
     assert.strictEqual(W.classifySize({ files: [f] }).tier, 'standard', f);
   }
+});
+
+t('camelCase and PascalCase names are split before the whole-part match (FB-CONTRACT-2-F8)', () => {
+  for (const f of ['src/AuthController.ts', 'store/sessionStore.js', 'api/verifyJwt.cs', 'lib/getOAuth2Token.js']) {
+    assert.strictEqual(W.isSecurityPath(f), true, f);
+  }
+  for (const f of ['src/AuthorList.ts', 'lib/tokenizerUtil.js']) assert.strictEqual(W.isSecurityPath(f), false, f);
 });
 
 t('false friends: author, authority-free words and "tokenizer" docs are NOT security paths', () => {

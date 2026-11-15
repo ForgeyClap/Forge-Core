@@ -6,12 +6,12 @@
  *     (and open by themselves when one of them has an error).
  *     Fix round XR-SET: the consent row shows only for rotation and keeps one visible risk line that
  *     names the risk and the accounts above its box (more cases in settings-xr-set.test.tsx).
- *   - Instellingen › Gebruik reads the usage through `readUsageMeter`: a stale 5-hour value is never shown
+ *   - F9: Instellingen › Gebruik reads the usage through `readUsageMeter`: a stale 5-hour value is never shown
  *     as current.
  *   - Security F1 (+ note 2): "Account toevoegen › Claude" only reaches the router while it is loaded and
  *     writable.
  *   - Security note 3: closing the Eigen API dialog during a save keeps it closed.
- *   - a closed "Start hier" card can be brought back from Algemeen.
+ *   - F6: a closed "Start hier" card can be brought back from Algemeen.
  * Every visible-word count below uses the gate's rule (text nodes outside [hidden], option, aria-hidden and
  * visually hidden), so the budget is guarded in the unit suite too.
  */

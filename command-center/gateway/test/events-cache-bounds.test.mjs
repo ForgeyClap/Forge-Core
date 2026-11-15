@@ -1,7 +1,7 @@
 // P1-4 fix (cc-fix-gateway-perf): events.mjs's per-eventsPath CACHE used
 // to grow WITHOUT BOUND — every run ever touched kept its full parsed event history pinned in memory
 // for the gateway process's whole life. These tests prove both new caps hold, mirroring the existing
-// cache-bounds.test.mjs pattern already used for tools.mjs/capabilities.mjs.
+// cache-bounds.test.mjs pattern already used for tools.mjs/capabilities.mjs (WP10 F4/F5).
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

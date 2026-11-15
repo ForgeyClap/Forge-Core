@@ -42,7 +42,7 @@ description: "Use when building a scraper or crawler for public or permitted sit
    `references/failure-states.md`.
 
 ## Team (conditional)
-Lead: `architect`. Specialists: `python-reviewer`, `security-reviewer` (PII + storage), `silent-failure-hunter` (scrapers fail silently → empty results look like success), `database-reviewer` (storage).
+Lead: `build-boss`; `architect` is an optional read-only design advisor (not a Boss). Specialists: `python-reviewer`, `security-reviewer` (PII + storage), `silent-failure-hunter` (scrapers fail silently → empty results look like success), `database-reviewer` (storage).
 Forge Bosses: Build Boss (build route) writes the collector, Node by default; Test Boss owns the golden fixtures and the parse-only tests; Security Boss reviews PII and storage; Verify Boss checks the run report against the gates.
 
 ## Skills / commands / MCP

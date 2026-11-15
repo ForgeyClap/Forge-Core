@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-quality.test.cjs — de Quality Intelligence Layer (masterprompt 2026-08-11).
  *
@@ -995,6 +999,40 @@ if (!Q) { console.log('\n' + pass + ' passed, ' + (fail + 30) + ' failed (module
     t('16 terugval zonder forge-domain-discovery.cjs: domain_evidence.source zegt legacy-keywords, nooit stil', /^legacy-keywords/.test(lg.domain_evidence.source), lg.domain_evidence.source);
     t('16 mutatie: de oude logica geeft de Telegram-bot primary ecommerce — de eenheidstoets hierboven vangt dat', lg.primary_domain === 'ecommerce' && tg.primary_domain !== lg.primary_domain, lg.primary_domain);
   } finally { try { fs.rmSync(T16, { recursive: true, force: true }); } catch { /* opruimen is best effort */ } }
+}
+
+// 17. WP-AG5 (R-0239, contract 9): analyzeMission names the agent pack of a matching request (one request per pack on the
+// real packs in .claude/config/packs), with its presets; a request that matches no pack gets pack null.
+if (Q) {
+  const asks = {
+    website: 'bouw een website met landing page voor een kapper',
+    app: 'maak een SaaS web app met login, database en CRUD',
+    desktop: 'bouw een electron desktop app met installer voor de an accounting desktop app',
+    mobile: 'maak een android apk mobile app met capacitor',
+    shop: 'zet een etsy webshop op met digitale producten en listings',
+    automation: 'bouw een n8n workflow automation met webhook',
+    data: 'schrijf een scraper die een lead list verzamelt',
+    ai: 'bouw een RAG chatbot met citations over onze documenten',
+    game: 'maak een browser game met phaser en een highscore',
+    research: 'onderzoek de opties, vergelijk ze met bronnen en maak een stappenplan',
+    roblox: 'bouw een roblox obby met een game pass',
+  };
+  const wrong = Object.entries(asks).map(([want, ask]) => [want, Q.analyzeMission(ask, { root: ROOT }).pack]).filter(([want, p]) => !p || p.name !== want);
+  t('17 analyzeMission picks the pack for one matching request per pack (11 packs)', wrong.length === 0, JSON.stringify(wrong.map(([w, p]) => [w, p && p.name])));
+  const web = Q.analyzeMission(asks.website, { root: ROOT }).pack;
+  t('17 the pack carries its agents, playbook and lane presets', !!web && web.agents.includes('web-frontend-engineer') && web.playbook === 'forge-website'
+    && JSON.stringify(web.presets) === JSON.stringify(['website-all', 'process']), JSON.stringify(web));
+  t('17 a Roblox request goes to the Roblox pack, not the game pack', (Q.analyzeMission('maak een roblox spel', { root: ROOT }).pack || {}).name === 'roblox');
+  t('17 a request that matches no pack gets pack null', Q.analyzeMission('schrijf een gedicht over de zee', { root: ROOT }).pack === null);
+  // A pack row in the router's Step 1 table must keep its Playbook cell a bare `forge-<domain>`: routerRows() skips any
+  // other cell, and the domain then loses its router terms (2026-11-13: pack text in that cell turned test 16 red).
+  const DD = require(path.join(__dirname, 'forge-domain-discovery.cjs'));
+  const routed = new Set(DD.routerRows(fs.readFileSync(path.join(ROOT, '.claude', 'skills', 'forge-router', 'SKILL.md'), 'utf8')).map((r) => r.domain));
+  const catDomains = Object.keys(JSON.parse(fs.readFileSync(path.join(ROOT, '.claude', 'config', 'orchestration', 'domain-catalog.json'), 'utf8')).domains);
+  const packDomains = fs.readdirSync(path.join(ROOT, '.claude', 'config', 'packs')).map((f) => JSON.parse(fs.readFileSync(path.join(ROOT, '.claude', 'config', 'packs', f), 'utf8')).playbook)
+    .filter((pb) => typeof pb === 'string' && catDomains.includes(pb.replace(/^forge-/, ''))).map((pb) => pb.replace(/^forge-/, ''));
+  const unread = packDomains.filter((d) => !routed.has(d));
+  t('17 every pack playbook domain still has a router row the domain lexicon reads', packDomains.length >= 9 && unread.length === 0, JSON.stringify({ unread, packDomains }));
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

@@ -22,11 +22,14 @@ import * as files from './routes/files.mjs';
 import * as conversations from './routes/conversations.mjs';
 import * as ask from './routes/ask.mjs';
 import * as permissions from './routes/permissions.mjs';
+import { setPermissionAutonomy } from './permissions/store.mjs';
+import { isAutonomyOn } from './permissions/autonomy.mjs';
 import * as jobs from './routes/jobs.mjs';
 import * as forgeOps from './routes/forge-ops.mjs';
 import * as providers from './routes/providers.mjs';
 import * as providersCustom from './routes/providers-custom.mjs';
 import * as appRouter from './routes/app-router.mjs';
+import * as remoteAdmin from './remote/admin-routes.mjs';
 
 // The two test-only rate-limit seams keep their old import path ('../src/server.mjs').
 export { _setRateLimitClockForTests, _configureRateLimitForTests } from './routes/rate-limit.mjs';
@@ -70,7 +73,7 @@ const uiSession = {
 // from :5173 is preflighted (OPTIONS); the preflight is answered here for allowed origins only, before the
 // method guard.
 const CORS_PREFLIGHT_HEADERS = Object.freeze({
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE',
   'Access-Control-Allow-Headers': 'content-type, ' + EXEC_TOKEN_HEADER,
   'Access-Control-Max-Age': '600',
 });
@@ -172,6 +175,17 @@ const API_ROUTES = Object.freeze([
   route('GET', permissions.PERMISSION_PENDING_PATH, permissions, 'pending'),
   route('POST', permissions.PERMISSION_WAIT_RE, permissions, 'wait'),
   route('POST', permissions.PERMISSION_ANSWER_RE, permissions, 'answer'),
+  // Autonomy (WP-AUTONOMY-GW, owner decision R-0203): routine cards are allowed at once.
+  route('GET', permissions.PERMISSION_AUTONOMY_PATH, permissions, 'autonomyGet'),
+  route('PUT', permissions.PERMISSION_AUTONOMY_PATH, permissions, 'autonomyPut'),
+  route('GET', permissions.PERMISSION_AUTO_LOG_PATH, permissions, 'autoLog'),
+  // Remote Bridge loopback admin (docs/REMOTE-BRIDGE-CONTRACT.md section 3).
+  route('GET', remoteAdmin.REMOTE_STATUS_PATH, remoteAdmin, 'status'),
+  route('POST', remoteAdmin.REMOTE_ENABLE_PATH, remoteAdmin, 'enable'),
+  route('POST', remoteAdmin.REMOTE_DISABLE_PATH, remoteAdmin, 'disable'),
+  route('POST', remoteAdmin.REMOTE_PAIRING_PATH, remoteAdmin, 'pairing'),
+  route('GET', remoteAdmin.REMOTE_DEVICES_PATH, remoteAdmin, 'devices'),
+  route('POST', remoteAdmin.REMOTE_REVOKE_RE, remoteAdmin, 'revoke'),
 ]);
 
 // The two long-lived SSE routes. They are matched BEFORE the API table (as before the split) and
@@ -280,7 +294,9 @@ export function requestListener(req, res) {
   // the item path only (providersCustom.CUSTOM_ITEM_RE). Dashboard credential only, loopback peer only.
   const isCustomProviderWriteRoute = providersCustom.isCustomWriteRoute(pathname);
   const isCustomProviderItemRoute = providersCustom.isCustomItemRoute(pathname);
-  const isWriteRoute = isConversationWriteRoute || isAskWriteRoute || isPermissionWriteRoute || isDiscordWriteRoute || isConfigWriteRoute || pathname === '/api/projects' || isProvidersWriteRoute || isAppRouterWriteRoute || isCustomProviderWriteRoute;
+  // Remote Bridge admin: enable / disable / pairing / revoke (dashboard credential only, loopback only).
+  const isRemoteAdminWriteRoute = remoteAdmin.isRemoteAdminWriteRoute(pathname);
+  const isWriteRoute = isRemoteAdminWriteRoute || isConversationWriteRoute || isAskWriteRoute || isPermissionWriteRoute || isDiscordWriteRoute || isConfigWriteRoute || pathname === '/api/projects' || isProvidersWriteRoute || isAppRouterWriteRoute || isCustomProviderWriteRoute;
   const isConversationDeleteRoute = CONV_ITEM_RE.test(pathname);
   // feat-agent-model-edit: the one PATCH route this gateway accepts at all, scoped exactly to
   // AGENT_MODEL_RE (same "one specific route, never the whole method" shape as the DELETE guard
@@ -288,9 +304,12 @@ export function requestListener(req, res) {
   const isAgentModelPatchRoute = AGENT_MODEL_RE.test(pathname);
   // WP B3-conv: rename a conversation - PATCH scoped to CONV_ITEM_RE only.
   const isConversationRenameRoute = CONV_ITEM_RE.test(pathname);
+  // WP-AUTONOMY-GW: the one PUT route, scoped to exactly the autonomy path (dashboard credential only).
+  const isAutonomyPutRoute = pathname === permissions.PERMISSION_AUTONOMY_PATH;
   if (
     req.method !== 'GET' &&
     !(req.method === 'POST' && isWriteRoute) &&
+    !(req.method === 'PUT' && isAutonomyPutRoute) &&
     !(req.method === 'DELETE' && (isConversationDeleteRoute || isCustomProviderItemRoute)) &&
     !(req.method === 'PATCH' && (isAgentModelPatchRoute || isConversationRenameRoute || isCustomProviderItemRoute))
   ) {
@@ -349,5 +368,8 @@ export function requestListener(req, res) {
 }
 
 export function createServer() {
+  // WP-AUTONOMY-GW (owner decision R-0203): the gateway's permission path applies the per-project
+  // autonomy setting from here on; a store used without a server keeps asking for every card.
+  setPermissionAutonomy(isAutonomyOn);
   return http.createServer(requestListener);
 }

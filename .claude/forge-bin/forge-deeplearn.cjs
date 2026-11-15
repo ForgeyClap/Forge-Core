@@ -26,25 +26,26 @@
  *
  * Module API: require('./forge-deeplearn.cjs') -> { scanProject, SECRET_PATTERNS, categoryOf }
  *
- * SECRET PATTERNS: re-declared here to mirror forge-bin/forge-store.cjs's SECRET_PATTERNS exactly
- * (forge-store only exports a redactValue() helper, not the raw pattern list, so this is a
- * deliberate re-declaration per the WP2 spec — keep the two lists in sync if either changes).
+ * SECRET PATTERNS: imported from forge-bin/forge-store.cjs's exported SECRET_PATTERNS (one list, so the
+ * scanner flags every key shape the store redacts); this file only adds a stable name per pattern.
  */
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-// ---- secret patterns (same 7 regexes as forge-bin/forge-store.cjs SECRET_PATTERNS) ----
-// Each entry carries a stable `name` used ONLY in risk evidence — never the matched text itself.
-const SECRET_PATTERNS = [
-  { name: 'nvidia-nvapi-key', re: /nvapi-[A-Za-z0-9_-]+/g },
-  { name: 'openai-style-key', re: /sk-[A-Za-z0-9_-]{20,}/g },
-  { name: 'github-pat', re: /ghp_[A-Za-z0-9]{20,}/g },
-  { name: 'slack-bot-token', re: /xoxb-[A-Za-z0-9-]+/g },
-  { name: 'aws-access-key-id', re: /AKIA[0-9A-Z]{16}/g },
-  { name: 'pem-private-key', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
-  { name: 'jwt', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g },
+// ---- secret patterns: taken from forge-bin/forge-store.cjs SECRET_PATTERNS, never re-declared (FB-BRAIN-F4: a
+// copied list drifted and missed Stripe, Google, gho_/ghs_/ghu_ and SendGrid keys). Each entry carries a stable
+// `name` used ONLY in risk evidence — never the matched text itself. The regex is cloned so lastIndex is our own.
+const PATTERN_NAMES = [
+  ['nvapi-', 'nvidia-nvapi-key'], ['sk-', 'openai-style-key'], ['sk_(?:live', 'stripe-secret-key'],
+  ['rk_(?:live', 'stripe-restricted-key'], ['github_pat_', 'github-fine-grained-token'], ['gh[', 'github-token'],
+  ['xox[', 'slack-token'], ['AKIA', 'aws-access-key-id'], ['AIza', 'google-api-key'], ['SG\\.', 'sendgrid-api-key'],
+  ['PRIVATE KEY', 'pem-private-key'], ['eyJ', 'jwt'], [':\\/\\/', 'url-embedded-credentials'],
 ];
+const SECRET_PATTERNS = require('./forge-store.cjs').SECRET_PATTERNS.map((re, i) => {
+  const hit = PATTERN_NAMES.find(([needle]) => re.source.includes(needle));
+  return { name: hit ? hit[1] : 'secret-pattern-' + i, re: new RegExp(re.source, re.flags) };
+});
 
 // ---- excluded directories (mirrors forge-bin/forge-sync.cjs SKIP_DIRS + Forge's own store dirs +
 // common heavy/vendor/venv dirs that add nothing to a codebase-priming scan) ----

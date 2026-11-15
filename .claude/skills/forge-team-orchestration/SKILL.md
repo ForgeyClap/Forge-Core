@@ -66,7 +66,10 @@ architecture). **Before dispatch, always reduce the split to file ownership**: e
   run. When a hotspot is not worth a worktree, wrap its writer with `node .claude/forge-bin/forge-lock-guard.cjs acquire <hotspot>
   --run <run_id> --owner "<Boss>"`, keep the `token=` it prints, and release it on the card's terminal event
   with `release <hotspot> --run <run_id> --token <token>` (only the exact acquirer can release). Exit 3 means another run holds the hotspot:
-  serialize the card or isolate it.
+  serialize the card or isolate it. The lock expires after 30 minutes (`--ttl <ms>` on `acquire` sizes it to the card), and
+  another run may then take it over. A card that writes longer runs `refresh <hotspot> --run <run_id> --token <token>` at
+  least every half TTL. A refresh that prints `LOST` (exit 3) means the hotspot is no longer yours: stop writing it and
+  report the loss to the Lead.
 - Cap: **4 parts per package**. The number of lanes running at once comes from the lane budget
   (`node .claude/forge-bin/forge-lane-budget.cjs`), never from a guess.
 - An edit an agent needs outside its `owns` goes into its report (`outOfScopeNeeds` in `forge-build`), never into the tree.

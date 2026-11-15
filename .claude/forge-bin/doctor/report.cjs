@@ -10,6 +10,7 @@ const { runContractSummary } = require('./checks-runs.cjs');
 const { PLUGIN_DIST_REL } = require('./checks-advisory.cjs');
 const { timingLabel } = require('./checks-adapters.cjs');
 const { toolSummaryLines } = require('./checks-tools.cjs');
+const { retryReportLines } = require('./suite-retry.cjs');
 
 function printSummary(rep) {
   const c = rep.checks;
@@ -26,6 +27,9 @@ function printSummary(rep) {
   const redNames = redSuites.slice(0, 6).map((s) => s.suite + ' (' + whySuite(s) + ')').join(', ') + (redSuites.length > 6 ? ', +' + (redSuites.length - 6) + ' more' : '');
   out.push(line('tests', c.tests.ok, c.tests.suites + ' suites · ' + c.tests.passed + ' passed / ' + c.tests.failed + ' failed'
     + (c.tests.ok ? '' : ' · ' + (c.tests.reason || [c.tests.suitesFailed ? c.tests.suitesFailed + ' SUITE(S) FAILED' : '', c.tests.suitesBlocked ? c.tests.suitesBlocked + ' SUITE(S) BLOCKED (timeout)' : ''].filter(Boolean).join(' · ')) + (redNames ? ' → ' + redNames : ''))));
+  // SD-FLAKE: a suite green only on its retry is never silently green — one warning line each; a suite red
+  // on both attempts names both attempts; a skipped retry (strict mode, or more than 5 red = breakage) says why.
+  out.push(...retryReportLines(c.tests));
   out.push(line('honesty gate', c.strict_events.ok, 'known accepted=' + c.strict_events.known_accepted + ' · unknown rejected=' + c.strict_events.unknown_rejected));
   // 2026-09-23 (external audit II-G): this line used to read "dashboard SPA · 7 files present", which a
   // new user reads as "the dashboard works" — but these seven files are the RETIRED per-project Control
@@ -57,7 +61,11 @@ function printSummary(rep) {
   if (lkNotScanned) lkParts.push(lkNotScanned + ' file(s) not scanned (' + [lkTooLarge ? lkTooLarge + ' too-large' : '', lkBinary ? lkBinary + ' binary' : '', lkUnreadable ? lkUnreadable + ' unreadable' : ''].filter(Boolean).join(', ') + ')');
   if (lkLongLine) lkParts.push(lkLongLine + ' file(s) with over-long line(s) bounded');
   // WP-SYNC-R8: a folder deliberately not descended into is NAMED (only when there is one — an ordinary line is unchanged)
-  if ((lk.notScanned || []).length) lkParts.push('not scanned: ' + lk.notScanned.map((n) => n.dir + '/').join(', ') + ' (agent worktree checkouts)');
+  // FB-CONFIG-1-F4/F11: each reason is named (a depth-cap folder or a failed listing is not a worktree checkout)
+  const lkWhy = (n) => (/^depth-cap/.test(n.reason || '') ? 'depth-cap' : /git ls-files failed/.test(n.reason || '') ? n.reason.split(' — ')[0] : 'agent worktree checkouts');
+  const lkGroups = new Map();
+  for (const n of lk.notScanned || []) { const k = lkWhy(n); lkGroups.set(k, (lkGroups.get(k) || []).concat(n.dir + '/')); }
+  if (lkGroups.size) lkParts.push('not scanned: ' + [...lkGroups].map(([why, dirs]) => dirs.join(', ') + ' (' + why + ')').join(', '));
   const lkSkip = lkParts.length ? ' · ' + lkParts.join(' · ') : '';
   out.push(line('leak scan', lk.ok, lk.scanned + ' tracked files (' + lk.source + ')' + lkFrom + (lk.ok ? ' · clean' : ' · ' + lk.hits.length + ' HIT(S): ' + lk.hits.map((h) => h.pattern + ' in ' + h.file).join('; ')) + lkSkip));
   if (c.agents) {
@@ -240,6 +248,23 @@ function printSummary(rep) {
       out.push('  ✓ context budget (advisory): ' + head + ' · ' + (cbd.reason || 'within baseline')
         + (notes.length ? ' · ' + notes.join(' · ') : ''));
     }
+    // CF-5-F5: an old baseline with open findings keeps this line tripped for good, so new growth hides behind old.
+    const baseAt = cbd.baseline && Date.parse(cbd.baseline.generated_at);
+    const ageDays = Number.isFinite(baseAt) ? Math.floor((Date.now() - baseAt) / 86400000) : null;
+    if (fnd.length && ageDays !== null && ageDays > 14) {
+      out.push('  ⚠ context baseline (advisory, non-blocking): recorded ' + String(cbd.baseline.generated_at).slice(0, 10) + ' (' + ageDays
+        + ' days ago) with ' + fnd.length + ' open finding(s): trim first, then node .claude/forge-bin/forge-contextbudget.cjs --write-baseline');
+    }
+    // CF-5-F6: the skill listing over its budget, with the share per source, as its own line.
+    const sl = cbd.skill_listing;
+    if (sl && sl.over_budget) {
+      const src = cbd.skill_sources || [];
+      const all = src.reduce((n, x) => n + (x.chars || 0), 0);
+      const shares = all ? src.map((x) => String(x.id).replace(/^skill_catalog_/, '') + ' ' + Math.round(100 * (x.chars || 0) / all) + '%').join(' · ') : '';
+      const times = sl.budget_approx_tokens ? Math.round(sl.approx_tokens / sl.budget_approx_tokens) + 'x' : '?x';
+      out.push('  ⚠ skill listing (advisory, non-blocking): ~' + sl.approx_tokens + ' est. tokens against a budget of ~' + sl.budget_approx_tokens
+        + ' (' + times + ')' + (shares ? ' · ' + shares : '') + ' — descriptions get cut: retire unused skills or set disable-model-invocation');
+    }
   }
   // wp-v3 (sec-v1r, item 4): forge-gate-hook.cjs's own super-linear-DoS protection depends on
   // forge-gate-watchdog.cjs/worker_threads loading — visible every run, never silent, never a hard failure
@@ -298,6 +323,19 @@ function printSummary(rep) {
     advLine('harness score', r, head, head + (r.failed && r.failed.length ? ' · failed: ' + r.failed.join(', ') : '') + (r.top_actions && r.top_actions.length ? ' · first: ' + r.top_actions[0] : '') + ' — details: ' + r.command);
   }
   if (adv.plugin_validate) advLine('plugin validate', adv.plugin_validate, '`claude plugin validate ' + PLUGIN_DIST_REL + '` passed', '`claude plugin validate ' + PLUGIN_DIST_REL + '` failed: ' + (adv.plugin_validate.errors || []).join(' · '));
+  // FB-CONFIG-2-F5: these three were computed but never printed, so a finding lived only in --json.
+  const fixTail = (r) => (r.fix ? ' — fix: ' + r.fix : '');
+  if (adv.global_forge_handover) { const r = adv.global_forge_handover; advLine('global /forge handover', r, 'the personal /forge command hands over to this project', (r.problems || [r.reason]).join(' · ') + fixTail(r)); }
+  if (adv.eol_drift) { const r = adv.eol_drift, d = r.drift || []; advLine('line endings', r, 'no modified tracked file changed its line endings', d.length + ' modified file(s) changed line endings: ' + d.slice(0, 5).map((x) => x.file + ' ' + x.before + '->' + x.after).join(', ') + (d.length > 5 ? ', +' + (d.length - 5) + ' more' : '') + fixTail(r)); }
+  if (adv.claim_sealed_drift) { const r = adv.claim_sealed_drift; advLine('sealed reports', r, r.summary || 'no sealed report was edited', (r.summary || r.reason || 'could not judge') + ((r.problems || []).length ? ' · ' + r.problems.slice(0, 3).join(' · ') : '')); }
+  // generic fallback: an advisory without a dedicated line is still printed when it fails (never silently dropped)
+  const ADV_PRINTED = new Set(['command_center_location', 'backfill_continuity', 'run_liveness', 'context_budget', 'gate_watchdog_health', 'scribe_wiring', 'unpublished',
+    'structure', 'always_loaded_budget', 'skill_lint', 'agent_lint', 'config_scan', 'harness_score', 'plugin_validate', 'global_forge_handover', 'eol_drift', 'claim_sealed_drift',
+    'completeness', 'beginner_setup', 'listing_budget', 'graphify_wired', 'brain_wired']); // the last three are printed by forge-doctor.cjs skillSummaryLines
+  for (const [key, r] of Object.entries(adv)) {
+    if (ADV_PRINTED.has(key) || !r || r.ok !== false) continue;
+    out.push('  ⚠ ' + key + ' (advisory, non-blocking): ' + (r.reason || r.summary || (Array.isArray(r.problems) && r.problems.join(' · ')) || 'failed (details in --json)'));
+  }
   // WAVE A / A2 + V9-INTEGRATE: one compact "completeness" advisory line for the
   // checks that remain advisory-only — never folded into ALL GREEN/FAILURES. unregistered_event/
   // check_the_checks moved OUT of this block — they are now ordinary ✓/✗ checks-lines above,

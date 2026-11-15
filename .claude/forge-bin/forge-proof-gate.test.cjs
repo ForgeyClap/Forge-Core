@@ -92,5 +92,12 @@ if (o) {
   t('forge-runcontract loaded forge-proof-gate.cjs (in require.cache)', o.afterRc === true);
 }
 
+// (FB-FINALIZE-2-F3) Review Boss's own "APPROVED WITH MINOR NOTES" and the real PASS_WITH_NOTES family are approvals
+for (const v of ['APPROVED WITH MINOR NOTES', 'PASS_WITH_NOTES', 'approved_with_notes', 'PASS-WITH-NOTES', 'pass with notes']) {
+  t('with-notes verdict "' + v + '" reads done', pg.reviewOutcome({ event_type: 'review_completed', verdict: v }) === 'done');
+}
+t('NEEDS FIXES / BLOCKED still read failed', pg.reviewOutcome({ verdict: 'NEEDS FIXES' }) === 'failed' && pg.reviewOutcome({ verdict: 'BLOCKED' }) === 'failed');
+t('a with-notes word glued to a negative is still failed ("fail with notes")', pg.reviewOutcome({ verdict: 'fail with notes' }) === 'failed');
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

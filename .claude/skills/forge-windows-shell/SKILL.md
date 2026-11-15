@@ -13,7 +13,7 @@ skill is the short list of traps, the safe way around each, and the one correct 
 
 ## When to use
 - Use for: writing or debugging a command line or script that runs on Windows; a command that works in one
-  shell and fails in the other; a path with spaces or a `!` (this project folder is `my project!`);
+  shell and fails in the other; a path with spaces or a `!` (this project folder is `my project (v2)!`);
   garbled or double-encoded log files; "file name too long"; `$'\r': command not found`; EPERM, EBUSY or
   "access denied" on a rename or delete; a copy that hangs; a port that is already in use ("poort bezet").
 - Not for: the bug behind a failing test or build (`forge-debug`, which may send you here when the cause is
@@ -43,6 +43,8 @@ skill is the short list of traps, the safe way around each, and the one correct 
    exists, never what it holds.
 8. **Long CLIs get a watchdog and a log.** Start a long-running service with its output captured to a log
    file and its PID recorded; never fire-and-forget hidden. Bounded retries only.
+9. **Headless runs allow only node/npm/git:** a native build (csc, MSBuild, gradle without its wrapper) runs through `node scripts/build.cjs`,
+   the project's own build script that a reviewer can read and that builds only this project's code; it never runs a tool the owner refused.
 
 ## Pick the shell first
 | Task | Shell | Why |

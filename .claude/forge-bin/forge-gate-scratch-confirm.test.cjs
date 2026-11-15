@@ -50,6 +50,26 @@ t('via decide(): the round-6 command is allowed with the pass-through notice', (
   assert.strictEqual(d.block, false, JSON.stringify(d).slice(0, 300));
 });
 
+// FB-GATEHOOK-F7: Git Bash on Windows mounts /tmp on the user's temp folder (cygpath -w /tmp == os.tmpdir()).
+const scratch = require('./forge-gate-scratch.cjs');
+const bashCtx = (over) => Object.assign(ctx(), { shell: 'Bash', platform: 'win32' }, over || {});
+t('resolveTarget: Git Bash /tmp/x on win32 is <tmp>/x, /tmp alone is <tmp>', () => {
+  const tmp = os.tmpdir();
+  assert.strictEqual(scratch.resolveTarget('/tmp/x', bashCtx({ tmp })), path.resolve(tmp, 'x'));
+  assert.strictEqual(scratch.resolveTarget('/tmp', bashCtx({ tmp })), path.resolve(tmp));
+  assert.notStrictEqual(scratch.resolveTarget('/tmpx/y', bashCtx({ tmp })), path.resolve(tmp, 'x', 'y'));
+});
+t('resolveTarget: /tmp is left alone outside Git Bash on win32', () => {
+  assert.strictEqual(scratch.resolveTarget('/tmp/x', bashCtx({ platform: 'linux', cwd: '/' })), path.resolve('/', '/tmp/x'));
+});
+if (process.platform === 'win32') {
+  t('Git Bash rm -rf /tmp/<my fixture> passes through, the same as its Windows form', () => {
+    const rel = path.relative(os.tmpdir(), target).split(path.sep).join('/');
+    const r = scratch.scratchPassThrough('rm -rf /tmp/' + rel, bashCtx());
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+  });
+}
+
 fs.rmSync(DIR, { recursive: true, force: true });
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

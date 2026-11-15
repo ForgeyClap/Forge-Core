@@ -278,7 +278,16 @@ function readState(P) {
     for (const k of ['readings', 'tokenReadings', 'slotFlags']) s[k] = isObj(s[k]) ? s[k] : {};
     for (const k of ['history', 'swaps', 'failures']) s[k] = Array.isArray(s[k]) ? s[k] : [];
     return s;
-  } catch { return Object.assign(fresh, { corrupt: true }); }
+  } catch {
+    // FB-ROTATOR-F3: fail CLOSED. A torn or hand-broken state.json would otherwise re-enable a disabled rotator and
+    // forget org blocks and failure caps. Keep one copy for the owner and keep the kill switch on until `enable`.
+    const backup = path.join(path.dirname(P.state), 'state.corrupt-' + String(generation(P.state) || Date.now()).replace(/[^0-9a-z]+/gi, '-') + '.json');
+    if (!fs.existsSync(backup)) {
+      try { fs.copyFileSync(P.state, backup); process.stderr.write('account-rotator: state.json is unreadable; kept a copy as ' + path.basename(backup) + ' and switched the kill switch ON (run enable after checking it)\n'); }
+      catch (e) { process.stderr.write('account-rotator: state.json is unreadable and could not be backed up (' + ((e && e.code) || e) + '); kill switch ON\n'); }
+    }
+    return Object.assign(fresh, { corrupt: true, disabled: true, disabledReason: 'state.json was unreadable' });
+  }
 }
 function writeState(P, s) {
   ensureVault(P);

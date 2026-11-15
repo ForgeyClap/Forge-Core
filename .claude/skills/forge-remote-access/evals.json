@@ -1,0 +1,9 @@
+{
+  "skill": "forge-remote-access",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-remote-access/SKILL.md", "why": "skill file must exist" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 200, "why": "listing budget" },
+    { "id": "never-0000", "type": "contains", "path": ".claude/skills/forge-remote-access/SKILL.md", "needle": "Never `0.0.0.0`", "why": "bind rule" },
+    { "id": "hashed-tokens", "type": "contains", "path": ".claude/skills/forge-remote-access/SKILL.md", "needle": "only a hash of the device token", "why": "pairing rule" }
+  ]
+}

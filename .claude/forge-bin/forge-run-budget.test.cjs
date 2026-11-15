@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-run-budget.test.cjs — the per-run cost cap for UNATTENDED runs.
  *
@@ -552,8 +556,19 @@ t('CLI classify --run ../../evil is refused, not written anywhere', () => {
 t('CLI stops --run x resolves under .claude/forge-runs, never reads/writes the project root', () => {
   const root = tmpRoot();
   const r = spawnSync(process.execPath, [path.join(__dirname, 'forge-run-budget.cjs'), 'stops', '--run', 'x', '--root', root], { encoding: 'utf8' });
-  assert.strictEqual(r.status, 0); // no stops recorded -> exit 0
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr); // FB-CONTRACT-1-F8: a run that does not exist is not "0 stops"
+  assert.ok(/no run folder/.test(r.stderr), r.stderr);
   assert.ok(!fs.existsSync(path.join(root, 'x')));
+  fs.mkdirSync(path.join(root, '.claude', 'forge-runs', 'y'), { recursive: true });
+  const r2 = spawnSync(process.execPath, [path.join(__dirname, 'forge-run-budget.cjs'), 'stops', '--run', 'y', '--root', root], { encoding: 'utf8' });
+  assert.strictEqual(r2.status, 0, r2.stdout + r2.stderr); // existing run, no verdicts -> 0 stops, exit 0
+});
+t('an unreadable verdict file (not ENOENT) counts as a stop, never as zero (FB-CONTRACT-1-F8)', () => {
+  const dir = runDir();
+  fs.mkdirSync(path.join(dir, B.VERDICT_FILE)); // a directory in its place: EISDIR on read
+  const s = B.budgetStops(dir);
+  assert.strictEqual(s.count, 1);
+  assert.strictEqual(s.stops[0].parse_error, true);
 });
 
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}

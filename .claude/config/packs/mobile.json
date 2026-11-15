@@ -1,0 +1,50 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "mobile",
+  "_doc": "The Mobile pack (owner request R-0239): 3 mob-* SPECIALIST agents (never Bosses; the 12 permanent Bosses are unchanged) for mobile apps (Capacitor, Expo, React Native, Flutter; apk and aab). Evidence: the Forge phone app (command-center/mobile) and 100 apps. forge-router sends a mobile request to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Presets are expanded by forge-lane-skills.cjs (--require mobile-all,process): every mobile lane opens every mobile-all and process skill first. Signing keys, store uploads and publishing stay owner gates.",
+  "projectTypes": [
+    "mobile"
+  ],
+  "signals": [
+    "mobile app",
+    "react native",
+    "expo",
+    "flutter",
+    "capacitor",
+    "android",
+    "ios",
+    "apk",
+    "aab",
+    "ipa",
+    "emulator",
+    "play store",
+    "app store"
+  ],
+  "playbook": "forge-mobile",
+  "agents": [
+    "mob-app-engineer",
+    "mob-release-engineer",
+    "mob-qa-tester"
+  ],
+  "skills": [
+    "forge-mobile",
+    "forge-android-app",
+    "forge-release",
+    "test-driven-development",
+    "forge-debug",
+    "forge-testing",
+    "forge-verify"
+  ],
+  "presets": {
+    "mobile-all": [
+      "forge-mobile",
+      "forge-android-app",
+      "forge-release"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

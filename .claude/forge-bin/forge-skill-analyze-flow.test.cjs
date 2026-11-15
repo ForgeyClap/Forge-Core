@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-skill-analyze-flow.test.cjs — end-to-end test of forge-skill-analyze.cjs on a temp corpus:
 // 100% coverage incl. bad lines, exact category counts, clusters that add up, our library, and the write guard.
 const nodeTest = require('node:test');
@@ -72,7 +76,8 @@ test('analyze covers 100% of the lines: analysed + skipped equals records read, 
   assert.strictEqual(cov.analysed, 5);
   assert.deepStrictEqual(cov.skipped, { bad_json: 1 });
   assert.strictEqual(cov.analysed + cov.skipped_total, cov.records_read);
-  assert.strictEqual(cov.complete, true);
+  assert.strictEqual(cov.complete, false, 'FB-SKILLTOOLS-F4: a skipped (bad JSON) record means the analysis is not complete');
+  assert.ok(cov.incomplete_reasons.some((x) => /skipped/.test(x)), JSON.stringify(cov.incomplete_reasons));
   assert.strictEqual(cov.text.found, 4); assert.strictEqual(cov.text.missing, 1);
   assert.strictEqual(r.analysed, 5);
   const feats = fs.readFileSync(path.join(fx.out, 'features.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -83,6 +88,20 @@ test('analyze covers 100% of the lines: analysed + skipped equals records read, 
   assert.ok(t3.quality.parts && typeof t3.quality.score === 'number');
   assert.match(t3.fingerprint, /^[0-9a-f]{32}$/);
   assert.deepStrictEqual(feats.find((f) => f.id === 't4').categories, ['other']);
+});
+
+test('FB-SKILLTOOLS-F4: complete follows the harvester count; a mismatch is not complete and main exits 1', async () => {
+  const fx = fixture();
+  const corpus = path.join(fx.corpusDir, 'clean.jsonl');
+  fs.writeFileSync(corpus, fs.readFileSync(path.join(fx.corpusDir, 'corpus.jsonl'), 'utf8').split('\n').filter((l) => l !== '{not json').join('\n'));
+  const covFile = path.join(fx.corpusDir, 'harvest-coverage.json');
+  const run = (n) => { fs.writeFileSync(covFile, JSON.stringify({ totals: { corpus_records: n } })); return A.analyze({ corpus, out: fx.out, home: fx.home, projectRoot: fx.proj, corpusCoverage: covFile, now: Date.parse('2026-11-05T00:00:00Z') }); };
+  const good = await run(5);
+  assert.strictEqual(good.complete, true, JSON.stringify(good.incomplete_reasons));
+  const off = await run(7);
+  assert.strictEqual(off.matches_harvester_count, false);
+  assert.strictEqual(off.complete, false);
+  assert.strictEqual(await A.main(['--corpus', corpus, '--out', fx.out, '--home', fx.home, '--root', fx.proj, '--corpus-coverage', covFile], { log: () => {}, err: () => {} }), 1);
 });
 
 test('dup groups, exact category counts and clusters that add up to the unique count', async () => {

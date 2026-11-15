@@ -66,6 +66,8 @@ const RAN_EVENT_TYPES = new Set([
 const BLOCKED_EVENT_TYPES = new Set([
   'wp_failed', 'check_failed', 'quality_gate_blocked', 'codex_blocked', 'fixtures_required', 'agent_failed',
 ]);
+// wp_verified is mapped by its verdict: the same closed pass list as forge-manifest.cjs (anything else is blocked).
+const VERIFY_PASS_VERDICTS = new Set(['pass', 'passed', 'approved', 'ok']);
 
 /** eventDetail(e) -> the first real, already-written narrative field on the event (never synthesised).
  *  Falls back to an honest "no additional detail logged" rather than inventing one. */
@@ -128,18 +130,36 @@ function manifestRanBlocked(reconciled) {
  *  header point 2. Skips any event whose wp_id is already represented by the manifest (never double-listed)
  *  and any event log-event.cjs's own CONTENT ORACLE already flagged as disproven (reused, not reimplemented). */
 function eventsRanBlocked(events, alreadyTrackedWpIds) {
-  const ran = [];
-  const blocked = [];
-  for (const e of events) {
-    if (!e || typeof e !== 'object') continue;
-    if (manifestMod.eventIsDisproven(e)) continue; // a disproven claim is not evidence — never fabricated as ran/blocked
-    if (e.wp_id != null && alreadyTrackedWpIds.has(String(e.wp_id))) continue; // manifest already accounts for this WP
+  // FB-BRAIN-F2: per WP only the last qualifying event counts (the forge-manifest projectManifest rule): a failed then
+  // fixed WP is not still "blocked", a wp_verified verdict outranks builder claims, and a check_passed never undoes a
+  // failure. Events without a wp_id are listed one by one, as before.
+  const entries = []; // {idx, kind, item}
+  const lastByWp = new Map(); // wp_id -> {idx, kind, item, failVerdict}
+  events.forEach((e, idx) => {
+    if (!e || typeof e !== 'object') return;
+    if (manifestMod.eventIsDisproven(e)) return; // a disproven claim is not evidence — never fabricated as ran/blocked
+    if (e.wp_id != null && alreadyTrackedWpIds.has(String(e.wp_id))) return; // manifest already accounts for this WP
+    let kind = null;
+    if (e.event_type === 'wp_verified') kind = VERIFY_PASS_VERDICTS.has(String(e.verdict == null ? '' : e.verdict).trim().toLowerCase()) ? 'ran' : 'blocked';
+    else if (RAN_EVENT_TYPES.has(e.event_type)) kind = 'ran';
+    else if (BLOCKED_EVENT_TYPES.has(e.event_type)) kind = 'blocked';
+    if (!kind) return;
     const item = {
       source: 'event', wp_id: e.wp_id != null ? String(e.wp_id) : null, agent: e.agent || null,
       event_type: e.event_type, ts: e.timestamp || null, detail: eventDetail(e),
     };
-    if (RAN_EVENT_TYPES.has(e.event_type)) ran.push(item);
-    else if (BLOCKED_EVENT_TYPES.has(e.event_type)) blocked.push(Object.assign({ reason: 'blocker_event' }, item));
+    if (item.wp_id == null) { entries.push({ idx, kind, item }); return; }
+    const prev = lastByWp.get(item.wp_id);
+    if (prev && kind === 'ran' && e.event_type !== 'wp_verified' && (prev.failVerdict || (e.event_type === 'check_passed' && prev.kind === 'blocked'))) return;
+    lastByWp.set(item.wp_id, { idx, kind, item, failVerdict: e.event_type === 'wp_verified' ? kind === 'blocked' : !!(prev && prev.failVerdict) });
+  });
+  for (const v of lastByWp.values()) entries.push(v);
+  entries.sort((a, b) => a.idx - b.idx);
+  const ran = [];
+  const blocked = [];
+  for (const en of entries) {
+    if (en.kind === 'ran') ran.push(en.item);
+    else blocked.push(Object.assign({ reason: 'blocker_event' }, en.item));
   }
   return { ran, blocked };
 }

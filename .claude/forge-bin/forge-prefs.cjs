@@ -109,7 +109,7 @@ function loadProfileLayer(filePath, layerName) {
     throw new Error('forge-prefs: ' + layerName + ' layer file unreadable (' + filePath + '): ' + e.message);
   }
   let data;
-  try { data = JSON.parse(raw); }
+  try { data = JSON.parse(raw.replace(/^﻿/, '')); } // a BOM-saved profile (PowerShell 5.1 Out-File) is valid
   catch (e) { throw new Error('forge-prefs: ' + layerName + ' layer file is not valid JSON (' + filePath + '): ' + e.message); }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error('forge-prefs: ' + layerName + ' layer file must be a JSON object (' + filePath + ')');
@@ -200,7 +200,7 @@ function listCandidates(opts) {
     throw new Error('forge-prefs: candidates file unreadable (' + candPath + '): ' + e.message);
   }
   let data;
-  try { data = JSON.parse(raw); }
+  try { data = JSON.parse(raw.replace(/^﻿/, '')); }
   catch (e) { throw new Error('forge-prefs: candidates file is not valid JSON (' + candPath + '): ' + e.message); }
   if (!data || typeof data !== 'object' || Array.isArray(data) || !Array.isArray(data.candidates)) {
     throw new Error('forge-prefs: candidates file must be a JSON object with a "candidates" array (' + candPath + ')');

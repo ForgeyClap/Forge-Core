@@ -5,11 +5,23 @@
 // `.claude/` — or start a `claude` process that works inside it — answer HTTP 423 Locked with a plain message
 // instead. Reads are never affected. A lock older than 6 h was left behind by a crashed run and is ignored
 // (fail-open), the same rule as forge-sync.cjs::readLockStatus, forge-gate-hook.cjs and forge-toolhook.cjs.
+// FB-SYNC-C-F1: a lock whose body names THIS host and whose pid is provably not running (signal 0 gives ESRCH) was left
+// by a killed install; past a 2-minute grace it is ignored at once (forge-sync.cjs::deadOwnerOnThisHost, same constant).
 // Read-only: this module never writes, removes or "repairs" a lock.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export const SYNC_LOCK_STALE_MS = 6 * 60 * 60 * 1000;
+export const SYNC_LOCK_DEAD_OWNER_GRACE_MS = 2 * 60 * 1000; // = forge-sync.cjs LOCK_DEAD_OWNER_GRACE_MS
+
+/** pidAlive(pid) -> true | false | null. Signal 0 only tests that the process exists; it never stops anything. EPERM =
+ *  it exists under another user (alive); null = could not tell. Same as forge-sync.cjs::pidAlive. */
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e && e.code === 'EPERM' ? true : (e && e.code === 'ESRCH' ? false : null); }
+}
 
 let probeOverride = null;
 /** Test-only seam (same `_set*ForTests` convention as the rest of this gateway): replaces the file probe so an
@@ -17,10 +29,11 @@ let probeOverride = null;
  *  (a real lock would put this repo's own live hooks into maintenance mode). Call with no argument to restore. */
 export function _setSyncLockProbeForTests(fn) { probeOverride = typeof fn === 'function' ? fn : null; }
 
-/** readSyncLock(projectPath, now?) -> { locked, ageMs, pid, batchId, startedAt }. Never throws: a missing lock, an
- *  unreadable project or a stale lock is `locked:false`. The age comes from the lock's started_at/ts, else the file
- *  time; a lock dated in the future is judged by its file time. */
-export function readSyncLock(projectPath, now = Date.now()) {
+/** readSyncLock(projectPath, now?, opts?) -> { locked, ageMs, pid, batchId, startedAt }. Never throws: a missing lock, an
+ *  unreadable project, a stale lock or a dead owner on this host (past the grace) is `locked:false`. The age comes from
+ *  the lock's started_at/ts, else the file time; a lock dated in the future is judged by its file time. opts.pidAlive is
+ *  a test seam. */
+export function readSyncLock(projectPath, now = Date.now(), opts = {}) {
   if (probeOverride) return probeOverride(projectPath);
   const none = { locked: false, ageMs: null, pid: null, batchId: null, startedAt: null };
   try {
@@ -31,10 +44,13 @@ export function readSyncLock(projectPath, now = Date.now()) {
     const startedMs = Date.parse(info && (info.started_at || info.ts));
     let ageMs = now - (Number.isFinite(startedMs) ? startedMs : st.mtimeMs);
     if (!(ageMs >= 0)) ageMs = now - st.mtimeMs;
+    const pid = info && Number.isInteger(info.pid) ? info.pid : null;
+    const deadHere = !!(info && typeof info.host === 'string' && info.host === os.hostname()
+      && ageMs > SYNC_LOCK_DEAD_OWNER_GRACE_MS && (opts.pidAlive || pidAlive)(pid) === false);
     return {
-      locked: ageMs < SYNC_LOCK_STALE_MS,
+      locked: ageMs < SYNC_LOCK_STALE_MS && !deadHere,
       ageMs,
-      pid: info && Number.isInteger(info.pid) ? info.pid : null,
+      pid,
       batchId: info && typeof info.batch_id === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(info.batch_id) ? info.batch_id : null,
       startedAt: Number.isFinite(startedMs) ? new Date(startedMs).toISOString() : null,
     };

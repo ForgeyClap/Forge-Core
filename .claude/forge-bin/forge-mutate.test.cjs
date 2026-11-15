@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-mutate.test.cjs — hermetic, offline tests for forge-mutate.cjs. EVERY fixture lives under
  * os.tmpdir() (fs.mkdtempSync) — this file NEVER writes to the real project. The real forge-mutate.cjs
@@ -304,7 +308,8 @@ let strongReport, weakReport;
 
   const work = M.prepareWorkdir(path.join(binDir, 'mymodule.cjs'), path.join(binDir, 'mymodule.test.cjs'));
   ALL_TMP_ROOTS.push(work.tempRoot);
-  t('L3: prepareWorkdir mirrors the sibling "other-dir" alongside forge-bin (not just forge-bin alone)', fs.existsSync(path.join(work.tempRoot, 'other-dir', 'helper.cjs')));
+  // FB-VERIFY-1-F2: a .claude-wide copy now lands in <tempRoot>/.claude/ (it keeps its .claude parent)
+  t('L3: prepareWorkdir mirrors the sibling "other-dir" alongside forge-bin (not just forge-bin alone)', fs.existsSync(path.join(work.tempRoot, '.claude', 'other-dir', 'helper.cjs')));
   try { fs.rmSync(work.tempRoot, { recursive: true, force: true }); } catch { /* best-effort tidy-up */ }
 
   const rep = M.runMutationTesting(path.join(binDir, 'mymodule.cjs'), path.join(binDir, 'mymodule.test.cjs'), {});
@@ -325,7 +330,7 @@ let strongReport, weakReport;
   t('M1: resolveTimeouts() is exported for direct unit testing', typeof M.resolveTimeouts === 'function');
 }
 
-// resolveTimeouts() — the pure function that turns parsed CLI opts into {baselineTimeoutMs, mutantTimeoutMs}
+// M4: resolveTimeouts() — the pure function that turns parsed CLI opts into {baselineTimeoutMs, mutantTimeoutMs}
 {
   const none = M.resolveTimeouts({ timeout: null, baselineTimeout: null });
   t('M4a: neither flag given -> both timeouts undefined (falls through to runSuite()\'s own 20000ms default)', none.baselineTimeoutMs === undefined && none.mutantTimeoutMs === undefined);
@@ -341,7 +346,7 @@ let strongReport, weakReport;
   t('M4e: both given -> --timeout still governs the per-mutant timeout', both.mutantTimeoutMs === 5000);
 }
 
-// end-to-end via runMutationTesting() opts — a genuinely slow-but-HEALTHY ~300ms fixture suite is
+// M5: end-to-end via runMutationTesting() opts — a genuinely slow-but-HEALTHY ~300ms fixture suite is
 // misreported as "not green" against a too-short timeout, and gets a real score once the timeout is raised.
 let slowFixtureDir;
 {
@@ -375,7 +380,7 @@ let slowFixtureDir;
   t('M5f: the real score run also records which timeout ceiling was actually used', !!longEnough.timeouts && longEnough.timeouts.baselineTimeoutMs === 5000);
 }
 
-// the SAME proof again, but through the REAL CLI subprocess with the REAL --timeout/--baseline-timeout
+// M6: the SAME proof again, but through the REAL CLI subprocess with the REAL --timeout/--baseline-timeout
 // flags (not just the internal opts) — this is the actual new code path FIX2 adds.
 {
   const cliPath = path.join(__dirname, 'forge-mutate.cjs');
@@ -392,14 +397,14 @@ let slowFixtureDir;
   t('M6c: CLI exits 0 once --baseline-timeout is raised high enough for the same slow suite', rLong.status === 0);
   t('M6d: CLI --json now reports a REAL score instead of "baseline is not green"', !!jLong && jLong.ok === true && typeof jLong.score === 'number');
 
-  // --timeout (not just --baseline-timeout) also covers the baseline, since it raises both.
+  // M6e/M6f: --timeout (not just --baseline-timeout) also covers the baseline, since it raises both.
   const rTimeoutFlag = spawnSync(process.execPath, [cliPath, cjsArg, '--test', testArg, '--json', '--timeout', '5000'], { encoding: 'utf8' });
   let jTimeoutFlag = null; try { jTimeoutFlag = JSON.parse(rTimeoutFlag.stdout); } catch { /* asserted below */ }
   t('M6e: CLI exits 0 with plain --timeout <ms> alone (no --baseline-timeout needed) on the same slow suite', rTimeoutFlag.status === 0);
   t('M6f: --timeout alone produces a real score too (proves it covers the baseline, not just per-mutant)', !!jTimeoutFlag && jTimeoutFlag.ok === true && typeof jTimeoutFlag.score === 'number');
 }
 
-// negative/invalid --timeout / --baseline-timeout values are rejected with a clear usage error (exit 1),
+// M7: negative/invalid --timeout / --baseline-timeout values are rejected with a clear usage error (exit 1),
 // mirroring the existing --sample validation pattern — never silently coerced or ignored.
 {
   const cliPath = path.join(__dirname, 'forge-mutate.cjs');
@@ -410,6 +415,68 @@ let slowFixtureDir;
   t('M7b: --timeout 0 is rejected (must be a positive number, not zero)', rZeroTimeout.status === 1);
   const rNaNBaseline = spawnSync(process.execPath, [cliPath, anyExistingCjs, '--baseline-timeout', 'not-a-number'], { encoding: 'utf8' });
   t('M7c: a non-numeric --baseline-timeout is rejected with exit 1, not coerced to NaN and silently passed through', rNaNBaseline.status === 1 && /--baseline-timeout must be a positive number/.test(rNaNBaseline.stderr));
+}
+
+// ---- Section N: FIX-VERIFY ----
+{
+  console.log('\nN) FIX-VERIFY regression pins');
+  // FB-VERIFY-1-F9: a quote inside a regex literal must not hide the code after it from mutation.
+  const withRe = "const r = /[']/;\nfunction f(a, b) { if (a === b) { return 1; } return 0; }\n";
+  const plain = "const r = /[x]/;\nfunction f(a, b) { if (a === b) { return 1; } return 0; }\n";
+  t('N1 (F9): a quote inside a regex literal does not swallow later code (same mutant count as without it)',
+    M.generateMutants(withRe).length > 0 && M.generateMutants(withRe).length === M.generateMutants(plain).length);
+  t('N2 (F9): division is still code, not a regex (a / b > c yields comparator mutants)', M.generateMutants('const q = a / b > c ? 1 : 2; const z = "/";\n').some((m) => m.id === 'gtToGte'));
+
+  // FB-VERIFY-1-F2: a .claude-wide copy keeps its .claude parent, so scriptRoot() inside the copy is the copy.
+  const proj = freshDir('fm-n-proj');
+  const binDir = path.join(proj, '.claude', 'forge-bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(path.join(proj, '.claude', 'forge-research'), { recursive: true });
+  fs.writeFileSync(path.join(proj, '.claude', 'forge-research', 'big.txt'), 'x', 'utf8');
+  fs.writeFileSync(path.join(binDir, 'm.cjs'), "'use strict';\nfunction isPositive(n) { return n > 0; }\nmodule.exports = { isPositive };\n", 'utf8');
+  fs.writeFileSync(path.join(binDir, 'm.test.cjs'), [
+    "const path = require('path');",
+    "const { isPositive } = require('./m.cjs');",
+    'let pass=0, fail=0;',
+    "const t=(n,c)=>{ if(c){pass++;} else {fail++;} };",
+    "t('store root is the copy', path.resolve(process.env.FORGE_STORE_ROOT || '') === path.resolve(__dirname, '..'));",
+    "t('project dir is the copy', path.resolve(process.env.CLAUDE_PROJECT_DIR || '') === path.resolve(__dirname, '..', '..'));",
+    "t('no inherited state-dir override', !(process.env.FORGE_STATE_DIR || '').trim());",
+    "t('project root is the copy', path.resolve(process.env.FORGE_PROJECT_ROOT || '') === path.resolve(__dirname, '..', '..'));",
+    "t('p5', isPositive(5) === true);",
+    "t('pm1', isPositive(-1) === false);",
+    "console.log(pass+' passed, '+fail+' failed');",
+    'process.exitCode = fail?1:0;',
+    '',
+  ].join('\n'), 'utf8');
+  const work = M.prepareWorkdir(path.join(binDir, 'm.cjs'), path.join(binDir, 'm.test.cjs'));
+  ALL_TMP_ROOTS.push(work.tempRoot);
+  const P = require('./forge-paths.cjs');
+  t('N3 (F2): the copy keeps a .claude parent folder', fs.existsSync(path.join(work.tempRoot, '.claude', 'forge-bin', 'm.cjs')));
+  t('N4 (F2): scriptRoot() inside the copy resolves to the copy, never the home folder', path.resolve(P.scriptRoot(path.dirname(work.copiedTargetPath)) || '') === path.resolve(work.tempRoot));
+  // FB-VERIFY-1-F8: research/backup/vault/worktree folders are not mirrored.
+  t('N5 (F8): forge-research is not copied into the mutation workdir', !fs.existsSync(path.join(work.tempRoot, '.claude', 'forge-research')));
+  try { fs.rmSync(work.tempRoot, { recursive: true, force: true }); } catch { /* best-effort tidy-up */ }
+  // an inherited FORGE_STATE_DIR (pointing at the real state folder) must not reach the suite inside the copy
+  // and an inherited FORGE_PROJECT_ROOT (pointing at the real project) must be replaced by the copy's root
+  const prevStateDir = process.env.FORGE_STATE_DIR;
+  const prevProjectRoot = process.env.FORGE_PROJECT_ROOT;
+  process.env.FORGE_STATE_DIR = path.join(proj, 'real-state-dir');
+  process.env.FORGE_PROJECT_ROOT = proj;
+  let rep;
+  try { rep = M.runMutationTesting(path.join(binDir, 'm.cjs'), path.join(binDir, 'm.test.cjs'), {}); }
+  finally {
+    if (prevStateDir === undefined) delete process.env.FORGE_STATE_DIR; else process.env.FORGE_STATE_DIR = prevStateDir;
+    if (prevProjectRoot === undefined) delete process.env.FORGE_PROJECT_ROOT; else process.env.FORGE_PROJECT_ROOT = prevProjectRoot;
+  }
+  t('N6 (F2): the suite runs with FORGE_STORE_ROOT / CLAUDE_PROJECT_DIR / FORGE_PROJECT_ROOT pointed at the copy and no FORGE_STATE_DIR (baseline green)', rep.ok === true && rep.baseline.ok === true);
+
+  // FB-VERIFY-1-F10: zero scored mutants is not a result: the CLI exits 2 with a plain message.
+  const z = freshDir('fm-n-zero');
+  fs.writeFileSync(path.join(z, 'z.cjs'), "'use strict';\nmodule.exports = {};\n", 'utf8');
+  fs.writeFileSync(path.join(z, 'z.test.cjs'), "console.log('1 passed, 0 failed');\n", 'utf8');
+  const rz = spawnSync(process.execPath, [path.join(__dirname, 'forge-mutate.cjs'), path.join(z, 'z.cjs'), '--test', path.join(z, 'z.test.cjs')], { encoding: 'utf8' });
+  t('N7 (F10): forge-mutate CLI exits 2 and says no mutant could be scored', rz.status === 2 && /no mutant could be scored/.test(rz.stdout + rz.stderr));
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Tests for the Forge Boss agent-files + forge-doctor's agentsCheck/parseFrontmatter/injection-lint.
  *  Part real (asserts the 12 Boss files in THIS template are valid + clean) and part hermetic (planted
  *  fixtures prove missing/bad-frontmatter/injection are all caught). Never writes into the real template. */
@@ -81,10 +85,10 @@ const REAL_AGENT_MD_NAMES = fs.readdirSync(path.join(TEMPLATE_ROOT, '.claude', '
 // a visible SKIP and the coverage line is asserted against shipped policy + overlay instead — never a silent pass.
 const IS_DEV_TREE = D.readDevTreeMarker(TEMPLATE_ROOT).valid;
 const skipNonDev = (name) => console.log('  SKIP ' + name + ' — not the development tree (' + D.DEV_TREE_MARKER_REL + ' absent or not dev_tree:true); project-own agents are allowed here');
-if (IS_DEV_TREE) t('real template: 20 agent-md files present (19 + scribe specialist, WP-7b)', REAL_AGENT_MD_NAMES.length === 20);
+if (IS_DEV_TREE) t('real template: 66 agent-md files present (19 + scribe specialist, WP-7b, + 12 Roblox pack specialists 2026-11-11, + scribe-acker R-0233, + 33 specialists of the 10 R-0239 packs 2026-11-13)', REAL_AGENT_MD_NAMES.length === 66);
 else skipNonDev('real template: 20 agent-md files present (exact count; ' + REAL_AGENT_MD_NAMES.length + ' here)');
 t('agent-tool-policy.json documents bash_is_a_write_primitive (no "harden by removing Write only" false sense of safety)', REAL_POLICY.bash_is_a_write_primitive === true);
-if (IS_DEV_TREE) t('agent-tool-policy.json covers ALL 20 real agent-md files — no gaps', REAL_AGENT_MD_NAMES.every((n) => !!REAL_POLICY.agents[n]));
+if (IS_DEV_TREE) t('agent-tool-policy.json covers ALL 66 real agent-md files — no gaps', REAL_AGENT_MD_NAMES.every((n) => !!REAL_POLICY.agents[n]));
 else {
   const overlayFile = D.loadToolPolicyOverlay(TEMPLATE_ROOT);
   const merged = D.mergeToolPolicyOverlay(REAL_POLICY, overlayFile.data);
@@ -93,8 +97,8 @@ else {
     (uncovered.length ? ' (uncovered: ' + uncovered.join(',') + ')' : '') + (merged.problems.length || overlayFile.error ? ' (overlay: ' + [overlayFile.error].concat(merged.problems).filter(Boolean).join('; ') + ')' : ''),
     uncovered.length === 0 && merged.problems.length === 0 && !overlayFile.error);
 }
-t('agent-tool-policy.json has no orphan entries — every policy agent has a real agent-md', Object.keys(REAL_POLICY.agents).length === 20 && Object.keys(REAL_POLICY.agents).every((n) => REAL_AGENT_MD_NAMES.includes(n)));
-t('real template: agentsCheck toolPolicy sub-check passes (0 drift across all 20 real agent-mds)', real.toolPolicy && real.toolPolicy.ok === true);
+t('agent-tool-policy.json has no orphan entries — every policy agent has a real agent-md', Object.keys(REAL_POLICY.agents).length === 66 && Object.keys(REAL_POLICY.agents).every((n) => REAL_AGENT_MD_NAMES.includes(n)));
+t('real template: agentsCheck toolPolicy sub-check passes (0 drift across all 66 real agent-mds)', real.toolPolicy && real.toolPolicy.ok === true);
 t('real template: docs-boss frontmatter carries NO Bash (write-no-exec, fixed 2026-07-14)', !D.parseFrontmatter(fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'agents', 'docs-boss.md'), 'utf8')).tools.includes('Bash'));
 t('real template: skill-boss frontmatter carries NO Bash (write-no-exec, fixed 2026-07-14)', !D.parseFrontmatter(fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'agents', 'skill-boss.md'), 'utf8')).tools.includes('Bash'));
 t('real template: review-boss + security-boss remain read-only-audit in the policy', REAL_POLICY.agents['review-boss'].class === 'read-only-audit' && REAL_POLICY.agents['security-boss'].class === 'read-only-audit');
@@ -108,6 +112,17 @@ t('real template: codex-reviewer is classified exec-reviewer, NOT read-only (it 
   const fm = D.parseFrontmatter(fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'agents', 'scribe.md'), 'utf8'));
   const raw = fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'agents', 'scribe.md'), 'utf8');
   t('scribe: frontmatter sonnet/low, no memory line (memory would grant Write/Edit)', fm.model === 'sonnet' && /\neffort: low\r?\n/.test(raw) && !/\nmemory:/.test(raw.split(/\n---/)[0] + '\n'));
+  // R-0233: the owner-delegated acker is a SPECIALIST too: exec-reviewer, Bash+Read+Grep+Glob+Skill only, quick route
+  const fa = D.parseFrontmatter(fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'agents', 'scribe-acker.md'), 'utf8'));
+  const rawA = fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'agents', 'scribe-acker.md'), 'utf8');
+  const ROUTING = JSON.parse(fs.readFileSync(path.join(TEMPLATE_ROOT, '.claude', 'FORGE_MODEL_ROUTING.json'), 'utf8'));
+  const toolList = (v) => (Array.isArray(v) ? v : String(v || '').split(',')).map((x) => String(x).trim()).filter(Boolean);
+  t('scribe-acker: registered under specialistAgents, NOT a 13th Boss', !!(REG.specialistAgents && REG.specialistAgents['scribe-acker']) && !bossKeys.includes('scribe-acker') && bossKeys.length === 12);
+  t('scribe-acker: tool policy exec-reviewer with exactly Read, Grep, Glob, Bash, Skill (no Write/Edit/PowerShell)', REAL_POLICY.agents['scribe-acker'] && REAL_POLICY.agents['scribe-acker'].class === 'exec-reviewer'
+    && JSON.stringify(REAL_POLICY.agents['scribe-acker'].tools.slice().sort()) === JSON.stringify(['Bash', 'Glob', 'Grep', 'Read', 'Skill']));
+  t('scribe-acker: frontmatter name scribe-acker, sonnet/low, the same five tools, no memory line, quick route in FORGE_MODEL_ROUTING.json',
+    fa && fa.name === 'scribe-acker' && fa.model === 'sonnet' && /\neffort: low\r?\n/.test(rawA) && !/\nmemory:/.test(rawA.split(/\n---/)[0] + '\n')
+    && JSON.stringify(toolList(fa.tools).sort()) === JSON.stringify(['Bash', 'Glob', 'Grep', 'Read', 'Skill']) && ROUTING.agentDefaults['scribe-acker'] === 'quick');
 }
 
 // --- HERMETIC: build a full 18-agent fixture directly from the REAL policy, prove it's clean, then
@@ -204,7 +219,7 @@ cleanup(NO_POLICY);
 console.log('');
 console.log('M5 — empty/absent tools: grant must fail CLOSED (not a silent 0-tools/0-violations pass)');
 
-// an EMPTY `tools:` value (frontmatter line present, value blank) via the shared fixture builder.
+// M5a: an EMPTY `tools:` value (frontmatter line present, value blank) via the shared fixture builder.
 const MUT_EMPTY_TOOLS = buildToolPolicyFixture((name) => (name === 'docs-boss' ? [] : null), null);
 const mutEmptyCheck = D.agentsCheck(MUT_EMPTY_TOOLS);
 const docsBossDrift = mutEmptyCheck.toolPolicy.driftViolations.find((v) => v.agent === 'docs-boss');
@@ -215,7 +230,7 @@ t('M5a: an EMPTY tools: grant for docs-boss is flagged — driftViolations.missi
 t('M5a: overall toolPolicy.ok and agentsCheck.ok are both false (never a silent pass)', mutEmptyCheck.toolPolicy.ok === false && mutEmptyCheck.ok === false);
 cleanup(MUT_EMPTY_TOOLS);
 
-// the `tools:` KEY ABSENT ENTIRELY from frontmatter (not just an empty value) — hand-written fixture,
+// M5b: the `tools:` KEY ABSENT ENTIRELY from frontmatter (not just an empty value) — hand-written fixture,
 // bypassing agentMdContent (which always emits a tools: line) to prove the truly-missing-key path too.
 const ABSENT_TOOLS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-toolpolicy-absent-'));
 fs.mkdirSync(path.join(ABSENT_TOOLS_DIR, '.claude', 'agents'), { recursive: true });
@@ -239,7 +254,7 @@ console.log('M6 — 0-file agents dir must fail CLOSED (not a vacuous "0 files =
 
 const REAL_POLICY_AGENT_COUNT = Object.keys(REAL_POLICY.agents).length;
 
-// agents dir EXISTS but is EMPTY (0 .md files) — a real, valid policy file is present alongside it.
+// M6a: agents dir EXISTS but is EMPTY (0 .md files) — a real, valid policy file is present alongside it.
 const EMPTY_AGENTS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-toolpolicy-emptydir-'));
 fs.mkdirSync(path.join(EMPTY_AGENTS_DIR, '.claude', 'agents'), { recursive: true }); // exists, 0 .md files
 fs.mkdirSync(path.join(EMPTY_AGENTS_DIR, '.claude', 'config', 'agents'), { recursive: true });
@@ -252,7 +267,7 @@ t('M6a: a 0-file (but existing) agents dir fails CLOSED — toolPolicy.missingAg
 t('M6a: overall agentsCheck.ok is also false (never a silent green)', emptyDirCheck.ok === false);
 cleanup(EMPTY_AGENTS_DIR);
 
-// agents dir doesn't exist AT ALL (readdirSync throws -> caught -> files=[]) — same fail-closed result.
+// M6b: agents dir doesn't exist AT ALL (readdirSync throws -> caught -> files=[]) — same fail-closed result.
 const NO_AGENTS_DIR_AT_ALL = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-toolpolicy-nodir-'));
 fs.mkdirSync(path.join(NO_AGENTS_DIR_AT_ALL, '.claude', 'config', 'agents'), { recursive: true }); // NOTE: no .claude/agents dir at all
 fs.writeFileSync(path.join(NO_AGENTS_DIR_AT_ALL, '.claude', 'config', 'agents', 'agent-tool-policy.json'), JSON.stringify(REAL_POLICY));
@@ -260,7 +275,7 @@ const noDirCheck = D.agentsCheck(NO_AGENTS_DIR_AT_ALL);
 t('M6b: a completely MISSING agents dir (not just empty) fails CLOSED the same way', noDirCheck.toolPolicy.ok === false && noDirCheck.toolPolicy.missingAgentFile.length === REAL_POLICY_AGENT_COUNT);
 cleanup(NO_AGENTS_DIR_AT_ALL);
 
-// ---- MUTATION: a read-only Boss that regains `memory: project` is caught ----
+// ---- (N5) MUTATION: a read-only Boss that regains `memory: project` is caught ----
 // Copy the REAL 12 Boss files + the real tool policy into a temp root, then plant `memory: project` into
 // review-boss (class read-only-audit). The doctor's agentsCheck must flag it as bad frontmatter — otherwise a
 // future edit could silently hand a "read-only" reviewer Write/Edit again.

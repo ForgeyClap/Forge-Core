@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-coldverify.cjs. Uses os.mkdtemp + FORGE_STORE_ROOT (same escape hatch as
  *  forge-store.test.cjs / forge-verify.test.cjs) so nothing ever touches the real project's .claude/.
  *  FORGE_STORE_ROOT must be set BEFORE requiring the tool — forge-store.cjs resolves CLAUDE_DIR once, at
@@ -160,17 +164,22 @@ writePrdMeta('prd-cold', [
   { id: 'ac-5', text: 'No-evidence criterion — closed on nothing at all' },
   { id: 'ac-6', text: 'Counter-evidence criterion — the run says this check FAILED' },
   { id: 'ac-7', text: 'Phantom-delivery criterion — a ticket-bound file_changed names a path that is not on disk' },
+  { id: 'ac-8', text: 'Other-package criterion — the file it names was changed for a different work package' },
 ]);
 // Placed at the project root so a BARE-BASENAME claim ("delivered.js") genuinely resolves through the
 // bounded candidate-root lookup — the P2/P3 fixtures are only meaningful if the referent really resolves.
 touch('delivered.js');
 touch('orphan.js');
+touch('src/shared.test.cjs');
 const RUN = 'run-cold';
 writeEvents(RUN, [
   ev({ event_type: 'run_started', agent: 'orchestrator' }),
   ev({ event_type: 'check_passed', agent: 'Test Boss', task: 'ac-1 suite', ticket_id: 'tk-prd-cold-1', status: 'done' }),
-  // deliberately NOT ticket-bound: this must corroborate via P2 (referent match), not via P1
-  ev({ event_type: 'file_changed', agent: 'Build Boss', files_changed: ['delivered.js'] }),
+  // deliberately NOT ticket-bound (no ticket_id): this must corroborate via P2 (referent match through the ticket's
+  // own wp_id), not via P1. FB-FINALIZE-1-F6: P2 needs that wp binding; a run-wide match no longer proves a ticket.
+  ev({ event_type: 'file_changed', agent: 'Build Boss', files_changed: ['delivered.js'], wp_id: 'wp-cold-2' }),
+  // the same file for ANOTHER package: it must not prove tk-prd-cold-8
+  ev({ event_type: 'file_changed', agent: 'Build Boss', files_changed: ['src/shared.test.cjs'], wp_id: 'wp-other' }),
   ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'ac-6 suite', ticket_id: 'tk-prd-cold-6', status: 'failed' }),
   '{ this line is not valid json ,,,',
   ev({ event_type: 'ticket_updated', agent: 'orchestrator', ticket_id: 'tk-prd-cold-5', status: 'done' }),
@@ -179,7 +188,8 @@ writeEvents(RUN, [
 ]);
 const base = { prd_id: 'prd-cold', run_id: RUN, status: 'done', required_tests: [], related_files: [] };
 putTicket('tk-prd-cold-1', Object.assign({}, base, { ticket_id: 'tk-prd-cold-1', title: 'P1', test_evidence: 'suite green' }));
-putTicket('tk-prd-cold-2', Object.assign({}, base, { ticket_id: 'tk-prd-cold-2', title: 'P2', test_evidence: 'delivered.js written' }));
+putTicket('tk-prd-cold-2', Object.assign({}, base, { ticket_id: 'tk-prd-cold-2', title: 'P2', wp_id: 'wp-cold-2', test_evidence: 'delivered.js written' }));
+putTicket('tk-prd-cold-8', Object.assign({}, base, { ticket_id: 'tk-prd-cold-8', title: 'other-ticket file', wp_id: 'wp-cold-8', test_evidence: 'src/shared.test.cjs green' }));
 putTicket('tk-prd-cold-3', Object.assign({}, base, { ticket_id: 'tk-prd-cold-3', title: 'P3', test_evidence: 'see orphan.js, all good' }));
 putTicket('tk-prd-cold-4', Object.assign({}, base, { ticket_id: 'tk-prd-cold-4', title: 'missing', test_evidence: 'proof in never-written.png, 33/33' }));
 putTicket('tk-prd-cold-5', Object.assign({}, base, { ticket_id: 'tk-prd-cold-5', title: 'none', test_evidence: '' }));
@@ -197,6 +207,7 @@ t('verdict P2: a referent that exists on disk AND is named by a NON-ticket-bound
 t('verdict P2 is genuinely the referent path (kind P2), proving the fixture is not silently a P1',
   item('tk-prd-cold-2').corroborations.some((c) => c.kind === 'P2')
   && !item('tk-prd-cold-2').corroborations.some((c) => c.kind === 'P1'));
+t('FB-FINALIZE-1-F6: a file event that belongs to ANOTHER package does not prove this ticket (P2 is ticket/wp-bound)', V['tk-prd-cold-8'] === 'unproven' && !item('tk-prd-cold-8').corroborations.length);
 t('verdict P3: a referent that merely EXISTS, with nothing tying it to the ticket, is NOT proof', V['tk-prd-cold-3'] === 'unproven');
 t('verdict P3 fixture really resolved on disk (otherwise it would be testing the missing-referent path instead)',
   item('tk-prd-cold-3').referents.resolved.length === 1 && item('tk-prd-cold-3').referents.missing.length === 0);
@@ -216,12 +227,35 @@ t('verdict counter-evidence: a ticket-bound check_failed -> unproven (loudly)', 
 t('counter-evidence is recorded structurally, not only in prose',
   item('tk-prd-cold-6').counter_evidence.length === 1);
 t('scope: only DONE tickets are assessed; the open one is skipped and counted',
-  res.checked === 7 && res.skipped_not_done === 1 && V['tk-prd-cold-open'] === undefined);
-t('summary tallies match the items', res.summary.proven === 2 && res.summary.unproven === 5 && res.summary.unassessable === 0);
+  res.checked === 8 && res.skipped_not_done === 1 && V['tk-prd-cold-open'] === undefined);
+t('summary tallies match the items', res.summary.proven === 2 && res.summary.unproven === 6 && res.summary.unassessable === 0);
 t('a malformed events.jsonl line is skipped, never a crash',
   item('tk-prd-cold-1').evidence_channel.startsWith('events.jsonl'));
 t('criterion text comes from the PRD spec for every assessed ticket',
   res.items.every((i) => i.criterion_source === 'prd' && i.criterion.length > 0));
+
+// ============================ 6b. FB-FINALIZE-1-F7: a failure fixed later by the same check ============================
+{
+  writePrdMeta('prd-rg', [{ id: 'ac-1', text: 'Red then green criterion' }, { id: 'ac-2', text: 'Green then red criterion' }, { id: 'ac-3', text: 'Red, other check green' }]);
+  writeEvents('run-rg', [
+    ev({ event_type: 'run_started', agent: 'orchestrator' }),
+    ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'rg suite', ticket_id: 'tk-prd-rg-1', status: 'failed' }),
+    ev({ event_type: 'check_passed', agent: 'Test Boss', task: 'rg suite', ticket_id: 'tk-prd-rg-1', status: 'done' }),
+    ev({ event_type: 'check_passed', agent: 'Test Boss', task: 'gr suite', ticket_id: 'tk-prd-rg-2', status: 'done' }),
+    ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'gr suite', ticket_id: 'tk-prd-rg-2', status: 'failed' }),
+    ev({ event_type: 'check_failed', agent: 'Test Boss', task: 'lint', ticket_id: 'tk-prd-rg-3', status: 'failed' }),
+    ev({ event_type: 'check_passed', agent: 'Test Boss', task: 'unit suite', ticket_id: 'tk-prd-rg-3', status: 'done' }),
+  ]);
+  const b = { prd_id: 'prd-rg', run_id: 'run-rg', status: 'done', required_tests: [], related_files: [], test_evidence: 'suite green' };
+  for (const n of ['1', '2', '3']) putTicket('tk-prd-rg-' + n, Object.assign({}, b, { ticket_id: 'tk-prd-rg-' + n, title: 'rg ' + n }));
+  const rg = C.coldVerify({ run_id: 'run-rg', projectRoot: TMP });
+  const rv = verdictMap(rg);
+  const ri = (id) => rg.items.find((i) => i.ticket_id === id);
+  t('FB-FINALIZE-1-F7: a check that failed and then passed later (same name) is proven, no counter-evidence',
+    rv['tk-prd-rg-1'] === 'proven' && ri('tk-prd-rg-1').counter_evidence.length === 0, JSON.stringify(ri('tk-prd-rg-1')));
+  t('FB-FINALIZE-1-F7: a check that passed and then failed stays unproven', rv['tk-prd-rg-2'] === 'unproven' && ri('tk-prd-rg-2').counter_evidence.length === 1);
+  t('FB-FINALIZE-1-F7: a pass of ANOTHER check does not clear a failure', rv['tk-prd-rg-3'] === 'unproven' && ri('tk-prd-rg-3').counter_evidence.length === 1);
+}
 
 // ============================ 7. unassessable ============================
 {
@@ -339,7 +373,7 @@ section('12 reopen planning', () => {
   const plan = C.planReopen({ run_id: RUN, projectRoot: TMP });
   const ids = plan.candidates.map((c) => c.ticket_id).sort();
   t('reopen plan: exactly the UNPROVEN done tickets are candidates',
-    ids.join(',') === 'tk-prd-cold-3,tk-prd-cold-4,tk-prd-cold-5,tk-prd-cold-6,tk-prd-cold-7');
+    ids.join(',') === 'tk-prd-cold-3,tk-prd-cold-4,tk-prd-cold-5,tk-prd-cold-6,tk-prd-cold-7,tk-prd-cold-8');
   t('reopen plan: a PROVEN ticket is never a candidate',
     !ids.includes('tk-prd-cold-1') && !ids.includes('tk-prd-cold-2')
     && C.planReopen({ ticket_id: 'tk-prd-cold-1', projectRoot: TMP }).candidates.length === 0);
@@ -366,7 +400,7 @@ section('13 reopen dry run', () => {
     treeBefore === treeAfter);
   t('reopen dry run: logs NOT ONE event — a run that changed nothing may claim nothing', calls.length === 0);
   t('reopen dry run: it still names every ticket it WOULD reopen, and made no change',
-    r.candidates.length === 5 && r.changes.length === 0 && r.reopened === 0);
+    r.candidates.length === 6 && r.changes.length === 0 && r.reopened === 0);
   t('reopen dry run: every candidate is still "done" afterwards',
     r.candidates.every((c) => String(store.getEntity('tickets', c.store_id).status).toLowerCase() === 'done'));
 });
@@ -551,6 +585,18 @@ section('21 reopen CLI', () => {
   t('CLI --help: documents the reopen subcommand and its --confirm gate',
     help.status === 0 && /reopen/.test(help.stdout) && /--confirm/.test(help.stdout));
 });
+
+// FB-QUALITY-F8 (criterion-id ticket ids): the ticket -> criterion join looks the criterion up by its id, so a
+// reordered PRD still compares tk-<prd>-<id> against the right criterion; positional ids keep working.
+{
+  writePrdMeta('prd-ids-cold', [{ id: 'logout', text: 'Can log out' }, { id: 'login', text: 'Can log in' }, 'Plain third']);
+  const byId = C.criterionFor({ ticket_id: 'tk-prd-ids-cold-login', prd_id: 'prd-ids-cold', title: 'x' });
+  t('F8-ids cold: tk-<prd>-<id> resolves to the criterion with that id, wherever it now stands', byId.source === 'prd' && byId.ac_id === 'login' && byId.text === 'Can log in');
+  const positional = C.criterionFor({ ticket_id: 'tk-prd-ids-cold-3', prd_id: 'prd-ids-cold', title: 'x' });
+  t('F8-ids cold: a positional tk-<prd>-<n> still resolves to criterion n', positional.source === 'prd' && positional.ac_id === 'ac-3' && positional.text === 'Plain third');
+  const unknown = C.criterionFor({ ticket_id: 'tk-prd-ids-cold-gone', prd_id: 'prd-ids-cold', title: 'restated' });
+  t('F8-ids cold: an id no criterion has falls back to the ticket title', unknown.source === 'ticket-title');
+}
 
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;

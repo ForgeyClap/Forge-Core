@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-adopt-post-sync.test.cjs — hermetic tests for forge-adopt-post-sync.cjs. Every fixture lives under
  * os.tmpdir() (fs.mkdtempSync); no real project, no real template, no network. Exit 0 = all pass.
@@ -456,7 +460,7 @@ const forge = (p, name, recJson) => write(p, '.claude/forge-adoption/' + name, J
 {
   // WP-SYNC-R10: the ONE worktrees entry carries every child's name + kind + a hash, so a swap with the SAME
   // child count is seen; an R8 (count-only) baseline stays readable and the parity notes say what it cannot see.
-  // Assertions marked failed against the pre-fix forge-adopt-post-sync.cjs in an os.tmpdir() harness. same(): the tool's own
+  // Assertions marked [R10] failed against the pre-fix forge-adopt-post-sync.cjs in an os.tmpdir() harness. same(): the tool's own
   // comparison; against a module without it, the raw entries (identical JSON = the tool cannot tell them apart).
   const same = (a, b) => (typeof A.sameEntry === 'function' ? A.sameEntry(a, b) : JSON.stringify(a) === JSON.stringify(b));
   try {

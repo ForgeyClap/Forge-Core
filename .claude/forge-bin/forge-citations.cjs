@@ -28,7 +28,8 @@
 //   add    --claim <text> --quote <text> [--source <file>] [--url <u>] [--source-id <s>]
 //          [--id <claim_id>] [--as-of YYYY-MM-DD]          append one claim, checked at once
 //   check  [--json]                                         re-check every claim, rewrite statuses
-//   report [--json] [--min-verified <pct>]                  coverage; exit 1 on any mismatch or
+//   report [--json] [--min-verified <pct>] [--allow-empty]  coverage; exit 1 on any mismatch, on an empty or
+//                                                           missing ledger (unless --allow-empty), or
 //                                                           when verified% < --min-verified
 //   label  <file.md> [--write]                              append " [unverified]" after citation
 //          markers ([c12] or [^c12]) whose claim is not verified or not in the ledger; prints the
@@ -550,7 +551,7 @@ function checkRefs(text) {
 // ---------------------------------------------------------------- CLI
 
 const VALUE_FLAGS = new Set(['root', 'run', 'ledger', 'claim', 'quote', 'source', 'url', 'source-id', 'as-of', 'id', 'min-verified', 'max-bytes']);
-const BOOL_FLAGS = new Set(['json', 'write', 'allow-outside-sources', 'help']);
+const BOOL_FLAGS = new Set(['json', 'write', 'allow-outside-sources', 'allow-empty', 'help']);
 const USAGE = 'usage: forge-citations.cjs <add|check|report|label> [--root <dir>] (--run <id> | --ledger <path>) [options] | refs <file.md> [--json]; see the file header';
 
 function parseArgs(argv) {
@@ -619,6 +620,8 @@ function cmdAdd(f, ctx, io) {
 }
 
 function cmdCheck(f, ctx, io) {
+  // FB-VERIFY-1-F14: a mistyped run id used to create an empty ledger and a new run folder
+  if (!fs.existsSync(ctx.ledger)) throw new UsageError(`no citation ledger at ${ctx.ledger} (add a claim first, or check the run id)`);
   const checked = checkRecords(loadLedger(ctx.ledger), ctx.opts);
   saveLedger(ctx.ledger, checked);
   if (f.json) io.out(JSON.stringify({ ledger: ctx.ledger, claims: checked, summary: coverage(checked) }, null, 2) + '\n');
@@ -635,6 +638,8 @@ function cmdReport(f, ctx, io) {
   const min = f['min-verified'] === undefined ? null : Number(f['min-verified']);
   if (min !== null && (!Number.isFinite(min) || min < 0 || min > 100)) throw new UsageError('--min-verified must be 0..100');
   const failures = [];
+  // FB-VERIFY-1-F14: a ledger with no claims (or none at all) proves no citation; it passes only with --allow-empty
+  if (c.total === 0 && !f['allow-empty']) failures.push('no claims in the ledger (pass --allow-empty if that is expected)');
   if (c.mismatch) failures.push(`${c.mismatch} mismatch`);
   if (min !== null && c.verified_pct < min) failures.push(`verified ${c.verified_pct}% < ${min}%`);
   if (f.json) io.out(JSON.stringify({ ledger: ctx.ledger, ...c, min_verified: min, pass: !failures.length, failures }, null, 2) + '\n');

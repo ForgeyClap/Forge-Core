@@ -54,8 +54,8 @@ const WORDS = {
     safeEn: 'ask the owner first and name the plugin, the marketplace and where it comes from; Forge goes on only when the owner says yes to THIS plugin. Looking is always fine (claude plugin list, claude plugin validate)',
   },
   'settings-edit-command': {
-    nl: 'dit commando schrijft in de Claude Code-instellingen (.claude/settings.json, settings.local.json of ~/.claude/settings.json) waar de rechten en hooks staan, ook de Forge-poort zelf',
-    en: 'this command writes to the Claude Code settings (.claude/settings.json, settings.local.json or ~/.claude/settings.json) that hold the permissions and hooks, the Forge gate included',
+    nl: 'dit commando schrijft in de Claude Code-instellingen (.claude/settings.json, settings.local.json of ~/.claude/settings.json) waar de rechten en hooks staan, ook de Forge-poort zelf, of in de Forge-config (FORGE_CONFIG.json of een FORGE_CONFIG.once-bestand) die de poort aan of uit zet',
+    en: 'this command writes to the Claude Code settings (.claude/settings.json, settings.local.json or ~/.claude/settings.json) that hold the permissions and hooks, the Forge gate included, or to the Forge config (FORGE_CONFIG.json or a FORGE_CONFIG.once file) that switches the gate on or off',
     safeNl: 'Forge-instellingen wijzig je met /forge config (node .claude/forge-bin/forge-config.cjs set <sleutel> <waarde>); hooks en rechten alleen via forge-sync of forge-settings-merge (die maken eerst een back-up), of na een uitdrukkelijke ja van de eigenaar op DEZE wijziging. Lezen mag altijd',
     safeEn: 'change Forge settings with /forge config (node .claude/forge-bin/forge-config.cjs set <key> <value>); hooks and permissions only through forge-sync or forge-settings-merge (they make a backup first), or after the owner explicitly says yes to THIS change. Reading is always fine',
   },

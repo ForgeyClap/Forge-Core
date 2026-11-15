@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-prefs.test.cjs — real tests for the owner-profile resolver (WAVE B / PIECE B1).
 // Every fixture-based section lives under a fresh os.tmpdir() directory (freshDir()) — this file NEVER
 // writes to this repo's real .claude/ and NEVER writes to a real ~/.claude. The module itself has no
@@ -47,6 +51,15 @@ console.log('forge-prefs tests (owner-profile resolver)');
 // 1) layer resolution order — project < global < env (higher precedence wins)
 // ---------------------------------------------------------------------------
 console.log('\n1) layer resolution order');
+
+// FB-SCRIBE-2-F3: a profile saved with a UTF-8 BOM (PowerShell 5.1 `>` / Out-File) still loads.
+t('a BOM-prefixed profile layer loads (no "not valid JSON")', () => {
+  const dir = freshDir('prefs-bom');
+  const p = path.join(dir, 'global.json');
+  fs.writeFileSync(p, '﻿' + JSON.stringify({ version: 1, prefs: { bom_key: entry('b') } }));
+  const r = prefs.resolve({ profilePath: NOWHERE, globalProfilePath: p });
+  assert.strictEqual(r.prefs.bom_key.value, 'b');
+});
 
 t('project-only: a key only in the project layer resolves from project', () => {
   const dir = freshDir('prefs-order');

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // account-rotator.test.cjs — node:test suite for the account rotator.
 // HERMETIC: every fixture lives in a fresh os.tmpdir() directory with FAKE logins; the network is a stub (deps.fetch)
 // or denied (FORGE_*_DENY_NETWORK); the real ~/.claude, ~/.claude.json and api.anthropic.com are never touched.
@@ -267,6 +271,21 @@ t('measure: transport error, HTTP 500, unparsable body and 401 are all failures 
   assert.strictEqual(bad.ok, false);
   assert.ok(!bad.error.includes(a.at));
   assert.strictEqual((await R.measureToken('bad token\nwith newline', { fetch: fetchStub({}) })).kind, 'bad-token');
+});
+t('FB-ROTATOR-F3: a corrupt state.json fails CLOSED (kill switch on), is backed up, and stays disabled after a write', async () => {
+  const fx = fixture();
+  vault.ensureVault(fx.P);
+  const torn = '{"version":1,"disabled":true,"slotFlags":{"b":{"orgBlocked":true}},"failures":[1,2,3,4,5,6]';
+  fs.writeFileSync(fx.P.state, torn);
+  const s = vault.readState(fx.P);
+  assert.strictEqual(s.disabled, true, 'a corrupt state must read as disabled');
+  const backups = fs.readdirSync(path.dirname(fx.P.state)).filter((f) => /^state\.corrupt-.*\.json$/.test(f));
+  assert.strictEqual(backups.length, 1, 'exactly one backup of the corrupt file');
+  assert.strictEqual(fs.readFileSync(path.join(path.dirname(fx.P.state), backups[0]), 'utf8'), torn);
+  vault.readState(fx.P);
+  assert.strictEqual(fs.readdirSync(path.dirname(fx.P.state)).filter((f) => /^state\.corrupt-/.test(f)).length, 1, 'a second read does not back up again');
+  await vault.updateState(fx.P, (st) => st);
+  assert.strictEqual(vault.readState(fx.P).disabled, true, 'the rewritten state keeps the kill switch on');
 });
 t('tick: a fetch error on the active account => no action, nothing swapped, error recorded', async () => {
   const fx = fixture(); const a = fakeAccount('fa'); const b = fakeAccount('fb');
@@ -541,10 +560,23 @@ t('env: one single-quoted shell line that loads the token via token-for-shell --
   assert.strictEqual(remember(await runCli(fx, ['token-for-shell', 'ev', '--i-know'], { isTTY: true })).code, 3, 'never onto a terminal');
   assert.strictEqual(remember(await runCli(fx, ['token-for-shell', 'ev'], { isTTY: false })).code, 3, 'a pipe needs --i-know');
   let raw = '';
-  const pipe = await runCli(fx, ['token-for-shell', 'ev', '--i-know'], { isTTY: false, rawOut: (s) => { raw += s; } });
+  const pipe = await runCli(fx, ['token-for-shell', 'ev', '--i-know'], { isTTY: false, stdinTTY: true, rawOut: (s) => { raw += s; } });
   assert.strictEqual(pipe.code, 0);
   assert.strictEqual(raw, a.setup, 'only a captured, explicitly acknowledged pipe receives the token');
   assert.ok(!pipe.all.includes(a.setup));
+});
+// FB-ROTATOR-F2: an EMPTY agent marker (CLAUDECODE='') is still a marker, and token-for-shell needs the owner's terminal
+// on stdin (the owner's $( ) substitution keeps it there; an agent's Bash tool has no terminal on stdin).
+t('token-for-shell: an empty agent marker and a non-terminal stdin are both refused, the token is never written', async () => {
+  const fx = fixture(); const a = fakeAccount('em');
+  await runCli(fx, ['enroll-token', 'em'], { readStdin: async () => a.setup });
+  const never = () => { throw new Error('token written'); };
+  const empty = remember(await runCli(fx, ['token-for-shell', 'em', '--i-know'], { env: Object.assign({}, fx.env, { CLAUDECODE: '' }), isTTY: false, stdinTTY: true, rawOut: never }));
+  assert.strictEqual(empty.code, 3, empty.all);
+  assert.ok(/CLAUDECODE/.test(empty.err), empty.err);
+  const noTty = remember(await runCli(fx, ['token-for-shell', 'em', '--i-know'], { isTTY: false, stdinTTY: false, rawOut: never }));
+  assert.strictEqual(noTty.code, 3, noTty.all);
+  assert.ok(/terminal/.test(noTty.err), noTty.err);
 });
 t('status: warns when CLAUDE_CODE_OAUTH_TOKEN is set (it overrides the file swap) and shows each account\'s mode', async () => {
   const fx = fixture(); const a = fakeAccount('sw1'); const b = fakeAccount('sw2');

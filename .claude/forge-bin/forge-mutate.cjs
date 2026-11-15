@@ -27,8 +27,9 @@
  *   comments and string/template literal bodies EXCEPT the `.replace()` operator, which deliberately
  *   targets a string-literal argument — it only skips when the `.replace(` call ITSELF sits inside a
  *   comment/string. KNOWN LIMITATION: `${...}` interpolations inside a template literal are treated as
- *   inert text (masked), and division vs. regex-literal ambiguity is not resolved — an operator could in
- *   rare cases fire inside a regex literal. Every chosen operator swaps a token for another
+ *   inert text (masked). Regex literals are masked too (FB-VERIFY-1-F9), with a simple division-vs-regex rule
+ *   based on the previous code character (see regexCanStart): a regex right after ')' is read as division,
+ *   so in that rare case an operator could still fire inside it. Every chosen operator swaps a token for another
  *   syntactically-equivalent-shape token inside an already-valid grammar slot, so in practice this
  *   operator set essentially never produces a non-parsing mutant by construction — the `node --check`
  *   skip gate is still always run (a real, required safety net), and its skip/count-exclusion behavior
@@ -85,14 +86,19 @@ function buildMask(source) {
   const S = { CODE: 0, LINE: 1, BLOCK: 2, SQ: 3, DQ: 4, TL: 5 };
   let state = S.CODE;
   let i = 0;
+  let prevSig = -1; // index of the last non-space code character (comments never update it)
   while (i < n) {
     const c = source[i];
     if (state === S.CODE) {
       if (c === '/' && source[i + 1] === '/') { mask[i] = 1; mask[i + 1] = 1; state = S.LINE; i += 2; continue; }
       if (c === '/' && source[i + 1] === '*') { mask[i] = 1; mask[i + 1] = 1; state = S.BLOCK; i += 2; continue; }
+      // FB-VERIFY-1-F9: a '/' that starts an expression is a regex literal; mask it to its closing '/' so a
+      // quote inside it (e.g. /[']/) never opens a fake string that hides the code after it.
+      if (c === '/' && regexCanStart(source, prevSig)) { const end = regexEnd(source, i); for (let k = i; k < end; k++) mask[k] = 1; prevSig = end - 1; i = end; continue; }
       if (c === "'") { mask[i] = 1; state = S.SQ; i++; continue; }
       if (c === '"') { mask[i] = 1; state = S.DQ; i++; continue; }
       if (c === '`') { mask[i] = 1; state = S.TL; i++; continue; }
+      if (!/\s/.test(c)) prevSig = i;
       i++; continue;
     }
     if (state === S.LINE) { mask[i] = 1; if (c === '\n') state = S.CODE; i++; continue; }
@@ -101,10 +107,36 @@ function buildMask(source) {
     mask[i] = 1;
     if (c === '\\') { if (i + 1 < n) mask[i + 1] = 1; i += 2; continue; }
     const closer = state === S.SQ ? "'" : state === S.DQ ? '"' : '`';
-    if (c === closer) state = S.CODE;
+    if (c === closer) { state = S.CODE; prevSig = i; }
     i++;
   }
   return mask;
+}
+// shortcut: a regex is assumed after an operator, an opening bracket, a comma/colon/semicolon or a keyword such
+// as return; a regex right after ')' (e.g. `if (x) /re/.test(y)`) is read as division, which is rare.
+const REGEX_PREV_KEYWORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'yield', 'await', 'else', 'do', 'instanceof']);
+function regexCanStart(source, prevSig) {
+  if (prevSig < 0) return true;
+  const p = source[prevSig];
+  if ('(,=:[!&|?{};+-*%<>~^'.includes(p)) return true;
+  if (!/[A-Za-z_$]/.test(p)) return false;
+  let s = prevSig;
+  while (s > 0 && /[A-Za-z0-9_$]/.test(source[s - 1])) s--;
+  return REGEX_PREV_KEYWORDS.has(source.slice(s, prevSig + 1));
+}
+/** regexEnd(source, start) -> index just past the closing '/' and its flags (a newline ends a malformed one). */
+function regexEnd(source, start) {
+  let i = start + 1, inClass = false;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === '\n') return i;
+    if (c === '\\') { i += 2; continue; }
+    if (inClass) { if (c === ']') inClass = false; }
+    else if (c === '[') inClass = true;
+    else if (c === '/') { i++; while (i < source.length && /[a-z]/i.test(source[i])) i++; return i; }
+    i++;
+  }
+  return i;
 }
 
 function lineOf(source, index) {
@@ -234,7 +266,10 @@ function sampleMutants(mutants, n, seed) {
 
 // ---- isolated temp-dir copy (relative sibling requires must keep working) ----
 // '.forge' (WP 2.1): the opt-in runtime-state folder at a project root, skipped like the legacy forge-runs
-const SKIP_DIRS = new Set(['node_modules', '.git', 'forge-runs', '.forge', 'dist', 'build', '.next', 'coverage', '.cache']);
+// FB-VERIFY-1-F8: research dumps, backups, the vault, agent memory and worktrees are data, not code a suite needs;
+// mirroring them copied about 1.4 GB per run.
+const SKIP_DIRS = new Set(['node_modules', '.git', 'forge-runs', '.forge', 'dist', 'build', '.next', 'coverage', '.cache',
+  'forge-research', 'forge-backups', 'forge-vault', 'forge-audit', 'agent-memory', 'worktrees']);
 const MAX_COPY_FILES = 20000;
 const MAX_COPY_DEPTH = 12;
 
@@ -292,11 +327,18 @@ function prepareWorkdir(targetPath, testPath) {
   }
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-mutate-'));
   if (!path.resolve(tempRoot).startsWith(path.resolve(os.tmpdir()))) throw new Error('refusing: mkdtemp did not land under os.tmpdir()');
-  copyTree(sharedRoot, tempRoot, 0, { n: 0 });
+  // FB-VERIFY-1-F2: a .claude-wide copy is mirrored INTO <tempRoot>/.claude/, so forge-paths.scriptRoot() inside
+  // the copy resolves to tempRoot (never upward to the user's home folder and its global ~/.claude, ~/.forge),
+  // and every suite runs with the store and project root pointed at the copy (see suiteEnv below).
+  const claudeMirror = !!claudeRoot && sharedRoot === claudeRoot;
+  const copyRoot = claudeMirror ? path.join(tempRoot, '.claude') : tempRoot;
+  copyTree(sharedRoot, copyRoot, 0, { n: 0 });
   return {
     tempRoot,
-    copiedTargetPath: path.join(tempRoot, path.relative(sharedRoot, targetAbs)),
-    copiedTestPath: path.join(tempRoot, path.relative(sharedRoot, testAbs)),
+    copiedTargetPath: path.join(copyRoot, path.relative(sharedRoot, targetAbs)),
+    copiedTestPath: path.join(copyRoot, path.relative(sharedRoot, testAbs)),
+    // FORGE_STATE_DIR is blanked: an inherited value would point the copy's state writes at the real folder
+    suiteEnv: claudeMirror ? { FORGE_STORE_ROOT: copyRoot, CLAUDE_PROJECT_DIR: tempRoot, FORGE_PROJECT_ROOT: tempRoot, FORGE_STATE_DIR: '' } : null,
   };
 }
 
@@ -306,7 +348,8 @@ function checkParses(filePath) {
 }
 function runSuite(testPath, opts) {
   const timeoutMs = (opts && Number.isFinite(opts.timeoutMs)) ? opts.timeoutMs : 20000;
-  const r = spawnSync(NODE, [testPath], { encoding: 'utf8', timeout: timeoutMs, cwd: path.dirname(testPath) });
+  const env = opts && opts.env ? Object.assign({}, process.env, opts.env) : process.env;
+  const r = spawnSync(NODE, [testPath], { encoding: 'utf8', timeout: timeoutMs, cwd: path.dirname(testPath), env });
   const timedOut = r.status === null && !!r.signal; // same portable classification as forge-doctor.cjs's runTests()
   const out = (r.stdout || '') + (r.stderr || '');
   const m = out.match(/(\d+)\s+passed,\s+(\d+)\s+failed/);
@@ -322,7 +365,7 @@ function runMutationLoop(originalSource, work, opts) {
     baselineTimeoutMs: Number.isFinite(opts.baselineTimeoutMs) ? opts.baselineTimeoutMs : 20000,
     mutantTimeoutMs: Number.isFinite(opts.mutantTimeoutMs) ? opts.mutantTimeoutMs : 20000,
   };
-  const baseline = runSuite(work.copiedTestPath, { timeoutMs: opts.baselineTimeoutMs });
+  const baseline = runSuite(work.copiedTestPath, { timeoutMs: opts.baselineTimeoutMs, env: work.suiteEnv });
   if (!baseline.ok) return { ok: false, error: 'baseline is not green — refusing to run mutation testing (fix the suite first)', baseline, timeouts };
   // TEST-ONLY seam: opts.mutantsOverride lets a test supply a hand-built mutants list instead of the
   // regex generator, to prove the node --check skip path deterministically (this operator set's
@@ -336,7 +379,7 @@ function runMutationLoop(originalSource, work, opts) {
   for (const mut of mutants) {
     fs.writeFileSync(work.copiedTargetPath, applyMutant(originalSource, mut), 'utf8');
     if (!checkParses(work.copiedTargetPath)) { skipped++; skippedList.push({ id: mut.id, line: mut.line, description: mut.description }); continue; }
-    const res = runSuite(work.copiedTestPath, { timeoutMs: opts.mutantTimeoutMs });
+    const res = runSuite(work.copiedTestPath, { timeoutMs: opts.mutantTimeoutMs, env: work.suiteEnv });
     if (res.timedOut) { killed++; killedByTimeout++; }
     else if (!res.ok) killed++;
     else { survived++; survivors.push({ id: mut.id, description: mut.description, line: mut.line, original: mut.original, replacement: mut.replacement }); }
@@ -470,6 +513,8 @@ if (require.main === module) {
     else console.log(printSummary(rep));
     if (!rep.ok) { process.exitCode = 1; return; }
     if (!rep.targetUnchanged) { console.error('forge-mutate: FATAL — the real target file changed during the run (should never happen)'); process.exitCode = 1; return; }
+    // FB-VERIFY-1-F10: zero scored mutants measures nothing; it is never a clean result.
+    if (rep.killed + rep.survived === 0) { console.error('forge-mutate: no mutant could be scored (0 killed, 0 survived) — this run proves nothing about the test'); process.exitCode = 2; return; }
     process.exitCode = 0; // score is informational, not a pass/fail gate — the caller decides what to do with it
   };
   try { main(); } catch (e) { console.error('forge-mutate: ' + e.message); process.exitCode = 1; }

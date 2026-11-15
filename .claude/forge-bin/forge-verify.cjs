@@ -183,12 +183,16 @@ try { loopHealthTool = require('./forge-loophealth.cjs'); } catch { loopHealthTo
 // it. A negation prefix on an otherwise-positive word is not a positive status; checked BEFORE the
 // done/pass check so it can never be shadowed by it. Mirrored 1:1 in app.js's statusClass().
 const NEGATED_DONE_RE = /\b(?:in|un|non|not)[ -]?(?:complete|completed|done|finished|pass|passed)\b|\bnot\s+(?:complete|completed|done|finished|pass(?:ed)?)\b/;
+// FB-VERIFY-1-F5: a qualified done-word ("partially complete", "not yet done", "almost done",
+// "to be completed", "50% complete") is unfinished work, so it reads waiting, never done.
+const QUALIFIED_DONE_RE = /\b(?:partial(?:ly)?|almost|nearly|yet|to be|pending)\b|(?:^|[^\d])\d{1,2}(?:\.\d+)?\s?%/;
 function statusClass(s) {
   const v = String(s || '').toLowerCase();
   if (v.includes('internal') || v.includes('conceptual') || v.includes('role only')) return 'internal';
   if (v.includes('preview')) return 'previewing';
   if (v.includes('fail') || v.includes('block') || v.includes('refus')) return 'failed';
   if (NEGATED_DONE_RE.test(v)) return 'failed';
+  if (QUALIFIED_DONE_RE.test(v)) return 'waiting';
   if (v.includes('done') || v.includes('complete') || v.includes('pass')) return 'done';
   if (v.includes('wait') || v.includes('ask') || v.includes('paus') || v.includes('pend') || v.includes('queue') || v.includes('select')) return 'waiting';
   if (v.includes('run') || v.includes('progress') || v.includes('start')) return 'running';
@@ -482,9 +486,10 @@ function reviewOutcome(e) {
   // isDisprovenEvent() above already uses for its own sibling-unavailable case.
   if (!e || typeof e !== 'object') return null;
   if (isDisprovenEvent(e)) return 'failed';
-  const norm = (a) => String(a == null ? '' : a).trim().toLowerCase();
+  const norm = (a) => String(a == null ? '' : a).trim().toLowerCase().replace(/[\s_-]+/g, ' ');
   const fields = ['review_verdict', 'verdict', 'status', 'result', 'outcome'];
-  const positive = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd']);
+  const positive = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd',
+    'pass with notes', 'passed with notes', 'pass with minor notes', 'approved with notes', 'approved with minor notes']);
   const present = fields.filter((f) => e[f] !== undefined).map((f) => norm(e[f]));
   const hasOk = e.ok !== undefined;
   if (!present.length && !hasOk) return null;
@@ -696,6 +701,7 @@ function verifyRun(runDir, opts) {
         role: (typeof e.role === 'string' && e.role.trim()) || null,
         event_id: (typeof e.event_id === 'string' && e.event_id) || null,
         review_id: reviewId,
+        fc_id: (typeof e.fc_id === 'string' && e.fc_id) || null,
       };
       rec.tasks.push(task);
       if (task.event_id) eventIdToTask.set(task.event_id, task);
@@ -742,6 +748,7 @@ function verifyRun(runDir, opts) {
       }
     }
   });
+  const runCompleted = events.some((e) => e && typeof e === 'object' && e.event_type === 'run_completed');
   const agents = Array.from(byAgent.values()).map((rec) => {
     const tasksDone = rec.tasks.filter((tk) => tk.status === 'done').length;
     const tasksOpen = rec.tasks.filter((tk) => tk.status !== 'done')
@@ -750,6 +757,11 @@ function verifyRun(runDir, opts) {
     // one 'agent_progress' heartbeat open is a worker that simply stopped reporting — a real gate, not
     // dependent on claimsDone at all (that predicate exists for a DIFFERENT lie: "claims done but isn't").
     const deadWorker = !rec.claimsDone && !rec.claimsFailed && rec.tasks.some((tk) => tk.event_type === 'agent_progress' && tk.status !== 'done');
+    // FB-VERIFY-1-F7: once the run logged run_completed, a failed task of an agent that never claimed done (the
+    // mismatch gate) nor failed, and that no later done task with the same title resolved. Mid-run (no run_completed)
+    // a failed check is work in progress for the loop, not a gate. fc_id-tagged checks belong to the failure gate.
+    const unresolvedFailed = runCompleted && !rec.claimsDone && !rec.claimsFailed && rec.tasks.some((tk) => tk.status === 'failed' && !tk.fc_id
+      && !rec.tasks.some((o) => o !== tk && o.status === 'done' && o.title === tk.title && o.evIdx > tk.evIdx));
     return {
       agent: rec.agent,
       claimsDone: rec.claimsDone,
@@ -759,6 +771,7 @@ function verifyRun(runDir, opts) {
       tasksOpen,
       mismatch: rec.claimsDone && tasksDone < rec.tasks.length,
       deadWorker,
+      unresolvedFailed,
     };
   });
   const mismatches = agents.filter((a) => a.mismatch).length;
@@ -1209,9 +1222,13 @@ function findAcOwnerDecision(events, prdId, acId, ownerAllowlist) {
 // above — i.e. the ticket's done-ness has SOME trace in this run's own log, not just a store field that
 // could have been hand-edited or carried over from an unrelated run (the same distrust-a-bare-field
 // discipline the test-first rule already applies to tickets elsewhere in this file).
+// FB-VERIFY-1-F4: lifecycle bookkeeping is never the proof (mirrors forge-coldverify COLD_NON_PROVING_TYPES;
+// that module requires this one, so the set is restated here instead of imported).
+const TICKET_NON_PROVING_TYPES = new Set(['ticket_created', 'ticket_updated', 'doctor_run']);
 function ticketReferencedDone(events, ticketId) {
   for (const e of events) {
     if (!e || typeof e !== 'object' || e.ticket_id !== ticketId) continue;
+    if (TICKET_NON_PROVING_TYPES.has(e.event_type)) continue;
     if (taskStatus(e) === 'done') return true;
   }
   return false;
@@ -1228,8 +1245,9 @@ function ticketReferencedDone(events, ticketId) {
  * GAP — always severity:"blocker", never a warning, mirroring get-shit-done-cc's "a dropped requirement is
  * ALWAYS blocker" rule this design mines from — UNLESS EITHER:
  *   (1) an explicit owner decision was logged for this exact criterion (findAcOwnerDecision), or
- *   (2) BOTH (a) the criterion's ticket (`tk-<prd_id>-<n>`, the exact id forge-prd.cjs::criteriaToTickets
- *       mints, n = 1-based criterion position) still exists in the ticket store, AND (b) that ticket's own
+ *   (2) BOTH (a) the criterion's ticket (forge-prd.cjs::ticketIdFor: `tk-<prd_id>-<criterion id>`, or the
+ *       positional `tk-<prd_id>-<n>` for an `ac-<n>` id; see criterionTicket() for the legacy fallback) still
+ *       exists in the ticket store, AND (b) that ticket's own
  *       `status` is 'done' (same predicate verifyTickets() already uses) AND at least one event in THIS
  *       run's events.jsonl actually references that ticket_id with a real done-status (ticketReferencedDone).
  * A run with NO PRD linked is not a failure — most historic runs predate forge-prd (requirement #3).
@@ -1237,6 +1255,22 @@ function ticketReferencedDone(events, ticketId) {
  * NEVER marks anything done, NEVER edits a ticket or a PRD — pure detection, same contract as verifyRun/
  * verifyTickets above.
  */
+/** criterionTicket(prdId, acId, idx) -> {ticketId, ticket|null} (FB-QUALITY-F8). The ticket is
+ *  forge-prd.cjs::ticketIdFor(prd, criterion id) — the one join, so a reordered PRD keeps each ticket on its
+ *  criterion. A legacy positional tk-<prd>-<n> (made before criterion ids) still counts unless its generated
+ *  description names ANOTHER criterion. With no ticket the criterion-id form is reported as the missing one. */
+function criterionTicket(prdId, acId, idx) {
+  const prd = require('./forge-prd.cjs');
+  const get = (id) => { try { return store.getEntity('tickets', id); } catch { return null; } };
+  const ticketId = prd.ticketIdFor(prdId, acId, idx + 1);
+  const ticket = get(ticketId);
+  if (ticket) return { ticketId, ticket };
+  const legacyId = 'tk-' + prdId + '-' + (idx + 1);
+  const legacy = legacyId === ticketId ? null : get(legacyId);
+  const namesOther = legacy && typeof legacy.description === 'string' && /^Acceptance criterion \S+ for PRD /.test(legacy.description)
+    && !prd.namesCriterion(legacy, acId, prdId);
+  return legacy && !namesOther ? { ticketId: legacyId, ticket: legacy } : { ticketId, ticket: null };
+}
 function checkAcceptanceCoverage(run_id, opts) {
   opts = opts || {};
   const runDir = opts.runDir || storeRunDir(run_id);
@@ -1259,11 +1293,11 @@ function checkAcceptanceCoverage(run_id, opts) {
       continue;
     }
     acceptanceCriteria(meta).forEach((ac, idx) => {
-      const ticketId = 'tk-' + prdId + '-' + (idx + 1);
       if (findAcOwnerDecision(events, prdId, ac.id, ownerAllowlist)) return; // explicit OWNER decision clears this criterion
 
-      let ticket = null;
-      try { ticket = store.getEntity('tickets', ticketId); } catch { ticket = null; }
+      const ticketJoin = criterionTicket(prdId, ac.id, idx);
+      const ticketId = ticketJoin.ticketId;
+      const ticket = ticketJoin.ticket;
       if (!ticket) {
         gaps.push({
           prd_id: prdId, ac_id: ac.id, ticket_id: ticketId, severity: 'blocker',
@@ -1380,12 +1414,15 @@ function checkFailureConditions(run_id, opts) {
     const meta = loadPrdMeta(prdId);
     if (!meta) continue; // checkAcceptanceCoverage already reports an unreadable linked PRD as a blocker
     for (const fc of failureConditions(meta)) {
+      // FB-VERIFY-1-F6: the LAST failed/done event for this fc_id decides: a hit followed by a real
+      // check_passed-class event is cleared, a pass followed by a new fail is a hit.
       let hitEvent = null, clearEvent = null;
       for (const e of events) {
         if (!e || typeof e !== 'object' || e.prd_id !== prdId || e.fc_id !== fc.id) continue;
+        if (e.event_type === 'decision_logged') continue; // an owner decision waives (findItemDecision), it never clears
         const st = taskStatus(e);
-        if (st === 'failed' && !hitEvent) hitEvent = e;
-        else if (st === 'done' && !clearEvent) clearEvent = e;
+        if (st === 'failed') { hitEvent = e; clearEvent = null; }
+        else if (st === 'done') { clearEvent = e; hitEvent = null; }
       }
       const decision = findItemDecision(events, prdId, 'fc_id', fc.id, ownerAllowlist);
       if (hitEvent && decision) {
@@ -1689,10 +1726,14 @@ function wpIdOf(e) {
 /** filesChangedOf(e) -> string[] — reads e.files_changed the exact same way deliveredPaths() reads its own
  *  files_changed array field above (trimmed, non-empty strings only), scoped to a single event so each path
  *  can be paired with THAT event's own wp_id. */
+const SCOPE_PATH_FIELDS = ['path', 'file', 'output_path'];
 function filesChangedOf(e) {
-  if (!Array.isArray(e.files_changed)) return [];
   const out = [];
-  for (const p of e.files_changed) if (typeof p === 'string' && p.trim()) out.push(p.trim());
+  const add = (p) => { if (typeof p === 'string' && p.trim() && !out.includes(p.trim())) out.push(p.trim()); };
+  if (Array.isArray(e.files_changed)) for (const p of e.files_changed) add(p);
+  // FB-VERIFY-1-F3: most real file_changed events carry ONE path in path / file / output_path, the same
+  // single-path fields the isolation tripwire reads; the scope gate must see them too.
+  for (const k of SCOPE_PATH_FIELDS) add(e[k]);
   return out;
 }
 
@@ -1702,9 +1743,9 @@ function filesChangedOf(e) {
  * conflicting-re-declaration violation — which carries no path — can still say what it is):
  *   - 'out of declared scope'      a changed path no declared entry covers (path is that changed path)
  *   - 'conflicting re-declaration' a LATER agent_work_package_created for a wp_id already declared tried to
- *                                   change declared_files or scope_lock; path is always null
+ *                                   change declared_files or scope_lock (W1-05); path is always null
  *   - 'unattributed change'        a file_changed with NO wp_id at all, in a run where at least one package
- *                                   declared scope; wp_id is always null
+ *                                   declared scope (W1-06); wp_id is always null
  * `ok` is true only when there are zero violations (mirrors isolationTripwire's { ok, checked, violations }
  * shape exactly) — a run with a warning-only violation still reports ok:false; the EXIT CODE decision (which
  * only a 'blocker' severity affects) is made separately by the caller, not by this field.
@@ -1712,7 +1753,7 @@ function filesChangedOf(e) {
 function checkDeclaredScope(run_id, opts) {
   opts = opts || {};
   const runDir = opts.runDir || storeRunDir(run_id);
-  const root = opts.root; // needed to rewrite an absolute in-project changed path relative to it
+  const root = opts.root; // W1-04: needed to rewrite an absolute in-project changed path relative to it
   const { events } = readEventsJsonl(runDir);
 
   // Declarations: wp_id -> {declared_files, scope_lock}., W1-05: the FIRST
@@ -1752,7 +1793,7 @@ function checkDeclaredScope(run_id, opts) {
       if (!e || typeof e !== 'object' || e.event_type !== 'file_changed') continue;
       const wpId = wpIdOf(e);
       if (!wpId) {
-        // at least one package in this run declared scope, so a change with NO wp_id at all is never
+        // W1-06: at least one package in this run declared scope, so a change with NO wp_id at all is never
         // silently clean — it is reported as an unattributed change instead of being ignored.
         for (const p of filesChangedOf(e)) {
           checked++;
@@ -2004,6 +2045,9 @@ const EXIT_GATES = [
   // stopped (no completion, no failure claim) left unfinished work OUTSIDE the exit gate entirely, because
   // the old mismatch predicate only fired on a FALSE claimsDone. See verifyRun()'s `deadWorker` field.
   { key: 'dead_worker_heartbeats', label: 'dead-worker heartbeat(s)', count: (c) => c.verify.agents.filter((a) => a.deadWorker).length },
+  // FB-VERIFY-1-F7: a failed check from an agent that never logged a completion left the run green
+  // (mismatch needs claimsDone, deadWorker needs an open heartbeat). See verifyRun()'s unresolvedFailed.
+  { key: 'unresolved_failed_tasks', label: 'unresolved failed task(s)', count: (c) => c.verify.agents.filter((a) => a.unresolvedFailed).length },
   // a declared-scope BLOCKER — a change outside the files a scope_lock work package
   // declared (see checkDeclaredScope). composed it into the CLI exit code only, so it was invisible to
   // gateCounts()/gateSummary()/exitCodeFor(); as an entry here every caller sees it. A warning-only
@@ -2187,19 +2231,23 @@ function parseRunnerOutput(text) {
       continue; // a test NAME may itself say "3 passed": a test line is never read as the tally
     }
     if ((m = /^\s*(?:#|ℹ)\s*(pass|fail)\s+(\d+)\s*$/i.exec(line))) {
+      // FB-VERIFY-1-F1: every tally line is ADDED (one runner file may hold several suites); a later
+      // "0 failed" never hides an earlier failure.
       tally = tally || { passed: 0, failed: 0 };
-      tally[m[1].toLowerCase() === 'pass' ? 'passed' : 'failed'] = Number(m[2]);
+      tally[m[1].toLowerCase() === 'pass' ? 'passed' : 'failed'] += Number(m[2]);
     } else if ((m = /\b(\d+)\s+failed\b[^\n\d]*?(\d+)\s+passed\b/i.exec(line))) {
       // checked BEFORE the passed-first form: "2 failed, 8 passed" would otherwise read as 8 passed, 0 failed
-      tally = { passed: Number(m[2]), failed: Number(m[1]) };
+      tally = tally || { passed: 0, failed: 0 };
+      tally.passed += Number(m[2]); tally.failed += Number(m[1]);
     } else if ((m = /\b(\d+)\s+passed\b(?:[^\n\d]*?(\d+)\s+failed\b)?/i.exec(line))) {
-      tally = { passed: Number(m[1]), failed: m[2] !== undefined ? Number(m[2]) : 0 };
+      tally = tally || { passed: 0, failed: 0 };
+      tally.passed += Number(m[1]); tally.failed += m[2] !== undefined ? Number(m[2]) : 0;
     }
   }
   if (formats.size) res.format = [...formats].join('+');
   else if (tally) res.format = 'tally-only';
   res.passed = tally ? tally.passed : (formats.size ? res.passed_names.length : null);
-  res.failed = tally ? tally.failed : (formats.size ? res.failed_names.length : null);
+  res.failed = tally ? Math.max(tally.failed, res.failed_names.length) : (formats.size ? res.failed_names.length : null);
   return res;
 }
 
@@ -2511,7 +2559,8 @@ if (require.main === module) {
     // ADVISORY, never gates the exit code (see evidenceCheck's own header doc). opts.domain is only
     // set when the caller explicitly passes --domain; otherwise evidence stays null ("not applicable").
     let evidence = null;
-    if (opts.domain) evidence = evidenceCheck(runEvents, opts.domain, {});
+    // FB-FINALIZE-1-F2: pass the run folder, so artifact claims are checked on disk (a named path is not a file)
+    if (opts.domain) evidence = evidenceCheck(runEvents, opts.domain, { runDir });
     // LOOP-UNTIL-DRY: always computed, always printed, and — under --enforce —
     // actually enforced by loopBrake(). Like the Evidence section it never folds into the exit code: the
     // gate below still measures the run's real state (mismatches/tickets/isolation/acceptance), while the

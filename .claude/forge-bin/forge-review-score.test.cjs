@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-review-score.test.cjs —: the review lenses of forge-code-review.
  *   A. proof: a diff with one empty catch -> exactly one finding kept at confidence >= 80 after an independent scoring pass
@@ -73,7 +77,10 @@ t('D5 a self-assigned confidence never counts: unscored -> dropped "no independe
 t('D6 invalid score -> dropped with reason', /invalid score/.test(reason('b')));
 t('D7 no id and duplicate id -> dropped with reason', rD.dropped.some((d) => /no id/.test(d.reason)) && rD.dropped.some((d) => /duplicate/.test(d.reason)));
 t('D8 nothing vanishes: in === kept + dropped; orphan scores listed', rD.counts.in === rD.counts.kept + rD.counts.dropped && rD.counts.in === 5 && rD.orphan_scores.join() === 'ghost');
-t('D9 plain-number score accepted', R.filterFindings({ findings: [{ id: 'x' }] }, { scorer: 's', scores: { x: 80 } }).kept.length === 1);
+t('D9 plain-number score accepted', R.filterFindings({ reviewer: 'r', findings: [{ id: 'x' }] }, { scorer: 's', scores: { x: 80 } }).kept.length === 1);
+t('D10 refused: findings name no reviewer (independence cannot be checked)', /reviewer/.test(R.filterFindings({ findings: [{ id: 'x' }] }, { scorer: 's', scores: { x: 80 } }).error || ''));
+t('D11 refused: the same Boss spelled differently', /independent/.test(R.filterFindings({ reviewer: 'Review Boss', findings: [] }, { scorer: 'review-boss', scores: {} }).error || '') &&
+  /independent/.test(R.filterFindings({ reviewer: 'review_boss', findings: [] }, { scorer: 'Review  Boss', scores: {} }).error || ''));
 
 // ---------- E ----------
 const scan = (file, text) => rules(R.scanFile(file, text));

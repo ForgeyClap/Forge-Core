@@ -104,7 +104,7 @@ function positionalTokenObjects(restTokens) {
   const VALUE_OPTS = CONFIG_CLI.VALUE_OPTS;
   const pos = [];
   for (let i = 1; i < restTokens.length; i++) {
-    // de-escaped, so this walk's own flag-vs-positional decisions stay aligned with parseArgv's —
+    // sec-v5 M1: de-escaped, so this walk's own flag-vs-positional decisions stay aligned with parseArgv's —
     // parseConfigCall() below now calls parseArgv() on the SAME de-escaped strings, never the raw ones.
     const raw = shellUnescapeForCompare(String(restTokens[i].v));
     const eq = raw.startsWith('--') ? raw.indexOf('=') : -1;
@@ -131,7 +131,7 @@ const GLOB_RE = /[*?[\]]/;
  *  is inert (the shell passes it through literally), so it stays trusted. */
 function isLiteralToken(tok) {
   if (!tok) return true;
-  // checked on the DE-ESCAPED text (a real shell removes the backslash before this hook would ever
+  // sec-v5 M1: checked on the DE-ESCAPED text (a real shell removes the backslash before this hook would ever
   // see the result), never the raw text — an over-cautious side effect (a truly-literal escaped `\$`/`\*` now
   // reads as a bare, distrusted `$`/`*`) is acceptable and consistent with this file's own fail-toward-refuse
   // posture everywhere else; the alternative (checking raw text only) is what let an escaped marker hide.
@@ -145,7 +145,7 @@ function isLiteralToken(tok) {
  *  forge-config-cli.cjs (any path form: relative, absolute, quoted, bare basename, a full interpreter path,
  *  `env`-resolved, sudo/time/nohup-wrapped, with or without node CLI flags before the script), or null when
  *  this segment is not one OR when it cannot be read with FULL confidence (see below) — the caller
- *  (selfDisable) treats every null as "cannot read", never as "permitted".
+ *  (selfDisable) treats every null as "cannot read", never as "permitted" (V02).
  *
  *  Once the interpreter/script prefix is recognised, the REAL forge-config-cli.cjs::parseArgv() parses the
  *  remaining argv — the exact function the real CLI dispatches through, required directly so the two can
@@ -173,7 +173,7 @@ function parseConfigCall(segment) {
     while (tokens[i] && !tokens[i].quoted && /^[-/]/.test(tokens[i].v)) i++;
   }
   if (!tokens[i]) return null;
-  // `\` here may be a genuine PowerShell/Windows directory separator (real, meaningful, never an
+  // sec-v5 M1: `\` here may be a genuine PowerShell/Windows directory separator (real, meaningful, never an
   // escape in PowerShell) — de-escaping the WHOLE path before splitting would wrongly glue real path segments
   // together. Instead, try the RAW split first (handles every genuine path form, unchanged); only if that
   // fails, ALSO try de-escaping the full token THEN splitting (catches a Bash-escaped script name like
@@ -201,7 +201,7 @@ function parseConfigCall(segment) {
   }
   if (!CONFIG_CLI || typeof CONFIG_CLI.parseArgv !== 'function') return null; // cannot confidently parse -> ambiguous fallback
   const restTokens = tokens.slice(scriptEnd);
-  // de-escaped BEFORE parseArgv ever sees it, so `a.cmd`/`a.pos[]`/`a.once`/etc. all already reflect
+  // sec-v5 M1: de-escaped BEFORE parseArgv ever sees it, so `a.cmd`/`a.pos[]`/`a.once`/etc. all already reflect
   // what a real shell would actually pass to node — an escaped verb/key/value (`s\et`, `gate-h\ook`, `of\f`)
   // now compares correctly without any special-casing downstream (isSelfDisableCall/isOnceExempt are
   // unchanged; they already just compare these fields).
@@ -284,10 +284,26 @@ function hasNonLiteralConfigMutation(p) {
 /** selfDisable(seen) -> true when ANY segment of `seen` (the data-stripped text — a self-disable string quoted
  *  inside inert heredoc/echo/commit-message data must not itself trigger this) is a self-disabling forge-config
  *  call that is not the one exempt once-shape, OR a `set`/`unset` call with a non-literal key/value (M2, see
- *  hasNonLiteralConfigMutation above), OR a segment the strict parser could not read at all but whose
+ *  hasNonLiteralConfigMutation above), OR (V02) a segment the strict parser could not read at all but whose
  *  de-quoted text still plausibly names forge-config.cjs + gate-hook with a mutating verb — refused rather
  *  than silently treated as permission. */
+// FB-GATEHOOK-F4: the same switch reached through the LIBRARY instead of the CLI, e.g.
+// node -e "require('./.claude/forge-bin/forge-config.cjs').set('gate-hook','off')". Read over the whole text (an inline
+// script holds `;` and newlines): an interpreter, the forge-config module, a set/unset/main call and the gate-hook key.
+// A get()/explain() call stays allowed. A script FILE that does this is out of reach of a command-line check.
+const LIB_INTERP_RE = /(?:^|[\s"'\\/])(?:node|nodejs|deno|bun)(?:\.exe)?["']?\s/i;
+const LIB_MODULE_RE = /forge-config(?:-cli)?(?![\w-])/i;
+const LIB_CALL_RE = /\b(?:set|unset|main)\s*\(/;
+const LIB_KEY_RE = /gate-hook/i;
+const LIB_LOAD_RE = /\b(?:require|import)\s*\(|\bimport\s/; // the CLI form (and its --once quote) never loads a module
+function libraryCallSelfDisable(seen) {
+  const text = joinLineContinuations(seen);
+  return LIB_INTERP_RE.test(text) && LIB_LOAD_RE.test(text) && LIB_MODULE_RE.test(text) && LIB_CALL_RE.test(text)
+    && LIB_KEY_RE.test(text);
+}
+
 function selfDisable(seen) {
+  if (libraryCallSelfDisable(seen)) return true;
   for (const segment of splitForSelfDisable(seen)) {
     const parsed = parseConfigCall(segment);
     if (parsed) {
@@ -304,6 +320,6 @@ module.exports = {
   selfDisable, parseConfigCall, isSelfDisableCall, isOnceExempt, splitForSelfDisable,
   looksLikeAmbiguousConfigMutation, deglue, isNodeToken, OFF_WORDS, CONFIG_WRAPPER_RE, CONFIG_BASENAME_RE,
   CONFIG_MUTATING_CMDS, CONFIG_SPLIT_RE, joinLineContinuations, positionalTokenObjects, isLiteralToken,
-  hasNonLiteralConfigMutation, shellUnescapeForCompare,
+  hasNonLiteralConfigMutation, shellUnescapeForCompare, libraryCallSelfDisable,
   WRAPPER_BASENAME_RE, WRAPPER_LAUNCHER_RE, WRAPPER_CONFIG_SUBCOMMAND,
 };

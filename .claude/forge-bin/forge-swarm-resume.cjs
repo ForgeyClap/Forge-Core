@@ -44,9 +44,11 @@
  * wired here — see the SHARED-FILE RULE for this wave).
  *
  * CLI:
- *   node forge-swarm-resume.cjs --run <id> [--json]
+ *   node forge-swarm-resume.cjs --run <id> [--plan] [--holder <name>] [--reclaim] [--json]
+ *   node forge-swarm-resume.cjs --run <id> --refresh|--release --wp <wp_id> --token <lease_token> [--holder <name>]
  * Exit codes: 0 = complete (nothing to resume) · 3 = resumable (unfinished work packages remain, mirrors
- * forge-checkpoint.cjs's resume-plan convention) · 2 = usage error (bad run_id, or no manifest ever armed).
+ * forge-checkpoint.cjs's resume-plan convention) · 4 = NOT complete, but every unfinished WP is leased elsewhere
+ * (nothing to dispatch now) · 2 = usage error (bad run_id, or no manifest ever armed) · 1 = --refresh/--release refused.
  */
 const manifestMod = require('./forge-manifest.cjs');
 const fs = require('fs');
@@ -247,7 +249,7 @@ module.exports = { resume, claimWp, refreshWp, releaseWp, leaseFileOf };
 
 // ---- CLI ----
 function parseArgs(argv) {
-  const opts = { run: null, json: false, plan: false, reclaim: false, holder: null };
+  const opts = { run: null, json: false, plan: false, reclaim: false, holder: null, release: false, refresh: false, wp: null, token: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--run') opts.run = argv[++i];
@@ -255,15 +257,36 @@ function parseArgs(argv) {
     else if (a === '--plan') opts.plan = true;
     else if (a === '--reclaim') opts.reclaim = true;
     else if (a === '--holder') opts.holder = argv[++i];
+    else if (a === '--release') opts.release = true;
+    else if (a === '--refresh') opts.refresh = true;
+    else if (a === '--wp') opts.wp = argv[++i];
+    else if (a === '--token') opts.token = argv[++i];
   }
   return opts;
 }
-function printUsage() { console.error('Usage: node forge-swarm-resume.cjs --run <id> [--plan] [--holder <naam>] [--reclaim] [--json]\n  default = CLAIMENDE resume (r4 #5): unfinished bevat alleen NU door deze aanroep verworven WP-leases;\n  --plan = read-only droogloop zonder claims (dispatch hier NOOIT op);\n  --reclaim = expliciet recoveryprotocol voor een eigen (crash-)lease.'); }
+function printUsage() { console.error('Usage: node forge-swarm-resume.cjs --run <id> [--plan] [--holder <naam>] [--reclaim] [--json]\n       node forge-swarm-resume.cjs --run <id> --refresh|--release --wp <wp_id> --token <lease_token> [--holder <naam>]\n  default = CLAIMENDE resume (r4 #5): unfinished bevat alleen NU door deze aanroep verworven WP-leases;\n  --plan = read-only droogloop zonder claims (dispatch hier NOOIT op);\n  --reclaim = expliciet recoveryprotocol voor een eigen (crash-)lease;\n  --refresh = verleng een lease die langer loopt dan zijn TTL; --release = geef een WP direct vrij (token uit de claim-output).'); }
+/** FB-LANES-F7: the CLI claims under a holder built from its own (soon dead) PID, so the lease token it prints is the
+ *  proof of ownership: --refresh and --release take that token (the holder defaults to the one in the lease record). */
+function leaseCli(opts) {
+  if (!manifestMod.isValidRunId(opts.run) || !opts.wp || !opts.token) { printUsage(); return 2; }
+  let r;
+  if (opts.refresh) r = refreshWp({ run_id: opts.run, wp_id: opts.wp, token: opts.token }, {});
+  else {
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(leaseFileOf(rootOf({}), opts.run, opts.wp), 'utf8')); } catch { /* no lease: releaseWp says so */ }
+    if (rec && !rec.token && !opts.holder) { console.log('forge-swarm-resume · release geweigerd: deze lease heeft geen token, geef --holder'); return 1; }
+    r = releaseWp({ run_id: opts.run, wp_id: opts.wp, token: opts.token, holder: opts.holder || (rec && rec.holder) }, {});
+  }
+  if (opts.json) console.log(JSON.stringify(r));
+  else console.log('forge-swarm-resume · ' + opts.run + ' · ' + opts.wp + ' · ' + (opts.refresh ? (r.ok ? 'refreshed' : 'refresh refused') : (r.released ? 'released' : 'not released')) + (r.reason ? ' — ' + r.reason : ''));
+  return r.ok ? 0 : 1;
+}
 
 if (require.main === module) {
   const opts = parseArgs(process.argv.slice(2));
   try {
     if (!opts.run) { printUsage(); process.exitCode = 2; }
+    else if (opts.release || opts.refresh) process.exitCode = leaseCli(opts);
     else {
       // r4 #5: de CLI was een pure planner — twee gelijktijdige `--run`-aanroepen kregen
       // exact dezelfde unfinished-lijst en dispatchten dubbel. Uitvoerend resumen CLAIMT nu standaard;
@@ -273,13 +296,14 @@ if (require.main === module) {
       if (opts.json) {
         console.log(JSON.stringify(r));
       } else {
-        console.log('forge-swarm-resume · ' + r.run_id + (r.resumable ? ' · RESUMABLE' : ' · COMPLETE') + (opts.plan ? ' · PLAN-ONLY (geen claims — niet op dispatchen)' : ' · geclaimd door ' + holder));
+        // FB-LANES-F6: the label follows r.complete, so work leased elsewhere is never called COMPLETE
+        console.log('forge-swarm-resume · ' + r.run_id + (r.resumable ? ' · RESUMABLE' : r.complete ? ' · COMPLETE' : ' · LEASED-ELSEWHERE (NOT complete)') + (opts.plan ? ' · PLAN-ONLY (geen claims — niet op dispatchen)' : ' · geclaimd door ' + holder));
         console.log('  ' + r.plan);
         console.log('  done: ' + r.done.length + '  unfinished: ' + r.unfinished.length + (r.leased_elsewhere && r.leased_elsewhere.length ? '  leased_elsewhere: ' + r.leased_elsewhere.length : ''));
-        for (const w of r.unfinished) console.log('  [' + w.status + '] ' + w.wp_id + ' (' + w.agent + ') <- ' + w.narrowed_prompt);
+        for (const w of r.unfinished) console.log('  [' + w.status + '] ' + w.wp_id + ' (' + w.agent + ') <- ' + w.narrowed_prompt + (w.lease_token ? '  lease_token=' + w.lease_token : ''));
         if (r.leased_elsewhere) for (const l of r.leased_elsewhere) console.log('  [geleased] ' + l.wp_id + ' door ' + l.heldBy + (l.alreadyMine ? ' (eigen lease — gebruik --reclaim voor recovery)' : ''));
       }
-      process.exitCode = r.resumable ? 3 : 0;
+      process.exitCode = r.resumable ? 3 : (r.complete ? 0 : 4);
     }
   } catch (e) {
     console.error('forge-swarm-resume: ' + e.message);

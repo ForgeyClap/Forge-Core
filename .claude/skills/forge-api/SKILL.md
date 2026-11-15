@@ -24,7 +24,7 @@ description: "Playbook for APIs: REST, GraphQL, OpenAPI (gebruik bij een API)."
 Full text of every rule: `references/hard-rules.md`.
 
 ## Team (conditional)
-Lead: `architect` (owns the contract + resource model). Full roster: `references/team-and-tools.md`.
+Lead: `build-boss` (or `integration-boss` for service wiring); `architect` is an optional read-only design advisor (not a Boss) for the contract and resource model. Full roster: `references/team-and-tools.md`.
 
 ## Skills / commands / MCP
 Skills, commands, MCP and opt-in dependencies: `references/team-and-tools.md`.

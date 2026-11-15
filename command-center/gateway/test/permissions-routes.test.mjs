@@ -100,6 +100,8 @@ beforeEach(() => {
 });
 
 const conv = () => createConversation({ project: THIS_PROJECT_NAME, title: 'perm' }).id;
+// Round 11 (L3): GET pending and GET auto-log need the dashboard credential.
+const asDashboard = { headers: { [EXEC_TOKEN_HEADER]: getExecToken() } };
 const asAgent = (convId) => ({ headers: { [EXEC_TOKEN_HEADER]: issueAgentToken(convId) } });
 /** POST with the dashboard token (requestWithBody's default) unless opts override the header. */
 const post = (p, jsonBody, opts = {}) => requestWithBody(port, p, { jsonBody, ...opts });
@@ -111,7 +113,7 @@ test('request (agent) -> pending (with groups and rememberable) -> answer (dashb
   const id = created.json.id;
   assert.match(id, /^perm-/);
 
-  const listed = await request(port, '/api/permissions/pending?conversation=' + convId);
+  const listed = await request(port, '/api/permissions/pending?conversation=' + convId, asDashboard);
   assert.equal(listed.statusCode, 200);
   assert.equal(listed.json.pending.length, 1);
   assert.equal(listed.json.pending[0].summary_nl, '1 bestand verwijderen: index.html');
@@ -151,7 +153,7 @@ test('errors: unknown conversation 404, bad input 400, unknown field 400, unknow
   assert.equal((await post('/api/permissions/' + json.id + '/answer', { behavior: 'maybe' })).statusCode, 400);
   assert.equal((await post('/api/permissions/' + json.id + '/answer', { behavior: 'deny' })).statusCode, 200);
   assert.equal((await post('/api/permissions/' + json.id + '/answer', { behavior: 'allow' })).statusCode, 409);
-  assert.equal((await request(port, '/api/permissions/pending?conversation=..%2Fx')).statusCode, 400);
+  assert.equal((await request(port, '/api/permissions/pending?conversation=..%2Fx', asDashboard)).statusCode, 400);
 });
 
 test('REGRESSION (Step 1a): request and wait accept ONLY the agent token; answer accepts ONLY the dashboard token; each wrong kind is a 403 with its own code', async () => {
@@ -179,7 +181,8 @@ test('REGRESSION (Step 1a): request and wait accept ONLY the agent token; answer
 
   const real = await post('/api/permissions/' + json.id + '/answer', { behavior: 'deny' });
   assert.equal(real.statusCode, 200, 'a refused attempt never consumed the card');
-  assert.equal((await request(port, '/api/permissions/pending')).statusCode, 200, 'GET pending needs no token');
+  assert.equal((await request(port, '/api/permissions/pending')).statusCode, 403, 'GET pending needs the dashboard credential (round 11)');
+  assert.equal((await request(port, '/api/permissions/pending', asDashboard)).statusCode, 200);
 });
 
 test('REGRESSION (Step 1a): the agent token is bound to its conversation (request 403, wait 404 for another conversation)', async () => {
@@ -204,14 +207,19 @@ test('the trust routes are NOT registered: POST is not a write route (405), GET 
   assert.equal(isProjectTrusted(PROJECT_ROOT), false);
 });
 
-test('REGISTERED_ROUTES is exactly request, pending, wait, answer; isPermissionWriteRoute covers exactly its three POST paths', () => {
+test('REGISTERED_ROUTES is exactly request, pending, wait, answer, autonomy (GET, PUT), auto-log; isPermissionWriteRoute covers exactly its three POST paths', () => {
   const rows = permissions.REGISTERED_ROUTES.map(([m, p, h]) => [m, typeof p === 'string' ? p : p.source, h]);
   assert.deepEqual(rows, [
     ['POST', '/api/permissions/request', 'request'],
     ['GET', '/api/permissions/pending', 'pending'],
     ['POST', '^\\/api\\/permissions\\/([^/]+)\\/wait$', 'wait'],
     ['POST', '^\\/api\\/permissions\\/([^/]+)\\/answer$', 'answer'],
+    // WP-AUTONOMY-GW (owner decision R-0203), added deliberately on 2026-11-09
+    ['GET', '/api/permissions/autonomy', 'autonomyGet'],
+    ['PUT', '/api/permissions/autonomy', 'autonomyPut'],
+    ['GET', '/api/permissions/auto-log', 'autoLog'],
   ]);
+  assert.equal(permissions.isPermissionWriteRoute('/api/permissions/autonomy'), false, 'the autonomy PUT is allowed by its own method guard, never as a POST');
   assert.equal(rows.some(([, p, h]) => /trust/.test(p) || /trust/.test(h)), false);
   assert.ok(permissions.isPermissionWriteRoute('/api/permissions/request'));
   assert.ok(permissions.isPermissionWriteRoute('/api/permissions/perm-1/wait'));

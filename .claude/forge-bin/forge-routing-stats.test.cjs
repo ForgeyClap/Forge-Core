@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-routing-stats.test.cjs - hermetic tests for forge-routing-stats.cjs (`/forge stats`, WP 3.5).
  * Synthetic runs in BOTH layouts (legacy .claude/forge-runs and opt-in .forge/runs), partial and corrupt runs,
@@ -48,7 +52,7 @@ const json = (root, extra) => { const r = runMain(['--root', root, '--json'].con
 // ---- legacy fixture ----
 const LEG = path.join(TMP, 'legacy');
 const LEG_RUNS = path.join(LEG, '.claude', 'forge-runs');
-// planned deep, ACTUALLY ran build (the GOAT honesty case) + one package with only an intended route.
+// r1: planned deep, ACTUALLY ran build (the GOAT honesty case) + one package with only an intended route.
 mkRun(LEG_RUNS, 'r1-plan-vs-used', [
   ev('run_started'),
   ev('agent_work_package_created', { agent: 'orchestrator', wp_id: 'wp1', route: 'deep', model: 'opus', effort: 'xhigh' }),
@@ -60,7 +64,7 @@ mkRun(LEG_RUNS, 'r1-plan-vs-used', [
 mkRun(LEG_RUNS, 'r2-partial', null); // run.json only, no events.jsonl
 mkRun(LEG_RUNS, 'r3-one-bad-line', JSON.stringify(ev('run_started')) + '\n{"event_type": "agent_note", broken\n' + JSON.stringify(ev('run_completed')) + '\n');
 mkRun(LEG_RUNS, 'r4-all-garbage', 'not json\n{also not\n');
-// escalation chain: deep FAIL -> escalate -> FAIL again (second FAIL).
+// r5: escalation chain: deep FAIL -> escalate -> FAIL again (second FAIL).
 mkRun(LEG_RUNS, 'r5-escalation', [
   ev('agent_work_package_created', { agent: 'build-boss', wp_id: 'wp3', route: 'deep' }),
   ev('wp_completed', { agent: 'build-boss', wp_id: 'wp3', route: 'deep', model: 'opus', effort: 'xhigh' }),
@@ -68,7 +72,7 @@ mkRun(LEG_RUNS, 'r5-escalation', [
   ev('escalation', { agent: 'orchestrator', wp_id: 'wp3', from: 'deep', to: 'escalate', reason: 'capability' }),
   ev('wp_verified', { agent: 'verify-boss', wp_id: 'wp3', verdict: 'FAIL', area: 'tests' }),
 ]);
-// per-area verdicts: PASS(x) PASS(y) FAIL(y) = 1 contradicted; PASS(x) then FAIL(z) on another package = 0.
+// r6: per-area verdicts: PASS(x) PASS(y) FAIL(y) = 1 contradicted; PASS(x) then FAIL(z) on another package = 0.
 mkRun(LEG_RUNS, 'r6-areas', [
   ev('wp_verified', { agent: 'verify-boss', wp_id: 'wp4', verdict: 'PASS', area: 'x' }),
   ev('wp_verified', { agent: 'verify-boss', wp_id: 'wp4', verdict: 'PASS', area: 'y' }),

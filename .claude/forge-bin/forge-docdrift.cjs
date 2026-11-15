@@ -63,7 +63,8 @@
  *   node forge-docdrift.cjs check [--source <id>] [--json] [--run <run_id>] [--root <dir>]
  * Exit codes: 0 = ran (any mix of OK/DRIFT/UNREACHABLE is still success — this tool is advisory, never a
  * build gate) · 1 = a real error while checking · 2 = usage/config error (bad args, malformed config, unknown
- * --source id).
+ * --source id). With the config switch `docdrift` off, `check` prints one line and exits 0 before reading,
+ * fetching or writing anything (SK-8-F3); the module API (checkAll) does not read the switch.
  */
 const fs = require('fs');
 const path = require('path');
@@ -103,14 +104,14 @@ function readStatePath(root) {
 // SSRF hardening — every real network attempt this file ever
 // makes goes through defaultFetcher() below, so all of this lives here, not scattered per-caller.
 // ---------------------------------------------------------------------------
-// response-body byte cap; destroyed mid-stream on exceed. Deliberately 4MB, not the 512KB
+// F11 — response-body byte cap; destroyed mid-stream on exceed. Deliberately 4MB, not the 512KB
 // first proposed: a REAL live check (run by hand against all 8 seeded sources) measured the two
 // actual doc pages this tool fetches at ~1.04MB (docs.anthropic.com, redirected to code.claude.com)
 // and ~0.94MB (docs.n8n.io) — a 512KB cap turned every one of those 8 real, previously-OK checks
 // into a false UNREACHABLE. 4MB keeps real headroom above today's measured page sizes (~4x) while
 // still bounding memory to a small, safe amount per fetch (the PRIOR code had NO cap at all).
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
-const DEFAULT_DEADLINE_MS = 20000; // absolute wall-clock cap across the WHOLE redirect chain
+const DEFAULT_DEADLINE_MS = 20000; // F11 — absolute wall-clock cap across the WHOLE redirect chain
 
 /** Numeric (unsigned 32-bit) value of a dotted-quad IPv4 string's 4 captured octets. */
 function ipv4ToLong(parts) { return ((+parts[0]) << 24 | (+parts[1]) << 16 | (+parts[2]) << 8 | (+parts[3])) >>> 0; }
@@ -162,7 +163,7 @@ function defaultResolver(hostname) {
   });
 }
 /** checkHostAllowed(hostname, resolverFn) -> {ok, reason?}. Resolves `hostname` and blocks it if ANY
- *  returned address is private/loopback/link-local. Called for the initial URL AND every redirect
+ *  returned address is private/loopback/link-local (F10). Called for the initial URL AND every redirect
  *  hop — never just the first — so a redirect cannot smuggle a request to an internal address. */
 async function checkHostAllowed(hostname, resolverFn) {
   let addresses;
@@ -252,9 +253,9 @@ function defaultFetcher(url, opts) {
   opts = opts || {};
   const timeoutMs = opts.timeoutMs || 10000;
   const maxRedirects = opts.maxRedirects != null ? opts.maxRedirects : 5;
-  const deadlineMs = opts.deadlineMs || DEFAULT_DEADLINE_MS; // absolute cap, the WHOLE chain
-  const maxBodyBytes = opts.maxBodyBytes || MAX_BODY_BYTES; // response-body byte cap
-  const allowHttp = !!opts.allowHttp; // HTTPS-only by default; test-only escape hatch
+  const deadlineMs = opts.deadlineMs || DEFAULT_DEADLINE_MS; // F11 — absolute cap, the WHOLE chain
+  const maxBodyBytes = opts.maxBodyBytes || MAX_BODY_BYTES; // F11 — response-body byte cap
+  const allowHttp = !!opts.allowHttp; // F12 — HTTPS-only by default; test-only escape hatch
   // TEST-ONLY seams (never set by any real caller in this file): `resolver` replaces the real DNS
   // lookup used for the private-IP check; `connectLookup` replaces the address the ACTUAL socket
   // connects to (so a hermetic test can point a fake public hostname at a real local fixture server
@@ -294,13 +295,13 @@ function defaultFetcher(url, opts) {
       if (parsed.protocol === 'http:' && !allowHttp) {
         return settle({ reachable: false, status: null, body: '', finalUrl: u, error: 'http (non-TLS) is blocked by default — source_url must be https://...' });
       }
-      // an https->http hop is always refused, independent of allowHttp: a downgrade mid-chain
+      // F12 — an https->http hop is always refused, independent of allowHttp: a downgrade mid-chain
       // is a distinct threat (a compromised/careless redirect silently stripping TLS) from "this whole
       // check was configured to allow plain http from the start."
       if (prevProtocol === 'https:' && parsed.protocol === 'http:') {
         return settle({ reachable: false, status: null, body: '', finalUrl: u, error: 'refusing an HTTPS→HTTP downgrade redirect to ' + u });
       }
-      const hostCheck = await checkHostAllowed(parsed.hostname, resolverFn); // every hop, not just the first
+      const hostCheck = await checkHostAllowed(parsed.hostname, resolverFn); // F10 — every hop, not just the first
       if (settled) return;
       if (!hostCheck.ok) {
         return settle({ reachable: false, status: null, body: '', finalUrl: u, error: hostCheck.reason });
@@ -334,7 +335,7 @@ function defaultFetcher(url, opts) {
             bytes += d.length;
             if (bytes > maxBodyBytes) {
               overflowed = true;
-              res.destroy(); // stop buffering immediately, never hold the whole oversize body in memory
+              res.destroy(); // F11 — stop buffering immediately, never hold the whole oversize body in memory
               return settle({ reachable: false, status: res.statusCode, body: '', finalUrl: u, error: 'response body exceeded the ' + maxBodyBytes + '-byte cap; destroyed mid-stream' });
             }
             body += d;
@@ -472,7 +473,7 @@ module.exports = {
   loadSources, loadState, saveState, appendLedgerEntry, readLedger,
   defaultFetcher, checkOne, checkAll, tally, logDriftEvents,
   DEFAULT_CONFIG_PATH, defaultStatePath, defaultLedgerPath, readStatePath, PROJECT_ROOT_DEFAULT,
-  // SSRF-hardening seams — exported for direct hermetic unit testing.
+  // SSRF-hardening seams (F10/F11/F12) — exported for direct hermetic unit testing.
   isPrivateOrLoopbackIp, checkHostAllowed, defaultResolver, MAX_BODY_BYTES, DEFAULT_DEADLINE_MS,
 };
 
@@ -494,6 +495,14 @@ function parseArgs(argv) {
 function printUsage() {
   console.error('Usage: node forge-docdrift.cjs check [--source <id>] [--json] [--run <run_id>] [--root <dir>]');
 }
+/** docdriftOn(root) -> the `docdrift` config switch (schema default on). A missing forge-config.cjs keeps the
+ *  default; a damaged settings file resolves through forge-config's own safeGet. */
+function docdriftOn(root) {
+  let cfg = null;
+  try { cfg = require('./forge-config.cjs'); } catch { return true; }
+  const r = cfg.safeGet('docdrift', { projectRoot: root || undefined, fallback: true });
+  return !(r && r.value === false);
+}
 function formatResults(out) {
   const lines = ['forge-docdrift — checked ' + out.results.length + ' source(s) @ ' + out.checked_at];
   for (const r of out.results) {
@@ -511,6 +520,10 @@ if (require.main === module) {
     console.error('forge-docdrift: ' + args.usageError);
     printUsage();
     process.exitCode = 2;
+  } else if (args.cmd === 'check' && !docdriftOn(args.root ? path.resolve(args.root) : PROJECT_ROOT_DEFAULT)) {
+    // SK-8-F3: the config switch is honoured before any source is read, fetched or written
+    console.log('forge-docdrift: off (config docdrift); nothing checked. Turn it back on with /forge config set docdrift on');
+    process.exitCode = 0;
   } else if (args.cmd === 'check') {
     const root = args.root ? path.resolve(args.root) : PROJECT_ROOT_DEFAULT;
     checkAll({ root, sourceId: args.source, runId: args.run })

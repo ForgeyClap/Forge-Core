@@ -190,7 +190,7 @@ export function JobDetailPanel({ row, detail, onBack, focusProof = false }: JobD
   const proofSectionRef = useRef<HTMLElement>(null);
   const ready = detail.status === 'ready';
   const proofOnPage = ready && hasRealProof(detail.value);
-  // tick Start's proof step once a real proof is in view, not when the klus merely opens.
+  // F5: tick Start's proof step once a real proof is in view, not when the klus merely opens.
   useEffect(() => {
     const section = proofSectionRef.current;
     if (!proofOnPage || section === null || typeof IntersectionObserver === 'undefined') return undefined;

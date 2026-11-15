@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-evidence.test.cjs — real tests for the required-evidence gate (piece C2).
 // Proves the core honesty property both ways: a website run WITHOUT the required responsive-screenshot
 // artifacts is reported missing/not-ok, and the SAME run WITH real artifact/event evidence supplied is
@@ -333,10 +337,30 @@ t('CLI check with no evidence supplied for website exits 3 and lists missing ids
   assert.ok(r.stdout.includes('MISSING EVIDENCE'));
   assert.ok(r.stdout.includes('responsive-screenshot-mobile'));
 });
-t('CLI check with full evidence for scraping exits 0', () => {
+// FB-FINALIZE-1-F2: without a run folder the CLI can only match NAMES; that is never reported as OK.
+t('CLI check with names only (no --run) exits 3 and says UNVERIFIED (names only), never OK', () => {
   const r = runCLI(['check', '--domain', 'scraping', '--artifacts', 'notes/robots-check.md']);
-  assert.strictEqual(r.status, 0);
-  assert.ok(r.stdout.includes('OK'));
+  assert.strictEqual(r.status, 3);
+  assert.ok(r.stdout.includes('UNVERIFIED (names only)'), r.stdout);
+  assert.ok(!/^OK/m.test(r.stdout), r.stdout);
+});
+t('CLI check: the audit #4 fabricated screenshot path is not OK from the command line', () => {
+  const r = runCLI(['check', '--domain', 'website', '--artifacts', 'fake/mobile-tablet-desktop-zero-console-375-768-1440.png']);
+  assert.notStrictEqual(r.status, 0);
+});
+t('CLI check --run/--root: a real non-empty file in the run folder satisfies, exit 0 and OK', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-cli-'));
+  try {
+    const dir = path.join(root, '.claude', 'forge-runs', 'run-ev1');
+    fs.mkdirSync(path.join(dir, 'notes'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'notes', 'robots-check.md'), 'robots.txt allows /public\n');
+    fs.writeFileSync(path.join(dir, 'events.jsonl'), JSON.stringify({ event_type: 'run_started' }) + '\n');
+    const ok = runCLI(['check', '--domain', 'scraping', '--artifacts', 'notes/robots-check.md', '--run', 'run-ev1', '--root', root]);
+    assert.strictEqual(ok.status, 0, ok.stdout + ok.stderr);
+    assert.ok(/^OK/m.test(ok.stdout), ok.stdout);
+    const fake = runCLI(['check', '--domain', 'scraping', '--artifacts', 'notes/not-there.md', '--run', 'run-ev1', '--root', root]);
+    assert.strictEqual(fake.status, 3, fake.stdout);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 t('CLI check --json prints a parseable result object', () => {
   const r = runCLI(['check', '--domain', 'n8n', '--events', 'workflow_validated,workflow_imported_inactive', '--json']);
@@ -467,6 +491,25 @@ t('CLI with no command at all exits 2', () => {
     fs3.writeFileSync(outside, 'PNGDATA');
     const r = evidence.check({ domain: 'website', artifacts: [outside], events: [] }, { runDir });
     assert.ok(!r.satisfied.includes('responsive-screenshot-mobile'), 'an artifact outside the run was accepted');
+  });
+
+  t('CF-4-F3: an absolute screenshot path is matched by its place in the run, not by the folders above it', () => {
+    const base = fs3.mkdtempSync(path3.join(os3.tmpdir(), 'evidence-abs-'));
+    const run = path3.join(base, 'Users', 'x', 'Desktop', 'proj', '.claude', 'forge-runs', 'forge-2026-11-12-132045');
+    fs3.mkdirSync(run, { recursive: true });
+    const shot = path3.join(run, 'tablet-768.png');
+    fs3.writeFileSync(shot, 'PNGDATA');
+    const r = evidence.check({ domain: 'website', artifacts: [shot], events: [] }, { runDir: run });
+    assert.ok(r.satisfied.includes('responsive-screenshot-tablet'), JSON.stringify(r));
+    assert.ok(!r.satisfied.includes('responsive-screenshot-desktop'), 'the Desktop folder above the run counted as a desktop screenshot: ' + JSON.stringify(r));
+    assert.ok(!r.satisfied.includes('responsive-screenshot-mobile'), 'the run id (…132045 holds 320) counted as a mobile screenshot: ' + JSON.stringify(r));
+    fs3.rmSync(base, { recursive: true, force: true }); // this test's own mkdtemp fixture
+  });
+
+  t('CF-4-F3: without a run directory an absolute claim is matched by its file name only', () => {
+    const r = evidence.check({ domain: 'website', artifacts: ['C:\\Users\\x\\Desktop\\proj\\shots\\tablet-768.png'], events: [] });
+    assert.ok(r.satisfied.includes('responsive-screenshot-tablet'), JSON.stringify(r));
+    assert.ok(!r.satisfied.includes('responsive-screenshot-desktop'), JSON.stringify(r));
   });
 
   t('without a run directory the result HONESTLY reports that nothing was verified', () => {

@@ -294,7 +294,7 @@ const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } 
       '  const E = process.env;',
       '  out.env = { base: E.NVIDIA_BASE_URL || null, allow: E.NVIDIA_ALLOW_CUSTOM_BASE_URL || null, nodeOptions: E.NODE_OPTIONS || null,',
       '    other: E.WP20_OTHER_SECRET || null, fastModel: E.NVIDIA_FAST_MODEL || null, hasKey: !!E.NVIDIA_API_KEY };',
-      '  out.config = { baseUrl: P.CONFIG.baseUrl, baseUrlError: P.CONFIG.baseUrlError };',
+      '  out.config = { baseUrl: P.CONFIG.baseUrl, baseUrlError: P.CONFIG.baseUrlError, fastModel: P.modelForRole("fast") };',
       '  out.calls = calls;',
       '  process.stdout.write(JSON.stringify(out));',
       '})().catch((e) => { process.stdout.write(JSON.stringify({ uncaught: String((e && e.message) || e) })); process.exitCode = 1; });',
@@ -309,7 +309,7 @@ const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } 
     delete e.NODE_OPTIONS; delete e.WP20_OTHER_SECRET;
     return e;
   };
-  // the REAL provider + the real forge-config, with a key present — so ON really calls fetch (the control arm).
+  // M4: the REAL provider + the real forge-config, with a key present — so ON really calls fetch (the control arm).
   const realEnv = (root) => baseEnv({ NVIDIA_API_KEY: FAKE_KEY, NVIDIA_SKIP_ENV_FILES: '1', FORGE_PROJECT_ROOT: root, FORGE_CONFIG_HOME: CONFIG_HOME });
   const offProbe = probe(CLI, realEnv(OFF_ROOT));
   t('M4 spy: nvidia=false + a key → health() is {ok:false, mode:"off", reason} with ZERO fetch calls',
@@ -319,15 +319,20 @@ const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } 
   const onProbe = probe(CLI, realEnv(ON_ROOT));
   t('M4 spy control: nvidia=true + a key → health() really calls fetch (the spy sees live-shaped calls)', !!onProbe.health && onProbe.health.ok === true && onProbe.healthCalls >= 1 && onProbe.calls.every((c) => c.keyInAuth));
 
-  // a COPY of the provider in a temp project, so a project .env and a global nvidia.env can be staged for real.
+  // M5: a COPY of the provider in a temp project, so a project .env and a global nvidia.env can be staged for real.
   // The copy has no forge-config.cjs next to it (switch = unreadable = OFF), so the assertions use health({force}).
-  const m5 = (files, extra) => {
+  const m5 = (files, extra, withMatrix) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nvidia-m5-'));
     const bin = path.join(root, 'proj', '.claude', 'forge-bin');
     const home = path.join(root, 'home');
     fs.mkdirSync(bin, { recursive: true });
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
     fs.copyFileSync(CLI, path.join(bin, 'nvidia-provider.cjs'));
+    if (withMatrix) { // the model roles live in the matrix next to the provider (CONFIG_DIR)
+      const mdir = path.join(root, 'proj', '.claude', 'config', 'models');
+      fs.mkdirSync(mdir, { recursive: true });
+      fs.copyFileSync(path.join(__dirname, '..', 'config', 'models', 'model-capability-matrix.json'), path.join(mdir, 'model-capability-matrix.json'));
+    }
     if (files.project) fs.writeFileSync(path.join(root, 'proj', '.env'), files.project);
     if (files.global) fs.writeFileSync(path.join(home, '.claude', 'nvidia.env'), files.global);
     const out = probe(path.join(bin, 'nvidia-provider.cjs'), baseEnv(Object.assign({ HOME: home, USERPROFILE: home, FORGE_CONFIG_HOME: path.join(home, '.claude'), FORGE_PROJECT_ROOT: path.join(root, 'proj') }, extra || {})));
@@ -335,11 +340,14 @@ const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } 
     return out;
   };
   const globalKey = 'NVIDIA_API_KEY=' + FAKE_KEY + '\n';
-  const k1 = m5({ project: 'NVIDIA_BASE_URL=https://evil.example/v1\nNVIDIA_ALLOW_CUSTOM_BASE_URL=1\nNODE_OPTIONS=--inspect\nWP20_OTHER_SECRET=x\nNVIDIA_FAST_MODEL=proj/model\n', global: globalKey });
+  const k1 = m5({ project: 'NVIDIA_BASE_URL=https://evil.example/v1\nNVIDIA_ALLOW_CUSTOM_BASE_URL=1\nNODE_OPTIONS=--inspect\nWP20_OTHER_SECRET=x\nNVIDIA_FAST_MODEL=proj/model\n', global: globalKey }, undefined, true);
   t('M5: a project .env base URL + allow flag is IGNORED — the global key only ever goes to integrate.api.nvidia.com',
     !!k1.forced && k1.forced.ok === true && k1.calls.length >= 1 && k1.calls.every((c) => c.url.startsWith('https://integrate.api.nvidia.com/v1/') && c.keyInAuth) && !k1.calls.some((c) => /evil\.example/.test(c.url)));
-  t('M5: a project .env can set only NVIDIA_API_KEY / NVIDIA_*_MODEL (base URL, allow flag, NODE_OPTIONS, other names never reach process.env)',
-    !!k1.env && k1.env.base === null && k1.env.allow === null && k1.env.nodeOptions === null && k1.env.other === null && k1.env.fastModel === 'proj/model' && k1.env.hasKey === true);
+  t('M5: a project .env can set only NVIDIA_API_KEY / NVIDIA_*_MODEL (base URL, allow flag, NODE_OPTIONS, other names are never used)',
+    !!k1.env && k1.env.base === null && k1.env.allow === null && k1.env.nodeOptions === null && k1.env.other === null && !!k1.config && k1.config.fastModel === 'proj/model');
+  // FB-USAGE-F7: file values stay module-private, so a child process this one starts never inherits the key
+  t('FB-USAGE-F7: loading the provider leaves process.env untouched (no key, no model copied in from a file)',
+    !!k1.env && k1.env.hasKey === false && k1.env.fastModel === null && k1.forced && k1.forced.ok === true && k1.calls.every((c) => c.keyInAuth));
   const k2 = m5({ global: globalKey + 'NVIDIA_BASE_URL=http://127.0.0.1:9/v1\n' });
   t('M5: a plain-http base URL (even from the global file) is REFUSED with a plain reason and ZERO requests',
     !!k2.forced && k2.forced.ok === false && k2.forced.mode === 'refused' && /must use https:/.test(k2.forced.reason) && k2.calls.length === 0 && k2.config.baseUrl === '');
@@ -374,14 +382,14 @@ const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } 
     && cb('http://127.0.0.1:9/v1', true).ok === true && cb('https://integrate.api.nvidia.com/v1/', false).url === 'https://integrate.api.nvidia.com/v1');
   t('checkBaseUrl: userinfo/query/fragment are refused REGARDLESS of allowCustom (NVIDIA-URL-LEAK)',
     cb('https://integrate.api.nvidia.com/v1?api_key=SYNTHETICKEY', false).ok === false
-    && cb('https://user:pass@integrate.api.nvidia.com/v1', false).ok === false
+    && cb('https://user:pass@integrate.api.nvidia.com/v1', false).ok === false // FAKE test fixture (reviewed for the public release verify)
     && cb('https://integrate.api.nvidia.com/v1#frag', false).ok === false
-    && cb('https://user:pass@127.0.0.1:9/v1', true).ok === false
+    && cb('https://user:pass@127.0.0.1:9/v1', true).ok === false // FAKE test fixture (reviewed for the public release verify)
     && cb('http://127.0.0.1:9/v1?leak=1', true).ok === false);
   t('checkBaseUrl: no rejection reason ever echoes the raw untrusted input verbatim',
     !/SYNTHETICKEY|user:pass|evil\.example/.test([
       cb('https://integrate.api.nvidia.com/v1?api_key=SYNTHETICKEY', false).reason,
-      cb('https://user:pass@integrate.api.nvidia.com/v1', false).reason,
+      cb('https://user:pass@integrate.api.nvidia.com/v1', false).reason, // FAKE test fixture (reviewed for the public release verify)
       cb('https://evil.example/v1', false).reason,
     ].join(' | ')));
 
@@ -595,6 +603,33 @@ const t = (name, cond) => { if (cond) { pass++; console.log('  ok  ' + name); } 
   try { fs.rmSync(verifyStubDir, { recursive: true, force: true }); } catch { /* best effort */ }
   t('V16 canary: CLI `models --verify` never prints the leaked-key-shaped NVIDIA_CODING_MODEL override in stdout/stderr',
     !/V16CANARYLEAKEDMODELNAME/.test((verifyOut.stdout || '') + (verifyOut.stderr || '')) && /\*\*\*MASKED\*\*\*/.test(verifyOut.stdout || ''));
+
+  // CF-4-F1: a KNOWN agent in neither usagePolicy list is Claude-first (claude-first-skip), never the
+  // unblocked 'unclassified'. Real map: every agents key resolves to a named policy.
+  {
+    const named = new Set(['claude-first-skip', 'nvidia-bulk-only']);
+    const realMap = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'agents', 'agent-model-map.json'), 'utf8'));
+    const unnamed = Object.keys(realMap.agents).filter((k) => !named.has(P.routeFor(k).policy));
+    t('CF-4-F1 every agent in agent-model-map.json resolves to a named policy', unnamed.length === 0, unnamed.join(','));
+    // A copy of the real module beside a fixture map: agent "charlie" is known but in neither list.
+    const fx = fs.mkdtempSync(path.join(os.tmpdir(), 'nvidia-policyfx-'));
+    try {
+      fs.mkdirSync(path.join(fx, 'forge-bin')); fs.mkdirSync(path.join(fx, 'config', 'agents'), { recursive: true });
+      fs.copyFileSync(path.join(__dirname, 'nvidia-provider.cjs'), path.join(fx, 'forge-bin', 'nvidia-provider.cjs'));
+      const agent = { claudeTier: 'sonnet', nvidia: 'default', why: 'fixture' };
+      fs.writeFileSync(path.join(fx, 'config', 'agents', 'agent-model-map.json'), JSON.stringify({
+        agents: { alpha: agent, bravo: agent, charlie: agent },
+        usagePolicy: { claudeWinsSkipNvidia: { roles: ['alpha'] }, nvidiaForBulkOnly: { roles: ['bravo'] } },
+      }));
+      const probe = "const P=require(process.argv[1]);process.stdout.write(JSON.stringify(['alpha','bravo','charlie'].map((a)=>P.routeFor(a)).map((r)=>[r.policy,r.allowed])))";
+      const out = spawnSync(process.execPath, ['-e', probe, path.join(fx, 'forge-bin', 'nvidia-provider.cjs')],
+        { encoding: 'utf8', timeout: 30000, env: Object.assign({}, process.env, { NVIDIA_API_KEY: '', NVIDIA_SKIP_ENV_FILES: '1' }) });
+      let got = null; try { got = JSON.parse(out.stdout); } catch { got = null; }
+      t('CF-4-F1 a known agent in neither list is claude-first-skip and not allowed (fixture map, copy of the real module)',
+        !!got && got[0][0] === 'claude-first-skip' && got[1][0] === 'nvidia-bulk-only' && got[2][0] === 'claude-first-skip' && got[2][1] === false,
+        (out.stdout || '') + (out.stderr || ''));
+    } finally { fs.rmSync(fx, { recursive: true, force: true }); }
+  }
 
   for (const d of [CONFIG_HOME, EMPTY_PROJECT, OFF_ROOT, ON_ROOT, BROKEN_ROOT]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 

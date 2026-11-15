@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic, real-CLI tests for forge-promptcheck.cjs (WP-PROMPTCHECK). Every case runs the actual CLI
  *  via spawnSync (never requires the module directly for assertions) so exit codes / stdout / logged
  *  events are proven, not assumed (the `ask` section adds ONE direct check of the exported pure scoreAsk,
@@ -367,11 +371,11 @@ const ASK_EN_CLEAR = 'Add a search button to src/components/Header.astro in the 
   t('ask23: an outward action (F13) always gets its question — even on a CLEAR score, and exits 3 so the caller asks it (review-boss M2)', outward.r.status === 3 && !!outward.parsed && outward.parsed.verdict === 'CLEAR' && outward.parsed.nextQuestion && outward.parsed.nextQuestion.id === 'F13' && outward.parsed.suggested_question.nl === 'Moet Forge echt versturen, of eerst klaarzetten?');
   const q = outward.parsed && outward.parsed.nextQuestion;
   t('ask23: nextQuestion shape — id, nl, en, options {key, label:{nl,en}} with exactly one recommended (A) plus a way out, bilingual assume', !!q && q.nl && q.en && q.recommended === 'A' && q.options.filter((o) => o.recommended).map((o) => o.key).join() === 'A' && q.options.every((o) => isBilingual(o.label)) && q.options.some((o) => o.label.nl === 'iets anders' && o.label.en === 'something else') && isBilingual(q.assume));
-  const multi = runAsk(['website en chatbot', '--json']).parsed; // VAGUE, so the top gap is asked
+  const multi = runAsk(['website en chatbot', '--json']).parsed; // VAGUE, so the top gap (F5) is asked
   t('ask23: F5 options are the detected deliverables in order (first one recommended) plus "iets anders"', !!multi && multi.nextQuestion && multi.nextQuestion.id === 'F5' && multi.nextQuestion.options.map((o) => o.key + ':' + o.label.nl + ':' + o.recommended).join('|') === 'A:website:true|B:chatbot:false|C:iets anders:false');
 }
 
-// ---- 24) wp18: skill ranking, --midrun, false-positive guards, bilingual contract, live examples, the split ----
+// ---- 24) wp18: skill ranking, --midrun (F12), false-positive guards, bilingual contract, live examples, the split ----
 {
   const ask = (text, extra) => runAsk([text, '--json'].concat(extra || [])).parsed;
   const RANK = ['F13', 'F9', 'F8', 'F5', 'F7', 'F3', 'F4', 'F1', 'F11', 'F10', 'F6', 'F2', 'F12'];
@@ -404,6 +408,18 @@ const ASK_EN_CLEAR = 'Add a search button to src/components/Header.astro in the 
   t('ask24 F7: Bol.com matches as a word', gapsOf2('Maak een winkel zoals Bol.com voor tweedehands boeken.').includes('F7'));
   t('ask24 F7: "bol" inside a word (bolletje, symbolen) stays quiet', !gapsOf2('Maak een pagina met een bolletje-animatie en symbolen voor mijn klanten.').includes('F7'));
   t('ask24 F13: a negated pay verb ("zonder online betalen") is not an outward action', !gapsOf2('Bouw een webshop voor mijn klanten zonder online betalen. Klaar als de productpagina werkt.').includes('F13'));
+  // FB-SCRIBE-1-F7: mail/email/post as a noun is no outward action; "alleen"/"first" alone is no limit.
+  for (const text of ['Voeg een email veld toe aan het contactformulier in src/pages/contact.astro, klaar als de test slaagt.',
+    'Maak een POST endpoint voor het contactformulier in de bestaande API. Klaar als de test slaagt.',
+    'Bouw een blog post pagina voor de bakkerij. Klaar als hij op mobiel werkt.']) {
+    t('ask24 F13: a noun ("' + text.slice(0, 32) + '") is not an outward action', !gapsOf2(text).includes('F13'));
+  }
+  for (const text of ['Verstuur de nieuwsbrief nu naar alle 5000 klanten, alleen de NL lijst.',
+    'Publish the site to production and email all customers first thing.',
+    'Mail de klanten dat de winkel morgen dicht is.']) {
+    t('ask24 F13: a real send ("' + text.slice(0, 32) + '") still asks, a bare "alleen"/"first" is no limit', gapsOf2(text).includes('F13'));
+  }
+  t('ask24 F13: an explicit limit ("eerst klaarzetten") keeps it quiet', !gapsOf2('Verstuur de nieuwsbrief aan alle klanten, maar eerst klaarzetten als concept.').includes('F13'));
   t('ask24 F11: "sinds de update" is a noun, not a change intent', !gapsOf2('De checkout werkt niet meer sinds de update van gisteren.').includes('F11'));
   t('ask24 F4: a tech name as existing context ("in de bestaande React-app") is not a solution-instead-of-outcome', !gapsOf2('Voeg in de bestaande React-app een zoekveld toe aan de header. Klaar als het werkt.').includes('F4'));
   const silent = ask('Ik wil weer een nieuwe website voor de bakkerij in Utrecht.');
@@ -485,6 +501,25 @@ const ASK_EN_CLEAR = 'Add a search button to src/components/Header.astro in the 
   t('pi5: empty request -> exit 2 (usage), nothing printed on stdout', (() => { const r = runCli(['plan-input', '   ']); return r.status === 2 && r.stdout === ''; })());
   t('pi5: text AND --file -> exit 2', runCli(['plan-input', 'x', '--file', pf]).status === 2);
   t('pi5: the dispatch-lint mode is untouched (a plain prompt file still scores X/7)', (() => { const r = runCli([writePrompt('d', STRONG_PROMPT), '--json']); try { return r.status === 0 && JSON.parse(r.stdout).total === 7; } catch { return false; } })());
+}
+
+// ---- SD-T7: exported vague-hit helpers, Dutch vague forms -------------------------------------------
+{
+  const mod = require('./forge-promptcheck.cjs');
+  t('sd-t7: countVagueHits and hasPathOrFileToken are exported functions', typeof mod.countVagueHits === 'function' && typeof mod.hasPathOrFileToken === 'function');
+  t('sd-t7: each Dutch vague form counts as one hit', ['maak het beter', 'maak het mooier', 'doe iets', 'fix het', 'regel het', 'pak het aan'].every((p) => mod.countVagueHits(p) === 1));
+  t('sd-t7: a precise Dutch prompt has no vague hit and a file token', mod.countVagueHits('zet de knop in index.html regel 40 op #1a1a1a') === 0 && mod.hasPathOrFileToken('zet de knop in index.html regel 40 op #1a1a1a'));
+  t('sd-t7: Dutch words inside other words do not count ("hetzelfde", "regelhet")', mod.countVagueHits('fix hetzelfde probleem, regelhet') === 0);
+  // FB-SCRIBE-2-F4: word/word and framework names are not file grounding
+  for (const p of ['bouw een Node.js app voor mijn klant', 'bouw een website met Next.js voor de bakker', 'maak het beter en/of sneller',
+    'alle 12/12 tests', 'geef de agent Write/Edit', 'kies previous/other']) {
+    t('sd-t7: "' + p + '" has no path or file token', mod.hasPathOrFileToken(p) === false);
+  }
+  for (const p of ['pas src/app.js aan', 'in src/pages/contact.astro', 'zie ./notes', 'open C:\\proj\\x.txt', 'zet het in index.html', 'lees README.md',
+    'kijk in .claude/forge-bin/forge-docs.cjs', 'fix the crash in server.js', 'update index.js', 'edit app.js',
+    'bouw een export functie in server.js']) {
+    t('sd-t7: "' + p + '" still has a path or file token', mod.hasPathOrFileToken(p) === true);
+  }
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

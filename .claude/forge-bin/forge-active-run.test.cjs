@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-active-run.test.cjs — the run pointer (WP A2). Throwaway roots only (os.tmpdir()). Covers the round
  * trip set -> read -> clear, session isolation (own pointer first, another session's fallback ignored), staleness, the
@@ -48,6 +52,17 @@ try {
   const s2 = AR.setActiveRun(root2, 'run-a1', {});
   t('A6 set without a session writes only the fallback and says so', s2.ok && s2.written.length === 1 && /only the fallback/.test(s2.reason), JSON.stringify(s2));
   t('A7 ... and every session reads it', AR.readActiveRun(root2, 'sess-x').run === 'run-a1' && AR.readActiveRun(root2, 'sess-y').source === 'pointer-fallback');
+  // FB-CONTRACT-2-F3: log-event later sets runB without a session; the older session pointer must not shadow it.
+  const rootS = mkRoot('run-sa');
+  fs.mkdirSync(path.join(rootS, '.claude', 'forge-runs', 'run-sb'), { recursive: true });
+  const T0 = Date.parse('2026-11-12T10:00:00Z');
+  AR.setActiveRun(rootS, 'run-sa', { session: 'sess-a', now: T0 });
+  AR.setActiveRun(rootS, 'run-sb', { now: T0 + 60000 });
+  r = AR.readActiveRun(rootS, 'sess-a', { now: T0 + 120000 });
+  t('A8 a newer session-less fallback (runB) wins over an older own session pointer (runA)', r.run === 'run-sb' && r.source === 'pointer-fallback', JSON.stringify(r));
+  AR.setActiveRun(rootS, 'run-sa', { session: 'sess-a', now: T0 + 180000 });
+  r = AR.readActiveRun(rootS, 'sess-a', { now: T0 + 200000 });
+  t('A9 ... and the own pointer wins again once it is the newer one', r.run === 'run-sa' && r.source === 'pointer-session', JSON.stringify(r));
 
   console.log('\nB) clear never deletes; staleness; refusals');
   let c = AR.clearActiveRun(root, { session: 'sess-a', run: 'run-other' });

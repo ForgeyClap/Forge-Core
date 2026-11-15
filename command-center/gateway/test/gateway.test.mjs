@@ -11,7 +11,7 @@ import { _resetProjectsCacheForTests } from '../src/projects.mjs';
 import { request } from '../test-support/helpers.mjs';
 import { needsProjectFleet, needsRunEvents } from './.real-data-guard.mjs';
 
-const THIS_PROJECT_NAME = path.basename(PROJECT_ROOT); // "my project!" on this machine
+const THIS_PROJECT_NAME = path.basename(PROJECT_ROOT); // "my project (v2)!" on this machine
 const KNOWN_RUN_ID = 'forge-2026-07-26-command-center'; // the run this very slice was dispatched under
 
 // Preconditions for the three assertions below that read REAL environment data rather than the

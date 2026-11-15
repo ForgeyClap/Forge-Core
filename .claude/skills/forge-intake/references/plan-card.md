@@ -15,7 +15,7 @@ Forge should think WITH the owner, not interrogate them. The intake answers its 
 5. **Plan card**: render it with `--run <run_id>`; it is saved and logged every time.
 6. **Proceed**: exit 0 means build now. Exit 3 means the card needs the owner: post the card, the one question (if any) and the approval request in ONE message, start every package listed in `ready`, and wait only with the packages in `blocked`.
 
-## Mission JSON
+## Mission JSON (v1)
 
 | Field | Required | Shape | Notes |
 |---|---|---|---|

@@ -50,6 +50,26 @@ const earlierQ = itemOf('R-0090', 'welke skills werden bij de restaurant website
 const qq = SC.ownerRepeats('welke skills werden bij de restaurant website gebruikt?', [earlierQ], cfg);
 t('Q-g: a question that asks an earlier OPEN question again is a repeat (cover path kept between questions)', !!qq && qq.repeat_of[0] === 'R-0090', JSON.stringify(qq));
 
+// LEAD-S1: two real false repeats seen live. R-0239 was "REPEAT x23 of
+// R-0157,R-0081" at 63% on parallel/website/andere/project (one concept hit through the word "agents", one content word and
+// two generic words inside two long earlier asks); R-0244, a forge-config command line, was "REPEAT x2 of R-0188" at 56% on
+// node/claude/forge/bin (the words of a command and a path). Earlier items: the first 1000 (R-0081) and 1400 (R-0157)
+// characters of the real quotes, R-0188 whole (the path's user name replaced).
+console.log('LEAD-S1 command text, paths and generic words');
+const R0157 = "/forge R-0152 akkoord. R-0154 akkoord. R-0155 akkoord. R-0156 akkoord. R-0153 annuleren.  Staat nu alles wat in globaal moet in globaal?! en niet in dit folder alleen maar ook globaal zo ja ga verder met dit prompt. Zo niet fix dit eerst en ga dan verder!\n\nik wil dat jij nu 3 testen en 3 aparte agents laat runnen gaan hun 3 catogorieen testen voeren dus 1 van de agent gaat een high end website voor Chinese  Restaurant bedrijf maken denk, de andere gaat een apk game maken en een .exe fun game. en ik wil dat jij alles monitoort als de forge systeem\n  doet wat het moet doen denk aan skills, agents, de werk kwaliteit, tokens, usage, en meer andere dingen waar er gemonitoord moeten zijn!\n\n  der zijn paar regels ik wil dat je niks met skills gaat zeggen de doel heirvam is om te kijken als de agents de skills aansluiten aan de agents of aan de catogorie correct!\n  tweede regel je prompts moeten niet ai achtig zijn maar menselijk! zodat de agents de prompten goed kunnen verbeteren! en hoe jij "
+  + "het wilt hebben!\n  derde regel zie je een fout opkomen verbeter de agent niet meteen maar wacht erop aan dde einde van de project en inspecteer je de fouten en verbeter je het in de forge systeem zodat het nooit meer voorkomt!\n  vierde regel de website moet er goed uit zien dit geldt ook voor de rest van de catogorieen!\n  vijfde regel werkt forge systeem hoe het moet en kunnen er dingen verbeterd ";
+const R0081 = "/forge /goal /deep-research  gebruik fable 5.1 om dit project 10x beter te maken, eerst wil ik dat je een uitgebreide plan gaat schrijven en dan pas gaat act! ik wil nu dat je de hele project scant en  naar foute en oplossingen en verbeteringen en betere functies gaat vinden. je gaat kijken naar wat kan beter, wat moeten de ai als taken moeten uitvoeren, werken de agents op de beste manier, is er een team gesprek, zijn de agents echt en werken ze ook echt, werken alles echt hoe het echt werkt en staat alles in de .claude forge systeem? vraag je zelf heel veel vragen en beantwoord het door te kijken naar dit complete forge project!  nadat dit klaar is willen we onze forge systeem net als hoe claude desktop werkt maar dan als forge systeem en hoe onze systeem en alles werkt! we willen in de app alles kunnen koppelen zoals ollama modellen, open ai, en meer andere dingen ook moeten niet alleen de api ook de subscripties zoals bij chatgpt, codex en claude! we willen een soort werking hebben";
+const R0188 = 'als ik dit ! node .claude/forge-bin/forge-sync.cjs install "C:/Users/owner/Desktop/Roblox high end game" --quiesce-override "owner approved: own planner is the only writer, project has no Forge yet" naar roblox project doe krijg ik error';
+const s1 = [itemOf('R-0081', R0081), itemOf('R-0157', R0157, { class: 'new', status: 'deferred' }), itemOf('R-0188', R0188, { class: 'unclassified', status: 'defer-proposed' })];
+const r239 = SC.ownerRepeats('/forge finetune ook alle agents! maak ook agents for website en andere projecten  die we tot nu toe allemaal hebben gemaakt!', s1, cfg);
+t('S1-a: R-0239 ("finetune ook alle agents ... website en andere projecten") is not a repeat of R-0157 or R-0081 (real: REPEAT x23 at 63%)', r239 === null, JSON.stringify(r239));
+const r244 = SC.ownerRepeats(' ! node .claude/forge-bin/forge-config.cjs set usage-guard uit', s1, cfg);
+t('S1-b: R-0244 (a "! node .claude/forge-bin/forge-config.cjs ..." command line) is not a repeat of R-0188 (real: REPEAT x2 at 56%)', r244 === null, JSON.stringify(r244));
+const inline = SC.ownerRepeats('draai `node .claude/forge-bin/forge-doctor.cjs` en .claude/forge-bin/forge-sync.cjs --quiet naar https://github.com/x/forge-bin', [itemOf('R-0188', R0188)], cfg);
+t('S1-c: inline code, paths, flags and URLs carry no repeat words', inline === null, JSON.stringify(inline));
+t('S1-d: a true repeat about the same problem still repeats (an install error on the roblox project, with a repeat cue, vs R-0188)',
+  !!SC.ownerRepeats('ik krijg weer een error bij forge sync install naar het roblox project', [itemOf('R-0188', R0188)], cfg));
+
 console.log('stored links re-judged');
 const st = { items: {}, counts: { open: 2 }, next_rid: 3, last_seq: 2 };
 st.items['R-0157'] = itemOf('R-0157', RESTAURANT, { class: 'new' });

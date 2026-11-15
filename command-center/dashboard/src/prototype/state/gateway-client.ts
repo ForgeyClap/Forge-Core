@@ -117,6 +117,8 @@ export interface GatewayOk {
 export interface GatewayFail {
   readonly ok: false;
   readonly error: string;
+  /** The HTTP status of a refused response; absent when the request never got an answer. */
+  readonly status?: number;
 }
 
 export type GatewayResult = GatewayOk | GatewayFail;
@@ -134,8 +136,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * hardcoded mirror like GATEWAY_ORIGIN above); without the switch the gateway refuses the dev page,
  * which is the safe default for every desktop and launcher gateway. Every other cross-origin page
  * keeps the default, so it never sends the cookie anywhere and a mock that answers
- * `Access-Control-Allow-Origin: *` keeps working. Reads stay without it: no GET route needs the cookie
- * (except `checkUiSession`).
+ * `Access-Control-Allow-Origin: *` keeps working. Most reads stay without it; the GET routes that DO
+ * need the dashboard credential (`checkUiSession`, and since gateway round 11 the permission reads
+ * `/api/permissions/pending` and `/api/permissions/auto-log`) send it through `gwGet(path, { auth: true })`.
  */
 export const COOKIE_DEV_PAGE_ORIGINS: readonly string[] = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 
@@ -186,10 +189,15 @@ export async function checkUiSession(): Promise<PairingState> {
  * real, plain-language reason (e.g. the folder-picker's `GET /api/discord/browse-folder`) is no
  * longer flattened to a meaningless status code.
  */
-export async function gwGet(path: string): Promise<GatewayResult> {
+export async function gwGet(path: string, { auth = false }: { readonly auth?: boolean } = {}): Promise<GatewayResult> {
   let res: Response;
+  // auth: a dashboard-only read carries the same credential as gwPost (cookie mode + the legacy token header)
+  const token = auth ? readExecToken() : null;
+  const init: RequestInit = auth
+    ? { method: 'GET', credentials: writeCredentials(), ...(token ? { headers: { [EXEC_TOKEN_HEADER]: token } } : {}) }
+    : { method: 'GET' };
   try {
-    res = await globalThis.fetch(gatewayUrl(path), { method: 'GET' });
+    res = await globalThis.fetch(gatewayUrl(path), init);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -200,9 +208,10 @@ export async function gwGet(path: string): Promise<GatewayResult> {
     // A non-JSON body is handled below by the !res.ok / empty-record fallback.
   }
   if (!res.ok) {
+    if (auth) notePairingRefusal(res.status, body);
     const record = asRecord(body) ?? {};
     const errField = typeof record.error === 'string' ? record.error : `HTTP ${res.status}`;
-    return { ok: false, error: errField };
+    return { ok: false, error: errField, status: res.status };
   }
   return { ok: true, data: asRecord(body) ?? {} };
 }

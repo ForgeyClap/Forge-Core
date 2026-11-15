@@ -7,9 +7,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolveClaudeCliPath, claudeCliSupportsFlag } from './exec-cli.mjs';
-import { COMMAND_CENTER_DATA_DIR } from './paths.mjs';
+import { COMMAND_CENTER_DATA_DIR, CLAUDE_DIR, PROJECT_ROOT } from './paths.mjs';
 import { gatewayOrigin } from './runtime-state.mjs';
 import { FORGE_LEAD_PREAMBLE } from './forge-preamble.mjs';
 import { sessionArgv } from './sessions/argv-session.mjs';
@@ -478,7 +479,10 @@ export function buildSpawnSpec(text, mode, effort, model, askContext, session) {
   // visibility flags are order-independent booleans, and keeping them last means no existing
   // argv POSITION shifts (test/exec-ask-mcp-config.test.mjs asserts the exact base argv in front
   // of --mcp-config, and that assertion must keep holding byte-for-byte).
-  const visibilityFlags = resolveStreamVisibilityFlags();
+  // CF-5-F4: the per-run dollar cap goes LAST of all, so no existing argv position shifts.
+  const budget = resolveRunBudget();
+  console.error('[exec-argv] ' + budget.line);
+  const visibilityFlags = [...resolveStreamVisibilityFlags(), ...budget.args];
   if (!askContext || !askContext.convId) {
     return { cmd: resolveClaudeCliPath(), args: [...baseArgs, ...visibilityFlags] };
   }
@@ -525,4 +529,28 @@ export function resolvePermissionPromptArgs(mode) {
   if (setting === 'off') return [];
   if (setting !== 'on' && !claudeCliSupportsFlag(PERMISSION_PROMPT_FLAG)) return [];
   return [PERMISSION_PROMPT_FLAG, PERMISSION_PROMPT_TOOL_REF];
+}
+
+// CF-5-F4: a dashboard or phone turn is an unattended `claude -p` run, so it carries the same per-run dollar ceiling as
+// the other headless wrappers: `forge-run-budget.cjs cap --wrapper gateway` prints only the number on stdout and its
+// reason on stderr. A cap that cannot be read (no Forge tree, a broken config, an older CLI without the flag, a timeout)
+// never blocks the turn: no flag, and the budget line says why.
+export const RUN_BUDGET_SCRIPT = path.join(CLAUDE_DIR, 'forge-bin', 'forge-run-budget.cjs');
+const MAX_BUDGET_FLAG = '--max-budget-usd';
+const RUN_BUDGET_TIMEOUT_MS = 5000;
+let runBudgetScriptOverride = null;
+export function _setRunBudgetScriptForTests(p) { runBudgetScriptOverride = typeof p === 'string' ? p : null; }
+
+/** resolveRunBudget() -> { args: [] | ['--max-budget-usd', '<n>'], line } (fresh array every call). Never throws. */
+export function resolveRunBudget() {
+  const notCapped = (why) => ({ args: [], line: 'run budget: NOT capped (' + why + ')' });
+  if (!claudeCliSupportsFlag(MAX_BUDGET_FLAG)) return notCapped('the claude CLI does not document ' + MAX_BUDGET_FLAG);
+  const r = spawnSync(process.execPath, [runBudgetScriptOverride || RUN_BUDGET_SCRIPT, 'cap', '--wrapper', 'gateway', '--root', PROJECT_ROOT], {
+    encoding: 'utf8', windowsHide: true, timeout: RUN_BUDGET_TIMEOUT_MS,
+  });
+  const why = String(r.stderr || '').trim().split(/\r?\n/).pop() || (r.error ? r.error.message : 'exit ' + r.status);
+  const out = String(r.stdout || '').trim();
+  const n = Number(out);
+  if (r.error || r.status !== 0 || !/^\d+(\.\d+)?$/.test(out) || !(n > 0)) return notCapped(why);
+  return { args: [MAX_BUDGET_FLAG, out], line: 'run budget: capped at $' + out + ' (' + why + ')' };
 }

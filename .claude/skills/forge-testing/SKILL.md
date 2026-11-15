@@ -87,6 +87,8 @@ lose money or users when they break (sign-up, login, checkout, the main create/s
 - Never point tests at production, real payment providers or real inboxes; use test modes, sandboxes or mocks.
 - Test-account secrets live in env or CI secrets, never in test files or fixtures. Traces, videos and
   screenshots can hold tokens and personal data: keep them out of git.
+- When an ECC testing skill (ai-regression-testing, tdd-workflow) disagrees with this playbook, forge-conduct
+  rule 2 wins: proof by a real run, red first.
 - Shared gates for every playbook (honesty, owner approval, secrets, reviews):
   `.claude/docs/forge-reference/playbook-template.md`.
 

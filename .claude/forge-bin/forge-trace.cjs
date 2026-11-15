@@ -28,8 +28,8 @@
  *   4. artifact — an event carrying either `artifact_id` or a non-empty `output_artifact` field, AND
  *                 either `ticket_id` matching this requirement OR (when no ticket_id was threaded through)
  *                 `prd_id` matching this requirement's PRD.
- *   5. verified — a PASS-ASSERTION event (`check_passed` | `quality_gate_passed` | `retest_completed` —
- *                 the exact set log-event.cjs's own CONTENT ORACLE already calls PASS_ASSERTION_EVENTS)
+ *   5. verified — a PASS-ASSERTION event (`check_passed` | `quality_gate_passed` | `retest_completed` |
+ *                 `wp_completed` — log-event.cjs's own PASS_ASSERTION_EVENTS) or a `wp_verified` with verdict PASS,
  *                 carrying a matching `ticket_id` or `prd_id`.
  *   Stages 4 and 5 additionally require the matched event NOT be disproven by log-event.cjs's own CONTENT
  *   ORACLE (`_forge_verify.proof_verified === false` disqualifies it — a claimed artifact/pass that was
@@ -66,7 +66,8 @@ const fs = require('fs');
 const path = require('path');
 
 const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
-const VERIFIED_EVENT_TYPES = new Set(['check_passed', 'quality_gate_passed', 'retest_completed']);
+// log-event.cjs PASS_ASSERTION_EVENTS (a test pins that this set covers it), plus wp_verified with verdict PASS
+const VERIFIED_EVENT_TYPES = new Set(['check_passed', 'quality_gate_passed', 'retest_completed', 'wp_completed', 'wp_verified']);
 const INTAKE_NOTE_RE = /intake/i;
 
 // WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
@@ -165,6 +166,7 @@ function projectRequirement(req, events, intakeStage) {
   const verifiedIdx = findFirstIndex(events, (e) => {
     if (!e || typeof e !== 'object' || eventIsDisproven(e)) return false;
     if (!VERIFIED_EVENT_TYPES.has(e.event_type)) return false;
+    if (e.event_type === 'wp_verified' && String(e.verdict || '').toUpperCase() !== 'PASS') return false;
     if (e.ticket_id === req.ticket_id) return true;
     return !!(req.prd_id && e.prd_id === req.prd_id);
   });

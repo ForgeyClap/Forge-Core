@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-cc-launch.test.cjs — hermetic unit tests for forge-cc-launch.cjs.
  *
@@ -67,6 +71,17 @@ t('resolvePort: a negative value falls back to 4100', () => {
 });
 t('resolvePort: a non-numeric value falls back to 4100', () => {
   assert(resolvePort({ CC_PORT: 'not-a-port' }) === 4100);
+});
+// FB-MISC-1-F10: the gateway's own reader (runtime-state.mjs configuredGatewayPort): CC_PORT, then FORGE_GATEWAY_PORT,
+// an integer from 1 to 65535
+t('resolvePort: FORGE_GATEWAY_PORT is read when CC_PORT is unset; CC_PORT wins', () => {
+  assert(resolvePort({ FORGE_GATEWAY_PORT: '5056' }) === 5056, 'got ' + resolvePort({ FORGE_GATEWAY_PORT: '5056' }));
+  assert(resolvePort({ CC_PORT: '5055', FORGE_GATEWAY_PORT: '5056' }) === 5055);
+  assert(resolvePort({ CC_PORT: 'x', FORGE_GATEWAY_PORT: '5056' }) === 5056);
+});
+t('resolvePort: a fraction or a port above 65535 is not a port (same integer check as the gateway)', () => {
+  assert(resolvePort({ CC_PORT: '4100.5' }) === 4100, 'got ' + resolvePort({ CC_PORT: '4100.5' }));
+  assert(resolvePort({ CC_PORT: '70000' }) === 4100, 'got ' + resolvePort({ CC_PORT: '70000' }));
 });
 t('resolvePort: an empty string falls back to 4100', () => {
   assert(resolvePort({ CC_PORT: '' }) === 4100);
@@ -402,6 +417,13 @@ t('FU-STEP2: gatewayEnv adds the default project and the pairing env, drops any 
   assert(env.FORGE_UI_SESSION_SECRET === pairing.secret && env.FORGE_UI_PAIRING_CODE === pairing.env.FORGE_UI_PAIRING_CODE);
   const noProject = launch.gatewayEnv(base, null, pairing);
   assert(!('FORGE_CC_DEFAULT_PROJECT' in noProject), 'no project root: no default project');
+});
+
+t('Remote Bridge: gatewayEnv never passes the bridge loopback test switch (any case)', () => {
+  const pairing = launch.makePairing({ now: 2, randomBytes: (len) => Buffer.alloc(len, 5) });
+  const env = launch.gatewayEnv({ PATH: 'p', FORGE_REMOTE_BRIDGE_TEST_LOOPBACK: '1', forge_remote_bridge_test_loopback: '1' }, null, pairing);
+  assert(!Object.keys(env).some((k) => k.toUpperCase() === 'FORGE_REMOTE_BRIDGE_TEST_LOOPBACK'), Object.keys(env).join(','));
+  assert(env.PATH === 'p', 'the rest is kept');
 });
 
 t('FU-STEP2: the start and already-running texts say how to pair, and never print the secret', () => {

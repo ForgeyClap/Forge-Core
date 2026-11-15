@@ -23,17 +23,17 @@ SKILL.md keeps the trigger rules, anti-drift, size, honesty and when to use; thi
    helper used to wire the two hooks above without ever clobbering pre-existing hooks/keys (`apply --target
    <path> --marker-command "<cmd>" --reinject-command "<cmd>" [--backup]`).
 
-## Wiring (opt-in, already applied 2026-07-29 — see `HOOKS_OPT_IN.md` for the live record)
+## Wiring (opt-in, applied 2026-07-29 in the project-local settings only)
 
 - **Project-local** `.claude/settings.json`: PreCompact (matchers `manual`+`auto`) -> `forge-snapshot-marker.cjs`;
   SessionStart (matcher `compact`) -> `forge-snapshot-reinject.cjs`.
-- **Global** `~/.claude/settings.json`: the same two events, appended alongside the 2 pre-existing global
-  hooks (hotspot-lock, secret-scrub) and every other pre-existing entry — proven preserved byte-for-byte by
-  `forge-snapshot-settings.test.cjs`'s load-bearing safety suite. The global hook commands point at the
-  GLOBAL minimal mirror (`~/.claude/forge-bin/forge-snapshot-{marker,reinject}.cjs`), which resolves the
-  target project's root from `CLAUDE_PROJECT_DIR` (or cwd) and dynamically requires **that project's own**
-  `.claude/forge-bin/forge-snapshot.cjs` — a project with no Forge install degrades silently (no output, exit
-  0).
+- **Global** `~/.claude/settings.json`: NOT wired. A check on 2026-11-13 found no PreCompact, SessionStart or
+  forge-snapshot entry there, although the 2026-07-29 record says it was applied. The global minimal mirror
+  (`~/.claude/forge-bin/forge-snapshot-{marker,reinject}.cjs`) exists but nothing calls it. It would resolve
+  the target project's root from `CLAUDE_PROJECT_DIR` (or cwd) and require **that project's own**
+  `.claude/forge-bin/forge-snapshot.cjs`, degrading silently in a project with no Forge install. Wiring it is
+  an owner-gated settings write (`forge-snapshot-settings.cjs apply --target <global settings>`); until then a
+  project without the project-local hooks gets no snapshot on compaction.
 
 ## Skills / commands
 

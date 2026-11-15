@@ -70,7 +70,7 @@ test('Codex verification F-11: an empty receipt (bytes 0, events 0) is never pro
   assert.equal(validateFinalizeReceipt(REAL_RECEIPT, 'run-x', OK_LOG).valid, true, 'the real shape still validates');
 });
 
-// WP-RB-CC (review finding M-1), made strict by the Codex review of 2026-09-28: a receipt only
+// WP-RB-CC (review finding M-1), made strict by the Codex review of 2026-09-28 (R1): a receipt only
 // counts while the CURRENT events.jsonl still has the receipt's exact byte size AND sha256.
 test('M-1: a receipt is refused once the log grew after finalizing', () => {
   const result = validateFinalizeReceipt(REAL_RECEIPT, 'run-x', { ...OK_LOG, bytes: REAL_RECEIPT.bytes + 40 });

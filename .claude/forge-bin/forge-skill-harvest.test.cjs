@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-skill-harvest.test.cjs — pure parsing + rate-limit tests for the skill harvester.
 // No network: every gh / HTTPS call is a fake injected through ctx.
 const nodeTest = require('node:test');
@@ -152,6 +156,32 @@ test('ghJson returns a 404 at once without retrying', async () => {
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.status, 404);
   assert.strictEqual(ctx.calls, 1);
+});
+
+test('FB-SKILLTOOLS-F7: a gh that failed itself (no HTTP status line, non-zero exit) is gh_failed at once, never retried as a server error', async () => {
+  const ctx = fakeCtx([{ status: 0, headers: {}, body: '', ghFailed: true, stderr: 'To get started with GitHub CLI, please run:  gh auth login' }]);
+  const r = await N.ghJson(ctx, ['x'], { resource: 'core' });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error, 'gh_failed');
+  assert.match(r.detail, /gh auth login/);
+  assert.strictEqual(ctx.calls, 1);
+  assert.deepStrictEqual(ctx.slept, []);
+});
+
+test('FB-SKILLTOOLS-F7: realGh with no gh on PATH reports gh_failed with a reason, not a bare status 0', async () => {
+  const os = require('os'); const fs = require('fs'); const path = require('path');
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'nogh-'));
+  const saved = { PATH: process.env.PATH, Path: process.env.Path };
+  try {
+    process.env.PATH = empty; if (saved.Path !== undefined) process.env.Path = empty;
+    const r = await N.realGh(['rate_limit'], '');
+    assert.strictEqual(r.status, 0);
+    assert.strictEqual(r.ghFailed, true);
+    assert.ok(r.stderr && r.stderr.length > 0, JSON.stringify(r));
+  } finally {
+    process.env.PATH = saved.PATH; if (saved.Path !== undefined) process.env.Path = saved.Path;
+    fs.rmSync(empty, { recursive: true, force: true });
+  }
 });
 
 test('redact hides token-shaped strings in log lines', () => {

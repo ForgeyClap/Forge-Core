@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * Offline tests for the usage-guard reset-rhythm auto-resume feature + the
  * NVIDIA-shift soft pressure threshold (owner policy: prefer NVIDIA agents over Claude agents at
@@ -823,6 +827,30 @@ function usageWith(pct) {
   return { session: { pct, resetsAt: null }, week: { pct: 10, resetsAt: null }, windows, credits: { used: NaN, limit: NaN, remaining: NaN } };
 }
 
+test('FB-USAGE-F4: status shows OVERRIDE ACTIVE only when the GRANT backs it, never from the cache alone', () => {
+  assert.strictEqual(typeof G.overrideStatusLabel, 'function', 'overrideStatusLabel must exist');
+  const cached = { ownerOverride: { active: true, at: '2026-11-12T00:00:00Z' } };
+  assert.match(G.overrideStatusLabel(cached, { active: true }), /OVERRIDE ACTIVE/);
+  const stale = G.overrideStatusLabel(cached, { active: false, rejected: 'foreign-account' });
+  assert.doesNotMatch(stale, /OVERRIDE ACTIVE/);
+  assert.match(stale, /not backed by a grant.*foreign-account/);
+  assert.strictEqual(G.overrideStatusLabel({}, { active: false, rejected: null }), '');
+});
+
+test('FB-USAGE-F3: the normal ok write stores the reset times, so the lane budget can use week pace and reset rules', async () => {
+  const SR = '2026-11-12T20:00:00.000Z', WR = '2026-11-16T08:00:00.000Z';
+  const h = tickHarness({
+    initialState: { mode: 'ok', account: { fp: 'f3-acc', source: 'account-uuid' } },
+    deps: {
+      readIdentity: () => ({ fp: 'f3-acc', source: 'account-uuid' }),
+      fetchUsage: async () => Object.assign(usageWith(20), { session: { pct: 20, resetsAt: SR }, week: { pct: 10, resetsAt: WR } }),
+    },
+  });
+  await G.tick(h.deps);
+  assert.strictEqual(h.state.value.mode, 'ok');
+  assert.deepStrictEqual(h.state.value.resets, { session: SR, week: WR }, JSON.stringify(h.state.value));
+});
+
 test('#13 een account-switch TIJDENS de fetch verwerpt de meting — geen pauze onder de verkeerde stempel', async () => {
   const identRef = { fp: 'aaaa11112222', source: 'account-uuid' };
   const h = tickHarness({
@@ -1121,7 +1149,7 @@ test('N10 wave-8 (end-to-end via tick()): an ORDINARY access-token refresh (cred
     // tick 1: trivial match (G0 == grant's own stamp) — establishes the in-memory baseline for this account.
     '  await G.tick({ fetchUsage: async () => uHigh, readIdentity: () => ident, readCredentialFp: () => "fp-stable", readCredentialGeneration: () => "G0" });',
     '  const stAfterTick1 = JSON.parse(fs.readFileSync(process.env.FORGE_USAGE_GUARD_STATE, "utf8"));',
-    // tick 2: the FILE changed (an ordinary refresh rewriting mtime/size) but the refresh token
+    // tick 2: the FILE changed (G0 -> G1, an ordinary refresh rewriting mtime/size) but the refresh token
     // itself — and therefore its fingerprint — is UNCHANGED. Must be honoured immediately, no pause.
     '  await G.tick({ fetchUsage: async () => uHigh, readIdentity: () => ident, readCredentialFp: () => "fp-stable", readCredentialGeneration: () => "G1" });',
     '  const stAfterTick2 = JSON.parse(fs.readFileSync(process.env.FORGE_USAGE_GUARD_STATE, "utf8"));',
@@ -1362,13 +1390,13 @@ test('N17: an override that becomes honoured again after a real guard-owned paus
     'const ident = { fp: "n17-account", source: "account-uuid" };',
     'const uHigh = { session: { pct: 100, resetsAt: null }, week: { pct: 10, resetsAt: null }, windows: G.normalizeWindows({ limits: [{ kind: "session", group: "session", percent: 100, resets_at: null }] }), credits: { present: false }, credentialFp: null };',
     '(async () => {',
-    // tick 1: the credential generation has already drifted with no prior in-memory confirmation
+    // tick 1: the credential generation has already drifted (G0 -> G1) with no prior in-memory confirmation
     // — NOT honoured, falls through, real 100% usage pauses agent a1 for real.
     '  await G.tick({ fetchUsage: async () => uHigh, readIdentity: () => ident, readCredentialFp: () => "fp-n17", readCredentialGeneration: () => "G1" });',
     '  const stAfterPause = JSON.parse(fs.readFileSync(process.env.FORGE_USAGE_GUARD_STATE, "utf8"));',
     // the owner reruns override-on (simulated directly here): re-stamp the grant to the CURRENT generation.
     '  Grant.writeOverrideGrant({ active: true, at: new Date().toISOString(), until: new Date(Date.now()+3600000).toISOString(), reason: "re-authorized", accountLabel: "n17-account", credentialGeneration: "G1" }, { projectRoot: grantRoot });',
-    // tick 2: trivial match now — override is honoured again; must ALSO resume the guard-owned pause.
+    // tick 2: trivial match now (G1 == G1) — override is honoured again; must ALSO resume the guard-owned pause.
     '  await G.tick({ fetchUsage: async () => uHigh, readIdentity: () => ident, readCredentialFp: () => "fp-n17", readCredentialGeneration: () => "G1" });',
     '  const stAfterReconcile = JSON.parse(fs.readFileSync(process.env.FORGE_USAGE_GUARD_STATE, "utf8"));',
     '  process.stdout.write(JSON.stringify({ stAfterPause, stAfterReconcile, pauseCalls, resumeCalls }));',
@@ -1396,6 +1424,57 @@ test('N17: an override that becomes honoured again after a real guard-owned paus
 // retries it — through the SAME doResume() path — on every following tick, exactly like an ordinary
 // partial-resume failure already does elsewhere in this file. This test goes through the REAL
 // runOverrideOn() (never a re-implemented copy, and never writing the replacement grant directly). ----
+// FB-USAGE-F2: the watcher reads the override grant of the COPY it runs from. An override-on /
+// override-off in another copy never reaches it, so the command must refuse (on) or say so (off) instead of reporting
+// success. Probe: a live pid record (this probe's own pid) naming another copy's usage-guard.cjs.
+test('FB-USAGE-F2: override-on refuses and override-off reports NOT re-armed when the live watcher runs from another copy', () => {
+  const run = (cmd) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-f2-'));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-f2-home-'));
+    const script = path.join(dir, 'probe.cjs');
+    fs.writeFileSync(script, [
+      "'use strict';",
+      'const fs = require("fs"); const path = require("path");',
+      'fs.writeFileSync(path.join(process.env.FORGE_USAGE_GUARD_HOME, "forge-usage-guard.pid"), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), script: "C:\\\\other\\\\project\\\\.claude\\\\forge-bin\\\\usage-guard.cjs" }));',
+      'process.argv = [process.execPath, "usage-guard.cjs", ' + JSON.stringify(cmd) + ', "--owner-approval", "F2-TEST-TOKEN", "--reason", "f2 test"];',
+      'const G = require(' + JSON.stringify(path.join(__dirname, 'usage-guard.cjs')) + ');',
+      'const grantRoot = fs.mkdtempSync(path.join(require("os").tmpdir(), "guard-f2-scratch-"));',
+      'G.__setOwnerGrantRootForTests(grantRoot);',
+      'fs.mkdirSync(path.join(grantRoot, ".claude", "config"), { recursive: true });',
+      'fs.writeFileSync(path.join(grantRoot, ".claude", "config", "forge-owner-grant.txt"), "F2-TEST-TOKEN\\n");',
+      'class ExitSignal { constructor(c) { this.code = c; } }',
+      'const realExit = process.exit.bind(process);',
+      'process.exit = (c) => { throw new ExitSignal(c); };',
+      'const logs = []; const realErr = console.error, realLog = console.log;',
+      'console.error = (m) => logs.push(String(m)); console.log = (m) => logs.push(String(m));',
+      '(async () => {',
+      '  let exitCode = 0;',
+      '  try { await (' + JSON.stringify(cmd) + ' === "override-on" ? G.runOverrideOn() : G.runOverrideOff()); } catch (e) { if (e instanceof ExitSignal) exitCode = e.code; else throw e; }',
+      '  console.error = realErr; console.log = realLog;',
+      '  process.stdout.write(JSON.stringify({ exitCode, logs }));',
+      '  realExit(0);',
+      '})().catch((e) => { process.stdout.write(JSON.stringify({ uncaught: String((e && e.message) || e) })); realExit(1); });',
+    ].join('\n'), 'utf8');
+    const env = Object.assign({}, process.env, {
+      FORGE_USAGE_GUARD_HOME: home, FORGE_USAGE_GUARD_DENY_NETWORK: '1',
+      FORGE_CONFIG_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'guard-f2-cfg-')),
+      FORGE_PROJECT_ROOT: fs.mkdtempSync(path.join(os.tmpdir(), 'guard-f2-proj-')),
+      FORGE_USAGE_GUARD_STATE: path.join(home, 'state.json'),
+      FORGE_USAGE_GUARD_IDENTITY: path.join(home, 'no-profile.json'), NVIDIA_SKIP_ENV_FILES: '1',
+    });
+    delete env.FORGE_USAGE_GUARD_PID;
+    const r = require('child_process').spawnSync(process.execPath, [script], { encoding: 'utf8', env, timeout: 60000 });
+    try { return JSON.parse(r.stdout); } catch { return { raw: r.stdout + r.stderr }; }
+  };
+  const on = run('override-on');
+  assert.strictEqual(on.exitCode, 3, JSON.stringify(on));
+  assert.ok(on.logs.some((l) => /another copy/i.test(l)), JSON.stringify(on));
+  assert.ok(!on.logs.some((l) => /OVERRIDE ON/.test(l)), JSON.stringify(on));
+  const off = run('override-off');
+  assert.notStrictEqual(off.exitCode, 0, JSON.stringify(off));
+  assert.ok(off.logs.some((l) => /another copy/i.test(l)), JSON.stringify(off));
+});
+
 test('N17 wave 9: runOverrideOn() with a resume that FAILS never claims success on disk — the agent stays paused, retries on every following tick (through the real doResume path), and only clears once a resume genuinely succeeds', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-n17w9-'));
   const script = path.join(dir, 'probe.cjs');
@@ -1791,7 +1870,7 @@ test('H3.2b start-handshake end-to-end: een decoy-kind dat nooit claimt geeft ee
   assert.ok(!/Uit: \/forge config set usage-guard uit/.test(res2.stdout || '') && !(res2.stdout || '').includes(disc.nl), 'no disclosure when no NEW watcher started: ' + (res2.stdout || '').slice(0, 200));
   if (realChildPid) assert.ok(!G.pidAlive(realChildPid), 'het echte gedetacheerde kind (pid ' + realChildPid + ') moet dood zijn na cleanup — geen wees-watcher achterlaten');
 
-  // REGRESSION PROOF: het ECHTE ~/.claude/FORGE_USAGE_PRESSURE.json moet volledig onaangeroerd
+  // REGRESSION PROOF (F1): het ECHTE ~/.claude/FORGE_USAGE_PRESSURE.json moet volledig onaangeroerd
   // blijven — dit is het echte, dragende bewijs dat de isolatie hierboven end-to-end werkte.
   const realPressureExistedAfter = fs.existsSync(realPressureFile);
   const realPressureMtimeAfter = realPressureExistedAfter ? fs.statSync(realPressureFile).mtimeMs : null;
@@ -3599,7 +3678,7 @@ test('GUARD-CORRUPT: a corrupt state that IS over the pause threshold on the fre
   t5('REG-USAGE-GUARANTEE: CLI start prints the SAME wording on a real, verified start', () => {
     const sb = sandbox5(null);
     fs.writeFileSync(credFile(sb), JSON.stringify({ claudeAiOauth: { accessToken: 'sk-' + 'ant-oat01-VALIDSHAPEDTOKEN1234567890' } }));
-    // a valid-shaped fake token + a real detached watcher — deny-by-default so this offline suite
+    // V20: a valid-shaped fake token + a real detached watcher — deny-by-default so this offline suite
     // never reaches the live endpoint (see the V20/GUARD-STOP test above for the full rationale).
     const r = runGuard(['start', '--interval', '60'], Object.assign({}, sb.env, { FORGE_USAGE_GUARD_CLAIM_TIMEOUT_MS: '30000', FORGE_USAGE_GUARD_DENY_NETWORK: '1' }));
     let pid = null;
@@ -3753,7 +3832,7 @@ test('SB-M6(c/d): a genuinely-transient resume failure is retried across ticks, 
 });
 
 // ============================================================================================
-// fresh-laptop re-audit, 2026-09-26: a full per-model window must not pause every model for
+// N1 — fresh-laptop re-audit, 2026-09-26: a full per-model window must not pause every model for
 // days while a DIFFERENT model still has room in the all-models window. See windowAppliesNow(),
 // triggerCanResumeByModelSwitch() and their tick() call sites in usage-guard.cjs for the fix.
 // ============================================================================================
@@ -3894,7 +3973,7 @@ test('N1 integration: a pause that ALSO includes an all-models window is never l
 });
 
 // ============================================================================================
-// fresh-laptop re-audit, 2026-09-26: an upgrade (raw fingerprint -> opaque label) must never
+// N8 — fresh-laptop re-audit, 2026-09-26: an upgrade (raw fingerprint -> opaque label) must never
 // read as a real account switch and reset guard state / resume paused agents.
 // ============================================================================================
 test('N8 pure: detectAccountSwitch — a state stamped with the OLD raw fingerprint is an upgrade, not a switch, when ident.rawFp proves it is the SAME account', () => {
@@ -4110,6 +4189,135 @@ test('N1 integration: doPause\'s notice names the paused window and adds the "sw
   tw('settingsLine names week-pause-at only when it is set', () => {
     assert.ok(!/week-pause-at/.test(G.settingsLine(G.resolveGuardSettings([], null))));
     assert.match(G.settingsLine(G.resolveGuardSettings([], { 'usage-guard.week-pause-at': { value: 85, source: 'global' } })), /week-pause-at 85% \(bron: instelling\)/);
+  });
+}
+
+// ---- FIX-USAGE: LEAD-U1 a per-model pause is marked as such and only binds that
+// model's session; LEAD-U2 switching the guard off lifts the pause it left behind. ----
+{
+  const tu = (name, fn) => test('FIX-USAGE ' + name, fn);
+  // A fresh module instance bound to its own state file: every async test here runs concurrently with the rest.
+  const freshGuard = (prefix) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const stateFile = path.join(dir, 'state.json');
+    const saved = process.env.FORGE_USAGE_GUARD_STATE;
+    process.env.FORGE_USAGE_GUARD_STATE = stateFile;
+    delete require.cache[require.resolve('./usage-guard.cjs')];
+    const mod = require('./usage-guard.cjs');
+    if (saved === undefined) delete process.env.FORGE_USAGE_GUARD_STATE; else process.env.FORGE_USAGE_GUARD_STATE = saved;
+    delete require.cache[require.resolve('./usage-guard.cjs')];
+    return { mod, dir, stateFile, read: () => JSON.parse(fs.readFileSync(stateFile, 'utf8')) };
+  };
+  const u = { session: { pct: 10, resetsAt: null }, week: { pct: 52, resetsAt: null } };
+  const fableCrossed = [{ id: 'weekly_scoped|weekly|weekly_scoped (Fable)', name: 'weekly_scoped (Fable)', metric: 'weekly_scoped', pct: 100, resetsAt: null, model: 'Fable' }];
+  const allCrossed = [{ id: 'weekly_all|weekly|weekly_all', name: 'weekly_all', metric: 'weekly_all', pct: 99, resetsAt: null, model: null }];
+
+  tu('LEAD-U1 doPause on per-model window(s) only marks the state scope model:<name>; an all-models trigger marks scope all', async () => {
+    const a = freshGuard('fixu-scope-a-');
+    const b = freshGuard('fixu-scope-b-');
+    try {
+      fs.writeFileSync(a.stateFile, JSON.stringify({ mode: 'ok' }));
+      fs.writeFileSync(b.stateFile, JSON.stringify({ mode: 'ok' }));
+      await a.mod.doPause(u, fableCrossed, { fp: null, source: 'unknown' });
+      await b.mod.doPause(u, fableCrossed.concat(allCrossed), { fp: null, source: 'unknown' });
+      const sa = a.read();
+      const sb = b.read();
+      assert.strictEqual(sa.mode, 'paused');
+      assert.strictEqual(sa.scope, 'model:Fable', JSON.stringify(sa));
+      assert.strictEqual(sa.trigger[0].model, 'Fable');
+      assert.strictEqual(sb.mode, 'paused');
+      assert.strictEqual(sb.scope, 'all', 'a weekly_all window in the mix pauses every model: ' + JSON.stringify(sb));
+    } finally {
+      fs.rmSync(a.dir, { recursive: true, force: true });
+      fs.rmSync(b.dir, { recursive: true, force: true });
+    }
+  });
+  tu('LEAD-U1 pauseScope: per-model only -> model:<names>, any all-models window or nothing -> all', () => {
+    assert.strictEqual(G.pauseScope(fableCrossed), 'model:Fable');
+    assert.strictEqual(G.pauseScope(fableCrossed.concat([{ model: 'Sonnet 5.5' }, { model: 'Fable' }])), 'model:Fable,Sonnet 5.5');
+    assert.strictEqual(G.pauseScope(allCrossed), 'all');
+    assert.strictEqual(G.pauseScope(fableCrossed.concat(allCrossed)), 'all');
+    assert.strictEqual(G.pauseScope([]), 'all');
+    assert.strictEqual(G.pauseScope(null), 'all');
+  });
+  tu('LEAD-U1 pauseAppliesToModel: a Fable-only pause does not bind an Opus session, binds a Fable or unknown session; weekly_all binds every model', () => {
+    const fablePause = { mode: 'paused', scope: 'model:Fable', trigger: fableCrossed };
+    assert.strictEqual(G.pauseAppliesToModel(fablePause, 'claude-opus-5-5'), false, 'Opus session must not be denied by a Fable-only limit');
+    assert.strictEqual(G.pauseAppliesToModel(fablePause, 'claude-fable-5-1'), true, 'the Fable session itself stays paused');
+    assert.strictEqual(G.pauseAppliesToModel(fablePause, null), true, 'unknown session model: fail safe, keep the deny');
+    assert.strictEqual(G.pauseAppliesToModel(fablePause, ''), true);
+    const allPause = { mode: 'paused', scope: 'all', trigger: allCrossed };
+    for (const m of ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', null]) {
+      assert.strictEqual(G.pauseAppliesToModel(allPause, m), true, 'weekly_all pauses every model: ' + m);
+    }
+    // a pause recorded by an older build (no scope field): judged from the triggers alone
+    assert.strictEqual(G.pauseAppliesToModel({ mode: 'paused', trigger: fableCrossed }, 'claude-opus-5-5'), false);
+    assert.strictEqual(G.pauseAppliesToModel({ mode: 'paused', trigger: [{ name: 'week', pct: 95 }] }, 'claude-opus-5-5'), true, 'a trigger without a model is all-models');
+    assert.strictEqual(G.pauseAppliesToModel({ mode: 'paused' }, 'claude-opus-5-5'), true, 'no triggers at all: fail safe');
+    assert.strictEqual(G.pauseAppliesToModel({ mode: 'ok', trigger: allCrossed }, 'claude-opus-5-5'), false, 'not paused: nothing applies');
+  });
+  tu('LEAD-U2 a switched-off watcher lifts the pause it left behind (mode ok, no notice/resumeAtEpoch, lastResumeAt + reason)', async () => {
+    const g = freshGuard('fixu-off-');
+    try {
+      fs.writeFileSync(g.stateFile, JSON.stringify({ mode: 'paused', scope: 'model:Fable', trigger: fableCrossed, notice: 'PAUSED', resumeAtEpoch: Date.now() + 6 * 86400000, pausedAgents: [], ownerOverride: { active: false } }));
+      const calls = { exits: [], releases: 0, ticks: 0, logs: [] };
+      const step = await g.mod.watchStep({ forced: false, seenOn: true }, {
+        readSwitch: () => ({ on: false, unreadable: false }), tick: async () => { calls.ticks++; },
+        log: (m) => calls.logs.push(m), release: () => { calls.releases++; }, exit: (c) => calls.exits.push(c),
+      });
+      const st = g.read();
+      assert.strictEqual(step.outcome, 'switched-off');
+      assert.deepStrictEqual([calls.ticks, calls.releases, calls.exits], [0, 1, [0]]);
+      assert.strictEqual(st.mode, 'ok', JSON.stringify(st));
+      assert.strictEqual(st.notice, undefined);
+      assert.strictEqual(st.resumeAtEpoch, undefined);
+      assert.strictEqual(st.scope, undefined);
+      assert.ok(Number.isFinite(Date.parse(st.lastResumeAt)), 'lastResumeAt recorded');
+      assert.strictEqual(st.resumeReason, 'guard switched off by the owner');
+      assert.deepStrictEqual(st.ownerOverride, { active: false }, 'other fields are kept');
+      assert.ok(calls.logs.some((m) => /pause lifted/i.test(m)), calls.logs.join(' | '));
+    } finally { fs.rmSync(g.dir, { recursive: true, force: true }); }
+  });
+  tu('LEAD-U2 CLI watch --once with the switch OFF also lifts a leftover pause (recovery when no watcher is running)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fixu-once-'));
+    const home = path.join(dir, '.claude');
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, 'FORGE_CONFIG.json'), JSON.stringify({ version: 1, settings: { 'usage-guard': { value: false, set_at: '2026-11-12T00:00:00Z', set_by: 'test' } } }));
+    const stateFile = path.join(dir, 'state.json');
+    fs.writeFileSync(stateFile, JSON.stringify({ mode: 'paused', notice: 'PAUSED', resumeAtEpoch: Date.now() + 86400000, trigger: allCrossed }));
+    const env = Object.assign({}, process.env, {
+      HOME: dir, USERPROFILE: dir, FORGE_USAGE_GUARD_HOME: home, FORGE_CONFIG_HOME: home, FORGE_PROJECT_ROOT: path.join(dir, 'project'),
+      FORGE_USAGE_GUARD_PID: path.join(dir, 'guard.pid'), FORGE_USAGE_GUARD_LOG: path.join(dir, 'guard.log'),
+      FORGE_USAGE_GUARD_STATE: stateFile, FORGE_USAGE_PRESSURE_FILE: path.join(dir, 'pressure.json'),
+      FORGE_USAGE_GUARD_JOURNAL: path.join(dir, 'paused.jsonl'), FORGE_USAGE_GUARD_IDENTITY: path.join(dir, 'identity.json'),
+      FORGE_USAGE_GUARD_DENY_NETWORK: '1',
+    });
+    try {
+      const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'usage-guard.cjs'), 'watch', '--once'], { encoding: 'utf8', timeout: 30000, env });
+      const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      assert.strictEqual(r.status, 0, (r.stdout || '') + (r.stderr || ''));
+      assert.strictEqual(st.mode, 'ok', JSON.stringify(st));
+      assert.strictEqual(st.resumeReason, 'guard switched off by the owner');
+      assert.strictEqual(st.notice, undefined);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  tu('LEAD-U2 switch-off leaves a non-paused state untouched, and a forced watcher that never saw ON keeps the pause', async () => {
+    const g = freshGuard('fixu-off-ok-');
+    const h = freshGuard('fixu-off-forced-');
+    try {
+      const okBody = JSON.stringify({ mode: 'ok', percents: { session: 1, week: 2 } });
+      fs.writeFileSync(g.stateFile, okBody);
+      const deps = { readSwitch: () => ({ on: false, unreadable: false }), tick: async () => {}, log: () => {}, release: () => {}, exit: () => {} };
+      await g.mod.watchStep({ forced: false, seenOn: true }, deps);
+      assert.strictEqual(fs.readFileSync(g.stateFile, 'utf8'), okBody, 'an ok state is not rewritten');
+      fs.writeFileSync(h.stateFile, JSON.stringify({ mode: 'paused', notice: 'PAUSED', trigger: allCrossed }));
+      const s = await h.mod.watchStep({ forced: true, seenOn: false }, deps);
+      assert.strictEqual(s.outcome, 'ticked');
+      assert.strictEqual(h.read().mode, 'paused', 'a forced start while off is not a switch-off');
+    } finally {
+      fs.rmSync(g.dir, { recursive: true, force: true });
+      fs.rmSync(h.dir, { recursive: true, force: true });
+    }
   });
 }
 

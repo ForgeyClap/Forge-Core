@@ -5,6 +5,24 @@
 > holds the full, unmodified wording of lines 60-76 of the earlier file (whole-file sha256 `6ab6d9160d6d321dff530a6b2c25e4c0c1a8d4c85ab8aaeb6595b7ef2b6dfdbd`).
 > Nothing between the two markers below was reworded. **When to read:** when executing steps 0-3 of the Lead-Agent loop: config diff + echo, run.json + run_started, real-fixtures intake, memory/ECC inventory, Mission Blueprint and its Skill Discovery section.
 
+> **One first command (R8B-F6, 2026-11-08):** `node .claude/forge-bin/forge-start.cjs --text "<raw request>"` runs the
+> opening of steps 0-2 for you: the run id and `run_started` (step 1), the active run, step 0's config diff, the
+> `owner_prefs_loaded` echo and the standing-rules list, step 2's memory read (`project_scanned`, `memory_loaded`), quality
+> analyze, anticipate, the device probe, and the contract plan with a `NEXT` line. Do not run those again. Still yours:
+> the autonomy decision (step 0), `run.json` and the real-fixtures intake (step 1), `FORGE_ECC_MODE.json`, `ecc_inventory`,
+> `profile_loaded` and `agent_decision_summary` (step 2), and step 3. The verbatim text below keeps its old order.
+
+> **The graph line (2026-11-08):** forge-start also prints one `graph:` line from
+> `node .claude/forge-bin/forge-graphify.cjs ensure` (code-only, no LLM; the start never waits for a build, only for a
+> short `graphify --version` probe). `fresh` or `built`: read `graphify-out/GRAPH_REPORT.md` first, then ask
+> `graphify query "<question>"` before you grep the tree for how files relate; set `GRAPHIFY_QUERY_LOG_DISABLE=1` first,
+> or graphify logs each query to `~/.cache`. `building`: a background build started; use memory and grep now, the graph
+> is ready next run. `skipped` (under 3 code files, no `.claude` or `.git` in the root, `FORGE_GRAPHIFY=off`, or the
+> home/drive root) and `unavailable` (graphify not installed, or the last build failed: the reason is shown and no new
+> build starts until a code edit or 6 hours later) cost nothing and block nothing. The graph is an extra source beside memory, never the only one. The doctor advisory `graphify_wired`
+> warns, with the fix, when the wiring or graphify itself is missing.
+
+
 <!-- wp11-verbatim-begin source=.claude/commands/forge.md lines=60-76 -->
 ## 0. Owner Prefs, Standing Rules & Autonomy (required, before Mission Intake) — WAVE B / B4
 Apply `.claude/config/orchestration/precedence.md`'s ordering (hard-gates > current owner instruction > standing rules + owner config > owner-profile defaults > auto-defaults) BEFORE intake: read owner-profile defaults (`.claude/forge-bin/forge-prefs.cjs::resolve()`), active standing rules for this run (`.claude/forge-bin/forge-standing.cjs::match()`), and the autonomy mode (`.claude/forge-bin/forge-autonomy.cjs::decide()` — the current instruction > config `autonomy` > the default, always deferring to the live hard-gate classifier first; `decide "<phase>" --phase --live` also stops on a real usage-limit pause). Once `run_id` is assigned in step 1, **first** run `node .claude/forge-bin/forge-config.cjs diff --run <run_id> --mark-seen`: exit 3 = an owner setting changed since the last run (it logged ONE `config_changed` event) → repeat its lines to the owner in your first message ("Je hebt usage-guard.pause-at op 97 gezet — toegepast.") before continuing; exit 0 = nothing changed; exit 2 = a `FORGE_CONFIG.json` is damaged (the message names the file) → tell the owner in one line which file is damaged and that Forge runs with the safe defaults until it is fixed — every feature that uses their data, the network or money (usage-guard, nvidia, codex-review, mcp, portfolio, paperclip; cleanup stays report-only) is off, everything else at its default — or reset with `/forge config reset --yes` (only after the owner's yes: it keeps the damaged file as a `.damaged-<time>` backup and drops the saved settings; the gate hook treats a reset as a gate change, so it goes through the GATE HOOK yes-path), then continue the run. **Then** compose and log the applied-prefs ECHO: `node .claude/forge-bin/forge-echo.cjs emit <run_id>` — logs one `owner_prefs_loaded` event summarizing exactly which prefs/rules applied and the resolved owner config, so this ordering is visible on the dashboard, not just documented. See `.claude/skills/forge-router/SKILL.md` "Step 0-owner" for the full detail. A staged `FORGE_PREF_CANDIDATES.json` entry is never auto-active; the owner's `/forge remember <text>` (above) is the only sanctioned path that writes a new active standing rule.

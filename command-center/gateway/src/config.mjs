@@ -43,7 +43,7 @@ const execFileAsync = promisify(execFile);
 const FORGE_CONFIG_TIMEOUT_MS = 5000;
 const FORGE_CONFIG_CACHE_TTL_MS = 30_000;
 const MAX_BUFFER_BYTES = 4 * 1024 * 1024;
-// Same bounded-cache rule as capabilities.mjs: FIFO eviction past a hard cap, never
+// Same bounded-cache rule as capabilities.mjs (WP10 F4/F5): FIFO eviction past a hard cap, never
 // evicting on an update of an entry that already exists.
 const MAX_CACHE_ENTRIES = 100;
 const LIST_ARGS = ['list', '--json', '--all', '--lang', 'en'];

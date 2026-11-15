@@ -40,25 +40,71 @@ function projectRunState(runId, events) {
   const agents = {};
   const touch = (k) => (agents[k] || (agents[k] = { started: false, completed: false, failed: false, events: 0, last: '', lastType: '', sideEffecting: false }));
   const gates = {};
+  const unnamedGates = new Set(); // gate events with no gate name (forge-verify's brake): keyed by note, run-level
+  // One unit per dispatch: one agent on one wp_id (else dispatch_id, else the agent name), so a Boss that finished
+  // WP1 and was re-dispatched on WP2 is judged on WP2, and two agents on one wp never close each other's unit.
+  // A start resets the unit; the last start/terminal decides.
+  const units = {};
+  const lastUnitOf = {};
+  const lastWpUnit = {};
+  const ownKey = (e, k) => (e.wp_id ? 'wp:' + e.wp_id + '|' + k : e.dispatch_id ? 'dispatch:' + e.dispatch_id : 'agent:' + k);
+  const wpUnits = (wp) => Object.keys(units).filter((key) => units[key].wp_id === wp);
+  // A terminal event closes its own unit when that exists, else the agent's latest started unit.
+  const unitKey = (e, k) => (units[ownKey(e, k)] ? ownKey(e, k) : (lastUnitOf[k] && !(units[lastUnitOf[k]].wp_id && e.wp_id) ? lastUnitOf[k] : ownKey(e, k)));
+  const unit = (key, k, wp) => (units[key] || (units[key] = { agent: k, wp_id: wp || null, started: false, completed: false, failed: false }));
   for (const e of events) {
-    const k = e.agent || 'system'; const t = e.event_type || '';
+    const t = e.event_type || '';
+    const isStart = t === 'agent_started' || t === 'subagent_started';
+    const isWpClose = t === 'wp_completed' || t === 'wp_failed';
+    const isDone = t === 'agent_completed' || t === 'subagent_completed' || t === 'wp_completed';
+    const isFail = t === 'agent_failed' || t === 'subagent_failed' || t === 'wp_failed';
+    const wpUnit = !e.agent && e.wp_id && lastWpUnit[e.wp_id] && units[lastWpUnit[e.wp_id]];
+    const k = e.agent || (wpUnit && wpUnit.agent) || 'system';
     const a = touch(k); a.events++; if (e.timestamp) a.last = e.timestamp; a.lastType = t;
-    if (t === 'agent_started' || t === 'subagent_started') a.started = true;
-    else if (t === 'agent_completed' || t === 'subagent_completed') { a.completed = true; a.failed = false; }
-    else if (t === 'agent_failed' || t === 'subagent_failed') a.failed = true;
+    if (isStart || isDone || isFail) {
+      // wp_completed / wp_failed close every unit of that wp, whoever logs them; agent_/subagent_ terminals close only their own unit.
+      const all = isWpClose && e.wp_id ? wpUnits(e.wp_id) : [];
+      const keys = isStart ? [ownKey(e, k)] : all.length ? all : [unitKey(e, k)];
+      for (const key of keys) {
+        const u = unit(key, k, e.wp_id);
+        if (isStart) { u.started = true; u.completed = false; u.failed = false; lastUnitOf[k] = key; if (e.wp_id) lastWpUnit[e.wp_id] = key; a.started = true; }
+        else if (isDone) { u.completed = true; u.failed = false; }
+        else { u.failed = true; u.completed = false; }
+      }
+    }
     if (SIDE_EFFECT_HINT.test(t) || SIDE_EFFECT_HINT.test(String(e.task || '')) || SIDE_EFFECT_HINT.test(String(e.note || ''))) a.sideEffecting = true;
-    if (t === 'quality_gate_passed') gates[e.gate || e.note || 'gate'] = 'passed';
-    else if (t === 'quality_gate_blocked') gates[e.gate || e.note || 'gate'] = 'blocked';
+    if (t === 'quality_gate_passed' || t === 'quality_gate_blocked') {
+      const state = t === 'quality_gate_passed' ? 'passed' : 'blocked';
+      if (e.gate) {
+        // A pass of a named gate that never blocked by that name clears the run-level (unnamed) blocks.
+        if (state === 'passed' && gates[e.gate] !== 'blocked') { for (const g of unnamedGates) gates[g] = 'passed'; unnamedGates.clear(); }
+        gates[e.gate] = state;
+      } else {
+        const g = e.note || 'gate';
+        if (state === 'passed') { for (const u of unnamedGates) gates[u] = 'passed'; unnamedGates.clear(); gates[g] = 'passed'; }
+        else { gates[g] = 'blocked'; unnamedGates.add(g); }
+      }
+    }
   }
-  const unfinished = Object.keys(agents).filter((k) => agents[k].started && !agents[k].completed && !agents[k].failed);
-  const failed = Object.keys(agents).filter((k) => agents[k].failed && !agents[k].completed);
+  for (const key of Object.keys(units)) {
+    const u = units[key];
+    const a = touch(u.agent);
+    if (u.completed) a.completed = true;
+    if (u.failed) a.failed = true;
+  }
+  const openUnits = Object.keys(units).filter((key) => (units[key].started && !units[key].completed && !units[key].failed) || units[key].failed);
+  const uniq = (xs) => Array.from(new Set(xs));
+  const unfinished = uniq(openUnits.filter((key) => !units[key].failed).map((key) => units[key].agent));
+  const failed = uniq(openUnits.filter((key) => units[key].failed).map((key) => units[key].agent));
+  for (const k of Object.keys(agents)) { agents[k].completed = agents[k].completed && !unfinished.includes(k) && !failed.includes(k); agents[k].failed = failed.includes(k); }
   const blockedGates = Object.keys(gates).filter((g) => gates[g] === 'blocked');
-  const resume = Array.from(new Set([...unfinished, ...failed]));
+  const resume = uniq([...unfinished, ...failed]);
+  const resumeWps = uniq(openUnits.map((key) => units[key].wp_id).filter(Boolean));
   const sideEffectWarnings = resume.filter((k) => agents[k].sideEffecting);
   return {
     run_id: runId, agents, gates,
     unfinished, failed, blocked_gates: blockedGates,
-    resume, side_effect_warnings: sideEffectWarnings,
+    resume, resume_wps: resumeWps, side_effect_warnings: sideEffectWarnings,
     resumable: resume.length > 0 || blockedGates.length > 0,
     complete: resume.length === 0 && blockedGates.length === 0,
   };

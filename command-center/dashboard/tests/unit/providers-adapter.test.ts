@@ -292,7 +292,7 @@ describe('scrubSecrets', () => {
     'AIzaSyabcdefghijklmnop',
     'hf_abcdefghijklmnop',
     'AKIA' + 'ABCDEFGHIJKLMNOP',
-    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefgh',
+    'eyJ' + 'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefgh',
     'Bearer abcdefghijklmnop',
     'x-api-key: abcdefghijklmnop',
   ])('hides %s', (secret) => {

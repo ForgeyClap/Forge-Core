@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Offline, hermetic tests for forge-evals.cjs (WP4 — deterministic binary-assertion scorer). Pure
  *  function coverage (runAssertion/validateEvals/allLines) runs in-process; CLI behavior (exit codes,
  *  stdout/stderr shape, --json, and real --run gate_evaluated logging) is exercised via spawnSync
@@ -328,7 +332,9 @@ function okTexts(nOk, nNot) { const arr = []; for (let i = 0; i < nOk; i++) arr.
   const rAdeqNJson = JSON.parse(runCli(['compare', evalsAdeqN, '--with', withAdeqN, '--without', withoutAdeqN, '--json']).stdout);
   t('noise at adequate n=9: promotable true (samples meet floor) but conclusive false', rAdeqNJson.promotable === true && rAdeqNJson.conclusive === false);
   t('noise at adequate n=9: perTest classification is no_sig_change', rAdeqNJson.perTest[0].classification === 'no_sig_change');
-  t('noise at adequate n=9: perTest pValue matches the hand-computed value within tolerance', Math.abs(rAdeqNJson.perTest[0].pValue - 0.4927602499618978) < 1e-6);
+  // FB-SKILLTOOLS-F2: compare now runs a two-sided Fisher exact test on the two arms. Hand-worked: margins 7 of 18,
+  // the observed table (k=4) has the largest hypergeometric probability (10584/31824), so every table counts: p = 1.
+  t('noise at adequate n=9: perTest pValue matches the hand-computed Fisher value within tolerance', Math.abs(rAdeqNJson.perTest[0].pValue - 1) < 1e-6);
   t('noise at adequate n=9: gains=0 and regressions=0', rAdeqNJson.significance.gains === 0 && rAdeqNJson.significance.regressions === 0);
 
   // ---- I.3: clear win, both arms at exactly the new default (n=8) -> KEEP/PROMOTE, exit 0 ----
@@ -536,6 +542,26 @@ function okTexts(nOk, nNot) { const arr = []; for (let i = 0; i < nOk; i++) arr.
   t('classifyTest: zero-baseline floor allows a 62.5% win (5/8 vs 0/8) -> significant_gain', E.classifyTest(5, 8, 0, 8).classification === 'significant_gain');
   t('classifyTest: noise at adequate n (4/9 vs 3/9) -> no_sig_change', E.classifyTest(4, 9, 3, 9).classification === 'no_sig_change');
   t('classifyTest: identical rates -> no_sig_change', E.classifyTest(4, 8, 4, 8).classification === 'no_sig_change');
+}
+
+// FB-SKILLTOOLS-F2: assertions of one sample are correlated, so compare counts samples (a sample passes when all its
+// assertions pass) and compares the two arms with a two-sided Fisher exact test, not a one-sample binomial.
+{
+  // hand-worked hypergeometric: 5/8 vs 0/8 -> P(k=0)+P(k=5) = (56+56)/4368 = 0.025641...; 4/9 vs 3/9 -> 1
+  t('fisherExactTwoSided: 5/8 vs 0/8 = 112/4368', typeof E.fisherExactTwoSided === 'function' && Math.abs(E.fisherExactTwoSided(5, 8, 0, 8) - 112 / 4368) < 1e-9);
+  t('fisherExactTwoSided: 4/9 vs 3/9 = 1', typeof E.fisherExactTwoSided === 'function' && Math.abs(E.fisherExactTwoSided(4, 9, 3, 9) - 1) < 1e-9);
+  const dirCor = caseDir();
+  const fiveAsserts = ['a1', 'a2', 'a3', 'a4', 'a5'].map((id, i) => ({ id, type: 'contains', text: 'ok' + i }));
+  const evalsCor = writeEvals(dirCor, { skill: 'cmp-correlated', tests: [{ id: 't1', assertions: fiveAsserts }] });
+  const withCor = path.join(dirCor, 'with'); fs.mkdirSync(withCor, { recursive: true });
+  const withoutCor = path.join(dirCor, 'without'); fs.mkdirSync(withoutCor, { recursive: true });
+  const full = 'ok0 ok1 ok2 ok3 ok4', none = 'nothing here';
+  writeSamples(withCor, 't1', [full, full, full, full, full, full, full, none]);        // 7/8 samples fully pass
+  writeSamples(withoutCor, 't1', [full, full, full, full, full, none, none, none]);     // 5/8 samples fully pass
+  const cor = E.compareArms(E.loadEvals(evalsCor).normalized, withCor, withoutCor, 8);
+  t('correlated assertions: 7/8 vs 5/8 samples is no_sig_change (pooled 35/40 vs 25/40 used to say significant_gain)', cor.perTest[0].classification === 'no_sig_change');
+  t('correlated assertions: verdict is NO SIGNIFICANT DIFFERENCE, not KEEP/PROMOTE', /^NO SIGNIFICANT DIFFERENCE/.test(cor.verdict));
+  t('correlated assertions: perTest reports the per-sample counts it judged', cor.perTest[0].withSamplesPassed === 7 && cor.perTest[0].withoutSamplesPassed === 5 && cor.perTest[0].withSamples === 8);
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

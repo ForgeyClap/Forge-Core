@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-harness-match.test.cjs — WP A2: forge-harness-match.cjs, the run-contract rule dispatch-harness-match
  * and the log-event.cjs write-time stamp. Hermetic: one os.mkdtemp folder (removed at the end) holds every project root
@@ -109,7 +113,7 @@ try {
     sub('Verify Boss', 'wf_abc123-def:A5', { runtime: 'workflow' }),
     sub('Build Boss', 'wf_abc123-def:A1', { runtime: 'workflow' }),
     sub('Review Boss', 'toolu_MISMATCH0001'),
-    sub('codex-reviewer', 'codex-job-1', { runtime: 'codex' }),
+    sub('codex-reviewer', 'codex-job-1', { runtime: 'codex', exit_code: 0 }), // FB-VERIFY-1-F13: external needs its own record
     sub('Build Boss', undefined, { runtime: 'internal' }),
     sub('Docs Boss', 'pending'),
     sub('Docs Boss', undefined),
@@ -211,7 +215,7 @@ try {
   t('D10 a run that started before 2026-11-01 is historical_exempt', c.historical_exempt.some((h) => h.id === RULE) && !c.warnings.includes(RULE));
   writeRun(B, 'run-own', [sub('Build Boss', 'toolu_FAKE00000099'), { event_type: 'owner_override', rule: RULE, reason: 'owner saw the dispatch live in the session', by: 'owner', timestamp: TS }]);
   c = chk(B, 'run-own');
-  t('D11 a valid owner_override clears it (overridden)', c.overridden.some((o) => o.id === RULE) && !c.warnings.includes(RULE));
+  t('D11 a well-formed owner_override is label-only and does not clear it yet (FB-CONTRACT-1-F2)', !c.overridden.some((o) => o.id === RULE) && c.warnings.includes(RULE) && c.override_label_only.some((o) => o.id === RULE));
   writeRun(B, 'run-agent', [sub('Build Boss', 'toolu_FAKE00000099'), { event_type: 'decision_logged', agent: 'orchestrator', rule: RULE, decision: 'not-applicable', reason: 'the lead says these dispatches were real' }]);
   t('D12 an agent cannot excuse it with a decision_logged exception', chk(B, 'run-agent').warnings.includes(RULE));
   writeRun(B, 'run-none', []);
@@ -295,6 +299,38 @@ try {
   w = log(nw, 'run-le', 'subagent_started', FAKE, { FORGE_HARNESS_STAMP: 'off' });
   ev = w.status === 0 ? lastEvent(nw, 'run-le') : {};
   t('E8 FORGE_HARNESS_STAMP=off turns the stamp off', w.status === 0 && !(ev._forge_verify || {}).dispatch_unverified);
+
+  // ================================================================================================
+  console.log('\nF) FIX-VERIFY (audit 2026-11-12)');
+  // ================================================================================================
+  // FB-VERIFY-1-F12: an agent-meta file older than the run is no proof for this run's dispatch.
+  const F = mkRoot();
+  hooks(F, 'subagent-start.jsonl', [{ event: 'SubagentStart', agent_id: 'a1212121212121212', agent_type: 'test-boss', run: 'run-f12' }]);
+  const fMeta = mk(sessDir(F, 'sess-old'), 'subagents');
+  const oldMeta = path.join(fMeta, 'agent-a0101010101010101.meta.json');
+  fs.writeFileSync(oldMeta, JSON.stringify({ agentType: 'build-boss' }));
+  fs.utimesSync(oldMeta, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'));
+  const newMeta = path.join(fMeta, 'agent-a0202020202020202.meta.json');
+  fs.writeFileSync(newMeta, JSON.stringify({ agentType: 'build-boss' }));
+  writeRun(F, 'run-f12', [sub('Test Boss', 'a1212121212121212'), sub('Build Boss', 'a0101010101010101'), sub('Build Boss', 'a0202020202020202')]);
+  rep = HM.matchRun({ root: F, runId: 'run-f12', final: true });
+  t('F1 (F12) an old agent id whose meta file predates run_started -> unmatched, not matched', byId(rep, 'a0101010101010101').status === 'unmatched', JSON.stringify(byId(rep, 'a0101010101010101')));
+  t('F2 (F12) a meta file written during the run still proves the dispatch', byId(rep, 'a0202020202020202').status === 'matched', JSON.stringify(byId(rep, 'a0202020202020202')));
+
+  // FB-VERIFY-1-F13: a bare runtime label does not take a dispatch out of the percentage.
+  const G = mkRoot();
+  fs.writeFileSync(path.join(G, 'codex.log'), 'review done\n');
+  writeRun(G, 'run-f13', [
+    sub('Review Boss', 'job-fake-1', { runtime: 'cli' }),
+    sub('codex-reviewer', 'job-real-1', { runtime: 'codex', log_path: 'codex.log' }),
+    sub('codex-reviewer', 'job-real-2', { runtime: 'codex', exit_code: 0 }),
+    sub('Build Boss', undefined, { runtime: 'internal' }),
+  ]);
+  rep = HM.matchRun({ root: G, runId: 'run-f13', final: true, findJournals: false });
+  t('F3 (F13) runtime "cli" with no log_path or exit_code -> unmatched (counted, not excluded)', byId(rep, 'job-fake-1').status === 'unmatched' && /log_path|exit_code/.test(byId(rep, 'job-fake-1').reason), JSON.stringify(byId(rep, 'job-fake-1')));
+  t('F4 (F13) an external dispatch with an existing log_path or an exit_code stays external-cli', byId(rep, 'job-real-1').unverifiable_kind === 'external-cli' && byId(rep, 'job-real-2').unverifiable_kind === 'external-cli');
+  t('F5 (F13) the fake external dispatch makes the run fail the threshold', rep.summary.provable === 1 && !HM.meetsThreshold(rep.summary), JSON.stringify(rep.summary));
+  t('F6 (F13) internal-skipped events are listed by agent in the report', Array.isArray(rep.skipped_internal) && rep.skipped_internal.some((x) => x.agent === 'Build Boss'), JSON.stringify(rep.skipped_internal));
 } catch (e) {
   fail++; console.error('  FAIL threw: ' + (e && e.stack || e));
 } finally {

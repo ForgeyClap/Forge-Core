@@ -179,7 +179,7 @@ describe('Mijn projecten (Dutch)', () => {
     expect(screen.getByText('Forge v11 in bakkerij')).toBeInTheDocument();
     const row = container.querySelector('.fw-projects__item[data-active="true"]');
     expect(row?.querySelector('[title="Gesprekken"] .fg-machine')?.textContent).toBe('2');
-    // taskCount and health were never measured: an honest dash, never a fabricated 0.
+    // taskCount and health were never measured: an honest dash, never a fabricated 0 (F3).
     expect(row?.querySelector('[title="Taken"] .fg-machine')?.textContent).toBe('—');
     const health = row?.querySelector('.fw-projects__health')?.textContent ?? '';
     expect(health).toContain('—');

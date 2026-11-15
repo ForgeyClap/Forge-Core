@@ -95,7 +95,7 @@
  * N10 RESIDUAL, (Codex p14 out-p14 finding N10, "PARTLY CLOSED": ISSUANCE BINDING): wave
  * 8's memory-proof baseline (`credentialProofByAccount`) was keyed by account label ALONE — it had no idea
  * WHICH grant it had actually confirmed. Codex's `N10_reissued_grant_stale_watcher` exploited exactly that: a
- * watcher confirms account A's grant G1 under credential C1 (seeding the baseline with C1's fp); the
+ * watcher (W1) confirms account A's grant G1 under credential C1 (seeding the baseline with C1's fp); the
  * grant is then REPLACED with G2, bound to a DIFFERENT credential C2, while the profile label stays A (the
  * account-binding check alone cannot see this — it is still, correctly, "account A"); C1 later returns to
  * the credential file with new file metadata; W1's stale baseline — still only "account A" + "fp(C1)" —

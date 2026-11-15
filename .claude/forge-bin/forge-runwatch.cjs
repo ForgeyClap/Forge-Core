@@ -61,7 +61,10 @@ function projectRunWatch(events, opts = {}) {
   const now = typeof opts.now === 'number' ? opts.now : Date.now();
   const stallMs = (opts.stallMs && opts.stallMs > 0) ? opts.stallMs : DEFAULT_STALL_MS;
   const agents = {};
-  const touch = (k) => (agents[k] || (agents[k] = { agent: k, started: false, terminal: null, terminalType: null, terminalEvidence: null, lastType: '', lastTs: null, events: 0 }));
+  // open = dispatches started minus terminal events seen: a re-dispatch (or a parallel lane) under the same name stays open
+  // until it has its own terminal event (FB-LANES-F1). Extra terminal events never push it below 0.
+  const touch = (k) => (agents[k] || (agents[k] = { agent: k, started: false, open: 0, terminal: null, terminalType: null, terminalEvidence: null, lastType: '', lastTs: null, events: 0 }));
+  const end = (a, kind, k, type, e) => { a.open = Math.max(0, a.open - 1); a.terminal = kind; a.terminalType = type; a.terminalEvidence = { agent: k, event_type: type, timestamp: e.timestamp || null, note: e.note || '' }; };
   let lastEventAt = null;
   for (const e of (Array.isArray(events) ? events : [])) {
     if (!e || typeof e !== 'object') continue;
@@ -70,11 +73,12 @@ function projectRunWatch(events, opts = {}) {
     const ts = parseTs(e);
     const a = touch(k); a.events++; a.lastType = type;
     if (ts != null) { a.lastTs = ts; if (lastEventAt == null || ts > lastEventAt) lastEventAt = ts; }
-    if (RE_START.test(type)) a.started = true;
-    else if (RE_DONE.test(type)) { a.terminal = 'completed'; a.terminalType = type; a.terminalEvidence = { agent: k, event_type: type, timestamp: e.timestamp || null, note: e.note || '' }; }
-    else if (RE_FAIL.test(type)) { a.terminal = 'failed'; a.terminalType = type; a.terminalEvidence = { agent: k, event_type: type, timestamp: e.timestamp || null, note: e.note || '' }; }
-    else if (RE_ABORT.test(type)) { a.terminal = 'aborted'; a.terminalType = type; a.terminalEvidence = { agent: k, event_type: type, timestamp: e.timestamp || null, note: e.note || '' }; }
+    if (RE_START.test(type)) { a.started = true; a.open++; }
+    else if (RE_DONE.test(type)) end(a, 'completed', k, type, e);
+    else if (RE_FAIL.test(type)) end(a, 'failed', k, type, e);
+    else if (RE_ABORT.test(type)) end(a, 'aborted', k, type, e);
   }
+  for (const a of Object.values(agents)) if (a.open > 0) { a.terminal = null; a.terminalType = null; a.terminalEvidence = null; }
   const started = Object.values(agents).filter((a) => a.started);
   const open = started.filter((a) => !a.terminal);
   const stalled = open.filter((a) => a.lastTs != null && (now - a.lastTs) >= stallMs);

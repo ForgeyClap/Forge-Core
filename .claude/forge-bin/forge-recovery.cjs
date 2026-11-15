@@ -204,8 +204,10 @@ function generateAlternatives(item, opts) {
   if (policy.allowForgeNativeReimplementation) {
     routes.push({ route: 'forge_native_reimplementation', safe: true, method: 'safe zero-dep Forge-native reconstruction of the behavior' });
   }
-  // enforce: every generated route is safe (no auth-bypass) — throws if any route is unsafe.
-  routes.forEach((r) => assertNoAuthBypass(r, policy));
+  // enforce: every generated route is safe (no auth-bypass) — throws if any route is unsafe. The queries and paths are
+  // built from the item's own name/description, so a defensive item ("brute-force-guard") is not a bypass route
+  // (FB-QUALITY-F6); agent-proposed routes still go through assertNoAuthBypass with every field.
+  routes.forEach((r) => { const { queries, paths, ...text } = r; assertNoAuthBypass(text, policy); });
   const min = requiredAlternatives(policy, highValue);
   return { routes, min, meetsMin: routes.length >= min, highValue, ledger: policy.ledger };
 }

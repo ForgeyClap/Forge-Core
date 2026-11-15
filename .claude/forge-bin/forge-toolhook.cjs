@@ -31,7 +31,10 @@
  *    what every one of those consumers measures (event counts, "last event", stall detection). It would
  *    also force a new registered `event_type` and a rendering decision in each of them. A separate file
  *    changes nothing that already works.
- * 2. COST PER CALL. This fires on EVERY tool call in a live session. Resolving "which run is running" the
+ * 2. COST PER CALL. This fires on every tool call its PostToolUse matcher covers. SCOPE (FB-GUARDS-1-F9,
+ *    .claude/settings.json registers it for Write|Edit|MultiEdit|NotebookEdit|Bash and PowerShell
+ *    ONLY, so Read, Grep, Glob, Skill, WebFetch and mcp__ tools are NOT in this ledger; a reader must not treat a
+ *    missing Skill or MCP line as "never used" unless the matcher is widened. Resolving "which run is running" the
  *    way `forge-snapshot.cjs` does (rank every run dir, then read and parse each run's events to find the
  *    newest with real work) is O(all runs x all events) — unaffordable at tool-call frequency, and it would
  *    mean loading the 123 KB `forge-doctor.cjs` in every hook process. Partitioning by `session_id` is O(1)
@@ -65,7 +68,7 @@
  * ---------------------------------------------------------------------------------------------------
  * WHAT IT RECORDS — behaviour, never content
  * ---------------------------------------------------------------------------------------------------
- *   { ts, session, agent_id, agent_type, tool, target, target_kind, ok, ok_basis, ms, tool_use_id,
+ *   { ts, session, agent_id, agent_type, tool, target, target_kind, command_kind?, ok, ok_basis, ms, tool_use_id,
  *     permission_mode?, effort?, model?, run?, truncated?, line_trimmed? }
  *
  * `effort` / `model` (GOAT model routing): the effort level and model the harness reports for
@@ -114,6 +117,12 @@
  *     the write; Claude Code only shows the NL + EN reason to the model (in windows-game-v6 a launch check typed
  *     Enter/Esc/b into the owner's other terminal through SendKeys). The check runs apart from the ledger (it also
  *     runs with tool-log off) and is fail-open: any error in it prints nothing.
+ *     SECOND exception (R8B-F2): the lead-write guard (forge-lead-write-guard.cjs, lazy-loaded, fail open).
+ *     When the LEAD (no agent_id) of a /forge build session writes a project file outside .claude/, .forge/, _scratch/
+ *     and temp with no started run or no work package, the same one feedback object carries its NL + EN reason, at
+ *     most once per case per session. Both reasons share ONE object (hookFeedback). Its decision is recorded on the
+ *     ledger line as lead_write_guard (ok|blocked-a|blocked-b|off|skipped) + lead_write_guard_why (a constant code)
+ *     + lead_write_guard_shown (blocked only: was the feedback printed); Bash/PowerShell lines carry no such field.
  *   - Otherwise NEVER writes stdout. Not one byte, on any other path. Diagnostics go to a size-capped local file.
  *   - Owner setting `tool-log` (forge-config.cjs, default ON): OFF -> run() returns
  *     {ok:true, wrote:false, skipped:true, reason:'owner config tool-log=off'} before parsing the payload —
@@ -141,10 +150,11 @@
  *   buildLine(payload, opts)                   -> the record object
  *   run(rawStdinJson, opts)                    -> { ok, wrote, path, reason, rotated, line, skipped? }
  *
- * CLI: reads stdin, calls run(), ALWAYS exits 0, silent except the global-input feedback (globalInputFeedback).
+ * CLI: reads stdin, calls leadWriteGuard() + run(), ALWAYS exits 0, silent except the one feedback object (hookFeedback).
  *   opts: { root, runId, now, truncated, headBytes, maxLogBytes, configModule }
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const MAX_TARGET_CHARS = 200;      // a string field is a label, not a payload — one cap for ALL of them
@@ -280,13 +290,24 @@ const ASSIGN_PREFIX_RE = new RegExp(
  *  (a key in an env prefix must never land on disk) and a quoted program path is kept whole. Everything
  *  after it — every flag, every argument, every heredoc — is dropped and never seen again.
  *  NOTE: this returns the RAW token; it is not what gets written. See canonicalCommand(). */
-function firstToken(cmd) {
+// FB-GUARDS-1-F10: 79% of shell lines were stored as "cd" because `cd "<dir>" && node --test x`
+// keeps only its first token. A leading cd / chdir / pushd / Set-Location / sl segment that ENDS IN A SEPARATOR is
+// skipped like an assignment (bounded, anchored, linear); a bare `cd <dir>` is still recorded as cd.
+const CD_PREFIX_RE = /^(?:cd|chdir|pushd|set-location|sl)[ \t]{1,8}(?:"[^"]{0,1024}"|'[^']{0,1024}'|[^\s;&|]{1,1024})[ \t]{0,8}(?:&&|\|\||;|&)[ \t]{0,8}/i;
+
+/** stripPrefixes — the command with its leading assignments and cd segments removed (max 8 rounds). */
+function stripPrefixes(cmd) {
   let s = String(cmd).trim();
   for (let guard = 0; guard < 8; guard++) {
-    const m = ASSIGN_PREFIX_RE.exec(s);
+    const m = ASSIGN_PREFIX_RE.exec(s) || CD_PREFIX_RE.exec(s);
     if (!m || !m[0].length) break;
     s = s.slice(m[0].length);
   }
+  return s;
+}
+
+function firstToken(cmd) {
+  const s = stripPrefixes(cmd);
   if (!s.length) return null;
   const q = s[0];
   if (q === '"' || q === "'") {
@@ -372,6 +393,37 @@ function canonicalCommand(token) {
   return COMMAND_INDEX.get(base.toLowerCase()) || null;
 }
 
+/** COMMAND_KINDS — what kind of work a shell call did (FB-GUARDS-1-F10), so a ledger line can contradict or back
+ *  "I ran the tests". Like `target`, the written value is always one of these constants, never input bytes. */
+const COMMAND_KINDS = ['node --test', 'node test file', 'npm test', 'vitest', 'jest', 'pytest', 'git commit'];
+const RUNNERS = new Set(['npx', 'pnpm', 'yarn', 'bun']);
+
+/** commandKind(rest, known) -> a COMMAND_KINDS entry or undefined. `rest` is the command after stripPrefixes;
+ *  only its first segment is read. Unrecognised shapes give undefined (a missed kind, never a wrong byte). */
+function commandKind(rest, known) {
+  if (!known) return undefined;
+  const seg = String(rest).slice(0, 2048).split(/&&|\|\||[;|]/)[0];
+  const toks = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(seg)) && toks.length < 32) toks.push(m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]));
+  const a = toks.slice(1);
+  const sub = (a[0] || '').toLowerCase();
+  if (known === 'node') {
+    // --test is a node option only before the script (first non-flag token) or `--`; after that it is the script's.
+    const script = a.findIndex((x) => x === '--' || !x.startsWith('-'));
+    if ((script === -1 ? a : a.slice(0, script)).includes('--test')) return 'node --test';
+    if (a[0] && !a[0].startsWith('-') && /\.test\.[cm]?js$/i.test(a[0])) return 'node test file';
+    return undefined;
+  }
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(known) && (sub === 'test' || sub === 't' || (sub === 'run' && a[1] === 'test'))) return 'npm test';
+  if (known === 'vitest' || (RUNNERS.has(known) && sub === 'vitest')) return 'vitest';
+  if (known === 'jest' || (RUNNERS.has(known) && sub === 'jest')) return 'jest';
+  if (known === 'pytest' || (['python', 'python3', 'py'].includes(known) && a[0] === '-m' && a[1] === 'pytest')) return 'pytest';
+  if (known === 'git' && sub === 'commit') return 'git commit';
+  return undefined;
+}
+
 /** hostOf — host only. Userinfo (`user:pass@`) and the whole path/query are discarded: an access token in
  *  a query string is exactly the kind of thing this ledger must never immortalize. */
 function hostOf(u) {
@@ -391,7 +443,9 @@ function summarizeTarget(toolName, toolInput, root) {
     // NOT done(): the value written here is a constant from KNOWN_COMMANDS, never input bytes. An
     // unrecognised executable is recorded as a counted-but-unnamed call rather than guessed at (leak X1).
     const known = canonicalCommand(firstToken(toolInput.command));
-    return known ? { target: known, target_kind: 'command' } : { target: null, target_kind: 'command-unlisted' };
+    if (!known) return { target: null, target_kind: 'command-unlisted' };
+    const kind = commandKind(stripPrefixes(toolInput.command), known);
+    return kind ? { target: known, target_kind: 'command', command_kind: kind } : { target: known, target_kind: 'command' };
   }
   if (typeof toolInput.url === 'string' && toolInput.url.length) return done(hostOf(toolInput.url), 'url_host');
   if (typeof toolInput.subagent_type === 'string' && toolInput.subagent_type.length) return done(toolInput.subagent_type, 'subagent');
@@ -446,6 +500,10 @@ function routingLabel(v, depth) {
   return null;
 }
 
+/** The lead-write guard verdicts a ledger line may carry (R8B-F2); see buildLine. */
+const LWG_DECISIONS = ['ok', 'blocked-a', 'blocked-b', 'off', 'skipped'];
+const LWG_WHY_RE = /^[a-z][a-z-]{0,31}$/;
+
 function buildLine(payload, opts) {
   opts = opts || {};
   const p = isPlainObject(payload) ? payload : {};
@@ -459,6 +517,7 @@ function buildLine(payload, opts) {
     tool: str(p.tool_name),
     target: tgt.target,
     target_kind: tgt.target_kind,
+    ...(tgt.command_kind ? { command_kind: tgt.command_kind } : {}),
     ok: outcome.ok,
     ok_basis: outcome.ok_basis,
     ms: Number.isFinite(p.duration_ms) ? p.duration_ms : null,
@@ -473,6 +532,14 @@ function buildLine(payload, opts) {
   if (opts.truncated) line.truncated = true;
   const rid = opts.runId != null ? String(opts.runId) : (process.env.FORGE_RUN_ID || '');
   if (rid && RUN_ID_RE.test(rid)) line.run = rid;
+  const g = opts.leadWriteGuard;
+  if (isPlainObject(g)) {
+    // Only known decisions and constant why codes reach disk; anything else is recorded as skipped/invalid.
+    const dec = LWG_DECISIONS.includes(g.decision) ? g.decision : null;
+    line.lead_write_guard = dec || 'skipped';
+    line.lead_write_guard_why = dec && typeof g.why === 'string' && LWG_WHY_RE.test(g.why) ? g.why : 'invalid';
+    if (dec && dec.startsWith('blocked-') && typeof g.shown === 'boolean') line.lead_write_guard_shown = g.shown;
+  }
   return line;
 }
 
@@ -605,17 +672,23 @@ function diag(root, obj) {
 
 /** syncMaintenance(root) -> true while <root>/.claude/.forge-sync.lock is younger than 6 h: a
  *  forge-sync run is replacing files there. Age from the lock's started_at/ts, else the file time. Fail-open: no lock,
- *  an unreadable root or a lock older than 6 h is "no maintenance". Never throws, never writes. Same rule as
+ *  an unreadable root, a lock older than 6 h, or a lock of this host whose pid is gone (after 2 min) is "no maintenance". Never throws, never writes. Same rule as
  *  forge-gate-hook.cjs::syncMaintenance and forge-sync.cjs::readLockStatus. */
 const SYNC_LOCK_STALE_MS = 6 * 60 * 60 * 1000;
+const SYNC_LOCK_DEAD_OWNER_GRACE_MS = 2 * 60 * 1000; // forge-sync.cjs LOCK_DEAD_OWNER_GRACE_MS
 function syncMaintenance(root) {
   try {
     const lp = path.join(root, '.claude', '.forge-sync.lock');
     const st = fs.statSync(lp);
     let started = NaN;
-    try { const b = JSON.parse(fs.readFileSync(lp, 'utf8')); started = Date.parse(b && (b.started_at || b.ts)); } catch { /* unreadable body: use the file time */ }
+    let b = null;
+    try { b = JSON.parse(fs.readFileSync(lp, 'utf8')); started = Date.parse(b && (b.started_at || b.ts)); } catch { /* unreadable body: use the file time */ }
     let age = Date.now() - (Number.isFinite(started) ? started : st.mtimeMs);
     if (!(age >= 0)) age = Date.now() - st.mtimeMs; // a lock dated in the future is judged by its file time
+    // FB-SYNC-C-F1: forge-sync.cjs deadOwnerOnThisHost — a lock of THIS host whose pid is not running is left by a killed run
+    if (age > SYNC_LOCK_DEAD_OWNER_GRACE_MS && b && typeof b.host === 'string' && b.host === os.hostname() && Number.isInteger(b.pid) && b.pid > 0) {
+      try { process.kill(b.pid, 0); } catch (e) { if (e && e.code === 'ESRCH') return false; }
+    }
     return age < SYNC_LOCK_STALE_MS;
   } catch { return false; }
 }
@@ -669,7 +742,7 @@ function record(rawStdinJson, opts, root) {
   try {
     // scrubRecord here as well as inside serialize(): the returned `.line` is a caller-visible copy of what
     // went to disk, and it must not be the one unscrubbed copy in the system. Scrubbing is idempotent.
-    line = scrubRecord(buildLine(payload, { root, truncated, runId: opts.runId, now: opts.now }));
+    line = scrubRecord(buildLine(payload, { root, truncated, runId: opts.runId, now: opts.now, leadWriteGuard: opts.leadWriteGuard }));
   } catch (e) { diag(root, { step: 'build', error: e.message }); return { ok: false, wrote: false, reason: 'build-failed', path: null }; }
 
   const text = serialize(line) + '\n';
@@ -712,15 +785,54 @@ function globalInputFeedback(rawStdinJson, opts) {
   } catch { return ''; }
 }
 
+/** leadWriteGuard(rawStdinJson, opts) -> null (not a Write/Edit/MultiEdit/NotebookEdit) or the guard's verdict
+ *  {decision, why, shown, feedback} (R8B-F2, see forge-lead-write-guard.cjs). The module is loaded lazily,
+ *  only for a write; a missing or throwing module, a truncated or unparseable payload and a running forge-sync give
+ *  a 'skipped' verdict, never an error. opts.leadWriteGuardModule injects the module in tests (null = absent). */
+const LEAD_WRITE_TOOL_RE = /"tool_name"\s*:\s*"(?:Write|Edit|MultiEdit|NotebookEdit)"/;
+function leadWriteGuard(rawStdinJson, opts) {
+  opts = opts || {};
+  const skip = (why) => ({ decision: 'skipped', why, shown: false, feedback: null });
+  try {
+    if (typeof rawStdinJson !== 'string' || !rawStdinJson) return null;
+    if (!LEAD_WRITE_TOOL_RE.test(rawStdinJson.slice(0, HEAD_BYTES))) return null;
+    if (opts.truncated) return skip('truncated');
+    const root = resolveProjectRoot(opts);
+    if (syncMaintenance(root)) return skip('maintenance');
+    let g = opts.leadWriteGuardModule;
+    if (g === undefined) { try { g = require('./forge-lead-write-guard.cjs'); } catch { g = null; } } // eslint-disable-line global-require
+    if (!g || typeof g.evaluate !== 'function') return skip('guard-unavailable');
+    let payload;
+    try { payload = JSON.parse(rawStdinJson); } catch { return skip('unparseable'); }
+    const r = g.evaluate(payload, { root, configModule: opts.configModule });
+    return isPlainObject(r) && typeof r.decision === 'string' ? r : skip('error');
+  } catch { return skip('error'); }
+}
+
+/** hookFeedback(rawStdinJson, opts, guard) -> '' or ONE PostToolUse feedback object as JSON text: the global-input
+ *  reason and the lead-write guard reason (guard = leadWriteGuard()'s verdict) joined, so stdout never holds two
+ *  objects. Never throws. */
+function hookFeedback(rawStdinJson, opts, guard) {
+  try {
+    const reasons = [];
+    const gi = globalInputFeedback(rawStdinJson, opts);
+    if (gi) reasons.push(JSON.parse(gi).reason);
+    const fb = isPlainObject(guard) ? guard.feedback : null;
+    if (isPlainObject(fb) && fb.decision === 'block' && typeof fb.reason === 'string' && fb.reason) reasons.push(fb.reason);
+    return reasons.length ? JSON.stringify({ decision: 'block', reason: reasons.join('\n\n') }) : '';
+  } catch { return ''; }
+}
+
 module.exports = {
-  run, globalInputFeedback, summarizeTarget, deriveOk, sessionBucket, buildLine, serialize, salvage, scrubRecord,
+  run, globalInputFeedback, leadWriteGuard, hookFeedback, // R8B-F2: lead-write guard wiring
+  summarizeTarget, deriveOk, sessionBucket, buildLine, serialize, salvage, scrubRecord,
   firstToken, canonicalCommand, hostOf, relPath, resolveProjectRoot, configOn, configRead, routingLabel, syncMaintenance,
   runsDir, isForgeProject, // WP 2.1: shared with forge-tool-failure.cjs and forge-subagent-stop.cjs
   MAX_TARGET_CHARS, MAX_LINE_BYTES, MAX_LOG_BYTES, HEAD_BYTES, FAILSAFE_MS, LOG_DIRNAME,
-  KNOWN_COMMANDS, ASSIGN_PREFIX_RE,
+  KNOWN_COMMANDS, ASSIGN_PREFIX_RE, CD_PREFIX_RE, COMMAND_KINDS, commandKind, stripPrefixes,
 };
 
-// ---- CLI (advisory hook target — ALWAYS exits 0, NEVER blocks a tool call, silent except the W1 global-input feedback).
+// ---- CLI (advisory hook target — ALWAYS exits 0, NEVER blocks a tool call, silent except the one feedback object of W1 + R8B-F2).
 // Async stdin collection, the pattern already proven safe on Windows by forge-snapshot-marker.cjs and
 // forge-hook-secret-scrub.cjs (a synchronous fd-0 read is avoided deliberately). Only the first HEAD_BYTES
 // are retained; the rest is drained and dropped so a multi-megabyte tool_response can neither blow up
@@ -730,7 +842,8 @@ if (require.main === module) {
   // stdin. Claude Code invokes this hook with NO arguments, so the hook path below is unchanged.
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log('Usage: node forge-toolhook.cjs < <PostToolUse hook JSON on stdin>');
-    console.log('  Claude Code runs this as a PostToolUse hook; it appends one line per file-changing tool call to');
+    console.log('  Claude Code runs this as a PostToolUse hook; it appends one line per tool call its matcher covers');
+    console.log('  (today Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell; not Read, Skill or mcp__ tools) to');
     console.log('  .claude/forge-runs/_toollog/ (.forge/runs/_toollog/ in a project with .forge/; never blocks, always exits 0).');
     console.log('  There is nothing to run by hand.');
     process.exit(0);
@@ -754,9 +867,11 @@ if (require.main === module) {
       let truncated = dropped;
       if (buf.length > HEAD_BYTES) { buf = buf.subarray(0, HEAD_BYTES); truncated = true; }
       const raw = buf.toString('utf8');
-      run(raw, { truncated });
-      // the one stdout write this hook may make — PostToolUse feedback on global input (see header)
-      const fb = globalInputFeedback(raw, { truncated });
+      // R8B-F2: judge a Lead write first, so the ledger line records the guard's decision
+      const guard = leadWriteGuard(raw, { truncated });
+      run(raw, { truncated, leadWriteGuard: guard });
+      // the one stdout write this hook may make — ONE PostToolUse feedback object (see header)
+      const fb = hookFeedback(raw, { truncated }, guard);
       if (fb) { try { fs.writeSync(1, fb); } catch { /* a closed stdout must not fail the tool call */ } }
     } catch { /* an advisory hook must never fail the tool call it observes */ }
     clearTimeout(failsafe);

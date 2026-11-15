@@ -33,9 +33,9 @@ ask?").
 - per question: `question_nl`, `options_nl`, `why_nl`; a `beginner` block with at most 3 outcome-worded
   options plus "Something else" / "Iets anders" (`options`, `options_nl`), a `recommended` index and
   `assume` / `assume_nl`; `triggers` lists the F-ids the question answers;
-- universal dimensions added for this skill: `must-not-break`, `why`, `success-measure` (F2,
-  the outcome rather than the process), `budget` (separate from the deadline), `language`, and
-  `outward-action` (the consent question); `must-not-break` and `outward-action` are `required`;
+- universal dimensions added for this skill: `must-not-break` (F11), `why` (F4, F6), `success-measure` (F2,
+  the outcome rather than the process), `budget` (F13, separate from the deadline), `language` (F6), and
+  `outward-action` (F13, the consent question); `must-not-break` and `outward-action` are `required`;
 - `recommended` is `null` on pure fact questions ("what are you selling?") where no option is better — ask
   those neutrally, without a recommendation;
 - the `bugfix` set (F9: symptom, steps, error text, since when, expected) and the `bots` set (platform, who

@@ -18,7 +18,13 @@
  * has one; else migrated verbatim from a pre-existing hand-written snapshot's own first `## ` section (a
  * one-time migration path, so a hand-authored stopgap snapshot's mission survives the switch to this tool);
  * else derived from `FORGE_MEMORY.md`'s latest status heading; else an honest, clearly-marked TODO for a
- * human/agent to fill in (never guessed prose).
+ * human/agent to fill in (never guessed prose). SD-MEM: a preserved or migrated block that is older than
+ * the newest run with real work (missionIsStale) is replaced by FORGE_MEMORY.md's latest status block (by date, not
+ * position) with a line saying where it came from and why; a fresh block stays verbatim (refreshStaleMission).
+ * CORE-1: a block this tool wrote is re-derived on every call, and when even the latest status block is
+ * older than the newest work run the Mission says "Mission unknown" and points at that run's report (F1). Next actions
+ * come from the source run's open work packages (F3); the doctor line carries the receipt's date, age and staleness (F4);
+ * the task-history pointer is its newest-dated entry (F13).
  *
  * SIZE DISCIPLINE: target <= ~2000 tokens of prose (tokens approximated as chars/4 — a coarse but honest
  * heuristic, not a real tokenizer). Long things are PATHS, never inlined; any generated section (2..9 —
@@ -55,6 +61,12 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const manifestMod = require('./forge-manifest.cjs');
+// SD-MEM helpers, guarded like forge-paths below: a copy without forge-run-file.cjs keeps the old behaviour (topmost
+// block, mission kept verbatim) instead of failing to load.
+const { latestStatusBlock, missionIsStale } = (() => {
+  try { const m = require('./forge-run-file.cjs'); if (typeof m.latestStatusBlock === 'function' && typeof m.missionIsStale === 'function') return m; } catch { /* old copy */ }
+  return { latestStatusBlock: () => null, missionIsStale: () => false };
+})();
 // the latest check_failed note is UNTRUSTED tool/agent output copied verbatim
 // into this file's own generated prose (and re-injected after compaction by forge-snapshot-reinject.cjs) —
 // same soft-require + fail-closed-on-missing-module idiom as forge-vault.cjs's scrub().
@@ -223,8 +235,8 @@ function readJsonSafe(p) { const t = readFileSafe(p); if (t == null) return null
 
 // ---- generic markdown-heading parsing (## level) ----
 function headingMatches(text) { return text ? [...text.matchAll(/^##\s+.*$/gm)] : []; }
-/** firstHeadingBlock — for newest-first files (FORGE_MEMORY.md, FORGE_TASK_HISTORY.md: new entries are
- *  PREPENDED, confirmed against this project's own real files) — the topmost `## ` heading is the latest. */
+/** firstHeadingBlock — for newest-first files — the topmost `## ` heading is the latest. FORGE_TASK_HISTORY.md is no
+ *  longer one of them (CORE-1-F13): it uses newestDatedHeadingBlock, this is only its fallback. */
 function firstHeadingBlock(text) {
   const ms = headingMatches(text);
   if (!ms.length) return null;
@@ -239,6 +251,17 @@ function lastHeadingBlock(text) {
   if (!ms.length) return null;
   const m = ms[ms.length - 1];
   return { heading: m[0].replace(/^##\s+/, '').trim(), body: text.slice(m.index).trim() };
+}
+/** newestDatedHeadingBlock — CORE-1-F13: FORGE_TASK_HISTORY.md is in mixed order (old entries were
+ *  prepended, `forge-run-file.cjs append` adds at the end), so neither end is the newest. The `## ` heading with the
+ *  latest YYYY-MM-DD wins; on a tie the lower one (the append order). null when no heading carries a date. */
+function newestDatedHeadingBlock(text) {
+  const ms = headingMatches(text);
+  let best = -1, bestDay = '';
+  ms.forEach((m, i) => { const d = (/\b(\d{4}-\d{2}-\d{2})\b/.exec(m[0]) || [])[1]; if (d && d >= bestDay) { best = i; bestDay = d; } });
+  if (best < 0) return null;
+  const end = best + 1 < ms.length ? ms[best + 1].index : text.length;
+  return { heading: ms[best][0].replace(/^##\s+/, '').trim(), body: text.slice(ms[best].index, end).trim() };
 }
 
 // ---- Mission block resolution (see file header ANTI-DRIFT) ----
@@ -275,7 +298,7 @@ function resolveMission(root, existingText) {
     };
   }
   const memText = readFileSafe(memPath(root, 'FORGE_MEMORY.md', true));
-  const memBlock = firstHeadingBlock(memText);
+  const memBlock = latestStatusHeadingBlock(memText) || firstHeadingBlock(memText);
   if (memBlock) {
     const firstLine = memBlock.body.split(/\r?\n/).find((l) => l.trim() && !/^##\s+/.test(l));
     if (firstLine) {
@@ -288,6 +311,60 @@ function resolveMission(root, existingText) {
   return {
     block: wrapMission('TODO: no MISSION text found yet — write one paragraph describing what this project/run is building; it will be preserved verbatim on every future regeneration.'),
     source: 'no source found — honest TODO placeholder',
+  };
+}
+
+// ---- SD-MEM: latest status block by date, stale mission refresh ----
+// Until 2026-11-08 the MISSION block was copied verbatim forever: it still named a mission closed six weeks earlier
+// and came back after every compaction. A preserved block that is older than the newest real work is now replaced by
+// FORGE_MEMORY.md's latest status block (by date, not position). The helpers live in forge-run-file.cjs, the memory
+// writer, so the order rule exists once.
+/** latestStatusHeadingBlock(text) -> {heading, body} | null — the latest `## Status` block in firstHeadingBlock's shape. */
+function latestStatusHeadingBlock(text) {
+  const b = latestStatusBlock(text);
+  return b ? { heading: b.heading.replace(/^##\s+/, '').trim(), body: text.slice(b.start, b.end).trim() } : null;
+}
+/** refreshStaleMission(root, mission, ev) -> mission: unchanged when fresh, else the newest status block's heading and
+ *  first 3 lines inside the markers, with a line saying where it came from and why. No clock in the text, so the
+ *  refreshed block is stable across regenerations. */
+// CORE-1-F1: a block this tool wrote names the work run in its own "why" line, so missionIsStale called it
+// fresh forever and a PAUSED status of 2026-11-08 stayed the mission after later runs. A tool-written block is always
+// re-derived (same inputs give the same text), and a status block older than the newest work run is never shown as the
+// mission: the block says the mission is unknown and points at that run's report.
+const TOOL_WRITTEN_MISSION_RE = /_\((?:Refreshed|Written) by forge-snapshot\.cjs/;
+function refreshStaleMission(root, mission, ev) {
+  if (!/preserved verbatim|migrated verbatim/.test(mission.source)) return mission;
+  const runId = ev && ev.runId;
+  const row = runId && ev.runSelection && Array.isArray(ev.runSelection.considered) ? ev.runSelection.considered.find((c) => c.name === runId) : null;
+  const workIso = (row && row.lastWorkAt) || null;
+  const toolWritten = !!runId && TOOL_WRITTEN_MISSION_RE.test(mission.block);
+  if (!toolWritten && !missionIsStale(mission.block, runId, workIso)) return mission;
+  const memText = readFileSafe(memPath(root, 'FORGE_MEMORY.md', true));
+  const latest = latestStatusBlock(memText);
+  const workDay = String(workIso || '').slice(0, 10) || (/(\d{4}-\d{2}-\d{2})/.exec(String(runId)) || [])[1] || '';
+  if (workDay && latest && latest.key.slice(0, 10) < workDay) {
+    const report = fs.existsSync(path.join(runDirOf(root, runId), 'final-report.md')) ? runRel(root, runId) + '/final-report.md' : runRel(root, runId) + '/events.jsonl';
+    return {
+      block: wrapMission(['**Mission unknown, see run `' + runId + '` report:** `' + report + '`.',
+        '- The newest status block of ' + memRel(root, 'FORGE_MEMORY.md') + ' (`## Status ' + latest.key + '`) is older than the newest work run `' + runId + '`'
+          + (workIso ? ' (last work ' + workIso + ')' : '') + ', so it is not shown as the mission.',
+        '', '_(Written by forge-snapshot.cjs. Write the mission between the markers by hand, or close the run with a `## Status <date>` block in FORGE_MEMORY.md.)_'].join('\n')),
+      source: 'mission unknown: the latest status block (' + latest.key + ') is older than the newest work run ' + runId,
+    };
+  }
+  if (!latest) {
+    return Object.assign({}, mission, { source: mission.source + ' — looks older than the newest work run `' + runId + '`, but FORGE_MEMORY.md has no `## Status` block to refresh it from' });
+  }
+  // no markdown heading inside section 1: the snapshot's own sections are `## ` headings
+  const unhead = (l) => l.replace(/^#+\s*/, '');
+  const heading = unhead(latest.heading);
+  const lines = memText.slice(latest.start, latest.end).replace(/\r\n?/g, '\n').split('\n').slice(1).filter((l) => l.trim()).slice(0, 3).map(unhead);
+  const why = '_(Refreshed by forge-snapshot.cjs: the previous mission block was older than the newest work run `' + runId + '`'
+    + (workIso ? ' (last work ' + workIso + ')' : '') + ', so this is the latest status block of ' + memRel(root, 'FORGE_MEMORY.md')
+    + '. Write the mission between the markers by hand to replace it.)_';
+  return {
+    block: wrapMission(['**' + heading + '**'].concat(lines, ['', why]).join('\n')),
+    source: 'refreshed from ' + memRel(root, 'FORGE_MEMORY.md') + '\'s latest status block ("' + heading + '") because the preserved block was older than the newest work run ' + runId,
   };
 }
 
@@ -330,6 +407,27 @@ function openFromWorkPackages(text, relPath, cap) {
     out.push({ label: 'WP ' + m[1].trim(), detail: status.slice(0, 140), evidence: relPath + ' (' + last.heading + ')' });
   }
   return out.slice(-cap);
+}
+
+/** openFromRunEvents(root, runId, cap) -> [items] | null — CORE-1-F3: the source run's own open work
+ *  packages (`agent_work_package_created` with no `wp_completed` or `wp_failed` for the same wp_id). null when the run
+ *  logged no work package at all, so the caller can fall back to a file; [] when every package is closed. */
+function openFromRunEvents(root, runId, cap) {
+  if (!runId) return null;
+  const created = new Map();
+  const closed = new Set();
+  for (const e of manifestMod.readEventsJsonl(manifestMod.eventsPath(root, runId))) {
+    if (!e || !e.wp_id) continue;
+    if (e.event_type === 'agent_work_package_created' && !created.has(e.wp_id)) created.set(e.wp_id, e);
+    else if (e.event_type === 'wp_completed' || e.event_type === 'wp_failed') closed.add(e.wp_id);
+  }
+  if (!created.size) return null;
+  const evidence = runRel(root, runId) + '/events.jsonl [agent_work_package_created]';
+  return [...created.values()].filter((e) => !closed.has(e.wp_id)).map((e) => ({
+    label: redactDetail(String(e.wp_id) + (e.title ? ' — ' + e.title : '')).slice(0, 140),
+    detail: 'open (' + actorLabel(e) + '; no wp_completed or wp_failed yet)',
+    evidence,
+  })).slice(-cap);
 }
 
 // ---- latest run + its events.jsonl (reuses forge-manifest.cjs + forge-doctor.cjs — never reimplemented) ----
@@ -410,7 +508,7 @@ function readRunMeta(root, runId) {
   return readJsonSafe(path.join(runDirOf(root, runId), 'run.json'));
 }
 /** SYNTHETIC_DECLARATION_FIELDS — the MACHINE-READABLE fields by which a run declares itself to be seed /
- *  demo / fixture data rather than real work. Booleans only: no text matching, no run-id name
+ *  demo / fixture data rather than real work (W1b). Booleans only: no text matching, no run-id name
  *  blacklist (a name rule would only describe today's one directory and would mislabel a genuinely real run
  *  that happens to be called "demo-…" — see the test that locks exactly that down).
  *
@@ -434,7 +532,7 @@ function syntheticDeclaration(meta) {
   }
   return { synthetic: false, field: null, quote: null };
 }
-/** rankByWorkRecency(root, ranked) -> rows sorted NEWEST-FIRST BY REAL WORK.
+/** rankByWorkRecency(root, ranked) -> rows sorted NEWEST-FIRST BY REAL WORK (W1a).
  *
  *  THE DEFECT (owner agent, live on this project): recency came from forge-doctor.cjs::
  *  rankRunCandidates, which ranks by the max of events.jsonl / run.json / directory MTIME. In the night of
@@ -606,7 +704,7 @@ function describeConsidered(considered) {
     // reason here too — a named run must never appear next to a count that does not explain the outcome.
     const extra = c.skipReason && c.workEvents > 0 ? ' — skipped: ' + c.skipReason : '';
     // state the time the run was RANKED on and which rung of the ladder it came from — a bare count next to
-    // an unexplained ordering is what let a July run be called "newer" than a 31 July one.
+    // an unexplained ordering is what let a July run be called "newer" than a 31 July one (see W1a).
     const when = c.lastWorkAt ? ', last work event ' + c.lastWorkAt
       : c.rankedAt ? ', ranked by ' + c.timeBasis + ': ' + c.rankedAt : '';
     return c.name + ' (' + c.workEvents + ' renderable work events' + when + ')' + extra;
@@ -833,18 +931,24 @@ function currentStateFromEvents(root, runId, opts) {
 }
 
 // ---- newest doctor.json (real, non-fabricated doctor summary) ----
+// CORE-1-F4: `forge-doctor.cjs --receipt` writes _scratch/forge-doctor-receipt.json and no doctor.json, so
+// a July doctor.json was shown as the current state. Both are read; `at` is the receipt's own date (generated_at /
+// finished_at, else the file mtime) and the newest `at` wins.
 function readLatestDoctor(root) {
   // WP 2.1: every run folder that exists (legacy layout: just .claude/forge-runs, as before)
   const dirs = viaForgePaths((P) => P.existingStateDirs(root, 'runs'), () => [path.join(claudeDir(root), 'forge-runs')]);
-  let best = null;
+  const files = [path.join(root, '_scratch', 'forge-doctor-receipt.json')];
   for (const runsDir of dirs) {
     let entries; try { entries = fs.readdirSync(runsDir, { withFileTypes: true }); } catch { continue; }
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const p = path.join(runsDir, e.name, 'doctor.json');
-      let st; try { st = fs.statSync(p); } catch { continue; }
-      if (!best || st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs, data: readJsonSafe(p) };
-    }
+    for (const e of entries) if (e.isDirectory()) files.push(path.join(runsDir, e.name, 'doctor.json'));
+  }
+  let best = null;
+  for (const p of files) {
+    let st; try { st = fs.statSync(p); } catch { continue; }
+    const data = readJsonSafe(p);
+    const own = data && Date.parse(data.generated_at || data.finished_at);
+    const atMs = Number.isFinite(own) ? own : st.mtimeMs;
+    if (!best || atMs > best.atMs) best = { path: p, mtimeMs: st.mtimeMs, atMs, at: new Date(atMs).toISOString(), data };
   }
   return best;
 }
@@ -933,12 +1037,12 @@ function gatherEvidence(root, opts) {
 
   const memoryPath = memPath(root, 'FORGE_MEMORY.md', true);
   const memoryText = readFileSafe(memoryPath);
-  const memoryBlock = firstHeadingBlock(memoryText);
+  const memoryBlock = latestStatusHeadingBlock(memoryText) || firstHeadingBlock(memoryText);
   if (memoryBlock) add(rel(root, memoryPath) + ' (' + memoryBlock.heading + ')');
 
   const taskHistPath = memPath(root, 'FORGE_TASK_HISTORY.md', true);
   const taskHistText = readFileSafe(taskHistPath);
-  const taskHistBlock = firstHeadingBlock(taskHistText);
+  const taskHistBlock = newestDatedHeadingBlock(taskHistText) || firstHeadingBlock(taskHistText);
   if (taskHistBlock) add(rel(root, taskHistPath) + ' (' + taskHistBlock.heading + ')');
 
   const wpPath = path.join(root, 'tasks', 'WORK_PACKAGES.md');
@@ -971,11 +1075,21 @@ function gatherEvidence(root, opts) {
     : null;
   if (missionRequest) add(missionRequest.pointer);
 
+  // CORE-1-F3: the source run's own open work packages first; TODO_GRAPH.md only when that run's events
+  // name it (a July command-center graph was listed as "Continue" on every later mission), with the file's date.
   const todoGraphPath = path.join(root, 'command-center', 'mission', 'TODO_GRAPH.md');
-  const todoGraphText = readFileSafe(todoGraphPath);
+  const runOpen = openFromRunEvents(root, runId, 8);
+  const runNamesTodoGraph = !!runId && /TODO_GRAPH\.md/.test(readFileSafe(manifestMod.eventsPath(root, runId)) || '');
+  const todoGraphText = runNamesTodoGraph ? readFileSafe(todoGraphPath) : null;
   let openItems = [];
-  if (todoGraphText) { openItems = openFromTodoGraph(todoGraphText, rel(root, todoGraphPath), 8); add(rel(root, todoGraphPath)); }
-  else { openItems = openFromWorkPackages(wpText, rel(root, wpPath), 8); if (openItems.length) add(rel(root, wpPath)); }
+  if (runOpen) openItems = runOpen;
+  else if (todoGraphText) {
+    let dated = rel(root, todoGraphPath);
+    try { dated += ' (file dated ' + fs.statSync(todoGraphPath).mtime.toISOString().slice(0, 10) + ')'; } catch { /* date unknown: path only */ }
+    openItems = openFromTodoGraph(todoGraphText, dated, 8); add(rel(root, todoGraphPath));
+  } else { openItems = openFromWorkPackages(wpText, rel(root, wpPath), 8); if (openItems.length) add(rel(root, wpPath)); }
+  const runSignal = runId ? runWorkSignal(root, runId, { now: opts.now, futureToleranceMs: opts.futureToleranceMs }) : null;
+  const runStartMs = runSignal ? (runSignal.startedAtMs != null ? runSignal.startedAtMs : runSignal.lastWorkAtMs) : null;
 
   const versionInfo = readJsonSafe(path.join(claudeDir(root), 'FORGE_VERSION.json'));
   if (versionInfo) add(rel(root, path.join(claudeDir(root), 'FORGE_VERSION.json')));
@@ -991,7 +1105,7 @@ function gatherEvidence(root, opts) {
   const maybeAdd = (p, label) => { if (fs.existsSync(path.join(root, p))) keyPaths.push([p, label]); };
   maybeAdd('CLAUDE.md', 'project rules');
   maybeAdd(memRel(root, 'FORGE_MEMORY.md'), 'project memory (status log, newest-first)');
-  maybeAdd(memRel(root, 'FORGE_TASK_HISTORY.md'), 'task history (newest-first)');
+  maybeAdd(memRel(root, 'FORGE_TASK_HISTORY.md'), 'task history (mixed order; the evidence pointer is its newest-dated entry)');
   maybeAdd('tasks/WORK_PACKAGES.md', 'work-package log (append-only)');
   if (runId) keyPaths.push([runRel(root, runId) + '/', 'latest run\'s artifacts + events.jsonl']);
   maybeAdd('.claude/forge-dashboard/', 'legacy per-project Control Center');
@@ -1001,7 +1115,7 @@ function gatherEvidence(root, opts) {
 
   return {
     memoryBlock, taskHistBlock, wpBlock, decisions, runId, runSelection, state, openItems, versionInfo,
-    doctorInfo, git, constraints, keyPaths, missingCore, pointers, missionRequest,
+    doctorInfo, git, constraints, keyPaths, missingCore, pointers, missionRequest, runStartMs,
   };
 }
 
@@ -1118,7 +1232,7 @@ function buildSections(root, ev, mission, meta) {
     : '_**No run with real work found**, so no run is shown here rather than an arbitrary one — ' + sel.selection +
       '. Runs considered (newest-first): ' + describeConsidered(sel.considered) + '._';
   const emptySuffix = sel.runId ? ' in the source run above' : ' (no source run — see the note above)';
-  // withNote — the omission counts from splitBucket are part of the bucket's TRUTH, not decoration:
+  // withNote — the omission counts from splitBucket (W3) are part of the bucket's TRUTH, not decoration:
   // a Done list that silently dropped items reads as a complete list. They are rendered right under it.
   const withNote = (text, note) => (note ? text + '\n' + note : text);
   // "the latest check_failed summary (the current error, if any)", part of Current
@@ -1139,7 +1253,7 @@ function buildSections(root, ev, mission, meta) {
     runLine, '',
     '### Done', withNote(bulletList(ev.state.done, '_No done-type events found' + emptySuffix + '._'), ev.state.doneNote),
     '', '### In progress', withNote(bulletList(ev.state.inProgress, '_No dispatched-but-unresolved subagents found' + emptySuffix + '._'), ev.state.inProgressNote),
-    '', '### Open', bulletList(ev.openItems, '_No open-item source (TODO_GRAPH.md / WORK_PACKAGES.md WP-ID/Status lines) found or all items are closed._'),
+    '', '### Open', bulletList(ev.openItems, '_No open-item source (the source run\'s work packages, a TODO_GRAPH.md it names, WORK_PACKAGES.md WP-ID/Status lines) found or all items are closed._'),
     '', '### Latest check failure', latestCheckFailedText,
   ].join('\n'), currentStatePointer, SECTION_CHAR_BUDGET * 2);
 
@@ -1169,7 +1283,7 @@ function buildSections(root, ev, mission, meta) {
 
   const nextActionsText = ev.openItems.length
     ? ev.openItems.map((it) => '- Continue: ' + it.label + ' — ' + it.detail + ' _(evidence: ' + it.evidence + ')_').join('\n')
-    : '_No open items resolved from TODO_GRAPH.md / WORK_PACKAGES.md — check FORGE_MEMORY.md\'s "next session" note if one exists._';
+    : '_No open work package in the source run and no open item in a TODO_GRAPH.md it names or in WORK_PACKAGES.md — check FORGE_MEMORY.md\'s "next session" note if one exists._';
 
   const gitText = ev.git.available
     ? 'Branch `' + ev.git.branch + '`' + (ev.git.dirty === true ? ' (dirty — uncommitted changes present)' : ev.git.dirty === false ? ' (clean)' : '') + '.\n' +
@@ -1178,9 +1292,13 @@ function buildSections(root, ev, mission, meta) {
   const versionText = ev.versionInfo
     ? 'forge_version `' + (ev.versionInfo.forge_version || 'unknown') + '`, synced_at ' + (ev.versionInfo.synced_at || 'unknown') + ', ' + (ev.versionInfo.system_files || '?') + ' system files.'
     : '_.claude/FORGE_VERSION.json not found — sync state unknown._';
-  const doctorText = ev.doctorInfo && ev.doctorInfo.data
-    ? 'Last doctor receipt: ' + rel(root, ev.doctorInfo.path) + (ev.doctorInfo.data.ok != null ? (' — ok:' + ev.doctorInfo.data.ok) : '')
-    : '_No forge-runs/*/doctor.json found yet — doctor status unknown; run `node .claude/forge-bin/forge-doctor.cjs`._';
+  const doc = ev.doctorInfo;
+  const doctorStale = !!(doc && Number.isFinite(ev.runStartMs) && doc.atMs < ev.runStartMs);
+  const doctorText = doc && doc.data
+    ? 'Last doctor receipt: ' + rel(root, doc.path) + (doc.data.ok != null ? (' — ok:' + doc.data.ok) : '')
+      + ' — dated ' + doc.at.slice(0, 10) + ', ' + Math.max(0, Math.round((meta.now.getTime() - doc.atMs) / 86400000)) + ' days old'
+      + (doctorStale ? ' — stale: older than the source run `' + ev.runId + '`, re-run the doctor' : '')
+    : '_No doctor receipt (forge-runs/*/doctor.json or _scratch/forge-doctor-receipt.json) found yet — doctor status unknown; run `node .claude/forge-bin/forge-doctor.cjs`._';
 
   const evidencePointersText = ev.pointers.length ? ev.pointers.map((p) => '- ' + p).join('\n') : '_none_';
 
@@ -1271,10 +1389,10 @@ function write(opts) {
   const reason = REASONS.has(opts.reason) ? opts.reason : 'manual';
   const now = opts.now instanceof Date ? opts.now : new Date();
 
-  const mission = resolveMission(root, existingText);
   // pass the RESOLVED `now` (opts.now may be absent) so gatherEvidence's plausibility horizon is anchored
   // to the same instant renderMarkdown stamps on the file.
   const ev = gatherEvidence(root, Object.assign({}, opts, { now }));
+  const mission = refreshStaleMission(root, resolveMission(root, existingText), ev);
   const sections = buildSections(root, ev, mission, { reason, now });
   const markdown = renderMarkdown(mission, sections, { reason, now });
 
@@ -1305,8 +1423,10 @@ function check(opts) {
 module.exports = { redactDetail,
   resolveRoot, write, check,
   extractMissionBlock, extractFirstSectionBody, resolveMission,
-  firstHeadingBlock, lastHeadingBlock, extractDecisions,
-  openFromTodoGraph, openFromWorkPackages, currentStateFromEvents, gitInfo, readLatestDoctor,
+  // SD-MEM — latest status block by date, stale mission refresh (helpers from forge-run-file.cjs)
+  latestStatusBlock, missionIsStale, latestStatusHeadingBlock, refreshStaleMission,
+  firstHeadingBlock, lastHeadingBlock, newestDatedHeadingBlock, extractDecisions,
+  openFromTodoGraph, openFromWorkPackages, openFromRunEvents, currentStateFromEvents, gitInfo, readLatestDoctor,
   truncateSection, gatherEvidence, buildSections, renderMarkdown,
   // run selection (see pickRun's doc comment for the measured defect it repairs)
   pickRun, pickRunId, runWorkEventCount, describeConsidered,

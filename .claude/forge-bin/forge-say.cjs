@@ -18,9 +18,9 @@
  * "lead"; names are stored as the registry display name. Empty text is refused. Every line passes the same secret
  * gate the stores and hooks use (forge-store.cjs redactText + redactValue over SECRET_PATTERNS / SECRET_KEY_RE); if
  * that module cannot be loaded nothing is written (fail closed). The run folder must already exist (a typo in the
- * run id never creates a stray run). --event mirrors the line as an agent_message event through log-event.cjs, but
- * only once that event type is registered in log-event.cjs KNOWN_EVENT_TYPES; until then it prints a notice and
- * writes the chat line only.
+ * run id never creates a stray run). --event mirrors the line as an agent_message event through log-event.cjs
+ * (agent_message is registered in its KNOWN_EVENT_TYPES); a copy whose log-event.cjs is missing or does not know the
+ * type prints a notice and writes the chat line only.
  *
  * Exit codes: 0 ok · 1 usage/validation error · 2 refused (secret gate unavailable, run folder missing).
  * Zero dependencies.

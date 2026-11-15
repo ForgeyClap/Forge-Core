@@ -17,7 +17,7 @@ description: "Playbook for design-to-code: Figma, design tokens (gebruik bij ont
 - **Design tokens, not scattered magic values.**
 - **Responsive fidelity.** The design's breakpoints are honoured (Figma usually ships desktop + mobile frames); layout adapts.
 - **Accessibility is not optional.** Semantic HTML, WCAG **AA** contrast, visible focus states, keyboard navigation, alt text, ARIA where needed.
-- **Component structure mirrors the design system.** A Figma variant set (e.g.
+- **Component structure mirrors the design system.** A Figma variant set (e.g. a `Button` with variants) becomes **one** prop-driven component, not copy-pasted one-offs.
 
 Full text of every rule: `references/hard-rules.md`.
 

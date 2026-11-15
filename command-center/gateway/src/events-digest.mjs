@@ -3,7 +3,7 @@
 // edit such as check_passed -> check_failed kept the length). Callers only ask for runs that HAVE a
 // receipt. Read-only; never writes anything.
 //
-// Codex verification of that fix: file timestamps are not a content identity, so a cached digest
+// Codex verification of that fix (N1, N4): file timestamps are not a content identity, so a cached digest
 // is only PROVISIONAL — reused while the file's identity (dev, ino) and metadata (size, mtime, ctime) are
 // unchanged AND for at most CACHE_TTL_MS, then the log is hashed again; and the read goes through ONE
 // descriptor with a hard byte bound and a before/after consistency check, so a file that grows, shrinks or

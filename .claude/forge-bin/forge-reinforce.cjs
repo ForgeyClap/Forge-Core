@@ -11,7 +11,7 @@
  * agent-claims-vs-real-events mismatch signal forge-verify's own CLI gates its exit code on
  * (mismatches===0 -> verified-good). This tool never re-derives "good/bad" from a different, looser
  * heuristic, and never asks an LLM to judge a run. A run whose outcome cannot be determined (missing/
- * unreadable events.jsonl, forge-verify.cjs unavailable) reinforces NOTHING — outcome:null is never
+ * unreadable events.jsonl, forge-verify.cjs unavailable, no agent claimed done or failed) reinforces NOTHING — outcome:null is never
  * silently treated as good or bad.
  *
  * ANTI-GAMING (mandatory, three independent guards):
@@ -66,6 +66,8 @@ function runOutcome(runDir) {
   let result;
   try { result = verify.verifyRun(runDir, {}); }
   catch (e) { return { ok: null, reason: 'could not verify: ' + e.message }; }
+  // FB-MEMORY-F4: zero mismatches with no agent claiming done or failed is no outcome at all.
+  if (!(result.agents || []).some((a) => a.claimsDone || a.claimsFailed)) return { ok: null, reason: 'no agent claimed done or failed' };
   return { ok: result.mismatches === 0, mismatches: result.mismatches, malformed: result.malformed };
 }
 
@@ -117,7 +119,10 @@ function reinforce(opts) {
   if (!opts.runs) throw new Error('forge-reinforce: opts.runs (a directory of run subfolders) is required');
   const step = Number.isFinite(opts.step) ? opts.step : DEFAULT_STEP;
 
-  const records = consolidateModule.readStore(opts.store);
+  // FB-MEMORY-F7: malformed lines are kept and lines appended meanwhile survive the rewrite (older consolidate copies
+  // without readStoreDetailed fall back to the plain read).
+  const read = typeof consolidateModule.readStoreDetailed === 'function' ? consolidateModule.readStoreDetailed(opts.store) : { records: consolidateModule.readStore(opts.store), malformed: [], raw: undefined };
+  const records = read.records;
   const runs = discoverRuns(opts.runs);
 
   let reinforcedGood = 0, reinforcedBad = 0, selfBlocked = 0, notPreceding = 0, alreadyDone = 0, unreinforceable = 0, undeterminable = 0;
@@ -126,6 +131,7 @@ function reinforce(opts) {
   for (const r of records) {
     const v = consolidateModule.validateCanonical(r);
     if (!v.ok) { unreinforceable++; continue; } // no real evidence to outcome-gate against — never scored
+    if (!v.runId) { unreinforceable++; continue; } // an owner correction: real, but no run to gate the precedence/self checks on
     if (!Array.isArray(r.reinforced_by)) r.reinforced_by = [];
     if (!Number.isFinite(r.utility)) r.utility = 0;
     const lessonRunId = v.runId;
@@ -155,7 +161,7 @@ function reinforce(opts) {
     }
   }
 
-  if (!opts.dryRun) consolidateModule.writeStore(opts.store, records);
+  if (!opts.dryRun) consolidateModule.writeStore(opts.store, records, { keepLines: read.malformed, since: read.raw });
 
   return {
     store: opts.store, runsDir: opts.runs,

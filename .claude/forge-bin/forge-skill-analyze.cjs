@@ -158,9 +158,14 @@ async function analyze(opts) {
   const skippedTotal = Object.values(c.skipped).reduce((a, b) => a + b, 0);
   const found = c.recs.filter((r) => r.text).length; const pointer = c.recs.filter((r) => r.text && r.text.pointer).length;
   const expected = harvesterCount(opts.corpusCoverage || path.join(corpusDir, 'coverage.json'));
+  // FB-SKILLTOOLS-F4: "complete" means every record the harvester wrote was analysed, not that the counters add up
+  const incomplete = [];
+  if (skippedTotal) incomplete.push(skippedTotal + ' record(s) skipped: ' + Object.keys(c.skipped).join(', '));
+  if (typeof expected === 'number' && expected !== c.read) incomplete.push('records read ' + c.read + ' differ from the harvester count ' + expected);
+  if (expected && typeof expected === 'object') incomplete.push(expected.error);
   const cov = { generated_at: new Date().toISOString(), reference_date: new Date(nowMs).toISOString(), corpus, texts_dir: textsDir, out, text_files: tx.files,
     records_read: c.read, analysed: c.recs.length, skipped_total: skippedTotal, skipped: c.skipped, skipped_samples: c.samples,
-    complete: c.read === c.recs.length + skippedTotal,
+    complete: incomplete.length === 0, incomplete_reasons: incomplete,
     harvester_corpus_records: expected, matches_harvester_count: typeof expected === 'number' ? expected === c.read : null,
     text: { found, missing: c.recs.length - found, pointer_only: pointer, text_lines_read: tx.lines, text_bad_lines: tx.bad },
     dedupe: { groups: dd.groups.length, template_families: dd.families.length, unique: uniqueTotal, near_copies_removed: c.recs.length - uniqueTotal },

@@ -30,7 +30,7 @@ Each row has a **Runtime** (ECC agent · ECC skill · native/main · Codex) and 
 If a real ECC subagent was dispatched → `ECC REAL INVOKED` (Runtime = ECC agent). If an ECC skill/playbook ran → `ECC SKILL LOADED` (Runtime = ECC skill). If a native/main-session agent did the work as a labeled fallback → `NATIVE AGENT INVOKED` (Runtime = native). A thinking role → `INTERNAL ROLE ONLY`. ECC tried but unavailable/blocked → `BLOCKED`. Mark **Custom?** = yes for Lead-created custom roles and give the assigned **Skill / source** (ecc-skill/forge-skill/project-local/native/internal). **Never label a native role as ECC, or claim a custom subagent/skill that wasn't really created.** Don't claim parallel agents unless they really ran separately. Evidence = command output / file diff / tool result / commit hash / log line / created file — or an explicit note that evidence is unavailable and why.
 
 ## 6c. Rework loop (if any)
-rework tasks created · how many fixed · retests run · loop iterations (max 2 / 3 high-end) · anything left blocked. No fabricated fixes.
+rework tasks created · how many fixed · retests run · rework rounds (at most one per work package, GOAT) · anything left blocked. No fabricated fixes.
 
 ## 6b. ECC Status block (required — ECC-first honesty)
 - **ECC Normal Mode:** ON / OFF / BLOCKED (from `FORGE_ECC_MODE.json`)
@@ -77,16 +77,16 @@ Allowed wording: "Command Center health check passed (4100)." · "Command Center
 ## 10. Issues fixed
 ## 11. Remaining risks
 
-## 12. Codex block (exact state, never faked)
+## 12. Codex block (v7.1 — exact state, never faked)
 - Codex considered / invoked: · **Codex state** (one of): `CODEX REAL INVOKED` · `CODEX BLOCKED: TRUST/TTY` · `CODEX BLOCKED: NO GIT` · `CODEX BLOCKED: NO OUTPUT` · `CODEX NOT AVAILABLE` · `CODEX NOT INVOKED` · `CODEX FALLBACK USED`.
 - If blocked: cite `artifacts/codex-unlock-diagnosis.md` (CLI/version/auth/git/TTY/trust/exit-code) and state in one plain line that Codex was not run and why — **never hand the user a manual command to run**; the diagnosis artifact keeps the attempted command only as an internal record. Never claim Codex proof without real output.
 
-## 12b. Browser proof + Skill Registry + Fresh-install
+## 12b. Browser proof + Skill Registry + Fresh-install (v7.1)
 - **Browser proof:** tool used · dashboard URL · run id · lenses checked · screenshot paths · layout observations · pass/fail — or **PARTIAL** with the exact reason (no Playwright/Chrome). Cite `artifacts/dashboard-browser-proof.md`. Never claim a screenshot you didn't take.
 - **Skill Registry:** `.claude/FORGE_SKILL_REGISTRY.md` created/updated/checked + entries touched.
 - **Fresh-install verification (if run):** CLAUDE.md · skills dir · registry · memory · session · dashboard starts · ECC Normal ON/Full Test OFF · project-local only → `artifacts/fresh-install-verification.md`.
 
-## 13. Final verdict (strict)
+## 13. Final verdict (strict, v7.1)
 Pick ONE overall level + give the per-layer verdicts. Do **not** use FULL PASS if a required Codex/browser proof was blocked.
 - **FULL PASS** — all critical requirements proven; Codex proof passed or not required; browser proof passed if dashboard changes were tested; no critical PARTIALs.
 - **PASS CORE / PARTIAL PROOF** — core Forge behavior passed; one or more proof layers missing; no safety/isolation failure.

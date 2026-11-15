@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-craft-evidence-contract.test.cjs — S3b: the run-contract rule craft-evidence-recorded. A run that
  * declares a web-ui deliverable cannot be called clean without <run folder>/craft-evidence-web-ui.json, judged by
@@ -143,7 +147,7 @@ try {
     t('a run that started before 2026-10-24 is historical_exempt', o.historical_exempt.some((x) => x.id === ID) && !o.missing.includes(ID));
     writeRun(root, 'c-own', { extra: [{ event_type: 'owner_override', rule: ID, reason: 'owner looked at the live preview on three devices', by: 'owner' }] });
     const w = chk(root, 'c-own');
-    t('a valid owner_override clears it and is reported as overridden', w.overridden.some((x) => x.id === ID) && !w.missing.includes(ID), JSON.stringify(w.overridden));
+    t('a well-formed owner_override is label-only and does not clear it yet (FB-CONTRACT-1-F2)', !w.overridden.some((x) => x.id === ID) && w.missing.includes(ID) && w.override_label_only.some((x) => x.id === ID), JSON.stringify(w.override_label_only));
     writeRun(root, 'c-agent', { extra: [{ event_type: 'owner_override', rule: ID, reason: 'ui boss says the screens are fine', by: 'ui-boss' }, { event_type: 'decision_logged', agent: 'orchestrator', rule: ID, decision: 'not-applicable', reason: 'screenshots were looked at in chat only' }] });
     t('an agent cannot excuse it: a non-owner override and a decision_logged exception do not count', chk(root, 'c-agent').missing.includes(ID));
 

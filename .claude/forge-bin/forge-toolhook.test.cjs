@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-toolhook.test.cjs — tests for the PostToolUse tool-behaviour ledger.
  *
@@ -102,6 +106,36 @@ t('A4 a quoted first token is parsed whole, then reduced to its canonical comman
   assert.strictEqual(r.target, 'node');
   assert.strictEqual(r.target_kind, 'command');
   assert.ok(!/--token=abc|Program Files/.test(JSON.stringify(r)), 'argument or path bytes leaked');
+});
+
+// FB-GUARDS-1-F10: 79% of shell lines were stored as "cd" and no line could show a test ran.
+t('A4b a leading cd / Set-Location / pushd segment is skipped; the real command is recorded', () => {
+  assert.strictEqual(hook.summarizeTarget('Bash', { command: 'cd "C:/proj" && node --test x.test.cjs' }, '/proj').target, 'node');
+  assert.strictEqual(hook.summarizeTarget('PowerShell', { command: "Set-Location 'C:\\proj'; npm test" }, '/proj').target, 'npm');
+  assert.strictEqual(hook.summarizeTarget('Bash', { command: 'pushd /tmp/a; cd b && git status' }, '/proj').target, 'git');
+  assert.strictEqual(hook.summarizeTarget('Bash', { command: 'cd /proj' }, '/proj').target, 'cd', 'a bare cd is still a cd');
+});
+
+t('A4c command_kind is a constant from a fixed list, so a line can show that a test or commit ran', () => {
+  const k = (c) => hook.summarizeTarget('Bash', { command: c }, '/proj').command_kind;
+  assert.strictEqual(k('cd "C:/proj" && node --test x.test.cjs'), 'node --test');
+  assert.strictEqual(k('node forge-killswitch.test.cjs'), 'node test file');
+  assert.strictEqual(k('npm test'), 'npm test');
+  assert.strictEqual(k('npx vitest run'), 'vitest');
+  assert.strictEqual(k('python -m pytest -q'), 'pytest');
+  assert.strictEqual(k('git commit -m "hunter2secret"'), 'git commit');
+  assert.strictEqual(k('node -e "1"'), undefined, 'node -e is not a test run');
+  assert.strictEqual(k('git status'), undefined);
+  // --test counts only as a node option, before the script: after it, it is the script's own argument.
+  assert.strictEqual(k('node build.cjs --test'), undefined, 'a script argument --test is not node --test');
+  assert.strictEqual(k('node build.cjs -- --test'), undefined);
+  assert.strictEqual(k('node -- --test'), undefined, 'after -- the token is the script name');
+  assert.strictEqual(k('node --no-warnings --test x.test.cjs'), 'node --test');
+  assert.strictEqual(k('node --test'), 'node --test');
+  const line = hook.buildLine(payload({ tool_name: 'Bash', tool_input: { command: 'git commit -m "hunter2secret"' } }), { root: '/proj' });
+  assert.strictEqual(line.command_kind, 'git commit');
+  assert.ok(!/hunter2secret/.test(JSON.stringify(line)), 'argument text leaked');
+  assert.ok(hook.COMMAND_KINDS.includes(line.command_kind));
 });
 
 t('A5 Grep: the search PATTERN is never stored (it is content); the search path is', () => {
@@ -672,6 +706,20 @@ t('M3 a lock older than 6 h is ignored (fail-open): the line is written as usual
   assert.strictEqual(r.wrote, true, JSON.stringify(r));
   assert.strictEqual(readLines(logFile(root, 'sess1')).length, 1);
 });
+t('M5 FB-SYNC-C-F1: a lock of THIS host whose pid is not running and older than 2 min is not maintenance; another host or a live pid is', () => {
+  const root = tmpRoot('m5');
+  const lock = path.join(root, '.claude', '.forge-sync.lock');
+  const dead = require('child_process').spawnSync(process.execPath, ['-e', '0']).pid;
+  const ago = (ms) => new Date(Date.now() - ms).toISOString();
+  fs.writeFileSync(lock, JSON.stringify({ pid: dead, host: os.hostname(), started_at: ago(5 * 60 * 1000) }));
+  assert.strictEqual(hook.syncMaintenance(root), false, 'dead owner on this host, 5 min old');
+  fs.writeFileSync(lock, JSON.stringify({ pid: dead, host: os.hostname(), started_at: ago(30 * 1000) }));
+  assert.strictEqual(hook.syncMaintenance(root), true, 'within the 2 min grace');
+  fs.writeFileSync(lock, JSON.stringify({ pid: dead, host: 'another-machine', started_at: ago(5 * 60 * 1000) }));
+  assert.strictEqual(hook.syncMaintenance(root), true, 'another host keeps the 6 h rule');
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, host: os.hostname(), started_at: ago(5 * 60 * 1000) }));
+  assert.strictEqual(hook.syncMaintenance(root), true, 'a live owner keeps maintenance');
+});
 t('M4 syncMaintenance: no lock -> false; unreadable body -> judged by the file time; junk root never throws', () => {
   const root = tmpRoot('m4');
   assert.strictEqual(hook.syncMaintenance(root), false);
@@ -680,7 +728,105 @@ t('M4 syncMaintenance: no lock -> false; unreadable body -> judged by the file t
   assert.strictEqual(hook.syncMaintenance(null), false);
 });
 
-try { fs.rmSync(CONFIG_HOME, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ }
+// ---- the hook calls the lead-write guard after a Lead write in a /forge build session ----
+console.log('\nL) lead-write guard wiring (forge-lead-write-guard.cjs)');
+const LWG_SID = '0edf26d1-4625-431b-b25e-e425b3f9aa07';
+const lwgRoots = [];
+const lwgRoot = (label) => { const r = tmpRoot(label); lwgRoots.push(r); return r; };
+function lwgFixture(label) {
+  const root = lwgRoot(label);
+  const runs = path.join(root, '.claude', 'forge-runs');
+  const sha = require('crypto').createHash('sha256').update(LWG_SID, 'utf8').digest('hex').slice(0, 16);
+  fs.mkdirSync(path.join(runs, '_hooks', 'forge-session'), { recursive: true });
+  fs.writeFileSync(path.join(runs, '_hooks', 'forge-session', sha + '.json'), JSON.stringify({ schema: 1, session_sha: sha, kind: 'forge-build', created_at: new Date().toISOString(), prompt_rid: null }));
+  fs.writeFileSync(path.join(runs, '_hooks', 'active-run.json'), JSON.stringify({ schema: 'forge-active-run/1', run: 'forge-r8b', session: null, set_at: new Date().toISOString() }));
+  fs.mkdirSync(path.join(runs, 'forge-r8b'), { recursive: true });
+  fs.writeFileSync(path.join(runs, 'forge-r8b', 'events.jsonl'), JSON.stringify({ run_id: 'forge-r8b', event_type: 'run_started' }) + '\n');
+  return root;
+}
+function leadPayload(root, rel) {
+  const p = payload({ session_id: LWG_SID, tool_name: 'Write', tool_input: { file_path: path.join(root, rel), content: 'x' } });
+  delete p.agent_id; delete p.agent_type;
+  return p;
+}
+
+t('L1 the real CLI: a Lead Write in a /forge session without a started run prints ONE block object and records blocked-a; the repeat is recorded only', () => {
+  const root = lwgFixture('l1');
+  const first = runCli(JSON.stringify(leadPayload(root, 'AndroidManifest.xml')), root, { CLAUDE_PROJECT_DIR: root });
+  assert.strictEqual(first.status, 0, first.stderr);
+  const fb = JSON.parse(first.stdout);
+  assert.strictEqual(fb.decision, 'block');
+  assert.ok(fb.reason.includes('forge-start.cjs --text'), fb.reason);
+  const second = runCli(JSON.stringify(leadPayload(root, 'src/Main.java')), root, { CLAUDE_PROJECT_DIR: root });
+  assert.strictEqual(second.status, 0);
+  assert.strictEqual(second.stdout, '', 'the second offence of case a must not be shown again');
+  const lines = readLines(logFile(root, LWG_SID)).map((l) => JSON.parse(l));
+  assert.deepStrictEqual(lines.map((l) => [l.lead_write_guard, l.lead_write_guard_shown]), [['blocked-a', true], ['blocked-a', false]]);
+});
+t('L2 a subagent write, a Bash call and a /forge-less session leave stdout empty; the write line says skipped, Bash gets no field', () => {
+  const root = lwgFixture('l2');
+  const sub = runCli(JSON.stringify(payload({ session_id: LWG_SID, tool_name: 'Write', tool_input: { file_path: path.join(root, 'a.js'), content: 'x' } })), root, { CLAUDE_PROJECT_DIR: root });
+  const bash = runCli(JSON.stringify(payload({ session_id: LWG_SID, agent_id: undefined, tool_name: 'Bash', tool_input: { command: 'node x.js' } })), root, { CLAUDE_PROJECT_DIR: root });
+  const otherSid = '11111111-2222-4333-8444-555555555555';
+  const noMarker = runCli(JSON.stringify(Object.assign(leadPayload(root, 'a.js'), { session_id: otherSid })), root, { CLAUDE_PROJECT_DIR: root });
+  assert.deepStrictEqual([sub.status, sub.stdout, bash.status, bash.stdout, noMarker.status, noMarker.stdout], [0, '', 0, '', 0, '']);
+  const lines = readLines(logFile(root, LWG_SID)).map((l) => JSON.parse(l));
+  assert.deepStrictEqual([lines[0].lead_write_guard, lines[0].lead_write_guard_why], ['skipped', 'subagent']);
+  assert.ok(!('lead_write_guard' in lines[1]), 'a Bash line carries no guard field');
+  const other = JSON.parse(readLines(logFile(root, otherSid))[0]);
+  assert.deepStrictEqual([other.lead_write_guard, other.lead_write_guard_why], ['skipped', 'no-marker']);
+});
+t('L3 leadWriteGuard(): calls the module with the payload and root; an absent or throwing module fails open; Bash never calls it', () => {
+  const root = lwgRoot('l3');
+  const calls = [];
+  const stub = { evaluate: (p, o) => { calls.push([p.tool_name, o.root]); return { decision: 'ok', why: 'work-package', shown: false, feedback: null }; } };
+  const raw = JSON.stringify(leadPayload(root, 'a.js'));
+  assert.strictEqual(hook.leadWriteGuard(raw, { root, leadWriteGuardModule: stub }).decision, 'ok');
+  assert.deepStrictEqual(calls, [['Write', path.resolve(root)]]);
+  assert.deepStrictEqual(hook.leadWriteGuard(raw, { root, leadWriteGuardModule: null }), { decision: 'skipped', why: 'guard-unavailable', shown: false, feedback: null });
+  assert.strictEqual(hook.leadWriteGuard(raw, { root, leadWriteGuardModule: { evaluate() { throw new Error('boom'); } } }).why, 'error');
+  assert.strictEqual(hook.leadWriteGuard(raw, { root, truncated: true, leadWriteGuardModule: stub }).why, 'truncated');
+  assert.strictEqual(hook.leadWriteGuard(JSON.stringify(payload({ tool_name: 'Bash', tool_input: { command: 'ls' } })), { root, leadWriteGuardModule: stub }), null);
+  assert.strictEqual(calls.length, 1, 'the guard was called for a truncated or Bash payload');
+});
+t('L4 run() records only known decisions and constant why codes; an odd verdict is never written as given', () => {
+  const root = lwgRoot('l4');
+  const raw = JSON.stringify(leadPayload(root, 'a.js'));
+  const good = hook.run(raw, { root, leadWriteGuard: { decision: 'blocked-b', why: 'shown', shown: true } });
+  assert.deepStrictEqual([good.line.lead_write_guard, good.line.lead_write_guard_why, good.line.lead_write_guard_shown], ['blocked-b', 'shown', true]);
+  const odd = hook.run(raw, { root, leadWriteGuard: { decision: 'sk-evil secret', why: 'C:\\Users\\x', shown: 'yes' } });
+  assert.deepStrictEqual([odd.line.lead_write_guard, odd.line.lead_write_guard_why, odd.line.lead_write_guard_shown], ['skipped', 'invalid', undefined]);
+});
+t('L5 the real CLI with lead-write-guard off in the project settings: silent, the line records off (the guard reads config through the toolhook)', () => {
+  const root = lwgFixture('l6');
+  writeConfig(root, { 'lead-write-guard': { value: false } });
+  const r = runCli(JSON.stringify(leadPayload(root, 'AndroidManifest.xml')), root, { CLAUDE_PROJECT_DIR: root });
+  assert.deepStrictEqual([r.status, r.stdout], [0, '']);
+  const line = JSON.parse(readLines(logFile(root, LWG_SID))[0]);
+  assert.deepStrictEqual([line.lead_write_guard, line.lead_write_guard_why], ['off', 'config-off']);
+});
+t('L6 hookFeedback(): global-input and lead-write feedback leave as ONE PostToolUse object with both reasons', () => {
+  const root = lwgRoot('l5');
+  const p = leadPayload(root, 'launch.ps1');
+  p.tool_input.content = '$w = New-Object -ComObject WScript.Shell; $w.SendKeys("{ENTER}")';
+  const raw = JSON.stringify(p);
+  const guardResult = { decision: 'blocked-a', why: 'shown', shown: true, feedback: { decision: 'block', reason: 'FORGE LEAD WRITE (launch.ps1): test' } };
+  const out = JSON.parse(hook.hookFeedback(raw, { root }, guardResult));
+  assert.strictEqual(out.decision, 'block');
+  assert.ok(/FORGE GLOBAL INPUT/.test(out.reason) && /FORGE LEAD WRITE/.test(out.reason), out.reason);
+  assert.strictEqual(hook.hookFeedback(JSON.stringify(payload()), { root }, null), '');
+  assert.strictEqual(JSON.parse(hook.hookFeedback(JSON.stringify(payload()), { root }, guardResult)).reason, 'FORGE LEAD WRITE (launch.ps1): test');
+});
+t('L7 the real CLI with a damaged run pointer: silent (the guard never blocks on what it cannot read), the line says why', () => {
+  const root = lwgFixture('l7');
+  fs.writeFileSync(path.join(root, '.claude', 'forge-runs', '_hooks', 'active-run.json'), '{ not json');
+  const r = runCli(JSON.stringify(leadPayload(root, 'AndroidManifest.xml')), root, { CLAUDE_PROJECT_DIR: root });
+  assert.deepStrictEqual([r.status, r.stdout], [0, '']);
+  const line = JSON.parse(readLines(logFile(root, LWG_SID))[0]);
+  assert.deepStrictEqual([line.lead_write_guard, line.lead_write_guard_why], ['skipped', 'run-pointer-unreadable']);
+});
+
+for (const d of lwgRoots.concat([CONFIG_HOME])) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ } }
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

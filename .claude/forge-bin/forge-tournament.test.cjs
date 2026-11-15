@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * Hermetic tests for forge-tournament.cjs (PIECE J2). File-based CLI tests use a fresh
  * os.tmpdir() directory per section — this file never touches this repo's real .claude/ state. Exit 0 =
@@ -107,6 +111,7 @@ console.log('4) score() — rubricScores path (direct pre-normalized values) + m
   const entries = [
     { id: 'x', rubricScores: { quality: 0.9 }, metrics: { speed: 10 } },
     { id: 'y', rubricScores: { quality: 0.4, speed: 0.2 } },
+    { id: 'z', rubricScores: { quality: 0.1 }, metrics: { speed: 20 } },
   ];
   const r = FT.score({ entries }, rubric, {});
   const x = r.entries.find((e) => e.id === 'x');
@@ -115,7 +120,12 @@ console.log('4) score() — rubricScores path (direct pre-normalized values) + m
   t('the metrics-supplied criterion is still sourced from metrics', x.breakdown.find((b) => b.key === 'speed').source === 'metrics');
   t('a directly-supplied rubricScore is used verbatim (not re-normalized)', y.breakdown.find((b) => b.key === 'speed').normalized === 0.2);
   t('quality (only rubricScores across both entries) is used verbatim for both', x.breakdown.find((b) => b.key === 'quality').normalized === 0.9 && y.breakdown.find((b) => b.key === 'quality').normalized === 0.4);
-  t('a single-entry metric range (no spread) normalizes to 1, never a fabricated split', x.breakdown.find((b) => b.key === 'speed').normalized === 1);
+  t('two metric entries on one criterion still normalize between them (min direction: fastest is 1)', x.breakdown.find((b) => b.key === 'speed').normalized === 1 && r.entries.find((e) => e.id === 'z').breakdown.find((b) => b.key === 'speed').normalized === 0);
+  // FB-QUALITY-F5: one metrics entry beside rubric-scored ones would get a free 1 and could beat a much better variant
+  const lone = throws(() => FT.score({ entries: [{ id: 'a', metrics: { q: 3 } }, { id: 'b', rubricScores: { q: 0.9 } }] }, { criteria: [{ key: 'q', weight: 1 }] }, {}));
+  t('a criterion with only ONE metrics entry beside rubricScores entries throws (no default full score)', !!lone && /metrics/.test(lone.message), lone && lone.message);
+  const eq = FT.score({ entries: [{ id: 'a', metrics: { q: 3 } }, { id: 'b', metrics: { q: 3 } }] }, { criteria: [{ key: 'q', weight: 1 }] }, {});
+  t('every entry on metrics and all equal: each normalizes to 1 (no fabricated split)', eq.entries.every((e) => e.breakdown[0].normalized === 1));
 }
 
 console.log('5) score() — a tie is flagged honestly');

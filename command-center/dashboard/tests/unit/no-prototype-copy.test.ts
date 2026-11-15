@@ -273,9 +273,9 @@ describe('no forbidden prototype/example copy renders in production mode', () =>
  *
  *   - `MissionControlView` short-circuits into its own "No mission running" `EmptyState` the moment
  *     `graph.nodes.length === 0` (see its own header) — the running-node branch in `GraphNode.tsx`
- *     that used to render "…per cent through its example work" is simply never executed.
+ *     that used to render "…per cent through its example work" (F1) is simply never executed.
  *   - `ProjectsView` renders zero `<li>` rows against zero projects — there is no non-active row for
- *     a fabricated "Health 0%"/"0 tasks" placeholder to ever appear in.
+ *     a fabricated "Health 0%"/"0 tasks" placeholder (F3) to ever appear in.
  *
  * A real, non-fixture (`prototype` genuinely absent — see the `real()` cast below, mirroring
  * `gateway-adapter.ts`'s own `Omit<T, 'prototype'> as unknown as T` idiom) state with TWO projects

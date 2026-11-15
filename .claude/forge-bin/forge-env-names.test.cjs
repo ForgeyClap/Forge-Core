@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-env-names.test.cjs —. Unit + CLI coverage for the new forge-env-names.cjs helper:
 // the sanctioned replacement for secret-print's removed grep -o/--only-matching exemption (see
 // hard-gates.json's secret-print gate and forge-gate-secretprint.test.cjs for the gate-level proof that this
@@ -26,7 +30,7 @@ console.log('forge-env-names tests (WP-K1: names-only dotenv reader, secret-prin
 console.log('\n1) envNames() parsing');
 
 t('extracts plain KEY=value names, ignoring the values entirely', () => {
-  const text = 'DATABASE_URL=postgres://user:pass@host/db\nAPI_KEY=sk-super-secret';
+  const text = 'DATABASE_URL=postgres://user:pass@host/db\nAPI_KEY=sk-super-secret'; // FAKE test fixture (reviewed for the public release verify)
   assert.deepStrictEqual(envNames.envNames(text), ['DATABASE_URL', 'API_KEY']);
 });
 t('handles export KEY=value', () => {
@@ -175,7 +179,7 @@ console.log('\n2) run() CLI behaviour (in-process, captured console output)');
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-env-names-'));
 const ENV_FILE = path.join(TMP, 'sample.env');
-fs.writeFileSync(ENV_FILE, 'DATABASE_URL=postgres://user:pass@host/db\nexport API_KEY=sk-secret\n');
+fs.writeFileSync(ENV_FILE, 'DATABASE_URL=postgres://user:pass@host/db\nexport API_KEY=sk-secret\n'); // FAKE test fixture (reviewed for the public release verify)
 
 function captureRun(argv) {
   const outLines = [];

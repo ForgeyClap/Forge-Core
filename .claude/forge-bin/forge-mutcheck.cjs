@@ -79,6 +79,14 @@ function checkOnePair(src, test, opts) {
     };
   }
 
+  // FB-VERIFY-1-F10: nothing scored means nothing was measured; it must never print "every mutant caught".
+  if (rep.killed + rep.survived === 0) {
+    return {
+      src: rep.target || src, test: rep.test || test, ok: false,
+      error: 'mutcheck: no mutant could be scored (0 killed, 0 survived, ' + rep.skipped + ' skipped) — this proves nothing about the test',
+    };
+  }
+
   const mutations = rep.survivors.map((s) => ({
     id: s.id, description: s.description, line: s.line, original: s.original, replacement: s.replacement, caught: false,
   }));

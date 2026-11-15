@@ -46,6 +46,14 @@
  *     DIRECTLY between two ids is a range connector; a dash anywhere else still cuts clauses as a contrast, as before.
  *     A malformed range (backwards, from an id to itself, chained, or wider than owner_check.range_max, default 60) refuses
  *     every id named in its sentence. Guards carry the mutation anchors RANGE-GUARD-* and RANGE-ONE-CLAUSE.
+ *   - NOT THE OWNER'S ACT (FB-SCRIBE-1-F2/F3): fenced code, inline code, '>' lines and quoted spans are
+ *     dropped first (someone else's words); an id after a reporting, doubt or check verb or in a complement clause
+ *     ("controleer of R-n klopt", "ik twijfel of", "the agent claimed R-n", "zorg dat R-n klopt") is refused, as is a
+ *     clause that reports or doubts it ("..., zei de agent"), any other clause that holds a check verb, joined by a
+ *     comma, semicolon, dash or contrast word (", test het eerst", "maar test het eerst"), and a contrast clause that
+ *     opens with an imperative; a batch phrase counts only when its clause holds nothing but the phrase, filler words (ja, ok, prima ...)
+ *     and a leading /command ("zorg dat alles goedgekeurd wordt" is a wish). Lists: owner_check.reported_words,
+ *     check_words, imperative_starts, batch_filler_words (defaults below).
  * "Approve R-0002, but R-0001 remains pending." approves R-0002 and never R-0001. A mere mention ("R-0001 staat nog
  * open") is not an act. The word lists live in FORGE_SCRIBE.json owner_check (defaults below).
  */
@@ -55,8 +63,25 @@ const path = require('path');
 const DEFAULT_CONFIG = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_SCRIBE.json');
 const CLASSES = ['new', 'change', 'cancel', 'preference', 'question', 'ack', 'unclassified'];
 const DEFAULT_NEGATIONS = ['not', 'never', 'no', 'niet', 'geen', 'nooit', 'nee'];
-// Forge's own tool subcommands: `/forge status` is the owner operating a tool, not a wish (moved here from the hook).
-const FORGE_TOOL_SUBCOMMANDS = ['status', 'runs', 'dashboard', 'open-report', 'doctor', 'config', 'snapshot', 'help', 'version', 'plan', 'start', 'use', 'resume'];
+// Forge's own tool subcommands: `/forge status` is the owner operating a tool, not a wish. FB-SCRIBE-1-F4 (audit
+// FORGE_TOOL_SUBCOMMANDS is the ONE list of /forge sub-commands (forge.md B plus the tool sub-commands; the
+// hook reads it from here). Only FORGE_ARG_TOOL_SUBCOMMANDS take tool arguments ("/forge config set gate-hook off"); every
+// other sub-command is a tool command only when its argument is empty, flags or a run id, so "/forge start met de
+// website ..." and "/forge remember altijd tests draaien" are the owner's words. FORGE_TASK_SUBCOMMANDS carry a build
+// request (the hook's forge-start line).
+const FORGE_TOOL_SUBCOMMANDS = ['status', 'runs', 'dashboard', 'open-report', 'doctor', 'config', 'snapshot', 'help', 'version', 'plan', 'start', 'use', 'resume',
+  'remember', 'learn', 'init', 'stop', 'pause', 'repair', 'stats', 'interview', 'propose-skill', 'approve-skill', 'tournament', 'secondbrain', 'codemodel',
+  'briefing', 'paperclip'];
+const FORGE_ARG_TOOL_SUBCOMMANDS = ['status', 'runs', 'dashboard', 'open-report', 'doctor', 'config', 'snapshot', 'version'];
+const FORGE_TASK_SUBCOMMANDS = ['start', 'use', 'plan', 'help', 'resume'];
+/** forgeToolCommand(args) -> true when the text after '/forge' operates a Forge tool, false when it carries owner words. Pure. */
+function forgeToolCommand(args) {
+  const words = String(args == null ? '' : args).trim().split(/\s+/).filter(Boolean);
+  const sub = (words[0] || '').toLowerCase();
+  if (!FORGE_TOOL_SUBCOMMANDS.includes(sub)) return false;
+  if (FORGE_ARG_TOOL_SUBCOMMANDS.includes(sub)) return true;
+  return words.slice(1).every((w) => /^--?[\w-]+(?:=\S*)?$/.test(w) || /^(?:forge-)?\d{4}-\d{2}-\d{2}[\w.-]*$/i.test(w) || /^run-[\w.-]+$/i.test(w) || /^R-\d+$/i.test(w));
+}
 
 function loadConfig(file) {
   const p = file || DEFAULT_CONFIG;
@@ -120,7 +145,7 @@ function classify(text, cfg) {
   const t = String(text == null ? '' : text);
   const scores = scoreText(t, cfg);
   const cls = pickClass(scores);
-  // multi-ask: count sentences that classify on their own as an actionable ask.
+  // multi-ask (F10): count sentences that classify on their own as an actionable ask.
   const sentences = splitSentences(t);
   let asks = 0;
   if (sentences.length > 1) {
@@ -161,6 +186,20 @@ const DEFAULT_CONFLICTS = ['pending', 'remains?', 'still', 'later', 'wait(?:ing)
 const DEFAULT_QUESTION_STARTS = ['is', 'are', 'was', 'were', 'has', 'have', 'had', 'did', 'does', 'do', 'can', 'could', 'would', 'should', 'will', 'shall',
   'may', 'might', 'must', 'how', 'why', 'what', 'which', 'when', 'where', 'who', 'kan', 'kun', 'kunt', 'zou', 'zal', 'zijn', 'heeft', 'hebben', 'mag',
   'moet', 'wil', 'wilt', 'hoe', 'waarom', 'wat', 'welke', 'wanneer', 'waar', 'wie'];
+// FB-SCRIBE-1-F2: words that make a sentence someone else's claim, a doubt or an order to check, not
+// the owner's act. REPORTED (reporting and doubt) poisons any clause; CHECK verbs poison the text before the id and a
+// contrast clause; an imperative first word poisons a contrast clause ("R-0040 klopt maar test het eerst").
+const DEFAULT_REPORTED = ['zei', 'zeiden', 'zegt', 'zeggen', 'beweer\\w*', 'claim\\w*', 'says', 'said', 'stated?', 'states', 'meld(?:t|de|den)', 'schreef',
+  'schrijft', 'wrote', 'writes', 'reported', 'reports', 'according to', 'volgens', 'twijfel\\w*', 'betwijfel\\w*', 'doubt\\w*', 'not sure', 'unsure',
+  'weet (?:ik )?niet', 'vraag me af', 'wonder\\w*', 'denk', 'denkt', 'think', 'thinks', 'geloof', 'believe', 'misschien', 'maybe', 'perhaps', 'probably',
+  'waarschijnlijk'];
+const DEFAULT_CHECK_VERBS = ['controleer\\w*', 'check\\w*', 'verif\\w*', 'test', 'testen', 'test het', 'nagaan', 'nakijken', 'kijk', 'bekijk\\w*', 'zorg',
+  'make sure', 'ensure', 'double-check'];
+const DEFAULT_IMPERATIVES = ['test', 'controleer', 'check', 'verify', 'verifieer', 'kijk', 'wacht', 'wait', 'fix', 'los', 'pas', 'verander', 'change', 'maak',
+  'make', 'doe', 'do', 'run', 'draai', 'bouw', 'build', 'zorg', 'laat', 'look', 'review'];
+// FB-SCRIBE-1-F3: the only words a batch-phrase clause may hold besides the phrase itself
+const DEFAULT_BATCH_FILLER = ['ja', 'jaa', 'ok', 'oke', 'oké', 'okay', 'prima', 'yes', 'top', 'super', 'mooi', 'perfect', 'great', 'nice', 'dan', 'dus', 'nu',
+  'then', 'so', 'hoor', 'gewoon'];
 const listOf = (cfg, key, dflt) => {
   const v = cfg && cfg.owner_check && Array.isArray(cfg.owner_check[key]) ? cfg.owner_check[key] : dflt;
   return v.map((w) => String(w).trim()).filter(Boolean);
@@ -177,6 +216,10 @@ function ownerCheckRes(cfg) {
     conditional: wordsRe(listOf(cfg, 'conditional_words', DEFAULT_CONDITIONALS).map(escRe)),
     conflict: wordsRe(listOf(cfg, 'conflict_words', DEFAULT_CONFLICTS)),
     questionStart: new RegExp('^\\s*(?:' + listOf(cfg, 'question_starts', DEFAULT_QUESTION_STARTS).map(escRe).join('|') + ')(?=$|[^\\p{L}\\p{N}])', 'iu'),
+    reported: wordsRe(listOf(cfg, 'reported_words', DEFAULT_REPORTED)),
+    check: wordsRe(listOf(cfg, 'check_words', DEFAULT_CHECK_VERBS)),
+    imperativeStart: new RegExp('^\\s*(?:' + listOf(cfg, 'imperative_starts', DEFAULT_IMPERATIVES).map(escRe).join('|') + ')(?=$|[^\\p{L}\\p{N}])', 'iu'),
+    filler: new Set(listOf(cfg, 'batch_filler_words', DEFAULT_BATCH_FILLER).map((w) => w.toLowerCase())),
     // a contrast word (or a dash / parenthesis) separates clauses and breaks a list; , and : are list separators
     contrastSep: '(?:\\s*[\\u2013\\u2014()\\[\\]]\\s*|\\s+-\\s+|(?:^|[\\s,:]+)(?:' + contrastWords.map((w) => w.replace(/ /g, '\\s+')).join('|') + ')(?=$|[^\\p{L}\\p{N}])\\s*)',
   };
@@ -197,7 +240,7 @@ function clausesOf(sentence, cfg, intent) {
   }
   const masked = (a, b) => masks.some(([x, y]) => a < y && b > x);
   const seps = [];
-  for (const [src, type] of [['\\s*[,:]\\s*', 'list'], [R.contrastSep, 'contrast']]) {
+  for (const [src, type] of [['\\s*[,:;]\\s*', 'list'], [R.contrastSep, 'contrast']]) {
     const re = new RegExp(src, 'giu');
     let m;
     while ((m = re.exec(s)) !== null) {
@@ -238,6 +281,7 @@ function clauseVerdict(clause, intent, cfg) {
   const rest = stripIntent(clause, intent, cfg).replace(/\bR-\d+\b/gi, ' ');
   if (cls !== intent) return 'classifier reads it as ' + cls;
   if (R.neg.test(rest)) return 'negated';
+  if (R.reported.test(rest)) return 'reported or doubted (' + (rest.match(R.reported) || [''])[0].trim() + ')'; // FB-SCRIBE-1-F2
   if (R.conflict.test(rest)) return 'it defers or disputes the act (' + (rest.match(R.conflict) || [''])[0].trim() + ')';
   return null;
 }
@@ -309,29 +353,66 @@ function rangesAsList(sentence, ranges, n) {
   }
   return s;
 }
+/** actText(text) — FB-SCRIBE-1-F2: someone else's words are never the owner's act: fenced code, inline code, '>' lines
+ *  and quoted spans ("...", “...”, „...”, «...») are dropped before any sentence is judged. */
+function actText(text) {
+  let s = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+  s = s.replace(/(^|\n)[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, '$1').replace(/`[^`\n]*`/g, ' ').replace(/^[ \t]*>.*$/gm, ' ');
+  s = s.replace(/"[^"\n]{1,400}"|“[^”\n]{1,400}”|„[^”“\n]{1,400}[”“]|«[^»\n]{1,400}»|‘[^’\n]{1,400}’/g, ' ');
+  return s.replace(/(^|[\s(])'[^'\n]{1,200}'(?=[\s.,!?;:)]|$)/g, '$1 '); // the same single-quote spans tcClean drops
+}
+/** actSentences(text) — splitSentences, but a ';' joins two clauses of ONE sentence ("R-0040 klopt; test het eerst"). */
+function actSentences(text) {
+  const out = [];
+  for (const sen of splitSentences(text)) {
+    const last = out[out.length - 1];
+    if (last && /;$/.test(last.text)) { last.text = text.slice(last.start, sen.end); last.end = sen.end; } else out.push(Object.assign({}, sen));
+  }
+  return out;
+}
+/** bareBatch(sentence, phrase, intent, cfg) — FB-SCRIBE-1-F3: the clause that holds the batch phrase holds nothing else
+ *  but filler words (owner_check.batch_filler_words: ja, ok, prima ...) and a leading /command; "zorg dat alles
+ *  goedgekeurd wordt" is a wish, not a batch act. */
+function bareBatch(sentence, phrase, intent, cfg) {
+  const ph = String(phrase).toLowerCase();
+  const cl = clausesOf(sentence, cfg, intent).find((x) => x.text.toLowerCase().includes(ph));
+  if (!cl) return false;
+  const rest = cl.text.toLowerCase().split(ph).join(' ').replace(/^\s*\/[\w:.-]+/, ' ');
+  const filler = ownerCheckRes(cfg).filler;
+  return (rest.match(/[\p{L}\p{N}]+/gu) || []).every((w) => filler.has(w));
+}
 /** authorizes(text, rid, intent, cfg) — see the header (AUTHORIZES). intent: 'ack' | 'cancel'. Pure. */
 function authorizes(text, rid, intent, cfg) {
   const n = /^R-(\d+)$/i.test(String(rid)) ? parseInt(String(rid).slice(2), 10) : NaN;
   if (!Number.isFinite(n)) return { ok: false, reason: 'not an item id: ' + rid };
   if (intent !== 'ack' && intent !== 'cancel') return { ok: false, reason: 'unknown owner intent ' + intent };
   const oc = (cfg && cfg.owner_check) || {};
-  const phrases = (intent === 'ack' ? oc.batch_ack_phrases : oc.batch_cancel_phrases) || [];
+  // longest first, so "alles goedgekeurd" is found as itself, not as "alles goed" plus "keurd"
+  const phrases = ((intent === 'ack' ? oc.batch_ack_phrases : oc.batch_cancel_phrases) || []).slice().sort((a, b) => String(b).length - String(a).length);
   const ridRe = new RegExp('\\bR-0*' + n + '\\b', 'i');
   const R = ownerCheckRes(cfg);
   const no = (sen, why) => ({ ok: false, reason: 'the sentence ' + JSON.stringify(String(sen).slice(0, 120)) + ' ' + why + ' — ambiguous never authorises' });
   let affirm = null;
-  for (const sen of splitSentences(text)) {
+  const act = actText(text);
+  for (const sen of actSentences(act)) {
     const low = sen.text.toLowerCase();
     const ranges = idRanges(sen.text, cfg);
     const inRange = ranges.find((r) => r.lo <= n && n <= r.hi);
     const literal = ridRe.test(sen.text);
     const named = literal || !!inRange;
-    const batchPhrase = phrases.find((ph) => ph && low.includes(String(ph).toLowerCase()));
+    let batchPhrase = phrases.find((ph) => ph && low.includes(String(ph).toLowerCase()));
+    if (batchPhrase && !named && !bareBatch(sen.text, batchPhrase, intent, cfg)) batchPhrase = undefined; // FB-SCRIBE-1-F3: a wish, not a batch act
     if (!named && !batchPhrase) continue;
     const names = 'names ' + rid + (literal || !inRange ? '' : ' through the range ' + JSON.stringify(inRange.text));
     const what = named ? names : 'holds the batch phrase ' + JSON.stringify(batchPhrase);
     if (isQuestion(sen.text, cfg)) return no(sen.text, what + ' but is a question');
     if (R.conditional.test(sen.text)) return no(sen.text, what + ' but is conditional (' + (sen.text.match(R.conditional) || [''])[0].trim() + ')');
+    if (named) { // FB-SCRIBE-1-F2: the id in a complement clause or after a reporting, doubt or check verb is no act
+      const at = literal ? sen.text.search(ridRe) : sen.text.indexOf(inRange.text);
+      const lead = sen.text.slice(0, Math.max(0, at)).replace(/\bR-\d+\b|[,&]|(?:^|\s)(?:en|and)(?=\s|$)/gi, ' ').trim();
+      const hit = (lead.match(R.reported) || lead.match(R.check) || /(?:^|[^\p{L}\p{N}])(?:of|whether|dat|that)$/iu.exec(lead) || [''])[0].trim();
+      if (hit) return no(sen.text, names + ' after ' + JSON.stringify(hit) + ': reported speech, doubt or an instruction to check, not the owner\'s act');
+    }
     const badRange = ranges.find((r) => r.bad);
     if (badRange) return no(sen.text, what + ' but holds the range ' + JSON.stringify(badRange.text) + ', which ' + badRange.bad); // RANGE-GUARD-BAD
     // from here on a range reads as a list of ids sharing ONE act (R-n put inside the range that holds it)
@@ -346,6 +427,8 @@ function authorizes(text, rid, intent, cfg) {
       if (/\bR-\d+\b/i.test(cl.text) || (batchPhrase && cl.text.toLowerCase().includes(String(batchPhrase).toLowerCase()))) continue;
       const rest = stripIntent(cl.text, intent, cfg);
       if (R.neg.test(rest) || R.conflict.test(rest)) return no(sen.text, what + ' but the clause ' + JSON.stringify(cl.text.slice(0, 60)) + ' negates or defers it');
+      // FB-SCRIBE-1-F2: "..., zei de agent" reports it; "..., test het eerst" (any join) holds it back for a check
+      if (R.reported.test(rest) || R.check.test(rest) || (cl.sep === 'contrast' && R.imperativeStart.test(cl.text))) return no(sen.text, what + ' but the clause ' + JSON.stringify(cl.text.slice(0, 60)) + ' reports, doubts or holds it for a check');
     }
     if (named) {
       for (let i = 0; i < clauses.length; i++) {
@@ -429,14 +512,14 @@ function machineSkip(text) {
     const name = (/<command-name>\s*\/?([^<\s]*)\s*<\/command-name>/i.exec(s) || [])[1] || '';
     const args = ((/<command-args>([\s\S]*?)<\/command-args>/i.exec(s) || [])[1] || '').trim();
     if (!args) return 'slash-command-expansion';
-    if (/^forge(?:-core)?(?::[\w-]+)?$/i.test(name) && FORGE_TOOL_SUBCOMMANDS.includes(String(args.split(/\s+/)[0]).toLowerCase())) return 'forge-tool-command';
+    if (/^forge(?:-core)?(?::[\w-]+)?$/i.test(name) && forgeToolCommand(args)) return 'forge-tool-command';
     return null; // the arguments are the owner's own words
   }
   if (/^Base directory for this skill:/i.test(s)) return 'slash-command-expansion';
   if (/^---\r?\n(?:[^\n]*\r?\n){0,12}?(?:description|name|argument-hint|allowed-tools|model)\s*:/.test(s)) return 'slash-command-expansion';
   if (/^\/[\w:.-]+\s*$/.test(s)) return 'bare-slash-command';
-  const m = /^\/forge(?:-core)?(?::[\w-]+)?\s+([\w-]+)/i.exec(s);
-  if (m && FORGE_TOOL_SUBCOMMANDS.includes(m[1].toLowerCase())) return 'forge-tool-command';
+  const m = /^\/forge(?:-core)?(?::[\w-]+)?\s+([\s\S]+)$/i.exec(s);
+  if (m && forgeToolCommand(m[1])) return 'forge-tool-command';
   return null;
 }
 
@@ -468,8 +551,26 @@ function machineSkip(text) {
  *   3. cue words alone never create a repeat: the cue bonus only counts once a distinctive token is shared.
  * COUNT: repeat_count = 1 + the size of the chain the matched items belong to (connected through repeat_of), i.e. how
  * many times the owner has now asked; for a plain chain that is 1 + the earlier item's repeat_count (an original = 1). */
+// LEAD-S1: 'andere' ("other") is in almost every long owner prompt; R-0239 was flagged REPEAT x23 on
+// parallel/website/andere/project. Measured on the real ledger (34 flagged items): adding 'project', 'allemaal' or 'node'
+// as well created four NEW false repeats (the ratios of the remaining words rise), so only the 'ander' family is added.
 const GENERIC_REPEAT_WORDS = ['vragen', 'vraag', 'vroeg', 'moet', 'moeten', 'doen', 'nog', 'wat', 'voor', 'mij', 'open',
-  'ask', 'asked', 'asking', 'need', 'needs', 'question', 'questions', 'status'];
+  'ask', 'asked', 'asking', 'need', 'needs', 'question', 'questions', 'status',
+  'ander', 'andere', 'anders', 'other', 'others'];
+// LEAD-S1: command text is not the owner's words — a "! <command>" shell line, inline code, a URL, a --flag, a path
+// (./x, ~/x, C:/x, two or more separators, or a separator plus a file extension) and a bare file name with an extension
+const PATH_EXT = '(?:c?js|mjs|ts|tsx|jsx|json|jsonl|md|py|ps1|psm1|cmd|bat|sh|html?|css|ya?ml|toml|txt|log|lua|luau|exe|dll)';
+const PATH_TOKEN_RE = new RegExp('^(?:\\.{1,2}[\\\\/]|~[\\\\/]|[a-z]:[\\\\/]|[\\\\/]{2})|[\\\\/][^\\\\/]*[\\\\/]|[\\\\/].*\\.' + PATH_EXT + '$', 'i');
+/** repeatPlain(text) -> the text without command text and paths (LEAD-S1). Pure. */
+function repeatPlain(text) {
+  return String(text == null ? '' : text)
+    .replace(/^[ \t]*![ \t]*[\w.~\\/"'-].*$/gm, ' ')
+    .replace(/`[^`\n]*`/g, ' ')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ')
+    .replace(/(^|\s)--[a-z][\w-]*/gi, '$1 ')
+    .replace(/[^\s"'()<>]*[\\/][^\s"'()<>]*/g, (m) => (PATH_TOKEN_RE.test(m) ? ' ' : m))
+    .replace(new RegExp('(^|[\\s"\'(])[\\w-]+\\.' + PATH_EXT + '(?=$|[\\s"\'),.:;!?])', 'gim'), '$1 ');
+}
 const REPEAT_DEFAULTS = {
   enabled: true, jaccard: 0.45, min_shared: 3, containment: 0.5, cue_bonus: 1, max_chars: 2000, max_candidates: 400, min_len: 3,
   distinctive_min_len: 4,
@@ -521,7 +622,7 @@ function stemWord(w) {
 function repeatTokens(text, cfg) {
   const R = repeatConfig(cfg);
   const out = new Map();
-  const words = String(text == null ? '' : text).slice(0, R.max_chars).toLowerCase().match(/\p{L}+/gu) || [];
+  const words = repeatPlain(String(text == null ? '' : text).slice(0, R.max_chars)).toLowerCase().match(/\p{L}+/gu) || [];
   for (const w of words) {
     if (w.length < R.min_len || R.stop.has(w) || R.cues.has(w)) continue;
     const st = stemWord(w);
@@ -825,8 +926,8 @@ function toggleCorrection(text, cfg) {
   return weakHit || none;
 }
 
-module.exports = { loadConfig, classify, splitSentences, scoreText, pickClass, authorizes, sharedListAck, idRanges, stripIntent, negationRe, machineSkip, stripLeadingHarness, HARNESS_LEAD_TAGS, clausesOf, isQuestion, CLASSES, DEFAULT_CONFIG, FORGE_TOOL_SUBCOMMANDS,
-  findRepeats, repeatTokens, repeatScore, repeatCue, repeatEligible, repeatConfig, repeatDistinctive, repeatStatusQuestion,
+module.exports = { loadConfig, classify, splitSentences, scoreText, pickClass, authorizes, sharedListAck, idRanges, stripIntent, negationRe, machineSkip, stripLeadingHarness, HARNESS_LEAD_TAGS, clausesOf, isQuestion, CLASSES, DEFAULT_CONFIG, FORGE_TOOL_SUBCOMMANDS, FORGE_ARG_TOOL_SUBCOMMANDS, FORGE_TASK_SUBCOMMANDS, forgeToolCommand,
+  findRepeats, repeatTokens, repeatPlain, repeatScore, repeatCue, repeatEligible, repeatConfig, repeatDistinctive, repeatStatusQuestion,
   REPEAT_DEFAULTS, GENERIC_REPEAT_WORDS,
   // WP I.8c: toggle corrections (a TAG on owner messages, never a class)
   toggleCorrection, toggleConfig, TOGGLE_TAG, TOGGLE_MARK, TOGGLE_DEFAULTS };

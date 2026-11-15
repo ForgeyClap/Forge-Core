@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-standing.test.cjs — real tests for the standing-rules resolver (2026-07-18, WAVE B / B2;
 // TEMPLATE/USER SPLIT tests added 2026-09-26 for the external-audit N4/P1 fix). Every FIXTURE test uses
 // opts.rulesPath/opts.userRulesPath pointing at a fresh temp dir (hermetic — no fixture test ever writes to
@@ -530,17 +534,35 @@ t('CLI honors FORGE_STANDING_RULES_PATH/_USER_PATH together for match/list, neve
 // ---------------------------------------------------------------------------
 console.log('\n8) remember() — /forge remember writes ONLY to the user file (hermetic fixtures)');
 
-t('remember() appends a new active rule with source:"owner /forge remember" into the USER file, never the template', () => {
+t('remember() appends a new active rule (source "lead" without a checked owner prompt, CF-4-F2) into the USER file, never the template', () => {
   const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-1' })]);
   const before = fs.readFileSync(templatePath, 'utf8');
   const rule = standing.remember('never deploy on Fridays', { rulesPath: templatePath, userRulesPath: userPath });
   assert.strictEqual(rule.status, 'active');
-  assert.strictEqual(rule.source, 'owner /forge remember');
+  assert.strictEqual(rule.source, 'lead');
   assert.strictEqual(rule.text, 'never deploy on Fridays');
   assert.strictEqual(fs.readFileSync(templatePath, 'utf8'), before, 'remember() must never touch the template file');
   const userData = JSON.parse(fs.readFileSync(userPath, 'utf8'));
   assert.strictEqual(userData.rules.length, 1);
   assert.ok(userData.rules.some((r) => r.id === rule.id && r.status === 'active'));
+});
+
+t('FB-SCRIBE-1-F12: remember() takes an exclusive lock and writes temp-then-rename (a held lock is never written past)', () => {
+  const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-lock' })]);
+  standing.remember('first rule under the lock', { rulesPath: templatePath, userRulesPath: userPath });
+  const dir = path.dirname(userPath);
+  assert.ok(!fs.readdirSync(dir).some((n) => /\.tmp-|\.lock$/.test(n)), 'temp or lock file left behind: ' + fs.readdirSync(dir).join(', '));
+  const before = fs.readFileSync(userPath, 'utf8');
+  fs.writeFileSync(userPath + '.lock', String(process.pid)); // another writer holds it right now
+  try {
+    assert.throws(() => standing.remember('second rule while locked', { rulesPath: templatePath, userRulesPath: userPath, lockWaitMs: 200 }), /locked/);
+    assert.strictEqual(fs.readFileSync(userPath, 'utf8'), before, 'the user file changed while another writer held the lock');
+  } finally { fs.rmSync(userPath + '.lock', { force: true }); }
+  const old = new Date(Date.now() - 10 * 60 * 1000);
+  fs.writeFileSync(userPath + '.lock', '1'); fs.utimesSync(userPath + '.lock', old, old); // a stale lock of a crashed writer
+  standing.remember('third rule after a stale lock', { rulesPath: templatePath, userRulesPath: userPath, lockWaitMs: 200 });
+  assert.strictEqual(JSON.parse(fs.readFileSync(userPath, 'utf8')).rules.length, 2);
+  assert.ok(!fs.existsSync(userPath + '.lock'));
 });
 
 t('remember() creates the user file from scratch when it does not exist yet (a fresh project has no owner rules yet)', () => {
@@ -626,6 +648,34 @@ t('remember() with an --id colliding with a shipped TEMPLATE rule id throws (nev
   assert.ok(!fs.existsSync(userPath), 'nothing should be written when the id collides with a product rule');
 });
 
+// FB-SCRIBE-1-F10: unquoted text and duplicates.
+t('CLI remember with unquoted multi-word text (several positionals) refuses with exit 2, writes nothing', () => {
+  const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-f10' })]);
+  const r = runCLI(['remember', 'always', 'use', 'parallel', 'lanes'], Object.assign({}, process.env, { FORGE_STANDING_RULES_PATH: templatePath, FORGE_STANDING_RULES_USER_PATH: userPath }));
+  assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+  assert.ok(/quote/i.test(r.stderr), r.stderr);
+  assert.ok(!fs.existsSync(userPath), 'nothing may be written');
+});
+t('remember() refuses a text that already exists (whitespace and case folded), writes nothing new', () => {
+  const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-f10b' })]);
+  standing.remember('Always use parallel lanes', { rulesPath: templatePath, userRulesPath: userPath });
+  const before = fs.readFileSync(userPath, 'utf8');
+  assert.throws(() => standing.remember('  always   USE parallel lanes ', { rulesPath: templatePath, userRulesPath: userPath }), /already exists/);
+  assert.strictEqual(fs.readFileSync(userPath, 'utf8'), before);
+});
+// FB-SCRIBE-1-F11: '**/' matches zero folders; './' and absolute project paths match.
+t("glob '**/' matches zero folders; './' and absolute paths inside the project match", () => {
+  assert.ok(standing.pathMatchesGlob('src/index.ts', 'src/**/*.ts'), 'src/index.ts vs src/**/*.ts');
+  assert.ok(standing.pathMatchesGlob('src/a/b/index.ts', 'src/**/*.ts'), 'deep path still matches');
+  assert.ok(standing.pathMatchesGlob('README.md', '**/*.md'), 'README.md vs **/*.md');
+  assert.ok(standing.pathMatchesGlob('.env', '**/.env*'), '.env vs **/.env*');
+  assert.ok(standing.pathMatchesGlob('./src/a.js', 'src/**'), './src/a.js vs src/**');
+  const abs = path.join(path.resolve(__dirname, '..', '..'), 'src', 'a.js');
+  assert.ok(standing.pathMatchesGlob(abs, 'src/**'), abs + ' vs src/**');
+  assert.ok(!standing.pathMatchesGlob('lib/a.js', 'src/**'), 'lib/a.js must not match src/**');
+  assert.ok(!standing.pathMatchesGlob('srcx/a.ts', 'src/**/*.ts'), 'srcx/a.ts must not match src/**/*.ts');
+});
+
 t('remember() against a malformed (present) user file throws, writes nothing new', () => {
   const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-12' })]);
   fs.mkdirSync(path.dirname(userPath), { recursive: true });
@@ -648,7 +698,7 @@ t('CLI remember "<text>" --json writes into the FORGE_STANDING_RULES_USER_PATH f
   const r = spawnSync(process.execPath, [CLI, 'remember', 'cli remembered rule', '--json'], { encoding: 'utf8', env });
   assert.strictEqual(r.status, 0, 'stderr: ' + r.stderr);
   const parsed = JSON.parse(r.stdout.trim());
-  assert.strictEqual(parsed.source, 'owner /forge remember');
+  assert.strictEqual(parsed.source, 'lead'); // CF-4-F2: no --prompt, so not the owner's
   assert.strictEqual(parsed.text, 'cli remembered rule');
   const written = JSON.parse(fs.readFileSync(userPath, 'utf8'));
   assert.ok(written.rules.some((x) => x.id === parsed.id));
@@ -798,6 +848,70 @@ console.log('');
   } finally {
     if (savedEnv === undefined) delete process.env.FORGE_STANDING_RULES_USER_PATH; else process.env.FORGE_STANDING_RULES_USER_PATH = savedEnv;
   }
+}
+
+// ---------------------------------------------------------------------------
+// CF-4-F2: remember() labels a rule 'lead' unless a hook-captured owner prompt id is passed AND checked
+// (forge-scribe-store's owner origin: unbroken inbox chain, hook capture, the same message in this project's transcript)
+// ---------------------------------------------------------------------------
+console.log('\nCF-4-F2) remember() source: lead by default, owner only with a checked owner prompt');
+{
+  const SC = require('./forge-scribe.cjs');
+  const SCC = require('./forge-scribe-classify.cjs');
+  const root = freshDir('standing-owner-root');
+  const home = freshDir('standing-owner-home');
+  const projects = path.join(home, '.claude', 'projects');
+  const tr = path.join(projects, path.resolve(root).replace(/[^A-Za-z0-9]/g, '-'));
+  fs.mkdirSync(tr, { recursive: true });
+  const cfg = SCC.loadConfig();
+  const now = new Date();
+  const text = 'onthoud dit: nooit op vrijdag deployen';
+  const tp = path.join(tr, 's1.jsonl');
+  fs.writeFileSync(tp, JSON.stringify({ type: 'user', uuid: 'u-1', promptId: 'p-1', sessionId: 's1', timestamp: now.toISOString(), message: { role: 'user', content: text } }) + '\n');
+  const scribeOpts = { root, config: cfg, claudeProjectsRoot: projects, transcriptRoots: [tr], now: () => now, autoack: false, configHome: path.join(home, '.claude'), standingRulesPath: path.join(root, 'standing.user.json') };
+  const owner = SC.capture(text, Object.assign({ source: 'hook', session_id: 's1', transcript_path: tp, uuid: 'u-1', prompt_id: 'p-1' }, scribeOpts));
+  const cli = SC.capture('een regel die de Lead zelf typte', Object.assign({ source: 'cli' }, scribeOpts));
+  const ownerOpts = (extra) => Object.assign({ scribeRoot: root, claudeProjectsRoot: projects, scribeConfig: cfg }, extra);
+
+  t('CF-4-F2: remember() without an owner prompt id records source "lead", never the owner', () => {
+    const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-cf42-a' })]);
+    const rule = standing.remember('a rule the Lead wrote', { rulesPath: templatePath, userRulesPath: userPath });
+    assert.strictEqual(rule.source, 'lead');
+    assert.ok(/^lead-remember-/.test(rule.id), rule.id);
+  });
+
+  t('CF-4-F2: a checked hook-captured owner prompt gives source "owner /forge remember" and names the prompt', () => {
+    const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-cf42-b' })]);
+    const rule = standing.remember('never deploy on Fridays', ownerOpts({ rulesPath: templatePath, userRulesPath: userPath, ownerPrompt: owner.pid }));
+    assert.strictEqual(rule.source, standing.OWNER_REMEMBER_SOURCE);
+    assert.strictEqual(rule.owner_prompt, owner.pid);
+    assert.ok(/^owner-remember-/.test(rule.id), rule.id);
+  });
+
+  t('CF-4-F2: a prompt that was not captured by the hook, or does not exist, is refused and nothing is written', () => {
+    const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-cf42-c' })]);
+    assert.throws(() => standing.remember('rule x', ownerOpts({ rulesPath: templatePath, userRulesPath: userPath, ownerPrompt: cli.pid })), /hook/);
+    assert.throws(() => standing.remember('rule y', ownerOpts({ rulesPath: templatePath, userRulesPath: userPath, ownerPrompt: 'P-999999' })), /not in the inbox/);
+    assert.throws(() => standing.remember('rule z', ownerOpts({ rulesPath: templatePath, userRulesPath: userPath, ownerPrompt: 'not-a-pid' })), /P-n/);
+    assert.ok(!fs.existsSync(userPath), 'a refused remember writes nothing');
+  });
+
+  t('CF-4-F2: an owner prompt missing from the transcript is refused', () => {
+    fs.writeFileSync(tp, ''); // the transcript no longer holds the message
+    const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-cf42-d' })]);
+    assert.throws(() => standing.remember('rule w', ownerOpts({ rulesPath: templatePath, userRulesPath: userPath, ownerPrompt: owner.pid })), /transcript/);
+  });
+
+  t('CF-4-F2: CLI remember --prompt passes the owner prompt id (refused here: no transcript folder for this project)', () => {
+    const { templatePath, userPath } = fixturePair([baseRule({ id: 'seed-cf42-e' })]);
+    const env = Object.assign({}, process.env, { FORGE_STANDING_RULES_PATH: templatePath, FORGE_STANDING_RULES_USER_PATH: userPath });
+    const r = spawnSync(process.execPath, [CLI, 'remember', 'cli rule with a prompt', '--prompt', 'P-999999'], { encoding: 'utf8', env });
+    assert.strictEqual(r.status, 2, r.stdout + r.stderr);
+    assert.ok(/owner prompt/.test(r.stderr), r.stderr);
+    assert.ok(!fs.existsSync(userPath));
+  });
+  fs.rmSync(root, { recursive: true, force: true }); // this section's own mkdtemp fixtures
+  fs.rmSync(home, { recursive: true, force: true });
 }
 
 console.log(passed + ' passed, ' + failed + ' failed');

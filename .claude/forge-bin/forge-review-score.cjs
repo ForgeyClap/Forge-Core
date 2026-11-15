@@ -295,7 +295,9 @@ function filterFindings(findingsDoc, scoresDoc, opts) {
   if (!scoresDoc || typeof scoresDoc.scores !== 'object' || scoresDoc.scores === null || Array.isArray(scoresDoc.scores)) return { error: 'scores JSON needs a "scores" object keyed by finding id' };
   const reviewer = String(findingsDoc.reviewer || '').trim(), scorer = String(scoresDoc.scorer || '').trim();
   if (!scorer) return { error: 'scores JSON must name its "scorer" (the independent second pass)' };
-  if (reviewer && scorer.toLowerCase() === reviewer.toLowerCase()) return { error: 'the scorer is the reviewer: the confidence pass must be independent' };
+  if (!reviewer) return { error: 'findings JSON must name its "reviewer", so the independence of the scorer can be checked' };
+  const slug = (s) => s.toLowerCase().replace(/[\s_]+/g, '-');
+  if (slug(scorer) === slug(reviewer)) return { error: 'the scorer is the reviewer: the confidence pass must be independent' };
   const ids = new Set(); const kept = [], dropped = [];
   for (const raw of findingsDoc.findings) {
     const f = Object.assign({}, raw); delete f.confidence; // a self-assigned confidence never counts

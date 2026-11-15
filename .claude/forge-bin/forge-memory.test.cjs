@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-memory.test.cjs — tests typed lessons, redaction-on-write, top-K recall, and the safety-net scan.
 // Uses a throwaway temp root so it never writes into the real agent-memory. Convention: "<N> passed, <M> failed".
 const assert = require('assert');
@@ -26,6 +30,13 @@ console.log('forge memory tests (typed lessons · redaction · recall · scan)')
 
 t('addLesson strips a secret before storing (raw key absent)', () => { const rec = mem.addLesson('Build Boss', { text: 'use key nvapi-abcdef1234567890 for x', tags: ['x'] }, ROOT); assert.ok(!rec.text.includes('nvapi-abcdef1234567890'), 'secret leaked into memory: ' + rec.text); });
 t('local scrub() redacts even without the store redactor', () => { assert.ok(!mem.scrub('token sk-ABCDEFGHIJKLMNOP1234 end').includes('sk-ABCDEFGHIJKLMNOP1234')); });
+// FB-MEMORY-F2: labelled free-text secrets are redacted and caught by the scan.
+t('scrub() redacts labelled secrets (password=, client_secret=, Authorization: Bearer)', () => {
+  const out = mem.scrub('deploy failed: password=hunter2abcdef client_secret=abc123xyz789 Authorization: Bearer eyJhbGciOiJIUzI1NiJ9abc');
+  for (const raw of ['hunter2abcdef', 'abc123xyz789', 'eyJhbGciOiJIUzI1NiJ9abc']) assert.ok(!out.includes(raw), 'leaked ' + raw + ' in: ' + out);
+});
+t('scanMemory flags a labelled secret (password=...) that bypassed redaction', () => { const d = mem.memDir('Rogue2', ROOT); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'raw2.md'), 'note: password=hunter2abcdef was used'); const r = mem.scanMemory(ROOT); assert.ok(r.ok === false && r.hits.some((h) => /raw2\.md/.test(h.file))); });
+t('scanMemory does not flag an already-redacted label', () => { const clean = path.join(os.tmpdir(), 'forge-mem-clean2-' + process.pid); fs.mkdirSync(path.join(clean, '.claude', 'agent-memory', 'x'), { recursive: true }); fs.writeFileSync(path.join(clean, '.claude', 'agent-memory', 'x', 'l.md'), 'password=***REDACTED*** and client_secret=[REDACTED]'); const r = mem.scanMemory(clean); fs.rmSync(clean, { recursive: true, force: true }); assert.ok(r.ok === true, JSON.stringify(r)); });
 t('unknown lesson type defaults to semantic', () => assert.strictEqual(mem.addLesson('Build Boss', { text: 'plain', type: 'weird' }, ROOT).type, 'semantic'));
 t('a valid typed lesson keeps its type', () => assert.strictEqual(mem.addLesson('Build Boss', { text: 'proc', type: 'procedural' }, ROOT).type, 'procedural'));
 t('recall finds a lesson by tag/keyword', () => { mem.addLesson('Test Boss', { text: 'playwright viewport 375 for mobile', tags: ['playwright', 'mobile'] }, ROOT); const hits = mem.recall('Test Boss', 'mobile playwright', 5, ROOT); assert.ok(hits.length >= 1 && /playwright/.test(hits[0].text)); });

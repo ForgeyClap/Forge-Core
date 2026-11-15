@@ -14,13 +14,13 @@
  *
  * EVERY account-changing step runs inside ONE transaction lock (vault.withTxnLock, AR-02): reconcile an unfinished swap
  * (txn.reconcile + txn.repairUnresolved), pick up an unaccounted committed swap (AR-V10), reconcile an interrupted
- * handoff -> re-read identity, state, cooldown -> measure -> decide -> preflight -> handoff (file mode) or
+ * handoff -> re-read identity, state, cooldown -> measure -> decide -> preflight (M2) -> handoff (file mode) or
  * recommendation (token mode). The active login is measured ONLY while its token is the slot's own or its ownership was
  * established independently (AR-V01 — txn.corroboratedCapture); an unknown token is never attributed to a slot.
  * Outcomes are tri-state (AR-05): 'verified' sets state.active and CONTINUE; 'unmeasurable-fallback' leaves a
  * pendingVerify that a later tick verifies (threshold rules apply then too, AR-V06) or — after 2 genuine 401s on an
  * AUTOMATIC switch, or after PENDING_VERIFY_MAX_MS in any pending state (AR-V07) — rolls back to the previous, known-good
- * login and marks the failed slot needs-relogin; 'failed' counts toward the failure backoff and the daily cap. A 401
+ * login and marks the failed slot needs-relogin; 'failed' counts toward the failure backoff and the daily cap (M6). A 401
  * on a stored access token past its own expiry while the login file is still exactly what we wrote is "awaiting first
  * use", not a failure — bounded by the same PENDING_VERIFY_MAX_MS. An owner-requested switch (`switch <name>`,
  * `switch --auto`, `--force`) takes precedence over a pending verification; `--force` on a consistent login supersedes an
@@ -200,7 +200,7 @@ async function tickLocked(ctx) {
     target = sel.target; tier = sel.tier;
   }
   if (ctx.dryRun) return finish({ action: 'would-switch', from: active, to: target, tier, trigger, ranked: sel ? sel.ranked : [] });
-  const pf0 = await txn.preflight(P, target, Object.assign({ slotFlags: st.slotFlags, allowNeedsRelogin: !!ctx.force, allowOrgBlocked: !!ctx.force }, capOpts)); // before ANY pause
+  const pf0 = await txn.preflight(P, target, Object.assign({ slotFlags: st.slotFlags, allowNeedsRelogin: !!ctx.force, allowOrgBlocked: !!ctx.force }, capOpts)); // M2: before ANY pause
   if (!pf0.ok) {
     noteOnce(st, delta, 'preflight:' + target + ':' + pf0.reason, 'GEEN WISSEL / NO SWITCH — voorwaarde niet voldaan / precondition failed: ' + pf0.reason, log);
     return finish({ action: 'none', reason: 'preflight-failed', detail: pf0.reason, active, to: target });
@@ -310,7 +310,9 @@ async function handlePendingVerify(ctx, e) {
     log('GEVERIFIEERD / VERIFIED — ' + pv.from + ' -> ' + pv.to + ' werkt live / works live; CONTINUE ' + (gc.written ? 'geschreven / written' : 'NIET geschreven / NOT written (' + (gc.why || '?') + ')'));
     return { action: 'verified', reason: 'deferred-verification', active, maxPct: mv.maxPct, continueWritten: !!gc.written, continueWhy: gc.written ? null : gc.why || null };
   }
-  if (mv.kind !== 'unauthorized') return { action: 'none', reason: 'check-failed', error: mv.error, active };
+  // FB-ROTATOR-F4: a failed measurement only waits while the pending state is young; past PENDING_VERIFY_MAX_MS it takes
+  // the timeout path below like a lasting 401 (the header's promise for ANY pending state)
+  if (mv.kind !== 'unauthorized' && !timedOut) return { action: 'none', reason: 'check-failed', error: mv.error, active };
   const untouched = vault.generation(P.creds) === pv.credsGen;
   if (untouched && M.expiresMs(live.creds.claudeAiOauth) <= now && !timedOut) {
     noteOnce(st, delta, 'await:' + pv.to, 'wacht op eerste gebruik: het opgeslagen token van ' + pv.to + ' is verlopen en nog niet ververst / awaiting first use: ' + pv.to + '\'s stored token expired and nothing has refreshed it yet', log);

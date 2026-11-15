@@ -2,6 +2,8 @@
 
 Use this template when dispatching an implementer subagent.
 
+> **Forge addendum (not upstream):** in a Forge project the implementer is `build-boss`, never a `general-purpose` agent. Dispatch it with the triaged route's model and effort (Workflow `agent({agentType: 'build-boss', model, effort})`), or with no opts so the Boss frontmatter route applies. A model without an effort is denied by the GOAT workflow guard.
+
 ```
 Subagent (general-purpose):
   description: "Implement Task N: [task name]"

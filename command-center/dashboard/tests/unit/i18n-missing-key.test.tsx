@@ -1,5 +1,5 @@
 /**
- * Redesign (4B): the catalog is the only source of copy.
+ * Redesign (4B, M1): the catalog is the only source of copy.
  *
  * The temporary in-code copy tables (xr-copy, rd-pending, rd-copy, chat-pending, files-copy, map-copy,
  * inspector-copy, shell-w4-copy and the status-word fallback) read the catalog first and silently fell back

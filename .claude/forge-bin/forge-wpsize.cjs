@@ -48,7 +48,8 @@ function normFiles(files) {
 
 function isSecurityPath(p) {
   if (NON_CODE.test(p)) return false;
-  const parts = p.toLowerCase().split('/').flatMap((seg) => seg.replace(/\.[a-z0-9]+$/, '').split(/[-_.]/));
+  // camelCase / PascalCase boundaries count as separators (AuthController, sessionStore), split before lowercasing
+  const parts = p.split('/').flatMap((seg) => seg.replace(/\.[a-z0-9]+$/i, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase().split(/[-_.]/));
   return parts.some((x) => SECURITY_PART.test(x));
 }
 

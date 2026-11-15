@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-mcp-usage.test.cjs — was an MCP tool ever used without the least-privilege gate running?
  *
@@ -54,6 +58,26 @@ t('a ledger with no MCP calls says "nothing happened", not "the gate works"', ()
   assert.strictEqual(r.ok, true);
   assert.ok(/nothing to gate/.test(r.reason), r.reason);
   assert.ok(/not "the gate is working"/.test(r.reason), 'the honest caveat is missing: ' + r.reason);
+});
+
+// FB-GUARDS-2-F1: the ledger only sees mcp__ calls when forge-toolhook's PostToolUse matcher covers them.
+function addSettings(root, matchers) {
+  fs.writeFileSync(path.join(root, '.claude', 'settings.json'), JSON.stringify({ hooks: { PostToolUse: matchers.map((m) => ({ matcher: m, hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-toolhook.cjs"' }] })) } }));
+}
+t('no MCP calls in the ledger while the toolhook matcher does not cover mcp__ tools -> UNKNOWN, not "nothing to gate"', () => {
+  const root = mkRoot();
+  addSettings(root, ['Write|Edit|MultiEdit|NotebookEdit|Bash', 'PowerShell']);
+  addToolLog(root, [{ ts: '2026-08-05T10:00:00Z', tool: 'Bash', target: 'ls' }]);
+  const r = U.check({ root });
+  assert.strictEqual(r.unknown, true, JSON.stringify(r));
+  assert.ok(/mcp__/.test(r.reason) && /not registered|does not cover/i.test(r.reason), r.reason);
+});
+t('a matcher that covers mcp__ tools keeps the honest "nothing to gate"', () => {
+  const root = mkRoot();
+  addSettings(root, ['Write|Edit|Bash', 'mcp__.*']);
+  addToolLog(root, [{ ts: '2026-08-05T10:00:00Z', tool: 'Bash', target: 'ls' }]);
+  const r = U.check({ root });
+  assert.ok(!r.unknown && /nothing to gate/.test(r.reason), JSON.stringify(r));
 });
 
 t('MCP calls with ZERO gate decisions is the real finding: ok=false', () => {

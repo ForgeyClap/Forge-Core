@@ -25,9 +25,14 @@ node .claude/forge-bin/forge-doctor.cjs --json          # full machine-readable 
 2. **tests** — runs every `forge-bin/*.test.cjs` and tallies passed/failed.
 3. **honesty gate** — feeds `log-event.cjs` a known type (expect accept) and an unknown type (expect
    hard-reject / exit 2), then deletes the throwaway run. Proves strict events still reject junk.
-4. **dashboard SPA** — the render files are all present.
+4. **legacy dashboard cleanup (advisory)** — the retired per-project Control Center's SPA files are gone;
+   finding them is an advisory (an older install `forge-sync` has not cleaned up yet), never a failure.
 5. **leak scan** — scans **git-tracked files** with the hardened `SECRET_PATTERNS`; reports only
    `{file, pattern}`, **never** the matched secret. `.env.example` + binaries are skipped.
+
+These are the first five. The doctor enforces many more (agents, model routing, ship manifest, run contract,
+feature registry, skill frontmatter and others) plus a set of advisories. The one full list is the header
+comment of `.claude/forge-bin/forge-doctor.cjs` and the keys of `checks` and `advisory` in the `--json` output.
 
 Writes `<run>/doctor.json` (read by the dashboard Doctor panel + the Project Registry's `test_status`).
 Exit code 0 = all green, 1 = a check failed — safe to gate a hook/CI on it.

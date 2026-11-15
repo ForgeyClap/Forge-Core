@@ -100,7 +100,11 @@
  *   dispatched subagent can emit, so a substring match let the very agents these rules police clear their own
  *   rules (a forged run of nothing but such notes returned ok:true). The ONLY thing that can override a rule
  *   now is a real event shaped EXACTLY like:
- *     { event_type:'owner_override', rule:'<exact-rule-id>', reason:'<non-empty, non-bare-token reason>', by:'<owner id>' }
+ *     { event_type:'owner_override', rule:'<exact-rule-id>', reason:'<non-empty, non-bare-token reason>', by:'<owner id>',
+ *       _forge_verify:{ owner_act:{ via:'<owner-only writer path>' } } }
+ *   FB-CONTRACT-1-F2: the owner id is a public string, so a writer-owned owner_act stamp is
+ *   required too (see ownerActStamped()). No owner-only writer path exists yet and log-event.cjs keeps a
+ *   caller-supplied stamp, so today NO override clears a rule: each one is reported in `override_label_only`.
  *   — `rule` must EXACT-match the rule id (no substring/prefix/negation matching of any kind: an
  *   "override:research-done-later"-style mention can never clear "research-done", and a negating mention like
  *   "did NOT use override:dispatch-logged" is never even read as an override candidate — it is not the
@@ -188,17 +192,17 @@ const V2_CHECK_TYPES = new Set(['closure', 'sequence', 'reaction', 'file-touched
 const RUN_EVIDENCE_TYPE = 'run-evidence';
 const KNOWN_CHECK_TYPES = new Set(['event-present', 'artifact-present', 'doctor-check', 'independent-verification', ...V2_CHECK_TYPES, RUN_EVIDENCE_TYPE]);
 const KNOWN_SEVERITIES = new Set(['block', 'warn']);
-// Rule PHASE: when an obligation is due. A check at phase X judges every rule whose phase rank is <= X;
+// Rule PHASE (V2): when an obligation is due. A check at phase X judges every rule whose phase rank is <= X;
 // later-phase rules are reported in `phase_deferred`, never as missing. A rule without a phase is 'complete'
 // (so a plain, phase-less check judges every rule — the pre-V2 behaviour, unchanged).
 const KNOWN_PHASES = ['preview', 'wp', 'complete'];
 const PHASE_RANK = { preview: 0, wp: 1, complete: 2 };
 const DEFAULT_PHASE = 'complete';
-// Rule SINCE: an ISO date (or date-time). The rule only applies to runs that STARTED on/after it; an
+// Rule SINCE (V2): an ISO date (or date-time). The rule only applies to runs that STARTED on/after it; an
 // older run is `historical_exempt` for that rule — judged by the rules of its own time, never retroactively red.
 const SINCE_RE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 const WEB_DOMAINS = new Set(['web', 'website']);
-const CRITICAL_DOMAINS_FALLBACK = ['finance', 'parser', 'ocr', 'data', 'prediction']; // used only if forge-fixtures.cjs can't be loaded
+const CRITICAL_DOMAINS_FALLBACK = ['finance', 'parser', 'ocr', 'data', 'prediction', 'payments', 'ecommerce']; // used only if forge-fixtures.cjs can't be loaded; kept equal to its CRITICAL_DOMAINS (test-pinned)
 
 // ---- complexity trigger vocabulary (OWNER-PUNT B / richting 2) -------------------------------
 // COMPLEXITY_TRIGGER_RE is the ONE place the new trigger form is defined: "complexity:>=L<n>", n in 1..4.
@@ -289,7 +293,7 @@ function loadRulesMeta(rulesPath) {
   const p = rulesPath || RULES_PATH;
 
   const raw = fs.readFileSync(p, 'utf8');
-  /** de hash hoort bij de EXACT gelezen bytes van dit proces — zie het resultaatveld
+  /** R10-04: de hash hoort bij de EXACT gelezen bytes van dit proces — zie het resultaatveld
    *  `ruleset_sha256_used` waarmee finalize het A→B→A-venster rond de contractcheck sluit. */
   const rawSha = crypto.createHash('sha256').update(raw, 'utf8').digest('hex');
   /** the cache used to be keyed by PATH only and returned before reading the file, so in
@@ -348,7 +352,7 @@ function loadRulesMeta(rulesPath) {
       const degraded = validateRunEvidenceCheck(r, p);
       if (degraded) unknownCheckTypes.push({ id: r.id, check_type: r.check.type, reason: degraded.reason });
     } else if (V2_CHECK_TYPES.has(r.check.type)) {
-      // each new type carries its own shape (open/close/key, before/after, on/require, files) — a broken
+      // V2: each new type carries its own shape (open/close/key, before/after, on/require, files) — a broken
       // shape throws like any malformed config; a well-formed but UNKNOWN option value (e.g. a future
       // reaction count) degrades exactly like an unknown check type (S6), with the reason kept.
       const degraded = validateV2Check(r, p);
@@ -377,7 +381,7 @@ function loadRulesMeta(rulesPath) {
     if (r.cannot_override !== undefined && typeof r.cannot_override !== 'boolean') {
       throw new Error('forge-runcontract: rule "' + r.id + '" has a non-boolean "cannot_override" in ' + p);
     }
-    // `phase` is a kebab token (a well-formed but unknown phase is judged like 'complete' — see
+    // V2: `phase` is a kebab token (a well-formed but unknown phase is judged like 'complete' — see
     // phaseRankOf); `since` must be a real ISO date. Both are optional; absent means the pre-V2 behaviour.
     if (r.phase !== undefined && !(typeof r.phase === 'string' && CHECK_TYPE_SHAPE_RE.test(r.phase))) {
       throw new Error('forge-runcontract: rule "' + r.id + '" has an invalid "phase" ' + JSON.stringify(r.phase) + ' in ' + p + ' (known: ' + KNOWN_PHASES.join('|') + ')');
@@ -465,6 +469,7 @@ function findManifestSkip(events, wpId, ownerAllowlist) {
     if (!isMeaningfulReason(e.reason, MANIFEST_SKIP_RULE)) continue;
     const by = (typeof e.by === 'string') ? e.by.trim() : '';
     if (!by || !ownerAllowlist.has(by.toLowerCase())) continue;
+    if (!ownerActStamped(e)) continue; // FB-CONTRACT-1-F2: writer-owned owner stamp required
     return { reason: String(e.reason).trim(), by };
   }
   return null;
@@ -625,7 +630,7 @@ function declaredLevel(runMeta) {
  * will NOT be asked for a PRD. That is a real hole, and it is the honest one to leave open — the alternative
  * (guessing heaviness from weaker signals) would block light runs on nothing.
  */
-function resolveComplexity(events, runMeta, paramLevel, harnessUnits) {
+function resolveComplexity(events, runMeta, paramLevel, harnessUnits, floor) {
   const units = countUnits(events || []);
   const derived = levelFromUnits(units);
   // Category tests O26: the level declared on run_started is a declaration too. A headless session cannot
@@ -643,20 +648,26 @@ function resolveComplexity(events, runMeta, paramLevel, harnessUnits) {
   if (harness) level = maxLevel(level, harness);
   if (declared) level = maxLevel(level, declared);
   if (param) level = maxLevel(level, param);
+  // SD-T6 (logic audit HIGH-90): the request-based floor (forge-complexity-floor.cjs) can only RAISE the level,
+  // so a Lead that builds everything itself no longer stays L1 and skips the L2+ rules.
+  const floorLevel = floor && (floor.level === 2 || floor.level === 1) ? 'L' + floor.level : null;
+  const raisedByFloor = !!floorLevel && maxLevel(level, floorLevel) !== level;
+  if (raisedByFloor) level = floorLevel;
 
-  const source = (declared === level) ? 'declared' : (param === level) ? 'param' : (harness === level && harness !== derived) ? 'harness' : 'derived';
-  return { level, declared, derived, source, units, harness_units: Number.isFinite(harnessUnits) ? harnessUnits : null };
+  const source = raisedByFloor ? 'request-floor' : (declared === level) ? 'declared' : (param === level) ? 'param' : (harness === level && harness !== derived) ? 'harness' : 'derived';
+  return { level, declared, derived, source, units, harness_units: Number.isFinite(harnessUnits) ? harnessUnits : null, floor: floor && Array.isArray(floor.reasons) ? { level: floorLevel, reasons: floor.reasons } : null };
 }
 
+const OPEN_RUN_SLACK_MS = 60 * 60 * 1000; // shortcut: an open run's agents may work up to an hour past its last event; a longer silent workflow under-counts
 /** harnessUnitsFor(root, runId, events) -> number | null. Real SubagentStart hook lines that belong to this run: stamped
- *  with it, or unstamped and inside its time window (run_started .. run_completed, else now). null = no hook log. */
+ *  with it, or unstamped and inside its time window (run_started .. run_completed, else the last event + 1 h; only its own sessions once known). null = no hook log. */
 function harnessUnitsFor(root, runId, events) {
   const recs = harnessRecordsFor(root, runId, events, 'start');
   return recs === null ? null : recs.length;
 }
 /** harnessRecordsFor(root, runId, events, kind) -> record[] | null. The hook lines of `kind` ('start' | 'stop' | 'tool')
  *  that belong to this run: stamped with it, or unstamped and inside its time window (run_started .. run_completed, else
- *  now). null = no hook log (or the matcher is absent). The ONE window rule; harnessUnitsFor and skill-delivery share it. */
+ *  the last event + 1 h; once a session of the run is known, only its sessions). null = no hook log (or the matcher is absent). The ONE window rule; harnessUnitsFor and skill-delivery share it. */
 function harnessRecordsFor(root, runId, events, kind) {
   let HM; try { HM = require('./forge-harness-match.cjs'); } catch { return null; }
   let H; try { H = HM.loadHarness(root); } catch { return null; }
@@ -666,14 +677,30 @@ function harnessRecordsFor(root, runId, events, kind) {
   const startEv = (events || []).find((e) => e && e.event_type === 'run_started');
   const endEv = (events || []).filter((e) => e && e.event_type === 'run_completed').pop();
   const from = startEv ? tsOfEv(startEv) : null;
-  const to = endEv ? tsOfEv(endEv) : Infinity;
-  const out = [];
+  // FB-CONTRACT-1-F1: an open run's window used to end at Infinity, so every later unstamped line of
+  // the whole project (months of other sessions) counted. It now ends at the run's last event plus OPEN_RUN_SLACK_MS.
+  const lastTs = (events || []).reduce((m, e) => { const v = tsOfEv(e); return v !== null && v > m ? v : m; }, -Infinity);
+  const to = endEv ? tsOfEv(endEv) : (Number.isFinite(lastTs) ? lastTs + OPEN_RUN_SLACK_MS : null);
+  // Sessions that belong to this run: one with a line stamped with it, or whose own active-run pointer names it. When
+  // any is known, an unstamped line counts only from one of those sessions (a parallel session's agents are not ours).
+  const ours = new Set();
+  for (const k of Object.keys(H.records)) for (const r of H.records[k] || []) if (r && r.run === runId && r.session) ours.add(r.session);
+  const out = [], inWindow = [];
   for (const r of H.records[kind]) {
     if (!r || typeof r !== 'object') continue;
     if (r.run) { if (r.run === runId) out.push(r); continue; }
     const at = ms(r.ts);
-    if (from !== null && at !== null && at >= from && at <= to) out.push(r);
+    if (from !== null && at !== null && to !== null && at >= from && at <= to) inWindow.push(r);
   }
+  let AR = null; try { AR = require('./forge-active-run.cjs'); } catch { AR = null; }
+  if (AR) {
+    for (const s of new Set(inWindow.map((r) => r.session).filter(Boolean))) {
+      if (ours.has(s)) continue;
+      const p = AR.readActiveRun(root, s);
+      if (p && p.source === 'pointer-session' && p.run === runId) ours.add(s);
+    }
+  }
+  for (const r of inWindow) if (!ours.size || ours.has(r.session)) out.push(r);
   return out;
 }
 
@@ -933,6 +960,10 @@ const NON_WORK_EVENT_TYPES = new Set([
    *  Codex R3 SC-06 (same day): scribe_head is the writer-stamped anchor of the scribe ledger in the run log — the
    *  hook appends one after each owner-prompt capture; it records a hash and produces nothing. */
   'owner_requests_reconciled', 'requirement_resolved', 'scribe_head',
+  /** doctor_run is the receipt forge-doctor writes after a CHECK run, the
+   *  same family as gate_evaluated. It produces nothing of the reviewed product; counting it as work made every doctor
+   *  run after the end review look like "work after the review" and failed the gate on its agent name. */
+  'doctor_run',
   /** R4-02 (vierde herreview): hier stonden ook `agent_output`, `decision_logged`, `rework_assigned` en
    *  `rejected_approach`. Dat was fout, en precies de valkuil van de omkering: de uitzonderingslijst mag
    *  alleen INERTE events bevatten. `rejected_approach` eist bij de writer zelfs BEWIJS en geldt later als
@@ -1001,7 +1032,7 @@ const REVIEW_TAAK_RE = /^(?:[a-z ]*\b(?:review|reviewing|verify|verifying|verifi
  *     een tegenstrijdig veld, precies de "verstop een afkeuring"-vorm uit R5-02.
  *  Nu: ALLE aanwezige rolvelden moeten een reviewrol zijn (geen tegenspraak), er MOET een taak zijn, en
  *  die taak mag geen uitvoerende component bevatten. */
-/** DERDE KEER DEZELFDE FOUT. R3-01 leerde: een lijst die je moet aanvullen om veilig te blijven
+/** R10-01 — DERDE KEER DEZELFDE FOUT. R3-01 leerde: een lijst die je moet aanvullen om veilig te blijven
  *  is de verkeerde vorm. In R8-01 bouwde ik hem toch als denylist van uitvoeringswerkwoorden, en in R9-01
  *  breidde ik die denylist uit in plaats van hem om te keren. Nu komt `task:"review code and update
  *  production source"` erdoor, want "update" stond er niet in. Elke uitbreiding lost één geval op en laat
@@ -1062,7 +1093,7 @@ function isReviewDispatch(e) {
   // Zonder taak/mission is onbekend waarvoor de agent is ingezet — dat is geen bewijs van review.
   const taakVelden = TAAK_VELDEN.filter((f) => typeof e[f] === 'string' && e[f].trim() !== '');
   if (!taakVelden.length) return false;
-  /** ALLOWLIST (uitgebreid met `mission` door N6): elk woord in ELK aanwezig taakveld moet uit de
+  /** ALLOWLIST (R10-01, uitgebreid met `mission` door N6): elk woord in ELK aanwezig taakveld moet uit de
    *  reviewwoordenschat komen of een onschuldige verwijzing zijn. Eén onbekend woord — in `task` OF
    *  `mission` — maakt het uitvoerend werk; een aanwezig veld dat niet puur review beschrijft laat de hele
    *  claim vervallen, ook als het andere veld wel puur review beschrijft. */
@@ -1095,12 +1126,12 @@ function isWorkEvent(e) {
  *  heet maar 'er is werk mislukt' betekent, hoort geen kandidaat te zijn. Weg uit beide sets. */
 const REVIEW_START_TYPES = new Set(['review_started', 'codex_review_started']);
 const REVIEW_DONE_TYPES = new Set(['review_completed', 'codex_review_completed']);
-/** alleen een EXPLICIET goedkeurend verdict telt. Bewust een korte, gesloten lijst: alles wat er
+/** R4-01: alleen een EXPLICIET goedkeurend verdict telt. Bewust een korte, gesloten lijst: alles wat er
  *  niet in staat — CHANGES_REQUIRED, blocked, of niets — is geen goedkeuring. */
 const POSITIEVE_REVIEW_VERDICTS = new Set(['pass', 'passed', 'approved', 'ok', 'akkoord', 'goedgekeurd']);
 /** Events die een eerdere review STALE maken (F-04): alles wat het beoordeelde subject nog kan veranderen. */
 // staleness volgt exact dezelfde definitie: alles wat het beoordeelde subject nog kan veranderen
-/** Staleness volgt de werkdefinitie, PLUS `owner_override` (zesde herreview): een override kan een
+/** Staleness volgt de werkdefinitie, PLUS `owner_override` (R6-03, zesde herreview): een override kan een
  *  ontbrekende contractregel rechtstreeks opheffen, waardoor het contract ná het oordeel van "niet klaar"
  *  naar "klaar" verschuift zonder dat er ooit opnieuw is gekeken. De owner is daarmee géén uitvoerder —
  *  hij hoort niet in de werkersverzameling — maar zijn ingreep maakt een eerdere review wel verouderd. */
@@ -1159,7 +1190,7 @@ const SHA256_RE = /^[0-9a-f]{64}$/i;
  *  raakt command-center/ en is OWNER-GATED. Tot die tijd rapporteert `label_only:true` deze grens mee, in
  *  plaats van hem stil te verzwijgen. */
 /** isGoedkeuring(ev) -> {ok:true} of {ok:false, reden}. DE ENE definitie van "deze review keurde goed".
- *  er stonden er twee, en de zwakkere zat in de staleness-check — dus een latere afkeuring met een
+ *  R7-05: er stonden er twee, en de zwakkere zat in de staleness-check — dus een latere afkeuring met een
  *  leeg veld of `ok:"true"` telde daar niet als afkeuring terwijl de hoofdvalidator hem wél zou weigeren.
  *  Twee ingangen naar hetzelfde oordeel die van elkaar verschillen, zijn erger dan één strenge.
  *  V23 (2026-09-24 second Codex recheck, out-p7.md) — deze functie keek alleen naar het VERDICT-veld en
@@ -1226,7 +1257,7 @@ function independentVerification(events, opts) {
     if (isStalingEvent(e)) lastWorkIndex = i;
     if (REVIEW_START_TYPES.has(type)) {
       const id = typeof e.review_id === 'string' ? e.review_id.trim() : '';
-      /** een review_id dat twee keer als start voorkomt is ambigu — welke van de twee hoort bij
+      /** R3-03: een review_id dat twee keer als start voorkomt is ambigu — welke van de twee hoort bij
        *  welke completion? Volgorde-afhankelijke uitkomsten zijn precies wat een poort niet mag hebben,
        *  dus zo'n id wordt vergiftigd in plaats van "de eerste wint". */
       if (id) starts.has(id) ? starts.get(id).dubbel = true : starts.set(id, { agent, index: i });
@@ -1418,7 +1449,7 @@ function missingCompletionReason(opts) {
   const runId = typeof o.runId === 'string' && /^[A-Za-z0-9_.-]+$/.test(o.runId) ? o.runId : '<run_id>';
   return 'geen review-completion in deze run — verwacht ' + [...REVIEW_DONE_TYPES].join('/') + ' met ' + fields.slice(0, -1).join(', ') + ' en ' + fields[fields.length - 1]
     + (o.noGit ? ' (deze root heeft geen git-repository, dus geen commit om aan te binden)' : '')
-    + ', gelogd door een agent die hier geen werk deed, na zijn eigen review_started met hetzelfde review_id. Eén regel: node .claude/forge-dashboard/log-event.cjs ' + runId + " review_completed '" + JSON.stringify(payload) + "'";
+    + ', gelogd door een agent die hier geen werk deed, na zijn eigen review_started met hetzelfde review_id. Eén regel: node .claude/forge-dashboard/log-event.cjs ' + runId + " review_completed '" + JSON.stringify(payload) + "'   # Git Bash; PowerShell 5.1 drops the quotes: put the JSON in a file and pass --file <payload.json>";
 }
 
 /** sanitizeIv — alleen wat een lezer nodig heeft om te begrijpen WAAROM, nooit ruwe eventpayloads:
@@ -1434,7 +1465,7 @@ function sanitizeIv(iv) {
       subject_log_hash: kort(iv.review.subject_log_hash),
       evidence_digest: kort(iv.review.evidence_digest),
     } : null,
-    reason: String(iv.reason == null ? '' : iv.reason).slice(0, 1000), // room for the one-line log command
+    reason: String(iv.reason == null ? '' : iv.reason).slice(0, 1000), // R1: room for the one-line log command
   };
 }
 
@@ -1496,8 +1527,8 @@ function canonicalEvidenceDigest(root, runId) {
   if (String(j.run_id || '') !== String(runId)) return null;
   const namen = new Set();
   const canon = [];
-  const unverified = []; // gates whose raw output cannot be read back right now
-  const realRoot = rootRealpath(root); // containment is judged on resolved paths
+  const unverified = []; // F03: gates whose raw output cannot be read back right now
+  const realRoot = rootRealpath(root); // R2/N05: containment is judged on resolved paths
   for (const g of gates) {
     if (!g || typeof g !== 'object') return null;
     const name = typeof g.name === 'string' ? g.name.trim() : '';
@@ -1516,10 +1547,10 @@ function canonicalEvidenceDigest(root, runId) {
     if (!Number.isInteger(g.exit_code)) return null;
     if (g.timed_out === true) return null;              // afgekapt = geen uitslag
     if (g.spawn_error) return null;                     // nooit gedraaid = geen bewijs
-    if (g.evidence_verified !== true) return null;      // alleen een EXPLICIET bevestigde hash telt
+    if (g.evidence_verified !== true) return null;      // R7-06: alleen een EXPLICIET bevestigde hash telt
     const sha = typeof g.output_sha256 === 'string' ? g.output_sha256.trim().toLowerCase() : '';
     if (!/^[0-9a-f]{64}$/.test(sha)) return null;
-    /** `evidence_verified` is het woord van de RECORDER. Ligt de ruwe uitvoer er nog, dan
+    /** R9-05: `evidence_verified` is het woord van de RECORDER. Ligt de ruwe uitvoer er nog, dan
      *  controleert de poort dat zelf — een manifest dat niet meer bij zijn eigen bestanden past, is geen
      *  bewijs (null, zoals elke vervalsing).
      *  een output die NIET leesbaar is (gitignored, andere
@@ -1535,7 +1566,7 @@ function canonicalEvidenceDigest(root, runId) {
      *  `gate-link` is a junction/symlink to a folder outside the project, and the read then follows the link.
      *  Containment is now judged on the RESOLVED target: realpath of the output and of the root; a target that
      *  resolves outside the root is a tampered manifest (null, like every other forgery). A missing output stays
-     *  'unavailable'. The hash is read from the resolved path itself. */
+     *  'unavailable' (F03). The hash is read from the resolved path itself. */
     let outputState = 'verified';
     try {
       const resolved = realpathOf(path.join(root, outputRel)); // throws ENOENT for a missing output -> unavailable
@@ -1579,7 +1610,7 @@ function canonicalEvidenceDigest(root, runId) {
     }
     canon.push({
       name,
-      /** the COMMAND that ran and the OUTPUT REFERENCE are bound into the digest too — before this, the
+      /** F03: the COMMAND that ran and the OUTPUT REFERENCE are bound into the digest too — before this, the
        *  same name/exit/hash under a different command or a different output path was the same digest. */
       command: typeof g.command === 'string' && g.command.trim() !== '' ? g.command.trim() : null,
       argv: Array.isArray(g.argv) && g.argv.length ? g.argv.map((a) => String(a)) : null,
@@ -1592,14 +1623,14 @@ function canonicalEvidenceDigest(root, runId) {
    *  finaliseren. De digest blijft bewust over ALLE poorten gaan (anders is hij geen eerlijke
    *  samenvatting van wat er gedraaid heeft), maar een completion eist daarnaast dat elke poort groen is. */
   const rood = canon.filter((g) => g.exit_code !== 0).map((g) => g.name);
-  /** poorten die op VERSCHILLENDE commits (of een mix van git- en no-git-bewijs) draaiden vormen
+  /** R8-03: poorten die op VERSCHILLENDE commits (of een mix van git- en no-git-bewijs) draaiden vormen
    *  samen geen bewijs over één staat. */
   const refs = [...new Set(canon.map((g) => g.commit))];
   if (refs.length > 1) return null;
   const ref = refs[0] || null;
   const noGit = ref === 'no-git';
   const sha256Of = (c) => crypto.createHash('sha256').update(JSON.stringify(c)).digest('hex');
-  // the run id is part of the digest — the same gates recorded under another run are another digest.
+  // F03: the run id is part of the digest — the same gates recorded under another run are another digest.
   const strictDigest = sha256Of({ run_id: String(runId), gates: canon });
   // the pre-F03 form (name/exit_code/output_sha256/'git:'-tagged commit, no run id, no command, no output ref)
   const preF03 = sha256Of(canon.map((g) => ({ name: g.name, exit_code: g.exit_code, output_sha256: g.output_sha256, commit: g.commit })));
@@ -1607,7 +1638,7 @@ function canonicalEvidenceDigest(root, runId) {
   const preD2 = noGit ? null : sha256Of(canon.map((g) => ({ name: g.name, exit_code: g.exit_code, output_sha256: g.output_sha256, commit: g.commit.slice('git:'.length) })));
   return {
     digest: strictDigest, gates: canon.length,
-    /** green requires EVERY gate exit 0 AND every output readable and hash-verified right now.
+    /** F03: green requires EVERY gate exit 0 AND every output readable and hash-verified right now.
      *  `verified` says whether the outputs could be re-verified at all; `unverified` names the gates whose
      *  output is unavailable (never a tamper claim — a mismatching output returns null above). */
     allGreen: rood.length === 0 && unverified.length === 0, failed: rood,
@@ -1641,7 +1672,7 @@ function canonicalEvidenceDigest(root, runId) {
 
 /** knownAgentNames(root) -> Set van gecanonicaliseerde, BEKENDE agentnamen (registry + .claude/agents/*.md
  *  + de generieke rollen), of null wanneer er geen registry te lezen is. null betekent fail-closed bij de
- *  aanroeper — niet 'dan maar iedereen toestaan'. */
+ *  aanroeper — niet 'dan maar iedereen toestaan' (R3-02). */
 function knownAgentNames(root) {
   const namen = new Set(['lead', 'boss', 'orchestrator', 'system', 'forge-router', 'main', 'codex']);
   let uitRegistry = 0;
@@ -1955,6 +1986,7 @@ function whereLabel(where) { return where ? ' matching ' + JSON.stringify(where)
 function isValidOwnerAct(e, ownerAllowlist) {
   const by = typeof e.by === 'string' ? e.by.trim().toLowerCase() : '';
   if (!by || !(ownerAllowlist instanceof Set) || !ownerAllowlist.has(by)) return false;
+  if (!ownerActStamped(e)) return false; // FB-CONTRACT-1-F2: writer-owned owner stamp required
   return isMeaningfulReason(e.reason, typeof e.rule === 'string' && e.rule.trim() ? e.rule.trim() : 'owner-override');
 }
 /** findKeyedOwnerSkip — the generic form of findManifestSkip(): an owner_override whose `rule` EXACT-matches
@@ -2013,7 +2045,7 @@ function selfCloseReason(c, ctx, open, close, fields) {
   }
   const self = closer.filter((a) => workers.has(a));
   if (self.length) return 'self-verification: ' + self.join(', ') + ' did work on this item (' + typeOf(close.e) + ' #' + close.i + ')';
-  /** work the closer logged WITHOUT any item key cannot be attributed to an item — so it cannot be
+  /** F09: work the closer logged WITHOUT any item key cannot be attributed to an item — so it cannot be
    *  shown NOT to be work on this one. Unresolved attribution = independence not proven (fail-closed).
    *  this pass only read `agent` and skipped package events entirely, so an UNKEYED
    *  package or work dispatch that named the closer as assignee (assigned_to / assignee / to / target /
@@ -2662,7 +2694,8 @@ function skillMapOfEvent(ev) {
 }
 /** evaluateSkillDelivery(ctx, runId, pass, fail) -> detail — SK1. For every agent type in ALL the run's
  *  skill map (normalised by forge-skillmap.cjs against the skills that really exist) that has SubagentStop lines for this
- *  run with transcript_scanned true, every assigned skill must be in the union of their skills_opened. Never dispatched
+ *  run with transcript_scanned true, every assigned skill must be in the union of their skills_opened (SD-T5: and of the
+ *  skills_preloaded on their SubagentStart lines; the role baseline is an assignment, see forge-skill-delivery.cjs). Never dispatched
  *  and not-scanned types are listed, not failed; no stop line with transcript_scanned at all = not measured (pass). */
 /** Agent types that build, make the UI or test: dispatching one without any assigned skill fails skill-delivered (SK4).
  *  Planning/recording roles (boss, head-chef, scribe, skill-boss, docs-boss, search-boss), read-only reviewers and the
@@ -2683,34 +2716,26 @@ function evaluateSkillDelivery(ctx, runId, pass, fail) {
   }
   const agents = Object.keys(map);
   if (!agents.length) return fail('the skill map names no real skills per agent; log map as {"<agent-type>": ["<skill>"]} (skill_map_created with field map, each skill a folder with a SKILL.md under .claude/skills)');
+  // SD-T5: delivered = preloaded (SubagentStart skills_preloaded) ∪ opened; the role baseline of
+  // FORGE_DEFAULT_SKILLS.json is an assignment (SK4 unassigned only when neither map nor baseline names a skill).
+  const SDel = softRequire('forge-skill-delivery.cjs');
+  if (!SDel) return fail('forge-skill-delivery.cjs is not available next to this checker (fail-closed)');
   const lines = harnessRecordsFor(ctx.root, runId, ctx.events, 'stop') || [];
-  const keyOf = (t) => { const k = typeof t === 'string' ? SM.agentTypeKey(t.slice(t.lastIndexOf(':') + 1)) : null; return k; };
-  if (!lines.some((l) => typeof l.transcript_scanned === 'boolean')) {
-    return pass('not measured: no SubagentStop line of this run records transcript_scanned (the stop hook predates skill tracking, or no hook log) — ' + agents.length + ' agent type(s) in the map', 'evidence', { skill_delivery: { measured: false, agents } });
+  const starts = harnessRecordsFor(ctx.root, runId, ctx.events, 'start') || [];
+  if (!SDel.measured(starts, lines)) {
+    return pass('not measured: no SubagentStop line of this run records transcript_scanned and no SubagentStart line records skills_preloaded (the hooks predate skill tracking, or no hook log) — ' + agents.length + ' agent type(s) in the map', 'evidence', { skill_delivery: { measured: false, agents } });
   }
-  const sd = { measured: true, agents, delivered: [], missing: [], not_dispatched: [], not_scanned: [], unassigned: [] };
-  // SK4 (windows-v5): an executing agent type dispatched in this run with no skill in ANY map of the run.
-  for (const l of lines) {
-    const k = keyOf(l.agent_type);
-    if (k && SKILL_EXECUTOR_TYPES.has(k) && !map[k] && !sd.unassigned.includes(k)) sd.unassigned.push(k);
-  }
-  for (const a of agents) {
-    const own = lines.filter((l) => keyOf(l.agent_type) === a);
-    if (!own.length) { sd.not_dispatched.push(a); continue; }
-    const scanned = own.filter((l) => l.transcript_scanned === true);
-    if (!scanned.length) { sd.not_scanned.push(a); continue; }
-    const opened = new Set(scanned.flatMap((l) => (Array.isArray(l.skills_opened) ? l.skills_opened : [])).filter((s) => typeof s === 'string').map((s) => s.toLowerCase()));
-    const lacking = map[a].filter((s) => !opened.has(s.toLowerCase()));
-    if (lacking.length) sd.missing.push({ agent: a, skills: lacking.slice(0, MAX_DETAIL_ITEMS) });
-    else sd.delivered.push(a);
-  }
+  const DSk = softRequire('forge-default-skills.cjs');
+  const defaults = DSk ? DSk.loadDefaults(ctx.root).data : null;
+  const sd = SDel.judgeDelivery({ map, startLines: starts, stopLines: lines, data: defaults, known, executorTypes: SKILL_EXECUTOR_TYPES });
   const listed = (sd.not_dispatched.length ? '; not dispatched in this run (not judged): ' + sd.not_dispatched.join(', ') : '')
-    + (sd.not_scanned.length ? '; transcript not scanned (not measured): ' + sd.not_scanned.join(', ') : '');
+    + (sd.not_scanned.length ? '; transcript not scanned (not measured): ' + sd.not_scanned.join(', ') : '')
+    + (sd.baseline_unmeasured.length ? '; role baseline not measured (no skills_preloaded on the start line): ' + sd.baseline_unmeasured.join(', ') : '');
   const problems = [];
   if (sd.unassigned.length) problems.push('dispatched with no assigned skill in any skill map of this run: ' + sd.unassigned.join(', ') + ' (log skill_map_created {"map":{"' + sd.unassigned[0] + '":["<the category playbook, e.g. forge-website, forge-game, forge-mobile>"]}} BEFORE dispatching it)');
-  if (sd.missing.length) problems.push('assigned skill(s) never opened: ' + sd.missing.map((m) => m.agent + ' did not open ' + m.skills.join(', ')).join(' | '));
+  if (sd.missing.length) problems.push('assigned skill(s) neither preloaded nor opened: ' + sd.missing.map((m) => m.agent + ' did not get ' + m.skills.join(', ')).join(' | '));
   if (problems.length) return fail(problems.join(' ; ') + listed, { skill_delivery: sd });
-  return pass(sd.delivered.length + ' agent type(s) opened every assigned skill' + (sd.delivered.length ? ' (' + sd.delivered.join(', ') + ')' : '') + listed, 'evidence', { skill_delivery: sd });
+  return pass(sd.delivered.length + ' agent type(s) got every assigned skill (preloaded or opened)' + (sd.delivered.length ? ' (' + sd.delivered.join(', ') + ')' : '') + listed, 'evidence', { skill_delivery: sd });
 }
 /** harnessHooksInstalled(root, live) -> {installed, via, reason} — A13 (fleet rollout). The dispatch-start
  *  side of the harness proof only exists when forge-subagent-start.cjs is registered under SubagentStart in the project's
@@ -2807,7 +2832,9 @@ function checkSatisfied(rule, ctx) {
    *   its OWN documented rule text says "either a generic evidence-fact event, OR (when a real domain is
    *   known) the domain's full required-evidence.json set" — an explicit OR, never a narrowing — so for an
    *   'always'-triggered rule the domain-aware result only ever ADDS a way to satisfy it, never revokes a
-   *   real generic evidence-fact the rule already accepted on its own documented terms. */
+   *   real generic evidence-fact the rule already accepted on its own documented terms.
+   *   SUPERSEDED by CF-2-F1: that OR let one generic event pass a mobile/game run without its
+   *   own set, so a known domain is now authoritative for 'always' rules too (see the branch below). */
   /** V25 (2026-09-24 THIRD Codex recheck, out-p8.md remaining gap) — this branch used to consult only the
    *  single ctx.domain value (the caller's resolved domain), so an unrelated/unknown override domain could
    *  starve the domain-specific check entirely and silently fall back to the generic, revocable event-present
@@ -2828,10 +2855,11 @@ function checkSatisfied(rule, ctx) {
             if (res) results.push(res);
           } catch { /* this ONE candidate domain's evidence check threw — treated as unavailable for it only */ }
         }
-        if (results.length) {
-          if (rule.trigger !== 'always') satisfied = results.every((r) => r.ok === true); // domain IS why this rule applies — every domain it genuinely applies under must hold
-          else if (results.some((r) => r.ok === true)) satisfied = true; // 'always' rule: any matching domain's proof only ADDS a path, never revokes
-        }
+        // CF-2-F1: a known domain is AUTHORITATIVE for 'always' rules too. The old OR let one
+        // generic event (a browser screenshot) pass a mobile/game/payments run without its own set (.apk, device
+        // run). evidenceCheck() returns null for a domain with no required-evidence.json entry, so an unknown
+        // domain still falls back to the generic event list above.
+        if (results.length) satisfied = results.every((r) => r.ok === true);
       }
     }
   }
@@ -2893,6 +2921,18 @@ function loadOwnerAllowlist(rulesData, opts) {
   return ids;
 }
 
+/** ownerActStamped(e) -> boolean — FB-CONTRACT-1-F2. The owner id in owners_allowlist is a public
+ *  string every agent can read, so `by` alone proves nothing: an agent could log an owner_override that clears a block
+ *  rule. An owner act may only count when it carries a WRITER-OWNED stamp `_forge_verify.owner_act {via}` that
+ *  log-event.cjs sets on an owner-only path (the Command Center confirm card, or a one-off owner token) and strips
+ *  when a caller supplies it. Neither exists yet: log-event.cjs validateForWrite() keeps a caller-supplied
+ *  _forge_verify, so any agent can add the stamp itself. Until both land, NO stamp is trusted: every owner_override
+ *  is reported as label-only (result.override_label_only) and the rule stays open (fail closed). When the writer
+ *  path and the strip land, this returns true only for the stamp that path writes. */
+function ownerActStamped() {
+  return false;
+}
+
 /** findOwnerOverride(events, ruleId, ownerAllowlist) -> {reason,by}|null — recognizes an override ONLY from
  *  an explicit, structured, attributed, affirmative owner act (V9-fix, 2026-07-22 — break-swarm DEFECT 2/3;
  *  see file header doc for the full model). Requires ALL of, on the SAME event:
@@ -2906,6 +2946,12 @@ function loadOwnerAllowlist(rulesData, opts) {
  *  Returns the FIRST match, carrying the real reason/by as proof — never a bare boolean, so an override is
  *  always independently inspectable. */
 function findOwnerOverride(events, ruleId, ownerAllowlist) {
+  const m = matchOwnerOverride(events, ruleId, ownerAllowlist);
+  return m && m.stamped ? { reason: m.reason, by: m.by } : null;
+}
+/** matchOwnerOverride -> {reason,by,stamped}|null: the first well-formed owner_override for ruleId, a stamped one first. */
+function matchOwnerOverride(events, ruleId, ownerAllowlist) {
+  let unstamped = null;
   for (const e of events) {
     if (!e || typeof e !== 'object') continue;
     if (typeof e.event_type !== 'string' || e.event_type.toLowerCase() !== 'owner_override') continue;
@@ -2913,9 +2959,10 @@ function findOwnerOverride(events, ruleId, ownerAllowlist) {
     if (!isMeaningfulReason(e.reason, ruleId)) continue;
     const by = (typeof e.by === 'string') ? e.by.trim() : '';
     if (!by || !ownerAllowlist.has(by.toLowerCase())) continue;
-    return { reason: String(e.reason).trim(), by };
+    if (ownerActStamped(e)) return { reason: String(e.reason).trim(), by, stamped: true };
+    if (!unstamped) unstamped = { reason: String(e.reason).trim(), by, stamped: false };
   }
-  return null;
+  return unstamped;
 }
 
 /**
@@ -2929,7 +2976,7 @@ function check(params, opts) {
   if (!params.run_id || typeof params.run_id !== 'string') {
     throw new Error('forge-runcontract: check() requires a non-empty "run_id" string');
   }
-  // an explicit phase judges only the rules due by then; absent = 'complete' = every rule (unchanged).
+  // V2: an explicit phase judges only the rules due by then; absent = 'complete' = every rule (unchanged).
   const explicitPhase = (params.phase === undefined || params.phase === null) ? null : String(params.phase);
   if (explicitPhase !== null && !KNOWN_PHASES.includes(explicitPhase)) {
     throw new Error('forge-runcontract: check() phase must be one of ' + KNOWN_PHASES.join('|') + ', got ' + JSON.stringify(params.phase));
@@ -2956,7 +3003,8 @@ function check(params, opts) {
   // normal here (12 of this project's 30 runs have none) — it degrades to "nothing declared", never a throw.
   let runMeta = null;
   try { runMeta = JSON.parse(fs.readFileSync(path.join(artifactsDir, 'run.json'), 'utf8')); } catch { runMeta = null; }
-  const cx = resolveComplexity(events, runMeta, params.complexity, harnessUnitsFor(root, params.run_id, events));
+  const CF = softRequire('forge-complexity-floor.cjs');
+  const cx = resolveComplexity(events, runMeta, params.complexity, harnessUnitsFor(root, params.run_id, events), CF ? CF.requestFloor(events, artifactsDir) : null);
 
   /** RC-DOMAIN-BYPASS (out-p5.md) — domain used to come ONLY from `params.domain`; a run whose
    *  own run.json genuinely declared `domain:"finance"` was silently read as domain:null the moment a
@@ -2996,8 +3044,7 @@ function check(params, opts) {
   // domain:"unknown-audit-domain" even though nothing about the real evidence changed. Fix: precompute, per
   // rule, every candidate domain whose OWN trigger genuinely matches (never the caller's unrelated override
   // alone) and hand the whole set to checkSatisfied — it evaluates non-'always' rules AUTHORITATIVELY across
-  // that set (every matching domain must be satisfied) and 'always' rules ADDITIVELY (any matching domain
-  // adds a path, never revokes), preserving each rule's own documented strictness contract from RC-DOMAIN-
+  // that set (every matching domain must be satisfied; since CF-2-F1; 'always' rules too), preserving each rule's own documented strictness contract from RC-DOMAIN-
   // BYPASS above, just no longer collapsed onto a single caller-chosen value.
   const candidateDomainPool = domainOverridden ? [declaredDomain, paramDomain] : [domain];
 
@@ -3023,7 +3070,7 @@ function check(params, opts) {
   // S6: rules whose check.type this checker predates (meta.unknownCheckTypes is absent only on a cache entry
   // shaped by a caller that stubbed loadRulesMeta — treated as "none", never a crash).
   const unknownCheckTypeById = new Map((meta.unknownCheckTypes || []).map((u) => [u.id, u.check_type]));
-  // a KNOWN type whose option value is newer than this checker degrades the same way, with its own reason
+  // V2: a KNOWN type whose option value is newer than this checker degrades the same way, with its own reason
   const unknownCheckReasonById = new Map((meta.unknownCheckTypes || []).filter((u) => u.reason).map((u) => [u.id, u.reason]));
   const skewReason = (id) => (unknownCheckReasonById.has(id)
     ? 'check.type "' + unknownCheckTypeById.get(id) + '" uses an option this checker does not know (' + unknownCheckReasonById.get(id) + ')'
@@ -3032,6 +3079,7 @@ function check(params, opts) {
   const missing = [];
   const warnings = [];
   const overridden = [];
+  const overrideLabelOnly = []; // FB-CONTRACT-1-F2
   const exceptions = []; // I.6: rules (or parts) met by a RECORDED exception — reported, never a silent pass
   /** part ii: a rule with `applies_if_exists` (a project-relative path) applies only while that
    *  path exists under this root — the fail-safe for a capability a project may not have (owner-requests-reconciled
@@ -3053,7 +3101,7 @@ function check(params, opts) {
   const unknownCheckTypeBlocking = []; // rule ids: unknown check type, known trigger, APPLIES, severity block
 
   const ruleDetails = {};
-  /** R9-09/R9-06 (gehesen): één HEAD-resolutie en één bewijsset-lezing voor de HELE check — niet
+  /** R9-09/R9-06 (gehesen, R10): één HEAD-resolutie en één bewijsset-lezing voor de HELE check — niet
    *  per regel opnieuw. De velden gaan ook mee in het resultaat (ruleset_sha256_used e.d.), dus ze
    *  moeten buiten de lus leven. */
   /** D2 fix (fresh-laptop re-audit) / 2.1 fix (same date, review C VERDICT FAIL) —
@@ -3074,7 +3122,7 @@ function check(params, opts) {
   const effectieveCommit = params.commit_sha !== undefined ? params.commit_sha : headCommitProbe;
   const evidenceSet = canonicalEvidenceDigest(root, params.run_id);
   for (const rule of rules) {
-    if (notJudgedIds.has(rule.id)) continue; // phase_deferred / historical_exempt — see above
+    if (notJudgedIds.has(rule.id)) continue; // V2: phase_deferred / historical_exempt — see above
     if (unknownTriggerIds.has(rule.id)) continue;
     if (typeof rule.applies_if_exists === 'string' && !appliesPathExists(root, rule.applies_if_exists)) {
       notApplicable.push({ id: rule.id, reason: rule.applies_if_exists + ' does not exist in this project, so the rule does not apply' });
@@ -3112,11 +3160,11 @@ function check(params, opts) {
      *  aanroeper in plaats van op de werkelijkheid. check() resolveert nu zelf wanneer de aanroeper
      *  niets meegeeft; expliciet meegeven blijft winnen (tests kunnen zo een vaste commit forceren). */
 
-    /** de canonicalizer werd DRIE KEER aangeroepen voor digest, allGreen en failed — drie losse
+    /** R9-06: de canonicalizer werd DRIE KEER aangeroepen voor digest, allGreen en failed — drie losse
      *  lezingen van een bestand dat tussendoor kan wijzigen. Nu een keer lezen en dat ene resultaat
      *  gebruiken, zodat de drie velden gegarandeerd bij dezelfde bewijsset horen. */
 
-    // the candidates this SPECIFIC rule's trigger genuinely matches (never a domain the rule would not
+    // V25: the candidates this SPECIFIC rule's trigger genuinely matches (never a domain the rule would not
     // even apply under on its own) — see the doc above candidateDomainPool.
     const domainCandidatesForRule = candidateDomainPool.filter((d) => d && ruleApplies(rule, d, cx.level));
     /** the OLDER canonical evidence forms are accepted for a review binding ONLY when the
@@ -3137,8 +3185,9 @@ function check(params, opts) {
     // not "eligible but never matched", genuinely never consulted, so no future change to findOwnerOverride()
     // could ever accidentally clear one of these.
     if (rule.cannot_override !== true) {
-      const ov = findOwnerOverride(events, rule.id, ownerAllowlist);
-      if (ov) { overridden.push({ id: rule.id, reason: ov.reason, by: ov.by, note: 'owner_override by ' + ov.by + ': ' + ov.reason }); continue; }
+      const ov = matchOwnerOverride(events, rule.id, ownerAllowlist);
+      if (ov && ov.stamped) { overridden.push({ id: rule.id, reason: ov.reason, by: ov.by, note: 'owner_override by ' + ov.by + ': ' + ov.reason }); continue; }
+      if (ov) overrideLabelOnly.push({ id: rule.id, reason: ov.reason, by: ov.by, note: 'label_only: no owner-only writer path exists yet, so no owner_override clears this rule (a caller-set _forge_verify.owner_act is not trusted)' });
     }
 
     if (rule.severity === 'block') missing.push(rule.id);
@@ -3153,7 +3202,7 @@ function check(params, opts) {
    *  so it is never confused with a genuinely-evaluated-and-failed rule id in `missing`/rule_details. */
   const unknownBlocking = [];
   for (const u of meta.unknownTriggers) {
-    if (notJudgedIds.has(u.id)) continue; // deferred/exempt rules owe nothing on this run, known or not
+    if (notJudgedIds.has(u.id)) continue; // V2: deferred/exempt rules owe nothing on this run, known or not
     const rule = rules.find((r) => r.id === u.id);
     if (rule && rule.severity === 'block') {
       const markerId = 'unknown-rule:' + u.id;
@@ -3180,7 +3229,7 @@ function check(params, opts) {
   const manifestState = manifestCompleteness(root, params.run_id, events, ownerAllowlist);
   if (manifestState.applicable) {
     if (!manifestState.ok) {
-      // a load-failure reason (corrupt/unreadable/deleted-after-arm) carries no `outstanding` list at
+      // V21: a load-failure reason (corrupt/unreadable/deleted-after-arm) carries no `outstanding` list at
       // all — use manifestState's own reason instead of an empty-list sentence in that case.
       const reason = manifestState.outstanding.length
         ? 'armed manifest package(s) without a completion event or an owner-authenticated skip: '
@@ -3202,7 +3251,7 @@ function check(params, opts) {
   }
 
   const result = {
-    ok: missing.length === 0, run_id: params.run_id, domain, satisfied, missing, warnings, overridden,
+    ok: missing.length === 0, run_id: params.run_id, domain, satisfied, missing, warnings, overridden, override_label_only: overrideLabelOnly,
     // RC-DOMAIN-BYPASS: a caller/reader must be able to see whether the effective domain came from an
     // explicit --domain, the run's own declared run.json, or neither — and whether the two disagreed.
     domain_source: domainSource, domain_declared: declaredDomain, domain_overridden: domainOverridden,
@@ -3211,9 +3260,9 @@ function check(params, opts) {
     // complexity_* is reported on EVERY result, even when no rule is scoped to it — a caller must always be
     // able to see which level a verdict was reached at, and whether that level was declared or only derived.
     complexity: cx.level, complexity_source: cx.source, complexity_declared: cx.declared,
-    complexity_derived: cx.derived, complexity_units: cx.units, complexity_harness_units: cx.harness_units,
+    complexity_derived: cx.derived, complexity_units: cx.units, complexity_harness_units: cx.harness_units, complexity_floor: cx.floor,
     unevaluated,
-    /** wat DIT proces werkelijk las. Een aanroeper (finalize) kan zelf alleen eindpunten
+    /** R10-04: wat DIT proces werkelijk las. Een aanroeper (finalize) kan zelf alleen eindpunten
      *  vergelijken; het venster waarin dit kind las blijft dan onzichtbaar (A→B→A). Door de gebruikte
      *  hashes in het resultaat te rapporteren, kan finalize zijn eigen pins tegen de WERKELIJK
      *  beoordeelde staat leggen in plaats van tegen een herlezenaanname. */
@@ -3263,7 +3312,7 @@ function logGateEvaluated(result, opts) {
   if (!opts.logEventPath && !fs.existsSync(script)) {
     return { ok: false, event_type: 'gate_evaluated', reason: 'no event writer under this root (' + script + ' missing) — refusing cross-install fallback' };
   }
-  // an explicitly phased check says so in the note AND in a `phase` field, so a preview/wp PASS can never
+  // V2: an explicitly phased check says so in the note AND in a `phase` field, so a preview/wp PASS can never
   // be read as a full completion PASS by anyone scanning gate_evaluated events. A phase-less check is unchanged.
   const phaseTag = opts.phase && opts.phase !== DEFAULT_PHASE ? ' [phase ' + opts.phase + ']' : '';
   const note = (result.ok
@@ -3310,7 +3359,7 @@ const DEFAULT_COMPLETION_SEQUENCE = [
   // E.1: step 2 names the self-review section printer (the report needs a '## Self-review' section, end-self-review rule)
   { step: 2, id: 'final-report', action: 'write the honest final report, with its Self-review section (answer every question, then record the answers)', command: 'node .claude/forge-bin/forge-endreview.cjs template --run <run_id>', produces: 'final-report.md in the run folder' },
   { step: 3, id: 'contract-check', action: 'judge the complete contract and log the proof', command: 'node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --log-event' },
-  { step: 4, id: 'run-completed', action: 'log run_completed', command: 'node .claude/forge-dashboard/log-event.cjs <run_id> run_completed \'{"agent":"orchestrator","summary":"..."}\'' },
+  { step: 4, id: 'run-completed', action: 'log run_completed', command: 'node .claude/forge-dashboard/log-event.cjs <run_id> run_completed \'{"agent":"orchestrator","summary":"..."}\'   # Git Bash; PowerShell 5.1 drops the quotes: put the JSON in a file and pass --file <payload.json>' },
   { step: 5, id: 'finalize', action: 'write the one authoritative receipt', command: 'node .claude/forge-bin/forge-runcontract.cjs check --run <run_id> --log-event --finalize' },
 ];
 const RUN_COMPLETED_STEP_ID = 'run-completed';
@@ -3359,6 +3408,60 @@ function isFailureClose(e) {
   return FAILURE_CLOSE_FIELDS.some((f) => typeof e[f] === 'string' && FAILURE_CLOSE_RE.test(e[f].trim()));
 }
 
+/** LEAD_DOABLE_RULES — R8B-F3. Contract rules the Lead can always meet itself, with no subagent, owner or
+ *  outside tool: read memory and prefs, research, plan, skill map, dispatch, a verify check, the report, the run shape,
+ *  the scribe reconciliation and the memory files. A failure close that leaves one of them open claims a stop the Lead
+ *  did not have (round 8b: a Lead skipped the procedure and closed "partial" over 9 red rules). The ONE definition:
+ *  log-event.cjs (refuses such a close under strict events) and forge-stop-obligations.cjs (I.9) read it from here. */
+const LEAD_DOABLE_RULES = Object.freeze(['memory-read', 'owner-prefs-loaded', 'research-done', 'plan-or-prd-present', 'skill-map-recorded',
+  'dispatch-logged', 'report-present', 'verify-checked', 'run-shape-declared', 'owner-requests-reconciled', 'memory-files-touched']);
+const BLOCKER_PLACEHOLDER_RE = /^(?:none|nothing|no|n\/?a|null|undefined|unknown|tbd|todo|-+|\.+|\?+)$/i;
+
+/** failureCloseBlocker(e) -> the trimmed `blocker` text of a run_completed, or null when it is missing, not a string, a
+ *  placeholder ("none", "n/a", …) or shorter than EXCEPTION_MIN_REASON characters. The blocker names what the Lead
+ *  cannot do itself: a hard gate, an owner-queue item, or a work package that failed after its one escalation. */
+function failureCloseBlocker(e) {
+  const b = e && typeof e === 'object' && typeof e.blocker === 'string' ? e.blocker.trim() : '';
+  return b.length >= EXCEPTION_MIN_REASON && !BLOCKER_PLACEHOLDER_RE.test(b) ? b : null;
+}
+
+/** leadDoableOf(contract) -> [{id, severity}]: the unmet rules (missing = block, warnings = warn) that are Lead-doable,
+ *  in contract order. Accepts check()'s result or the summarized plan contract. */
+function leadDoableOf(contract) {
+  const c = contract && typeof contract === 'object' ? contract : {};
+  const pick = (ids, severity) => (Array.isArray(ids) ? ids : []).filter((id) => LEAD_DOABLE_RULES.includes(id)).map((id) => ({ id, severity }));
+  return pick(c.missing, 'block').concat(pick(c.warnings, 'warn'));
+}
+
+/** failureCloseReview({run_id, event}, {root?, rulesPath?, extraEvents?, ownerProfilePath?})
+ *  -> {applicable, avoidable, lead_doable:[{id, severity, how}], other:[ids], blocker, empty?, reason, plan_command}
+ *  R8B-F3: a failure close (isFailureClose) is AVOIDABLE when it names no blocker (failureCloseBlocker) while at least
+ *  one unmet complete-phase rule is Lead-doable, or when the run has no events at all. Any Lead-doable rule counts, not
+ *  only "all unmet rules": evidence-satisfied (not Lead-doable) is open in nearly every early close, so "all" would let
+ *  the round 8b close through. `extraEvents` are batch lines before the close. Throws on a tool/config failure (rules
+ *  unreadable, damaged log), like completionGate: the CALLER decides that a tool failure never blocks a failure close. */
+function failureCloseReview(params, opts) {
+  params = params || {}; opts = opts || {};
+  const p = runPaths(params, opts);
+  const plan_command = 'node .claude/forge-bin/forge-runcontract.cjs plan --run ' + params.run_id;
+  const blocker = failureCloseBlocker(params.event);
+  const base = { applicable: true, avoidable: false, lead_doable: [], other: [], blocker, plan_command };
+  if (!isFailureClose(params.event)) return Object.assign(base, { applicable: false, reason: 'not a failure close' });
+  const extra = Array.isArray(opts.extraEvents) ? opts.extraEvents : [];
+  if (!fs.existsSync(p.eventsPath) && !extra.length) {
+    return Object.assign(base, { avoidable: !blocker, empty: true, reason: 'this run has no events before run_completed — nothing was started: log run_started and do the work first' });
+  }
+  const meta = loadRulesMeta(p.rulesPath);
+  const contract = check({ run_id: params.run_id, phase: DEFAULT_PHASE }, { root: p.root, rulesPath: p.rulesPath, extraEvents: extra, ownerProfilePath: opts.ownerProfilePath });
+  const byId = new Map((meta.data.rules || []).map((r) => [r.id, r]));
+  const lead = leadDoableOf(contract).map((x) => Object.assign(x, { how: howTo(byId.get(x.id) || null, contract, x.id) }));
+  const other = (contract.missing || []).concat(contract.warnings || []).filter((id) => !LEAD_DOABLE_RULES.includes(id));
+  return Object.assign(base, {
+    avoidable: lead.length > 0 && !blocker, lead_doable: lead, other,
+    reason: lead.length ? lead.length + ' Lead-doable rule(s) still open' + (blocker ? ', the close names a blocker' : '') : 'no Lead-doable rule is open',
+  });
+}
+
 /** runStateOf(events) -> where the run stands, from its own events only:
  *    status 'empty' | 'preview' (no work yet) | 'working' | 'completed' (the last run_completed is a success
  *           claim) | 'closed-failed' (the last run_completed is an honest failure close and nothing but audit
@@ -3387,7 +3490,7 @@ function runStateOf(events) {
   const failureClose = closedAsFailure && !tail;
   let status;
   if (!evs.length) status = 'empty';
-  else if (completed >= 0 && !closedAsFailure) status = 'completed'; // sticky, with or without a tail
+  else if (completed >= 0 && !closedAsFailure) status = 'completed'; // N09: sticky, with or without a tail
   else if (completed >= 0 && !tail) status = 'closed-failed';
   else if (completed >= 0) status = 'reopened';
   else status = work ? 'working' : 'preview';
@@ -3469,7 +3572,7 @@ function completionProofOf(fin, runStartMs, cutoff) {
 
 /** acceptanceLabel(fin) — plain words for a forge-finalize check() verdict. A HISTORICAL record is only ever
  *  called re-verified when finalize itself said reverified:true; anything else is "not re-verified" (S5).
- *  Whether such an archival record counts as a completion proof is completionProofOf()'s call, so the
+ *  Whether such an archival record counts as a completion proof is completionProofOf()'s call (R2/N03b), so the
  *  label itself no longer says either way. */
 function acceptanceLabel(fin) {
   if (!fin || typeof fin !== 'object') return 'no finalize verdict';
@@ -3486,6 +3589,31 @@ function acceptanceLabel(fin) {
   return String(fin.verdict || 'unknown verdict');
 }
 
+/** memoryRecordOf(root, runId) -> {applicable, ok, reason} — CORE-1-F13: `check --finalize` closes a
+ *  run only when the project memory names it: a FORGE_TASK_HISTORY.md entry or a FORGE_AGENT_LEDGER.md row with the
+ *  exact run id (CLAUDE.md "update memory, task history and FORGE_AGENT_LEDGER.md"). A project that keeps neither file
+ *  has nothing to check (n/a). In the opt-in .forge layout the files are read where forge-paths memoryFile puts them
+ *  (.forge/memory/, falling back to the .claude copy). Read-only, never throws. */
+const MEMORY_RECORD_FILES = ['FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md'];
+function memoryRecordOf(root, runId) {
+  const id = String(runId || '');
+  const re = new RegExp('(^|[^A-Za-z0-9_-])' + id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_-])');
+  const present = [];
+  let forgeLayout = false;
+  try { forgeLayout = !!(forgePaths && typeof forgePaths.memoryFile === 'function' && forgePaths.layout(root) === 'forge'); } catch { /* an unjudgeable layout reads the legacy files */ }
+  for (const f of MEMORY_RECORD_FILES) {
+    let text = null;
+    let file = path.join(root, '.claude', f);
+    if (forgeLayout) { try { file = forgePaths.memoryFile(root, f, { read: true }); } catch { /* keep the legacy path */ } }
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    present.push(f);
+    if (id && re.test(text)) return { applicable: true, ok: true, reason: f + ' names ' + id };
+  }
+  if (!present.length) return { applicable: false, ok: true, reason: 'this project keeps no ' + MEMORY_RECORD_FILES.join(' / ') };
+  const dir = forgeLayout ? '' : '.claude/'; // the .forge layout: the files forge-paths resolves (normally .forge/memory/)
+  return { applicable: true, ok: false, reason: 'no ' + dir + 'FORGE_TASK_HISTORY.md entry and no ' + dir + 'FORGE_AGENT_LEDGER.md row names ' + id + (forgeLayout ? ' in the .forge memory folder' : '') + ' — add the run with its real evidence, then finalize again' };
+}
+
 function finalizeVerdictOf(root, runId) {
   let F;
   try { F = require(path.join(__dirname, 'forge-finalize.cjs')); } catch (e) { return { verdict: 'UNAVAILABLE', reason: 'forge-finalize.cjs could not be loaded (' + (e && e.message ? e.message : String(e)) + ')' }; }
@@ -3496,7 +3624,7 @@ function finalizeVerdictOf(root, runId) {
  *  red | n/a | unevaluated | archival (R2/N03b: finalize only — an unauthenticated archival receipt of a run that
  *  started before the cutoff: history, neither done nor red). A step id this checker does not know (a newer
  *  registry) is 'unevaluated': reported and never counted as met; outside strict mode it is not counted against
- *  the run, under strict (completionGate opts.strict, and always in finalize) it is unmet. Never throws. */
+ *  the run, under strict (completionGate opts.strict, and always in finalize) it is unmet (R2/N07). Never throws. */
 function evaluateCompletionStep(step, ctx) {
   const command = typeof step.command === 'string' ? step.command.split('<run_id>').join(ctx.runId) : null;
   const out = (status, detail) => ({ step: step.step, id: step.id, action: step.action || null, command, status, detail: String(detail || '').slice(0, 300) });
@@ -3523,7 +3651,7 @@ function evaluateCompletionStep(step, ctx) {
         return out('done', 'contract green; proof gate_evaluated #' + proof.index);
       }
       case 'run-completed':
-        // work after a standing claim keeps the claim open — red until a new run_completed (then finalize) or a failure close
+        // N09: work after a standing claim keeps the claim open — red until a new run_completed (then finalize) or a failure close
         if (st.status === 'completed' && st.after_completion) return out('red', 'run_completed #' + st.completed_index + ' is a standing completion claim, but ' + st.after_completion.event_type + ' #' + st.after_completion.index + ' came after it — the claim stays open: log run_completed again once steps 1-3 are green and finalize, or close the run as failed');
         if (st.status === 'completed') return out('done', 'run_completed logged (#' + st.completed_index + ')');
         if (st.status === 'closed-failed') return out('n/a', 'closed as failed (run_completed #' + st.completed_index + ' carries a failure status) — no completion is claimed');
@@ -3536,7 +3664,7 @@ function evaluateCompletionStep(step, ctx) {
         }
         const fin = ctx.finalizeVerdict();
         if (fin.verdict === 'FINALIZED' || fin.verdict === 'HISTORICAL') {
-          /** an archival (not re-verified) record satisfies the step only when it is allowlist-
+          /** F01 + R2/N03b: an archival (not re-verified) record satisfies the step only when it is allowlist-
            *  authenticated AND the run started before the cutoff. An unauthenticated archival record (unverified-
            *  archival) never does: for a pre-cutoff run the step reads 'archival' (history, not red), otherwise red. */
           const start = runStartedAt(ctx.events, null);
@@ -3598,7 +3726,7 @@ function runPaths(params, opts) {
 /** completionGate({run_id, event?, domain?, complexity?}, {root?, rulesPath?, extraEvents?, ownerProfilePath?, strict?})
  *  -> {ok, applicable, run_id, steps:[the steps before run-completed], unmet:[ids], contract, warnings,
  *      warning_details, failure_close?, empty?, reason?, plan_command, strict, unevaluated_rules}
- *  The run_completed choke point. `event` is the run_completed about to be written (an honest failure
+ *  The run_completed choke point (T11). `event` is the run_completed about to be written (an honest failure
  *  close is not gated); `extraEvents` are batch lines the writer validated but has not appended yet. Throws on
  *  a tool/config failure (rules unreadable, damaged log) — the CALLER decides that a tool failure never blocks.
  *  opts.strict: a step this checker could not judge ('unevaluated' — an unknown step id
@@ -3636,7 +3764,7 @@ function completionGate(params, opts) {
     sequence_source: seq.source, plan_command: planCommand, strict, unevaluated_rules: unevaluatedRules,
   };
 }
-/** isUnmetStep(s, strict) — pending/red always; 'unevaluated' only under strict. done, n/a and archival
+/** isUnmetStep(s, strict) — pending/red always; 'unevaluated' only under strict (R2/N07). done, n/a and archival
  *  never (archival only exists on the finalize step, which no pre-completion gate judges). */
 function isUnmetStep(s, strict) {
   if (!s) return true;
@@ -3734,8 +3862,16 @@ function classifyObligations(rules, contract, state) {
   return out.sort((a, b) => (dueRank[a.due] - dueRank[b.due]) || ((a.severity === 'block' ? 0 : 1) - (b.severity === 'block' ? 0 : 1)) || (PHASE_RANK[a.phase] - PHASE_RANK[b.phase]));
 }
 
-function nextOf(state, obligations, sequence) {
-  if (state.status === 'closed-failed') return { kind: 'closed', text: 'closed as failed — nothing to finalize; further work needs a new run' };
+function nextOf(state, obligations, sequence, events) {
+  if (state.status === 'closed-failed') {
+    // R8B-F3: a failure close that skipped Lead-doable work without naming a blocker is not the end of the run
+    const open = obligations.filter((o) => LEAD_DOABLE_RULES.includes(o.id));
+    const close = Array.isArray(events) ? events[state.completed_index] : null;
+    if (open.length && !failureCloseBlocker(close)) {
+      return { kind: 'closed', avoidable: true, id: open[0].id, text: ('closed as failed while Lead-doable rule(s) are open (' + open.map((o) => o.id).join(', ') + ') and no blocker is named — do them and log them (that reopens this run), then close again, or log run_completed with a "blocker" naming what the Lead cannot do itself. First: ' + open[0].id + ': ' + open[0].how).slice(0, 600) };
+    }
+    return { kind: 'closed', text: 'closed as failed — nothing to finalize; further work needs a new run' };
+  }
   const open = obligations.find((o) => o.severity === 'block' && (o.due === 'overdue' || o.due === 'due-now'));
   if (state.status !== 'completed' && open) return { kind: 'obligation', id: open.id, text: open.id + ': ' + open.how };
   const step = sequence.find((s) => s.status === 'pending' || s.status === 'red');
@@ -3813,7 +3949,7 @@ function planFor(params, opts) {
     sequence_source: seq.source, sequence_note: seq.note || null,
     next: finalized && finalized.completion_proof ? { kind: 'done', text: 'finalized — ' + finalized.label + (handoffStep ? ' · then hand off (advisory step ' + handoffStep.step + ', see below)' : '') }
       : finalized ? { kind: 'archival', id: 'finalize', text: 'receipt is an archival record, not a completion proof — ' + finalized.label + '; owner review needed (a sealed log cannot be re-finalized)' }
-        : nextOf(state, obligations, sequence),
+        : nextOf(state, obligations, sequence, events),
     preview_check_command: 'node .claude/forge-bin/forge-runcontract.cjs check --run ' + params.run_id + ' --phase preview --log-event',
     scribe: scribeSummaryOf(p.root), // the owner-requests line (null when the scribe is not in use here)
     ms: Date.now() - t0,
@@ -4015,7 +4151,7 @@ function formatHandoff(h) {
 module.exports = {
   // the advisory step after finalize (handoff) and the one-session-per-mission helper
   evaluateAdvisoryStep, isAdvisoryFlagged, handoffFor, formatHandoff, openPhasesOf, handoffAdvice,
-  independentVerification,
+  independentVerification, memoryRecordOf,
   // geëxporteerd zodat tests kunnen AFDWINGEN dat elk gebruikt eventtype echt bij de writer geregistreerd
   // staat (F-08) — een magic string die niemand kan loggen is een route die alleen op papier bestaat.
   NON_WORK_EVENT_TYPES, ASSIGNMENT_EVENT_TYPES, IV_DISPATCH_TYPES, isReviewDispatch, isWorkEventType, isWorkEvent, isStalingEvent, isGoedkeuring, knownAgentNames, REVIEW_START_TYPES, REVIEW_DONE_TYPES, resolveHeadCommit, canonicalEvidenceDigest,
@@ -4023,10 +4159,11 @@ module.exports = {
   // but isReviewDispatch() still says work (e.g. a task/mission word outside REVIEW_WOORDEN); it must read
   // the SAME role pattern and field names this file enforces, never a re-typed copy that could drift.
   REVIEW_ROLE_RE, ROL_VELDEN,
+  CRITICAL_DOMAINS_FALLBACK,
   // (2.1) — the ONE shared, three-way git probe + its env hardening, so gate-evidence.cjs and
   // finalize.cjs can never independently disagree with check() about the same root.
   gitProbe, cleanGitEnv, hasGitEntryInAncestry,
-  check, listRules, loadRules, loadRulesMeta, ruleApplies, checkSatisfied, findOwnerOverride, isMeaningfulReason, loadOwnerAllowlist,
+  check, listRules, loadRules, loadRulesMeta, ruleApplies, checkSatisfied, findOwnerOverride, isMeaningfulReason, loadOwnerAllowlist, missingCompletionReason,
   readEventsJsonl, listRunArtifacts, hasEvent, hasArtifact, logGateEvaluated, eventIsDisproven,
   // RC-MANIFEST-STALE — exported so a test can exercise the manifest-completeness gate and the
   // owner-authenticated per-package skip directly, without spawning the CLI.
@@ -4044,12 +4181,14 @@ module.exports = {
   completionGate, planFor, formatPlan, runStateOf, completionSequenceOf, isFailureClose, freshContractProof,
   evaluateCompletionStep, classifyObligations, acceptanceLabel, readEventsForCheck,
   // the ONE failure-close predicate (F04/F06 — finalize and the
-  // log-event gate share it, never re-type it), the completion-proof cutoff rule and the event time reader
-  // that prefers the writer-stamped ingested_at.
+  // log-event gate share it, never re-type it), the completion-proof cutoff rule (F01) and the event time reader
+  // that prefers the writer-stamped ingested_at (F05).
   FAILURE_CLOSE_FIELDS, FAILURE_CLOSE_RE, COMPLETION_PROOF_CUTOFF, completionProofCutoffOf, completionProofOf, tsOf,
+  // the Lead-doable rules and the avoidable failure close (log-event refusal, Stop hook I.9)
+  LEAD_DOABLE_RULES, failureCloseBlocker, leadDoableOf, failureCloseReview,
   DEFAULT_COMPLETION_SEQUENCE, RUN_COMPLETED_STEP_ID, POST_COMPLETION_AUDIT_TYPES, PLAN_MAX_LINES,
-  // Codex R2 class-A fixes: the authenticated-legacy rule, resolved-path containment,
-  // strict step judgement + finalize's own sequence re-check, and the archival threat-model note (class B).
+  // Codex R2 class-A fixes: the authenticated-legacy rule (N03b), resolved-path containment (N05),
+  // strict step judgement + finalize's own sequence re-check (N07), and the archival threat-model note (class B).
   isAuthenticatedLegacy, LEGACY_ALLOWLIST_GENERATIONS, ARCHIVAL_THREAT_NOTE, realpathOf, isInsideRoot,
   isUnmetStep, completionSequenceAtClose,
   // part ii: the plan's owner-requests line (scribe summary).
@@ -4146,7 +4285,7 @@ if (require.main === module) {
          *  vanuit repo B beoordeelde dan een run uit repo A tegen de HEAD van B — de commitbinding wees
          *  naar de verkeerde geschiedenis. Eén effectieve root voor run, regels, registry, bewijs én HEAD. */
         const effectiveRoot = rootOf(callOpts);
-        // a phased check judges only part of the contract, so it can never be the input to finalize
+        // V2: a phased check judges only part of the contract, so it can never be the input to finalize
         if (opts.finalize && opts.phase && opts.phase !== DEFAULT_PHASE) {
           throw new Error('--finalize needs the complete contract; drop --phase ' + opts.phase + ' (or pass --phase complete)');
         }
@@ -4195,6 +4334,7 @@ if (require.main === module) {
           if (result.historical_exempt.length) console.log('  · historical-exempt (this run started before the rule existed): ' + result.historical_exempt.map((x) => x.id + ' (since ' + x.since + ')').join(', '));
           if (result.not_applicable && result.not_applicable.length) console.log('  · not applicable in this project: ' + result.not_applicable.map((x) => x.id + ' (' + x.reason + ')').join(', '));
           for (const o of result.overridden) console.log('  ↷ overridden: ' + o.id + ' — "' + o.note + '"');
+          for (const o of result.override_label_only || []) console.log('  ? override not counted: ' + o.id + ' (by ' + o.by + ') — no owner-only override path exists yet, the rule stays open');
           for (const x of result.exceptions || []) console.log('  · exception (recorded, visible): ' + x.id + (x.deliverable_type ? ' [' + x.deliverable_type + ']' : '') + ' — "' + String(x.reason).slice(0, 200) + '"' + (x.by ? ' (by ' + x.by + ')' : ''));
           // An un-judgeable rule must be LOUD: a stale synced rules file that silently drops a rule is exactly
           // the failure this degrade path exists to make visible.
@@ -4211,8 +4351,8 @@ if (require.main === module) {
         // r4 #7: het gezaghebbende eindverdict zit nu IN het completionpad — met --finalize
         // eindigt een groen contract pas in exit 0 wanneer ook forge-finalize zijn digest-receipt schreef.
         if (result.ok && opts.finalize) {
-          const finMod = require(path.join(__dirname, 'forge-finalize.cjs'));
-          const fin = finMod.finalize(rootOf(opts), opts.run);
+          const mem = memoryRecordOf(rootOf(opts), opts.run); // CORE-1-F13: no close without a memory record
+          const fin = mem.ok ? require(path.join(__dirname, 'forge-finalize.cjs')).finalize(rootOf(opts), opts.run) : { ok: false, reason: mem.reason };
           if (opts.json) console.log(JSON.stringify({ finalize: fin.ok ? 'finalized' : 'refused', reason: fin.reason || null }));
           else console.log(fin.ok ? '  ⇒ FINALIZED @ ' + fin.receipt.digest.slice(0, 16) + '…' + (fin.idempotent ? ' (idempotente herbevestiging)' : '') : '  ⇒ FINALIZE REFUSED — ' + fin.reason);
           process.exitCode = (fin.ok && !logWriteFailed) ? 0 : 3;

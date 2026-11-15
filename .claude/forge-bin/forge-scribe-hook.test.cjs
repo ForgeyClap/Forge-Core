@@ -160,7 +160,8 @@ function greenRun(root, RUN, o) {
     { event_type: 'wp_completed', agent: 'Build Boss', wp_id: 'WP-1', evidence: 'node suite.test.cjs exit 0 (3 passed)' },
     { event_type: 'wp_verified', agent: 'Verify Boss', wp_id: 'WP-1', verdict: 'PASS', evidence: 're-ran node suite.test.cjs: exit 0' },
   ]), 'work batch');
-  for (const f of ['FORGE_MEMORY.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md']) fs.writeFileSync(path.join(root, '.claude', f), '# ' + f + '\n');
+  // The run contract (CORE-1-F13) refuses a finalize when no memory file names the run, so the fixture names it.
+  for (const f of ['FORGE_MEMORY.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md']) fs.writeFileSync(path.join(root, '.claude', f), '# ' + f + '\n\n- ' + RUN + ': done\n');
   must(log(root, RUN, 'memory_updated', { agent: 'orchestrator', files_changed: ['.claude/FORGE_MEMORY.md'] }), 'memory_updated');
   fs.writeFileSync(path.join(runDirOf(root, RUN), 'final-report.md'), '# Final report\n\nreal content\n');
   must(log(root, RUN, 'report_generated', { agent: 'orchestrator', note: 'final-report.md written' }), 'report_generated');
@@ -933,6 +934,175 @@ try {
     const ur = recOf(u);
     t('HX4: an UNCLOSED leading tag is not stripped: the old behaviour (whole text recorded, origin-uncertain note)',
       !!ur && ur.text === UNCLOSED && /origin uncertain/.test(u.text || ''), JSON.stringify({ rec: ur && ur.text, text: u.text }));
+  });
+
+  // /forge build request -> forge-start hint + session marker
+  console.log('\nFS) R8B-F1: a /forge build request with no active run gets the forge-start line and one session marker');
+  const sha16 = (s) => crypto.createHash('sha256').update(String(s), 'utf8').digest('hex').slice(0, 16);
+  const markerOf = (root, session) => path.join(root, '.claude', 'forge-runs', '_hooks', 'forge-session', sha16(session) + '.json');
+  const withStart = (root) => { fs.writeFileSync(path.join(root, '.claude', 'forge-bin', 'forge-start.cjs'), '// placeholder: the hook only checks that the tool is installed\n'); return root; };
+  const startLine = (r) => String((r && r.text) || '').split('\n').find((l) => l.startsWith('Forge FIRST command: ')) || null;
+  section('FS', () => {
+    const root = withStart(makeRoot());
+    const first = hook(root, payloadFor(root, '/forge maak een website', 'sFS'), { activeRun: null, now: () => new Date('2026-11-08T10:00:00.000Z') });
+    const line = startLine(first);
+    t('FS1: /forge maak een website, no active run -> one additionalContext line naming forge-start.cjs with the request quoted',
+      first.print && line === 'Forge FIRST command: node .claude/forge-bin/forge-start.cjs --text "maak een website"', String(first.text));
+    t('FS1b: ... it is the first line, and the scribe receipt still follows', String(first.text).split('\n')[0] === line && /\[forge-scribe\] Genoteerd: R-\d{4}/.test(String(first.text)), String(first.text));
+    let m = null;
+    try { m = JSON.parse(fs.readFileSync(markerOf(root, 'sFS'), 'utf8')); } catch (e) { m = { error: e.message }; }
+    t('FS2: the session marker exists at <runs>/_hooks/forge-session/<sha16>.json in the shared shape',
+      m && m.schema === 1 && m.session_sha === sha16('sFS') && m.kind === 'forge-build' && m.created_at === '2026-11-08T10:00:00.000Z' && m.prompt_rid === first.captured.rid && Object.keys(m).length === 5, JSON.stringify(m));
+    const before = fs.readFileSync(markerOf(root, 'sFS'), 'utf8');
+    const mtime = fs.statSync(markerOf(root, 'sFS')).mtimeMs;
+    const second = hook(root, payloadFor(root, '/forge voeg ook een contactformulier toe', 'sFS'), { activeRun: null, now: () => new Date('2026-11-08T11:00:00.000Z') });
+    t('FS3: a second /forge prompt in the same session -> no second marker write (content and mtime unchanged)',
+      fs.readFileSync(markerOf(root, 'sFS'), 'utf8') === before && fs.statSync(markerOf(root, 'sFS')).mtimeMs === mtime, fs.readFileSync(markerOf(root, 'sFS'), 'utf8'));
+    t('FS3b: ... while the session still has no run, the hint is repeated', !!startLine(second), String(second.text));
+    for (const sub of ['/forge status', '/forge runs', '/forge open-report', '/forge dashboard', '/forge config set gate-hook off', '/forge remember altijd tests draaien',
+      '/forge resume forge-2026-11-08-101010', '/forge learn', '/forge init apply', '/forge use', '/forge stop', '/forge pause', '/forge', 'maak een website']) {
+      const s = 'sFS-' + sha16(sub).slice(0, 6);
+      const r = hook(root, payloadFor(root, sub, s), { activeRun: null });
+      t('FS4: ' + JSON.stringify(sub) + ' -> no forge-start line and no marker', !startLine(r) && !fs.existsSync(markerOf(root, s)), String(r.text));
+    }
+    const exp = hook(root, payloadFor(root, '<command-message>forge</command-message>\n<command-name>/forge</command-name>\n<command-args>bouw een webshop</command-args>', 'sFS-exp'), { activeRun: null });
+    t('FS5: the expanded /forge command text with a wish -> the forge-start line and a marker', startLine(exp) === 'Forge FIRST command: node .claude/forge-bin/forge-start.cjs --text "bouw een webshop"' && fs.existsSync(markerOf(root, 'sFS-exp')), String(exp.text));
+    const nasty = hook(root, payloadFor(root, '/forge maak "iets" met $HOME, `ls` en C:\\temp\\', 'sFS-q'), { activeRun: null });
+    const nl = startLine(nasty) || '';
+    const quoted = (/--text "(.*)"$/.exec(nl) || [])[1];
+    t('FS7: the request is quoted safely: no inner double quote, $, backtick or backslash; whitespace on one line',
+      quoted === "maak 'iets' met HOME, ls en C:/temp/", nl);
+    const longReq = 'bouw een site voor het restaurant ' + 'met menu en reserveren '.repeat(36);
+    const lg = hook(root, payloadFor(root, '/forge ' + longReq, 'sFS-long'), { activeRun: null });
+    const lq = (/--text "(.*)"$/.exec(startLine(lg) || '') || [])[1] || '';
+    const huge = hook(root, payloadFor(root, '/forge ' + 'maak een webshop '.repeat(90), 'sFS-huge'), { activeRun: null });
+    const hq = (/--text "(.*)"$/.exec(startLine(huge) || '') || [])[1] || '';
+    t('FS7b: a real-sized request (~860 chars) is passed whole; a huge one is capped at 1200 chars with an ellipsis',
+      lq === longReq.trim() && hq.length === 1200 && hq.endsWith('…'), lq.length + ' / ' + hq.length);
+    const noSid = hook(root, Object.assign(payloadFor(root, '/forge maak een logo', 'sFS-nosid'), { session_id: undefined }), { activeRun: null });
+    t('FS8: no session id -> the line is printed but no marker is written (it cannot be keyed)', !!startLine(noSid) && !fs.existsSync(path.join(root, '.claude', 'forge-runs', '_hooks', 'forge-session', sha16('no-session') + '.json')), String(noSid.text));
+    const off = hook(root, payloadFor(root, '/forge maak een website', 'sFS-off'), { activeRun: null, env: { FORGE_SCRIBE_HOOK: 'off' } });
+    t('FS9: FORGE_SCRIBE_HOOK=off -> nothing at all', !off.print && !fs.existsSync(markerOf(root, 'sFS-off')), JSON.stringify(off));
+    const old = makeRoot();
+    const o = hook(old, payloadFor(old, '/forge maak een website', 'sFS-old'), { activeRun: null });
+    t('FS10: a project without forge-start.cjs (older install) -> no line, no marker', !startLine(o) && !fs.existsSync(markerOf(old, 'sFS-old')), String(o.text));
+    const bare = withStart(makeRoot({ noScribe: true }));
+    const b = hook(bare, payloadFor(bare, '/forge maak een website', 'sFS-bare'), { activeRun: null });
+    let bm = null;
+    try { bm = JSON.parse(fs.readFileSync(markerOf(bare, 'sFS-bare'), 'utf8')); } catch { bm = null; }
+    t('FS11: without the scribe the line and the marker still come (prompt_rid null)', !!startLine(b) && bm && bm.prompt_rid === null, String(b.text) + ' :: ' + JSON.stringify(bm));
+    const cli = hookCli(root, payloadFor(root, '/forge bouw een landingspagina', 'sFS-cli'));
+    let ctx = '';
+    try { ctx = JSON.parse(cli.stdout.trim()).hookSpecificOutput.additionalContext; } catch { ctx = ''; }
+    t('FS12: CLI path: exit 0, additionalContext carries the forge-start line, the marker exists', cli.status === 0 && ctx.split('\n')[0] === 'Forge FIRST command: node .claude/forge-bin/forge-start.cjs --text "bouw een landingspagina"' && fs.existsSync(markerOf(root, 'sFS-cli')), out(cli).slice(0, 400));
+    // last: the run pointer written here is read as "active" by every session id of another scheme (forge-active-run judge)
+    const SID = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b';
+    require('./forge-active-run.cjs').setActiveRun(root, 'forge-2026-11-08-101112', { session: SID, allowMissing: true });
+    const act = hook(root, payloadFor(root, '/forge maak een website', SID), { activeRun: null });
+    t('FS6: this session already has an active run -> no forge-start line and no marker', !startLine(act) && !fs.existsSync(markerOf(root, SID)), String(act.text));
+    const other = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    const oth = hook(root, payloadFor(root, '/forge maak een website', other), { activeRun: null });
+    t('FS6b: another session (the fallback pointer belongs to the first) still gets the line and its own marker', !!startLine(oth) && fs.existsSync(markerOf(root, other)), String(oth.text));
+  });
+
+  // ---- FB-SCRIBE-1-F4/F5: /forge start|plan|help|use|resume <task> is owner work; typographic quotes
+  // never end the --text string of the forge-start line
+  section('F4 /forge <sub-command> <task> is captured', () => {
+    const root = withStart(makeRoot());
+    const C2 = require('./forge-scribe-classify.cjs');
+    const TASKS = ['/forge start met de website voor de kapper en fix de login', '/forge plan en bouw een webshop', '/forge help me een dashboard bouwen',
+      '/forge use the new logo in the header', '/forge resume en voeg ook een contactpagina toe'];
+    for (const text of TASKS) {
+      const s = 'sF4-' + sha16(text).slice(0, 6);
+      const r = hook(root, payloadFor(root, text, s), { activeRun: null });
+      t('F4-a: ' + JSON.stringify(text) + ' is captured and gets the forge-start line', !!(r.captured && r.captured.rid) && !r.skipped
+        && startLine(r) === 'Forge FIRST command: node .claude/forge-bin/forge-start.cjs --text "' + text.slice('/forge '.length) + '"', JSON.stringify({ skipped: r.skipped, text: r.text }));
+    }
+    const exp = hook(root, payloadFor(root, '<command-message>forge</command-message>\n<command-name>/forge</command-name>\n<command-args>start met de website voor de kapper</command-args>', 'sF4-exp'), { activeRun: null });
+    t('F4-b: the expanded form (<command-args>start met ...) is captured too', !!(exp.captured && exp.captured.rid) && !!startLine(exp), JSON.stringify({ skipped: exp.skipped, text: exp.text }));
+    const TOOL = ['/forge start', '/forge plan --dry-run', '/forge resume forge-2026-11-08-101010', '/forge help', '/forge status nu', '/forge config set gate-hook off'];
+    for (const text of TOOL) {
+      const r = hook(root, payloadFor(root, text, 'sF4-t' + sha16(text).slice(0, 6)), { activeRun: null });
+      t('F4-c: ' + JSON.stringify(text) + ' is still a tool command (skipped, no forge-start line)', r.skipped === 'forge-tool-command' && !startLine(r), JSON.stringify({ skipped: r.skipped, text: r.text }));
+    }
+    t('F4-d: one sub-command list: the classifier exports it and it holds the hook\'s names (forge.md B)', Array.isArray(C2.FORGE_TOOL_SUBCOMMANDS)
+      && ['status', 'remember', 'learn', 'init', 'stop', 'pause', 'repair', 'stats', 'interview', 'tournament', 'paperclip', 'doctor', 'snapshot', 'version'].every((x) => C2.FORGE_TOOL_SUBCOMMANDS.includes(x)), JSON.stringify(C2.FORGE_TOOL_SUBCOMMANDS));
+  });
+  section('F6 a failed capture is visible', () => {
+    const root = makeRoot();
+    hook(root, payloadFor(root, 'Voeg een footer toe', 'sF6'), { activeRun: null });
+    const inbox0 = lines(fileOf(root, 'inbox.jsonl')).length;
+    fs.writeFileSync(path.join(scribeDir(root), '.lock'), JSON.stringify({ pid: process.pid, nonce: 'held-by-test', started_at: new Date().toISOString() }));
+    const r = hook(root, payloadFor(root, 'Verander de footer naar grijs', 'sF6'), { activeRun: null });
+    fs.rmSync(path.join(scribeDir(root), '.lock'), { force: true });
+    t('F6-a: a held store lock -> the prompt is not captured and the hook SAYS so in one line (it was silent)', r.print === true && /^\[forge-scribe\] NOT captured: /m.test(String(r.text)) && /lock/i.test(String(r.text)) && lines(fileOf(root, 'inbox.jsonl')).length === inbox0, JSON.stringify(r));
+    const real = sc(root);
+    const skips = [];
+    const fake = { SC: Object.assign({}, real, { capture: () => { throw new Error('disk full'); }, recordSkip: (why) => { skips.push(why); return true; } }), S: require(path.join(root, '.claude', 'forge-bin', 'forge-scribe-store.cjs')), C: require(path.join(root, '.claude', 'forge-bin', 'forge-scribe-classify.cjs')) };
+    const r2 = hook(root, payloadFor(root, 'Voeg een kaart toe', 'sF6'), { activeRun: null, scribe: fake });
+    t('F6-b: ... and, where the store allows it, one counter line with reason capture-failed', /NOT captured: disk full/.test(String(r2.text)) && skips.join(',') === 'capture-failed', JSON.stringify({ text: r2.text, skips }));
+    fs.writeFileSync(path.join(root, '.claude', 'config', 'orchestration', 'FORGE_SCRIBE.json'), '{ damaged');
+    const r3 = hook(root, payloadFor(root, 'Voeg een banner toe', 'sF6'), { activeRun: null });
+    t('F6-c: a damaged FORGE_SCRIBE.json is reported the same way (a missing one stays silent: A8b)', /^\[forge-scribe\] NOT captured: /m.test(String(r3.text)), JSON.stringify(r3));
+  });
+  section('F5 shellSafe and typographic quotes', () => {
+    const q = H.shellSafe('fix ” ; Write-Output INJECTED ; “ en „ Bestel nu” ‟ « x »');
+    t('F5-a: no double-quote-like character survives (PowerShell 5.1 ends a "..." string on U+201C/U+201D/U+201E/U+201F; guillemets too)', !/["“”„‟«»]/.test(q) && q.includes('INJECTED'), q);
+  });
+
+  // ---- R-0233: the hooks run the scribe-acker's autoack, so done-unacked never waits for the owner ----------------
+  section('AK R-0233 autoack in the UserPromptSubmit and Stop hooks', () => {
+    /** withAutoack(root) — the config resolver, its schema and the hard-gate classifier next to the scribe (a full
+     *  install has them; makeRoot alone is an older install without them, where autoack fails closed). */
+    const withAutoack = (root) => {
+      for (const f of ['forge-config.cjs', 'forge-config-text.cjs', 'forge-config-once.cjs', 'forge-config-once-store.cjs', 'forge-owner-queue-check.cjs']) fs.copyFileSync(path.join(__dirname, f), path.join(root, '.claude', 'forge-bin', f));
+      fs.copyFileSync(path.join(CLAUDE, 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json'), path.join(root, '.claude', 'config', 'orchestration', 'FORGE_CONFIG_SCHEMA.json'));
+      return root;
+    };
+    const cfgHome = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ak-home-')); roots.push(cfgHome);
+    const RUN = 'run-ak';
+    // setup prompts run with autoack off, so only the hook calls under test can ack
+    const say = (root, text) => hook(root, payloadFor(root, text, 'sAK-setup'), { activeRun: null, configHome: cfgHome, env: { FORGE_SCRIBE_AUTOACK: 'off' } }).captured;
+    const doneItem = (root, text, wp, cls) => {
+      const c = say(root, text);
+      const S2 = sc(root);
+      if (cls) S2.transition(c.rid, 'classify', { class: cls }, own(root));
+      const d = path.join(root, '.claude', 'forge-runs', RUN);
+      fs.mkdirSync(d, { recursive: true });
+      fs.appendFileSync(path.join(d, 'events.jsonl'), [{ run_id: RUN, event_type: 'agent_work_package_created', wp_id: wp, task: text }, { run_id: RUN, event_type: 'wp_completed', wp_id: wp, event_id: 'ev-' + wp }].map((e) => JSON.stringify(e)).join('\n') + '\n');
+      S2.transition(c.rid, 'link', { wp_ids: [wp], run_id: RUN }, own(root));
+      S2.transition(c.rid, 'start', {}, own(root));
+      S2.transition(c.rid, 'done', { evidence: { type: 'wp_completed', ref: wp }, run_id: RUN }, own(root));
+      return c.rid;
+    };
+    const stateOf = (root) => require(path.join(root, '.claude', 'forge-bin', 'forge-scribe-store.cjs')).loadState(require(path.join(root, '.claude', 'forge-bin', 'forge-scribe-store.cjs')).paths(root));
+    const root = withAutoack(makeRoot());
+    const clean = doneItem(root, 'Voeg een banner toe aan de homepage', 'wp-ak1');
+    const gated = doneItem(root, 'Deploy de site naar productie', 'wp-ak2', 'new');
+    const r = hook(root, payloadFor(root, 'Voeg ook een footer toe', 'sAK'), { activeRun: null, configHome: cfgHome });
+    const st = stateOf(root);
+    t('AK1: the UserPromptSubmit hook auto-acks the clean done item (by scribe-acker) and prints one line naming it', st.items[clean].status === 'acked' && st.items[clean].acked_by === 'scribe-acker'
+      && /\[forge-scribe\] auto-acked 1 item\(s\) under owner delegation R-0233 \(scribe-acker\): /.test(String(r.text)) && String(r.text).includes(clean), String(r.text));
+    t('AK2: ... the hard-gate item stays done for the owner, and the line counts it', st.items[gated].status === 'done' && /1 owner-only/.test(String(r.text)), String(r.text));
+    const later = doneItem(root, 'Verander de footer naar grijs', 'wp-ak3');
+    const s = STOP.runStop({ session_id: 'sAK-stop', stop_hook_active: false }, { projectRoot: root, activeRun: null, env: {}, configHome: cfgHome });
+    t('AK3: the Stop hook auto-acks too, also without an active run, and never blocks for it', s.block === false && stateOf(root).items[later].status === 'acked' && s.autoack && s.autoack.applied === 1, JSON.stringify(s));
+    const quiet = hook(root, payloadFor(root, 'Hoe staat het ervoor?', 'sAK'), { activeRun: null, configHome: cfgHome });
+    // the hook's own line starts with "[forge-scribe] auto-acked"; the digest head may still COUNT earlier auto-acks
+    const AK_LINE = /\[forge-scribe\] auto-acked/;
+    t('AK4: nothing new to ack -> no auto-ack line (held items are not repeated every prompt); the digest head counts the 2 earlier ones', !AK_LINE.test(String(quiet.text)) && /2 auto-acked by scribe-acker \(R-0233\)/.test(String(quiet.text)), String(quiet.text));
+    fs.writeFileSync(path.join(root, '.claude', 'FORGE_CONFIG.json'), JSON.stringify({ version: 1, settings: { 'scribe-autoack': { value: false, set_by: 'owner' } } }));
+    const offItem = doneItem(root, 'Voeg een fotogalerij toe', 'wp-ak4');
+    const r2 = hook(root, payloadFor(root, 'Voeg een kaart toe', 'sAK'), { activeRun: null, configHome: cfgHome });
+    const s2 = STOP.runStop({ session_id: 'sAK-stop2' }, { projectRoot: root, activeRun: null, env: {}, configHome: cfgHome });
+    t('AK5: the owner switched scribe-autoack off: neither hook acks, the item waits for the owner', stateOf(root).items[offItem].status === 'done' && !AK_LINE.test(String(r2.text)) && !(s2.autoack && s2.autoack.applied), String(r2.text) + ' :: ' + JSON.stringify(s2));
+    fs.rmSync(path.join(root, '.claude', 'FORGE_CONFIG.json'));
+    const r3 = hook(root, payloadFor(root, 'Voeg een kaart toe aan de contactpagina', 'sAK'), { activeRun: null, configHome: cfgHome, env: { FORGE_SCRIBE_AUTOACK: 'off' } });
+    t('AK6: FORGE_SCRIBE_AUTOACK=off silences it for the hook as well', stateOf(root).items[offItem].status === 'done' && !AK_LINE.test(String(r3.text)), String(r3.text));
+    const old = makeRoot();
+    const oldItem = doneItem(old, 'Voeg een banner toe aan de homepage', 'wp-old');
+    hook(old, payloadFor(old, 'Voeg ook een footer toe', 'sOld'), { activeRun: null, configHome: cfgHome });
+    t('AK7: an older install without forge-config.cjs fails closed: nothing is auto-acked', stateOf(old).items[oldItem].status === 'done');
   });
 } finally {
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* best-effort cleanup */ } }

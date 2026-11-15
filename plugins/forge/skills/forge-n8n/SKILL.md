@@ -35,7 +35,7 @@ Full text, the expression and Code-node rules and the review checklist: `referen
 2. Architecture from `n8n-workflow-patterns`; node setup from `n8n-node-configuration`; expressions from `n8n-expression-syntax`.
 3. Code nodes → `n8n-code-javascript` (default) or `n8n-code-python`. A Code node only where no native node does the job (Filter, IF/Switch, Summarize, Remove Duplicates, Merge, Crypto, XML), with a one-line `Why Code:` note.
 4. **Step 4a, harden:** wire error outputs (both halves), set `retryOnFail` on idempotent network nodes only (a send, create or payment call first gets an idempotency key or a dedupe check, else no retry), explicit Respond codes, Switch fallback, Error Trigger workflow for unattended runs, data guards after transforms (`references/hard-rules-detail.md` → Review checklist).
-5. **Step 4b, gate:** Gate: run validate_node / validate_workflow via n8n-validation-expert; resolve real errors (it knows the false positives). Then re-read the workflow JSON for what validation cannot see (half-wired error outputs, Respond codes, Merge input counts).
+5. **Step 4b, gate:** Gate: run validate_node / validate_workflow via n8n-validation-expert; resolve real errors (it knows the false positives, except one: error-handling and retry warnings are never false positives in Forge; the hard rules win over its false-positive list, and continueRegularOutput is not a fix). Then re-read the workflow JSON for what validation cannot see (half-wired error outputs, Respond codes, Merge input counts).
 6. **Step 5, test:** one manual test execution with pinned or sample data; read every node's status and output values, not only the green banner.
 7. For custom code/scripts you *may* run `codex-reviewer` (Codex, optional) — advisory, not a blocker.
 

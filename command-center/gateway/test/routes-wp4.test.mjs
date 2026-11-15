@@ -127,7 +127,7 @@ test('N6 AUTH: POST /api/conversations with the REAL exec token succeeds', async
   assert.equal(res.statusCode, 201);
 });
 
-// POST .../stop had NO exec-token check at all before this fix (audit: "POST
+// N6 fix: POST .../stop had NO exec-token check at all before this fix (audit: "POST
 // /api/conversations/<x>/stop no token -> 404 (not gated)" — a real local process could probe/stop
 // executions with no auth at all).
 test('N6 AUTH: POST /api/conversations/:id/stop with NO exec token is rejected with 403', async () => {

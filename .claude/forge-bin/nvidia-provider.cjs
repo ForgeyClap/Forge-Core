@@ -57,7 +57,7 @@
  * health()/listModels() return { ok: false, mode: 'off', reason } WITHOUT any network request, and the CLI prints
  * one plain "NVIDIA OFF — ..." line and exits 3. `--force` (CLI) / { force: true } (module) runs them anyway.
  * `route` never touches the network and still runs, with a note on stderr. forge-config.cjs is soft-required and
- * FAIL-SAFE: a missing module, a throwing get() (unreadable/malformed FORGE_CONFIG.json) or a non-boolean
+ * FAIL-SAFE (M3): a missing module, a throwing get() (unreadable/malformed FORGE_CONFIG.json) or a non-boolean
  * value means OFF with reason 'config unreadable → safe default off' — never a silent fall-back to ON.
  * chat(args, opts) / health(opts) / listModels(opts): opts.configModule injects a module (tests).
  *
@@ -143,8 +143,12 @@ const ENV_FILE_ANY = /^NVIDIA_(?:API_KEY|[A-Z0-9_]+_MODEL)$/;
 // the hole this closed; NVIDIA_BASE_URL alone (without the allow flag) is still checked against the
 // fixed allow-list in checkBaseUrl(), so a global file naming any other host still refuses.
 const ENV_FILE_GLOBAL_ONLY = new Set(['NVIDIA_BASE_URL']);
-/** loadEnvFile(envFile, isGlobal) — loads the allowed names from one KEY=VALUE file into process.env (a name
- *  that is already set wins). Never logs values; a missing file is fine. */
+// FB-USAGE-F7: file values live in this module-private object, never in process.env, so a child process started by
+// a caller never inherits the key. envOf(name): the real environment wins (also when set to ''), then the files.
+const FILE_ENV = Object.create(null);
+const envOf = (name) => (process.env[name] !== undefined ? process.env[name] : FILE_ENV[name]);
+/** loadEnvFile(envFile, isGlobal) — loads the allowed names from one KEY=VALUE file into FILE_ENV (a name that is
+ *  already set, in the real environment or by an earlier file, wins). Never logs values; a missing file is fine. */
 function loadEnvFile(envFile, isGlobal) {
   let text;
   try { text = fs.readFileSync(envFile, 'utf8'); } catch { return; } /* missing file is fine */
@@ -155,7 +159,7 @@ function loadEnvFile(envFile, isGlobal) {
     if (!ENV_FILE_ANY.test(name) && !(isGlobal && ENV_FILE_GLOBAL_ONLY.has(name))) continue;
     let v = m[2].trim();                                          // strip trailing whitespace (invisible 401s)
     if (/^(["']).*\1$/.test(v)) v = v.slice(1, -1);               // strip surrounding quotes
-    if (v !== '' && process.env[name] === undefined) process.env[name] = v;
+    if (v !== '' && process.env[name] === undefined && FILE_ENV[name] === undefined) FILE_ENV[name] = v;
   }
 }
 function loadEnv() {
@@ -217,18 +221,18 @@ const CODE_ROLES = new Set(['coding', 'coding-fast']);
 function normAgent(agent) { if (agent == null) return null; let s = String(agent).trim().toLowerCase(); if (!s) return null;
   if ((MODEL_MAP.agents || {})[s]) return s; const dash = s.replace(/\s+/g, '-'); return (MODEL_MAP.agents || {})[dash] ? dash : s; }
 function isKnownAgent(slug) { return !!(slug && (MODEL_MAP.agents || {})[slug]); }
-function policyFor(agent) { const a = normAgent(agent); if (!a) return 'unclassified'; if (SKIP_AGENTS.has(a)) return 'claude-first-skip'; if (BULK_AGENTS.has(a)) return 'nvidia-bulk-only'; return 'unclassified'; }
+function policyFor(agent) { const a = normAgent(agent); if (!a) return 'unclassified'; if (SKIP_AGENTS.has(a)) return 'claude-first-skip'; if (BULK_AGENTS.has(a)) return 'nvidia-bulk-only'; return isKnownAgent(a) ? 'claude-first-skip' : 'unclassified'; } // CF-4-F1: a known agent in neither list is Claude-first
 
 // M5/NVIDIA-ENV-TRUST: after loadEnv(), NVIDIA_BASE_URL can only have come from the real environment or the
 // global file (a project .env can no longer set it); NVIDIA_ALLOW_CUSTOM_BASE_URL can ONLY ever be a real
 // process env var — it was removed from ENV_FILE_GLOBAL_ONLY above, so no file (project OR global) can ever
 // populate process.env with it via loadEnvFile(). Reading it directly here is therefore already real-env-only.
-const BASE = checkBaseUrl(process.env.NVIDIA_BASE_URL || (MATRIX.provider && MATRIX.provider.baseUrlDefault) || DEFAULT_BASE_URL,
+const BASE = checkBaseUrl(envOf('NVIDIA_BASE_URL') || (MATRIX.provider && MATRIX.provider.baseUrlDefault) || DEFAULT_BASE_URL,
   process.env.NVIDIA_ALLOW_CUSTOM_BASE_URL === '1');
 const CONFIG = {
   baseUrl: BASE.ok ? BASE.url : '',
   baseUrlError: BASE.ok ? null : BASE.reason,
-  key: process.env.NVIDIA_API_KEY || '',
+  key: envOf('NVIDIA_API_KEY') || '',
   // guard against a non-numeric NVIDIA_TIMEOUT_MS (e.g. "120s") — NaN would make AbortSignal.timeout throw
   // a RangeError that the retry loop misreads as a transient network error (fix 2026-07-09 checkup).
   timeoutMs: (() => { const t = Number(process.env.NVIDIA_TIMEOUT_MS); return Number.isFinite(t) && t > 0 ? t : 120000; })(),
@@ -294,11 +298,11 @@ function delayCancellable(ms, isCancelled) {
 // role -> model id, honoring env overrides (NVIDIA_<ROLE>_MODEL) then the matrix. Internal callers
 // (chatRaw/routeForRaw, and the CLI's own live-model-id comparisons) call this RAW form directly — they
 // need the real value to actually dispatch/validate. The module-boundary export is modelForRoleMasked
-// below.
+// below (V16).
 function modelForRole(role) {
   const r = (MATRIX.roles || {})[role];
   if (!r) return null;
-  const override = r.envOverride && process.env[r.envOverride];
+  const override = r.envOverride && envOf(r.envOverride);
   return (override && override.trim()) || r.model || null;
 }
 /** modelForRoleMasked(role) -> maskDeep(modelForRole(role)) (Codex recheck wp-f4): the
@@ -320,7 +324,7 @@ function modelForRoleMasked(role) { return maskDeep(modelForRole(role)); }
  *  wrappers already support. */
 async function call(method, p, body, opts) {
   if (!hasKey()) return { mock: true, status: 0, error: 'no NVIDIA_API_KEY set — mock mode (no live call made)' };
-  if (CONFIG.baseUrlError) return { refused: true, status: 0, error: CONFIG.baseUrlError }; // never send the key to a refused endpoint
+  if (CONFIG.baseUrlError) return { refused: true, status: 0, error: CONFIG.baseUrlError }; // M5: never send the key to a refused endpoint
   const authorized = () => offResult(opts) === null;
   let lastErr = null;
   for (let attempt = 0; attempt <= CONFIG.retries; attempt++) {
@@ -477,7 +481,7 @@ async function chat(args, opts) {
 }
 async function chatRaw({ role, model, prompt, system, maxTokens, agent, func, forceOverride, overrideReason }, opts) {
   // Owner setting first: nvidia=off means NO call at all — checked before anything else is resolved.
-  // An unreadable setting is OFF too, with its own reason.
+  // An unreadable setting is OFF too (M3), with its own reason.
   const ns = nvidiaState(opts);
   if (!ns.on) return { skipped: true, reason: ns.reason };
   // usagePolicy enforcement (forced 2026-07-08; hardened 2026-07-09) — checked BEFORE model resolution / any network call.
@@ -538,7 +542,7 @@ async function chatRaw({ role, model, prompt, system, maxTokens, agent, func, fo
 // export costs nothing and is a second, independent layer against a future validation regression.
 module.exports = { chat, health, listModels, routeFor, resolveFunction, loadEnv,
   CONFIG: { ...CONFIG, key: hasKey() ? '***set***' : '', baseUrl: mask(CONFIG.baseUrl), baseUrlError: CONFIG.baseUrlError ? mask(CONFIG.baseUrlError) : CONFIG.baseUrlError },
-  // the public export is the MASKED wrapper — modelForRole (raw) stays module-private.
+  // V16: the public export is the MASKED wrapper — modelForRole (raw) stays module-private.
   modelForRole: modelForRoleMasked, mask, maskDeep, configOn, nvidiaState, checkBaseUrl, NVIDIA_OFF_REASON, NVIDIA_UNREADABLE_REASON };
 
 // ---- CLI ----
@@ -548,7 +552,7 @@ if (require.main === module) {
   // a flag's value must not be the next flag: `--force-override --reason --max-tokens 200` must NOT make
   // reason='--max-tokens' (fix 2026-07-09 checkup) — treat a following --token as "no value given".
   const arg = (n, d) => { const i = args.indexOf('--' + n); if (i < 0 || args[i + 1] === undefined) return d; const v = args[i + 1]; return String(v).startsWith('--') ? d : v; };
-  // when the owner switched NVIDIA off (or the setting is unreadable), health/models make NO request unless
+  // M4: when the owner switched NVIDIA off (or the setting is unreadable), health/models make NO request unless
   // --force; `route` never touches the network and only gets a note. One plain line, exit 3 (= act on this).
   const ns = nvidiaState();
   const force = args.includes('--force');
@@ -571,7 +575,7 @@ if (require.main === module) {
       console.log(r.models.length + ' live models on ' + CONFIG.baseUrl);
       if (args.includes('--verify')) {
         for (const roleName of Object.keys(MATRIX.roles || {})) {
-          // display the MASKED value — a bogus env override (e.g. NVIDIA_CODING_MODEL set to a
+          // V16: display the MASKED value — a bogus env override (e.g. NVIDIA_CODING_MODEL set to a
           // leaked key-shaped string) must never reach stdout here just because --verify prints it.
           const m = modelForRoleMasked(roleName);
           console.log('  role ' + roleName.padEnd(10) + ' -> ' + String(m).padEnd(40) + (r.models.includes(m) ? 'LIVE ✓' : '⚠ NOT in live list — update the matrix or env override'));

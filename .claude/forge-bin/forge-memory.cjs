@@ -32,9 +32,26 @@ const TYPES = new Set(['episodic', 'semantic', 'procedural']);
 // belt-and-suspenders redaction: Forge's store redactor (if present) + a local secret scrub, so a lesson
 // can NEVER persist a key/token regardless of which redactor is available.
 let baseRedact = (s) => String(s == null ? '' : s);
-try { const store = require('./forge-store.cjs'); if (typeof store.redactValue === 'function') baseRedact = (s) => { try { return store.redactValue(String(s == null ? '' : s)); } catch { return String(s == null ? '' : s); } }; } catch {}
+// FB-MEMORY-F2: redactText (shape patterns AND labelled free-text secrets: password=, client_secret=, Authorization:
+// Bearer) first; redactValue on a bare string only runs the shape patterns, so it is the fallback for an older store.
+try {
+  const store = require('./forge-store.cjs');
+  const fn = typeof store.redactText === 'function' ? store.redactText : (typeof store.redactValue === 'function' ? store.redactValue : null);
+  if (fn) baseRedact = (s) => { try { return fn(String(s == null ? '' : s)); } catch { return String(s == null ? '' : s); } };
+} catch {}
 const SECRET_RE = [/nvapi-[A-Za-z0-9_-]{8,}/g, /sk-[A-Za-z0-9]{16,}/g, /sk_(live|test)_[A-Za-z0-9]{16,}/g, /gh[pousr]_[A-Za-z0-9]{20,}/g, /AKIA[0-9A-Z]{16}/g, /xox[baprs]-[A-Za-z0-9-]{10,}/g, /-----BEGIN [A-Z ]*PRIVATE KEY-----/g];
-function scrub(s) { s = baseRedact(String(s == null ? '' : s)); for (const re of SECRET_RE) s = s.replace(re, '[REDACTED]'); return s; }
+/** Labelled secrets with a real-looking value (not already masked, not a placeholder or env reference). The local scrub
+ *  and scanMemory use them, so a lesson stays clean even without forge-store's redactText. */
+const LABELLED_SECRET_RE = [
+  /\b(password|passwd|pwd|client_secret|secret_key|api_key|apikey|access_token|auth_token|refresh_token)(["']?\s*[:=]\s*["']?)(?!\*{3}REDACTED|\[REDACTED|process\.env|\$\{|<)[^\s"'<>,;]{6,}/gi,
+  /\b(Authorization:\s*(?:Bearer|Basic|Token)\s+)(?!\*{3}REDACTED|\[REDACTED)[A-Za-z0-9._~+\/=-]{8,}/gi,
+];
+function scrub(s) {
+  s = baseRedact(String(s == null ? '' : s));
+  for (const re of SECRET_RE) s = s.replace(re, '[REDACTED]');
+  s = s.replace(LABELLED_SECRET_RE[0], (_m, key, sep) => key + sep + '[REDACTED]').replace(LABELLED_SECRET_RE[1], (_m, head) => head + '[REDACTED]');
+  return s;
+}
 
 function memDir(boss, root) { const slug = String(boss).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown'; return path.join(root || PROJECT_ROOT, '.claude', 'agent-memory', slug); }
 function lessonsFile(boss, root) { return path.join(memDir(boss, root), 'lessons.jsonl'); }
@@ -109,7 +126,7 @@ function recall(boss, query, k, root) {
 // Safety-net scan: walk agent-memory for any secret that slipped past write-time redaction.
 function scanMemory(root) {
   const base = path.join(root || PROJECT_ROOT, '.claude', 'agent-memory');
-  const hits = []; const walk = (d) => { let ents = []; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of ents) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else { let txt; try { txt = fs.readFileSync(p, 'utf8'); } catch { continue; } for (const re of SECRET_RE) { re.lastIndex = 0; if (re.test(txt)) { hits.push({ file: path.relative(root || PROJECT_ROOT, p) }); break; } } } } };
+  const hits = []; const walk = (d) => { let ents = []; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of ents) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else { let txt; try { txt = fs.readFileSync(p, 'utf8'); } catch { continue; } for (const re of SECRET_RE.concat(LABELLED_SECRET_RE)) { re.lastIndex = 0; if (re.test(txt)) { hits.push({ file: path.relative(root || PROJECT_ROOT, p) }); break; } } } } };
   walk(base);
   return { ok: hits.length === 0, hits };
 }
@@ -118,7 +135,7 @@ function scanMemory(root) {
 // its own redaction (forge-harvest.cjs's cross-project secret guard) can reuse this exact pattern set
 // instead of maintaining a second, drifting copy — this file stays the single source of truth for what
 // "redacted" means for a lesson's text.
-module.exports = { addLesson, listLessons, recall, scanMemory, memDir, scrub, configOn, configRead, TYPES, SECRET_RE };
+module.exports = { addLesson, listLessons, recall, scanMemory, memDir, scrub, configOn, configRead, TYPES, SECRET_RE, LABELLED_SECRET_RE };
 
 if (require.main === module && !PROJECT_ROOT) {
   console.error('forge-memory: no project root found (this copy is not inside a project and neither CLAUDE_PROJECT_DIR nor the current folder names one) - set FORGE_PROJECT_ROOT'); // WP 2.1: a plugin copy outside any project

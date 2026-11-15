@@ -1,0 +1,52 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "research",
+  "_doc": "The research pack (owner request R-0239, contract): 3 res-* SPECIALIST agents (never Bosses; the 12 permanent Bosses are unchanged) for research and planning projects (tool and tweak research, business plans, app idea sweeps), built from the owner projects that ran this work through Search Boss, Boss, Docs Boss and Verify Boss. forge-router sends research and planning work to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Lanes open the presets research-all and process first (checked by forge-lane-skills.cjs --require research-all,process).",
+  "projectTypes": [
+    "research",
+    "planning"
+  ],
+  "signals": [
+    "research",
+    "onderzoek",
+    "deep dive",
+    "compare options",
+    "vergelijk",
+    "sources",
+    "bronnen",
+    "fact check",
+    "stappenplan",
+    "roadmap",
+    "business plan"
+  ],
+  "playbook": "forge-research-evidence",
+  "agents": [
+    "res-analyst",
+    "res-fact-checker",
+    "res-plan-writer"
+  ],
+  "skills": [
+    "forge-research-evidence",
+    "forge-scout",
+    "forge-graded-verify",
+    "forge-verify",
+    "forge-prd",
+    "writing-plans",
+    "humanizer",
+    "forge-report"
+  ],
+  "presets": {
+    "research-all": [
+      "forge-research-evidence",
+      "forge-scout",
+      "forge-graded-verify",
+      "forge-prd",
+      "writing-plans"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

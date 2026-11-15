@@ -22,7 +22,7 @@ How to read each entry:
 
 ---
 
-## Vague verb ("maak het beter")
+## F1 — Vague verb ("maak het beter")
 - **Detection:** a vague word (beter, mooier, strakker, moderner, professioneler, fixen, regelen, optimaliseren,
   verbeteren, opschonen; improve, fix, clean up) with no object and no measure. Ingredient 1 missing.
 - **NL:** "Wat moet er vooral beter? A) hoe het eruitziet B) hoe snel het laadt C) dat meer mensen contact
@@ -36,7 +36,7 @@ How to read each entry:
 - **Bank questions:** universal/goal, universal/load-bearing, website/goal, dashboard/content.
 - **Sources:** [CC-BP][PBP]; vague-word list from research §A.
 
-## No "done" check
+## F2 — No "done" check
 - **Detection:** no ingredient-4 signal: no "klaar als / is goed als / done when / moet kunnen", no number, no
   test, no "ik wil kunnen…".
 - **NL:** "Hoe zie jij dat het gelukt is? A) ik kan een voorbeeld bekijken B) het werkt met mijn echte gegevens
@@ -50,7 +50,7 @@ How to read each entry:
   prediction/success, prediction/scope, scraping/success, dashboard/success, bugfix/expected.
 - **Sources:** [CC-BP][DEF-SUCCESS].
 
-## One word or a very short request ("webshop", "bot")
+## F3 — One word or a very short request ("webshop", "bot")
 - **Detection:** fewer than 9 words [GOOG]; a bare deliverable noun.
 - **NL:** "Wat moet het vooral doen? A) klanten laten bellen/aanvragen B) producten verkopen C) iets voor jezelf
   automatiseren — of iets anders?"
@@ -65,7 +65,7 @@ How to read each entry:
   bots/answers.
 - **Sources:** [GOOG][JOHNNY][NNG-AB].
 
-## A solution instead of an outcome (XY problem: "zet er een database in")
+## F4 — A solution instead of an outcome (XY problem: "zet er een database in")
 - **Detection:** a tool or technology name without a goal sentence ("zodat / so that / om te").
 - **NL:** "Wat moet dit voor jou oplossen? A) gegevens bewaren die nu kwijtraken B) werk dat je nu met de hand
   doet C) klanten sneller helpen — of iets anders?"
@@ -80,7 +80,7 @@ How to read each entry:
   fullstack/tech, electron/tech, voice/tech, prediction/tech, dashboard/tech.
 - **Sources:** [XY].
 
-## Several projects in one request
+## F5 — Several projects in one request
 - **Detection:** two or more deliverable types joined by `en / ook / plus / and`.
 - **NL:** "Waar beginnen we mee? A) {eerste} B) {tweede} C) {derde}. De rest zet ik op de lijst voor later."
 - **EN:** "Where do we start? A) {first} B) {second} C) {third}. I'll put the rest on the list for later."
@@ -91,7 +91,7 @@ How to read each entry:
 - **Bank questions:** universal/scope, website/scope.
 - **Sources:** research §B; [SHAPEUP] for "smallest first".
 
-## No audience
+## F6 — No audience
 - **Detection:** no `voor / for` + a person (customers, members, team, me).
 - **NL:** "Voor wie is het? A) je klanten B) alleen jij C) je team — of iets anders?"
 - **EN:** "Who is it for? A) your customers B) only you C) your team — or something else?"
@@ -103,7 +103,7 @@ How to read each entry:
   dashboard/design, bots/audience.
 - **Sources:** [CONST][CARE].
 
-## Megascope ("zoals Facebook")
+## F7 — Megascope ("zoals Facebook")
 - **Detection:** a platform name (Facebook, Uber, Airbnb, Amazon, Bol, Marktplaats), `alles`, `platform`,
   `net als X maar`.
 - **NL:** "Wat is het ÉÉN ding dat als eerste moet werken? A) {kernactie 1} B) {kernactie 2} C) {kernactie 3}
@@ -120,7 +120,7 @@ How to read each entry:
   dashboard/scope, bots/answers.
 - **Sources:** [SHAPEUP][LOV].
 
-## Points at something existing without saying where
+## F8 — Points at something existing without saying where
 - **Detection:** "mijn site / de app / weer / nog steeds" without a URL, path or project name.
 - **NL:** "Bedoel je {project uit scan}? A) ja B) iets anders: plak de link C) nieuw beginnen"
 - **EN:** "Do you mean {project from scan}? A) yes B) something else: paste the link C) start fresh"
@@ -133,7 +133,7 @@ How to read each entry:
   bugfix/steps.
 - **Sources:** [CC-BP][SUPA].
 
-## Bug without a symptom
+## F9 — Bug without a symptom
 - **Detection:** "werkt niet / kapot / error / doet raar" without an error text, steps or "since".
 - **NL:** "Wat zie je gebeuren? A) een foutmelding (plak of screenshot) B) er gebeurt niks als ik klik C) het
   ziet er verkeerd uit — of iets anders?"
@@ -147,7 +147,7 @@ How to read each entry:
   bugfix/error-text, bugfix/since-when, bugfix/expected.
 - **Sources:** [CC-BP][CODEX].
 
-## Taste words without a reference
+## F10 — Taste words without a reference
 - **Detection:** modern, strak, mooi, professioneel, cool — with no URL, "zoals / like", or example.
 - **NL:** "Welke stijl past het best? A) rustig en licht B) donker en strak C) kleurrijk. Of stuur een site die
   je mooi vindt."
@@ -158,7 +158,7 @@ How to read each entry:
 - **Bank questions:** universal/references, website/design, ecommerce/design, dashboard/design.
 - **Sources:** [PBP][LOV][EXMAP].
 
-## Changing existing work without a limit
+## F11 — Changing existing work without a limit
 - **Detection:** a change intent on existing work without ingredient 6 (`niet / geen / zonder / alleen /
   blijft / laat…staan / don't / only / keep`).
 - **NL:** "Wat moet zeker hetzelfde blijven? A) teksten en logo B) hoe bestellen/inloggen werkt C) niks, alles
@@ -171,7 +171,7 @@ How to read each entry:
 - **Bank questions:** universal/existing-state, universal/must-not-break, fullstack/data.
 - **Sources:** [LOV][CODEX].
 
-## The goal changes halfway
+## F12 — The goal changes halfway
 - **Detection:** new deliverables in a follow-up message, "laat maar / eigenlijk / toch liever".
 - **NL:** "Stoppen met {X} en naar {Y}, of {Y} na {X}? A) eerst {X} afmaken B) nu naar {Y} C) {Y} op de lijst"
 - **EN:** "Stop {X} and switch to {Y}, or {Y} after {X}? A) finish {X} first B) switch to {Y} now C) put {Y}
@@ -182,7 +182,7 @@ How to read each entry:
 - **Bank questions:** none — this happens mid-run, not at intake.
 - **Sources:** research §B.
 
-## Sending or paying without a consent limit
+## F13 — Sending or paying without a consent limit
 - **Detection:** stuur / mail / post / betaal / publiceer (send, e-mail, post, pay, publish) without who, when
   or a limit.
 - **NL:** "Moet Forge echt versturen, of eerst klaarzetten? A) alleen klaarzetten B) versturen na mijn OK C)

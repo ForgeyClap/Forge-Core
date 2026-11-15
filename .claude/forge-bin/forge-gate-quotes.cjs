@@ -63,7 +63,7 @@
  * separator sitting inside quoted data — the exact class of bug N04 was, reused here to keep a quoted `;`
  * inside a commit message from ever looking like a fresh statement start). A wrapper prefix's own OPTIONS
  * (`sudo -u root`, `env -i`, `nice -n 5`, `exec -a name`) are now stripped along with the wrapper word itself
- * stripped only the word, leaving an option like `-u` as the apparent, non-shell "leading word").
+ * (stripped only the word, leaving an option like `-u` as the apparent, non-shell "leading word").
  * Separately, a `$` followed by a digit or a special parameter character (`$5`, `$1`, `$@`) is genuine shell
  * substitution syntax too (N14, codex-recheck 2026-09-24, / wp-m1 — a REGRESSION the fifth pass
  * introduced by treating every digit/special character after `$` as inert currency); see isSubstitutionDollar()/
@@ -340,6 +340,9 @@ function scanQuotes(text) {
         // mis-parsed as real syntax, while a later BARE (non-escaped) `"`, `$(`, or backtick still opens a
         // genuine nested context scanned with ordinary, single-escape rules.
         if (f.backtickInDq && ch === '\\' && f.i + 1 < f.end) { marks[f.i] = true; marks[f.i + 1] = true; f.i += 2; continue; }
+        // FB-GATEHOOK-F2: outside quotes bash reads a backslash plus the next character as ONE literal
+        // character, so `\'` or `\"` never opens a quote. Stepping over the backslash alone shifted the quote pairing by one.
+        if (ch === '\\' && f.i + 1 < f.end) { f.i += 2; continue; }
         // Security Boss over-blocking review (codex-recheck 2026-09-24) — checked, REAL: an
         // unquoted `#` at the start of a shell WORD (start of text, or right after whitespace/`;`/`&`/`|`/`(`/
         // newline) begins a bash COMMENT to the end of the line; everything in it is inert and must never be
@@ -348,7 +351,7 @@ function scanQuotes(text) {
         // combined with cArgLiveAfterFlag's own pre-existing "cannot bound the quote structure -> fire" rule,
         // made an entirely unrelated `-c` flag anywhere else in the text (`wc -c "$file" # don't count this`)
         // fire opaque-exec. `#` NOT at a word start (`foo#bar`) is correctly left alone — bash only treats it as
-        // a comment opener at that position. Metered like every other search in this file.
+        // a comment opener at that position. Metered like every other search in this file (N13).
         if (ch === '#' && (f.i === f.start || /[\s;&|(`\n]/.test(text[f.i - 1]))) {
           const nl = text.indexOf('\n', f.i);
           const end = nl === -1 || nl > f.end ? f.end : nl;
@@ -365,7 +368,7 @@ function scanQuotes(text) {
             const nl = text.indexOf('\n', f.i + hm[0].length);
             if (nl !== -1 && nl < f.end) {
               const body = findHeredocDelim(text, nl + 1, hm[1], delim, f.end);
-              // meter the delimiter search itself — a text carrying MANY never-resolving heredoc markers
+              // N13: meter the delimiter search itself — a text carrying MANY never-resolving heredoc markers
               // used to cost one full forward scan EACH (a quadratic pattern for many markers in one text);
               // charging each search's own cost against the shared budget bounds the total regardless of how
               // many markers are tried.
@@ -459,6 +462,9 @@ function scanQuotes(text) {
  *  skipped whole (an executed body is never re-read). */
 function stripHeredocs(text, deps) {
   const { WRITER_HEAD_RE, COMMIT_HEAD_RE, writerDests, laterRisk, SCRIPT_EXT_RE } = deps;
+  // FB-GATEHOOK-F2: ANSI-C quoting `$'...'` lets `\'` sit inside a single-quoted string, which scanQuotes does not
+  // model, so the quote pairing cannot be trusted: strip nothing (fail closed).
+  if (/\$'/.test(text)) return { text, regions: 0, unstripped: true };
   const qmask = scanQuotes(text);
   if (qmask.unterminated) return { text, regions: 0, unstripped: true }; // cannot tell "inside" from "outside"
   const lines = text.split('\n');
@@ -1367,12 +1373,12 @@ function readInterpreterWord(s) {
 
 /** statementCommandWord(stmt) -> { word, dynamic } -- the leading command word of a statement's own text (see
  *  readInterpreterWord), after repeatedly stripping env assignments, wrapper prefixes AND THEIR OWN OPTIONS
- * and grouping/control-flow openers from its start (capped so a pathological input cannot loop
+ *  (N15), and grouping/control-flow openers from its start (capped so a pathological input cannot loop
  *  unboundedly; ordinary statements resolve in one or two strips). (wp-q1): stripWrapperOptions() now
  *  returns `{ rest, dynamic }` instead of a bare string -- when it reports `dynamic: true` (an option grammar
  *  this file does not recognise), this function returns `{ word: null, dynamic: true }` immediately, without
  *  ever calling readInterpreterWord on a leftover fragment; the old `wrapperResidue` boolean this function used
- *  to thread through to readInterpreterWord's own leftover-dash-option fallback is gone along with that
+ *  to thread through to readInterpreterWord's own leftover-dash-option fallback (N18) is gone along with that
  *  fallback -- see readInterpreterWord's own doc for why it is no longer needed.
  *
  *  (codex-recheck eleventh pass / wp-s1). Two fixes: (1) the wrapper match now goes through
@@ -1577,7 +1583,7 @@ function envSplitOperandStart(s, flag, flagEnd) {
 }
 
 /** cArgLiveAfterFlag(text) -> boolean. The -c ARGUMENT POLICY (see this file's header) implemented for all
- *  three outer quoting forms, now ASSOCIATED with a real interpreter invocation. Locates every
+ *  three outer quoting forms, now ASSOCIATED with a real interpreter invocation (N09). Locates every
  *  standalone `-c` token in `text`; a token sitting inside quoted DATA, or whose ENCLOSING STATEMENT's own
  *  leading command word is not an actual shell interpreter, is not a real flag and is skipped. For a token
  *  that IS associated, the very next shell word — bare, single-quoted, or double-quoted — is read exactly as
@@ -1602,11 +1608,11 @@ function cArgLiveAfterFlag(text) {
   while ((m = re.exec(s)) !== null) {
     const cStart = m.index + m[0].length - 2; // m[0] is "-c" or "\s-c"; the flag itself is its last 2 chars
     if (mask.unterminated) return true; // cannot bound the quote structure at all -> fail toward fire
-    if (mask.inside(cStart)) continue; // "-c" sitting inside quoted DATA (e.g. a commit message) is not a real flag
+    if (mask.inside(cStart)) continue; // N09: "-c" sitting inside quoted DATA (e.g. a commit message) is not a real flag
     const start = statementStart(s, mask, cStart, budget);
     if (budget.exhausted) return true; // cannot finish resolving every "-c" occurrence -> fail toward fire
     const attribution = statementCommandWord(s.slice(start, cStart));
-    // associate with the real invocation — a known shell word, OR an unresolvable ("dynamic") one,
+    // N09/N15: associate with the real invocation — a known shell word, OR an unresolvable ("dynamic") one,
     // both count; a resolvable word that is NOT a shell (e.g. "node", "wc", a leftover option) does not.
     if (!attribution.dynamic && !SHELL_WORD_RE.test(attribution.word || '')) continue;
     const i = skipWs(s, m.index + m[0].length);
@@ -1744,7 +1750,7 @@ function cArgLiveAfterFlag(text) {
  *  pattern-supplying option (`pattern` or `file`, in ANY form) exists ANYWHERE in the region. PASS 2 does the
  *  real accounting, with `patternClaimed` PRE-ARMED to that detection result — so once ANY explicit source
  *  exists, no positional may claim the pattern slot, no matter where it sits relative to that source.
- *  A standalone `--` still ends option parsing (preserved): nothing after it is scanned as a flag at
+ *  A standalone `--` still ends option parsing (M2 F2, preserved): nothing after it is scanned as a flag at
  *  all; if no pattern slot was filled before it, the first word right after it is the pattern, every other
  *  word (before or after `--`) stays a plain, tested file/positional. `patternIdx` is the set of indices into
  *  `texts` (0-based, relative to the array passed in) the caller must SKIP when scanning for a secret-shaped

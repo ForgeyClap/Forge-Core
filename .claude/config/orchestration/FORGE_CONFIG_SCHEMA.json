@@ -139,6 +139,13 @@
       "consumers": [".claude/forge-bin/forge-gate-hook.cjs", ".claude/settings.json (PreToolUse Bash)", ".claude/forge-bin/forge-actiongate.cjs"],
       "aliases": { "nl": ["gate hook", "poort-hook", "commando-stop"], "en": ["gate hook", "command guard"] }
     },
+    "lead-write-guard": {
+      "type": "bool", "default": true, "scope": "project", "group": "core",
+      "desc": { "nl": "Een echte melding (geen advies) als de Lead van een /forge-bouwsessie zelf app-bestanden schrijft: zonder gestarte run (voorkeuren en geheugen niet geladen) of zonder werkpakket. De Lead krijgt dan te horen wat nu moet: de run starten, of een werkpakket loggen en een Boss sturen. Een fix van een of twee bestanden door de Lead zelf mag, met een eigen werkpakket. Elke melding komt hooguit een keer per sessie; daarna wordt het alleen vastgelegd. Laat dit aan staan; zet het alleen zelf uit als je het echt niet wilt.", "en": "A real notice (not advice) when the Lead of a /forge build session writes app files itself: with no started run (prefs and memory not loaded) or with no work package. The Lead is told what to do now: start the run, or log a work package and dispatch a Boss. A one- or two-file fix by the Lead itself is allowed, with its own work package. Each notice comes at most once per session; after that it is only recorded. Keep it on; turn it off yourself only if you really do not want it." },
+      "off_means": { "nl": "Forge legt Lead-writes nog vast in het wijzigingslogboek, maar zegt er niets meer van.", "en": "Forge still records Lead writes in the change ledger, but no longer says anything about them." },
+      "consumers": [".claude/forge-bin/forge-lead-write-guard.cjs", ".claude/forge-bin/forge-toolhook.cjs", ".claude/settings.json (PostToolUse Write|Edit|MultiEdit|NotebookEdit)"],
+      "aliases": { "nl": ["lead-schrijfwacht", "lead schrijft zelf"], "en": ["lead write guard", "lead writes itself"] }
+    },
     "write-scope-mode": {
       "type": "enum", "allowed": ["warn", "deny"], "default": "warn", "scope": "project", "group": "advanced",
       "desc": { "nl": "Wat de schrijfgrens doet met een shell-commando dat buiten de gekozen map schrijft: warn (standaard) laat het door met een zichtbare waarschuwing, deny blokkeert het. Werkt alleen als de schrijfgrens aan staat, en die zet je met de omgevingsvariabele FORGE_WRITE_SCOPE=<map> bij het starten van Claude Code (de map zelf is geen instelling hier). Een doel dat Forge niet kan controleren krijgt altijd een melding, nooit een blokkade. FORGE_WRITE_SCOPE_MODE gaat voor deze instelling: zet daar deny als een agent het tijdens de sessie niet mag kunnen wijzigen.", "en": "What the write-scope freeze does with a shell command that writes outside the chosen folder: warn (the default) lets it run with a visible warning, deny blocks it. Only takes effect while the freeze is on, which you turn on with the environment variable FORGE_WRITE_SCOPE=<folder> when you start Claude Code (the folder itself is not a setting here). A target Forge cannot check always gets a notice, never a block. FORGE_WRITE_SCOPE_MODE wins over this setting: set deny there if an agent must not be able to change it during the session." },
@@ -163,7 +170,7 @@
       "type": "bool", "default": true, "scope": "project", "group": "core",
       "desc": { "nl": "Controleert je opdracht op de klassieke valkuilen (vaag doel, geen 'klaar'-definitie, geen context) en vult de gaten zelf aan of stelt die ene gerichte vraag.", "en": "Checks your request for the classic traps (vague goal, no definition of done, no context) and fills the gaps itself or asks the one targeted question." },
       "off_means": { "nl": "Forge neemt je opdracht letterlijk zonder valkuil-check.", "en": "Forge takes your request literally without the trap check." },
-      "consumers": [".claude/forge-bin/forge-promptcheck.cjs (ask mode)", ".claude/forge-bin/forge-promptcheck.cjs (dispatch mode, --strict, on every dispatch prompt since wave 1)", ".claude/skills/forge-prompt-coach/SKILL.md", ".claude/skills/forge-intake/SKILL.md", ".claude/skills/forge-router/SKILL.md", ".claude/agents/head-chef.md"],
+      "consumers": [".claude/forge-bin/forge-promptcheck.cjs (ask mode) (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/forge-bin/forge-promptcheck.cjs (dispatch mode, --strict, on every dispatch prompt since wave 1) (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/skills/forge-prompt-coach/SKILL.md", ".claude/skills/forge-intake/SKILL.md", ".claude/skills/forge-router/SKILL.md", ".claude/agents/head-chef.md"],
       "aliases": { "nl": ["prompt doctor", "promptcheck", "opdrachtcheck"], "en": ["prompt doctor", "prompt check"] }
     },
     "explain-mode": {
@@ -243,6 +250,19 @@
       "consumers": [".claude/forge-bin/forge-vault.cjs", ".claude/forge-bin/forge-finalize.cjs (best-effort, after a real finalize)"],
       "aliases": { "nl": ["vault", "kennisvault", "notities", "kennisbank"], "en": ["vault", "knowledge vault", "notes"] }
     },
+    "brain-path": {
+      "type": "string", "absolute_path": true, "default": "", "scope": "global", "group": "core",
+      "desc": { "nl": "De map waar Forge het centrale brein schrijft (één Obsidian-kennisbank van al je projecten), bijvoorbeeld je eigen Obsidian-vault. Leeg betekent de standaardmap Documenten/Forge-Brain. De map moet al bestaan; Forge maakt hem niet aan en laat je eigen notities met rust.", "en": "The folder where Forge writes the central brain (one Obsidian knowledge base of all your projects), for example your own Obsidian vault. Empty means the default folder Documents/Forge-Brain. The folder must already exist; Forge does not create it and leaves your own notes alone." },
+      "consumers": [".claude/forge-bin/forge-brain.cjs (brainLocation: FORGE_BRAIN_PATH > brain-path > default)"],
+      "aliases": { "nl": ["brein map", "brein locatie", "vault map"], "en": ["brain folder", "brain location", "vault folder"] }
+    },
+    "scribe-autoack": {
+      "type": "bool", "default": true, "scope": "project", "group": "core",
+      "desc": { "nl": "De scribe-acker accepteert routine-wensen voor je (jouw besluit R-0233): een wens die klaar is met echt bewijs in een run die niet rood is, of een voorstel om iets door te schuiven met een reden. Een vraag, een onduidelijke wens, of iets met push, deploy, publiceren, geld, inloggen, productie, verwijderen, instellingen of buiten je project wacht altijd op jou. Elke acceptatie staat in het logboek en in de samenvatting.", "en": "The scribe-acker accepts routine requests for you (your decision R-0233): a request that is done with real evidence in a run that is not red, or a proposal to carry something over with a reason. A question, an unclear request, or anything with push, deploy, publishing, money, sign-in, production, deletes, settings or outside your project always waits for you. Every acceptance is in the ledger and the digest." },
+      "off_means": { "nl": "Je accepteert alles weer zelf: de eindcontrole wacht op jouw akkoord voor elk afgerond item en elk doorschuifvoorstel.", "en": "You accept everything yourself again: the final check waits for your ack on every done item and every carry-over proposal." },
+      "consumers": [".claude/forge-bin/forge-scribe.cjs (autoack, gate --final)", ".claude/forge-bin/forge-scribe-hook.cjs (UserPromptSubmit)", ".claude/forge-bin/forge-scribe-stop.cjs (Stop)", ".claude/agents/scribe-acker.md"],
+      "aliases": { "nl": ["scribe accepteren", "automatisch accepteren", "scribe accept", "acker"], "en": ["scribe auto-ack", "auto ack", "auto accept", "scribe acker"] }
+    },
     "ui-quality": {
       "type": "bool", "default": true, "scope": "project", "group": "core",
       "desc": { "nl": "Websites en apps zijn pas klaar met echte screenshots op desktop, tablet en telefoon en een echte kwaliteitscheck.", "en": "Websites and apps are only done with real desktop, tablet and phone screenshots and a real quality check." },
@@ -254,7 +274,7 @@
       "type": "bool", "default": true, "scope": "project", "group": "core",
       "desc": { "nl": "Voor geld, facturen, parsers en data: testen op echte voorbeeldbestanden van jou, niet op verzonnen data.", "en": "For money, invoices, parsers and data: tests on your real sample files, not on made-up data." },
       "off_means": { "nl": "Geen echte-bestanden-eis; resultaten worden gemarkeerd als niet op echte data getest.", "en": "No real-file requirement; results are labelled as untested on real data." },
-      "consumers": [".claude/forge-bin/forge-fixtures.cjs", ".claude/config/orchestration/FORGE_HARD_RULES.json (correctness-critical-fixtures)"],
+      "consumers": [".claude/forge-bin/forge-fixtures.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/config/orchestration/FORGE_HARD_RULES.json (correctness-critical-fixtures)"],
       "aliases": { "nl": ["echte bestanden", "fixtures"], "en": ["real files", "fixtures", "real-file testing"] }
     },
     "research-first": {
@@ -275,7 +295,7 @@
       "type": "bool", "default": true, "scope": "project", "group": "core",
       "desc": { "nl": "Controleert of de documentatie waar Forge op bouwt nog klopt met de echte tools (n8n, Claude Code) voordat die wordt gebruikt.", "en": "Checks that the documentation Forge relies on still matches the real tools (n8n, Claude Code) before using it." },
       "off_means": { "nl": "Geen documentatie-driftcheck.", "en": "No documentation drift check." },
-      "consumers": [".claude/forge-bin/forge-docdrift.cjs", ".claude/skills/forge-docdrift/SKILL.md"],
+      "consumers": [".claude/forge-bin/forge-docdrift.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/skills/forge-docdrift/SKILL.md"],
       "aliases": { "nl": ["docdrift", "documentatiecheck"], "en": ["docdrift", "doc drift"] }
     },
     "language": {
@@ -286,7 +306,7 @@
     },
     "team-max": {
       "type": "int-or-auto", "min": 1, "max": 12, "default": "auto", "scope": "project", "group": "core",
-      "desc": { "nl": "Maximaal aantal agents tegelijk (auto = Forge kiest het kleinste team dat past: klein werk 1-3, groot werk tot 12).", "en": "Maximum agents at once (auto = Forge picks the smallest team that fits: small work 1-3, large work up to 12)." },
+      "desc": { "nl": "Maximaal aantal agents tegelijk (auto = Forge kiest het kleinste team dat past: klein werk 1-3, groot werk tot 12). Is het lane-budget lager (forge-lane-budget.cjs, de lanes.*-instellingen), dan wint het lane-budget.", "en": "Maximum agents at once (auto = Forge picks the smallest team that fits: small work 1-3, large work up to 12). When the lane budget is lower (forge-lane-budget.cjs, the lanes.* settings), the lane budget wins." },
       "consumers": [".claude/skills/forge-router/SKILL.md (classify)", "CLAUDE.md (fan-out levels)"],
       "aliases": { "nl": ["teamgrootte", "parallel", "aantal agents"], "en": ["team size", "parallel", "max agents"] }
     },
@@ -324,14 +344,14 @@
       "type": "enum", "allowed": ["auto", "off"], "default": "auto", "scope": "project", "group": "when-needed",
       "desc": { "nl": "Bouwt meerdere varianten en kiest de beste als er geen duidelijke aanpak is (kost N keer zoveel).", "en": "Builds several variants and picks the best when no approach is clearly right (costs N times as much)." },
       "off_means": { "nl": "Altijd één variant.", "en": "Always one variant." },
-      "consumers": [".claude/forge-bin/forge-tournament.cjs", ".claude/skills/forge-router/SKILL.md (3c)"],
+      "consumers": [".claude/forge-bin/forge-tournament.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/skills/forge-router/SKILL.md (3c)"],
       "aliases": { "nl": ["tournament", "varianten"], "en": ["tournament", "variants", "best-of-n"] }
     },
     "code-index": {
       "type": "bool", "default": true, "scope": "project", "group": "when-needed",
       "desc": { "nl": "Houdt een index van je code bij zodat agents sneller de juiste bestanden vinden.", "en": "Keeps an index of your code so agents find the right files faster." },
       "off_means": { "nl": "Geen index; agents zoeken elke keer opnieuw.", "en": "No index; agents search from scratch each time." },
-      "consumers": [".claude/forge-bin/forge-codemodel.cjs", ".claude/forge-bin/forge-repomap.cjs"],
+      "consumers": [".claude/forge-bin/forge-codemodel.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/forge-bin/forge-repomap.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)"],
       "aliases": { "nl": ["code-index", "repomap"], "en": ["code index", "repo map"] }
     },
     "portfolio": {
@@ -340,21 +360,21 @@
       "off_means": { "nl": "Elk project staat volledig op zichzelf.", "en": "Every project stands completely alone." },
       "disclosure": { "nl": "Leest alleen de .claude/FORGE_*-geheugenbestanden van je andere Forge-projecten, zonder secrets, en schrijft er nooit in.", "en": "Reads only the .claude/FORGE_* memory files of your other Forge projects, secrets excluded, and never writes to them." },
       "flags": ["X"],
-      "consumers": [".claude/forge-bin/forge-harvest.cjs (/forge learn)", ".claude/forge-bin/forge-secondbrain.cjs", ".claude/forge-bin/forge-registry.cjs"],
+      "consumers": [".claude/forge-bin/forge-harvest.cjs (/forge learn) (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/forge-bin/forge-secondbrain.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/forge-bin/forge-registry.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)"],
       "aliases": { "nl": ["portfolio", "andere projecten", "cross-project"], "en": ["portfolio", "other projects", "cross-project learning"] }
     },
     "skill-proposals": {
       "type": "bool", "default": true, "scope": "project", "group": "when-needed",
       "desc": { "nl": "Forge mag een nieuwe skill vóórstellen als het een echt gat ziet; activeren blijft altijd jouw beslissing.", "en": "Forge may propose a new skill when it sees a real gap; activating it always stays your decision." },
       "off_means": { "nl": "Geen skill-voorstellen.", "en": "No skill proposals." },
-      "consumers": [".claude/forge-bin/forge-genesis.cjs (propose)", ".claude/commands/forge.md (propose-skill)"],
+      "consumers": [".claude/forge-bin/forge-genesis.cjs (propose) (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/commands/forge.md (propose-skill)"],
       "aliases": { "nl": ["skill-voorstellen", "genesis"], "en": ["skill proposals", "genesis"] }
     },
     "nightshift": {
       "type": "bool", "default": true, "scope": "project", "group": "when-needed",
       "desc": { "nl": "Mag een onderbroken run zelf hervatten en 's ochtends een briefing maken; plant zichzelf nooit in.", "en": "May resume an interrupted run itself and write a morning briefing; never schedules itself." },
       "off_means": { "nl": "Geen automatisch hervatten of briefing.", "en": "No automatic resume or briefing." },
-      "consumers": [".claude/forge-bin/forge-swarm-resume.cjs", ".claude/forge-bin/forge-briefing.cjs", ".claude/skills/forge-nightshift/SKILL.md"],
+      "consumers": [".claude/forge-bin/forge-swarm-resume.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/forge-bin/forge-briefing.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/skills/forge-nightshift/SKILL.md"],
       "aliases": { "nl": ["nightshift", "nachtdienst", "briefing"], "en": ["nightshift", "overnight", "briefing"] }
     },
     "mcp": {
@@ -363,7 +383,7 @@
       "off_means": { "nl": "Geen externe MCP-tools.", "en": "No external MCP tools." },
       "disclosure": { "nl": "Gebruikt alleen servers uit je eigen opt-in-lijst (.claude/config/orchestration/mcp-opt-in.json).", "en": "Uses only servers from your own opt-in list (.claude/config/orchestration/mcp-opt-in.json)." },
       "flags": ["N"],
-      "consumers": [".claude/forge-bin/forge-mcp-gate.cjs", ".claude/config/orchestration/mcp-registry.json"],
+      "consumers": [".claude/forge-bin/forge-mcp-gate.cjs (prose only: the tool does not read this setting; the Lead checks it first, commands/forge.md rule 9)", ".claude/config/orchestration/mcp-registry.json"],
       "aliases": { "nl": ["mcp", "externe tools"], "en": ["mcp", "external tools"] }
     },
     "paperclip": {

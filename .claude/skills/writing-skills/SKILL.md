@@ -1,6 +1,7 @@
 ---
 name: writing-skills
-description: "Use when creating or editing a skill, or verifying it works."
+description: "Use to pressure-test a discipline skill with subagents the TDD way (RED/GREEN/REFACTOR)."
+# 2026-11-13 original description (audit SK-1-F4, overlapped forge-skill-authoring and forge-skill-testing): "Use when creating or editing a skill, or verifying it works."
 # A10 original description (listing budget): "Use when creating new skills, editing existing skills, or verifying skills work before deployment"
 # W2-BUDGET original description (listing budget): Use when creating or editing skills, or verifying a skill works before deployment
 license: MIT
@@ -11,12 +12,19 @@ license: MIT
   Pinned commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b (tag v7.0.1, also main on 2026-11-02)
   Upstream path: skills/writing-skills/
   License: MIT (c) 2025 Jesse Vincent -- full text in LICENSE next to this file
-  Forge vendor note: frontmatter license: MIT key and this provenance block added; 8 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; the two links into the unshipped using-superpowers references (codex-tools.md / gemini-tools.md) dropped from the Overview sentence; one illustrative example path in the "bare path" sentence written as ./scripts/tool.sh (was scripts/tool.sh) and, in references/anthropic-best-practices.md, the "Good" forward-slash example written as ./scripts/helper.py (was scripts/helper.py), both so Forge's skill-hygiene check does not read an example as a missing shipped file; upstream moved the support files into references/, so the old top-level copies are gone here too; everything else verbatim.
+  Forge vendor note: frontmatter description shortened for the skill-listing budget (the earlier text is in the "original description" comment line(s) in the frontmatter); frontmatter license: MIT key and this provenance block added; 8 plugin-namespaced skill reference(s) rewritten to bare skill names so they resolve inside a Forge install; the two links into the unshipped using-superpowers references (codex-tools.md / gemini-tools.md) dropped from the Overview sentence; one illustrative example path in the "bare path" sentence written as ./scripts/tool.sh (was scripts/tool.sh) and, in references/anthropic-best-practices.md, the "Good" forward-slash example written as ./scripts/helper.py (was scripts/helper.py), both so Forge's skill-hygiene check does not read an example as a missing shipped file; upstream moved the support files into references/, so the old top-level copies are gone here too; a marked "Forge addendum" blockquote under the H1 (audit SK-1-F3: project skills folder, 200-character description, forge-skill-evals, push and PR are owner gates) and the description narrowed to the pressure-test case (SK-1-F4); everything else verbatim.
   Previous pin: 5bf4e78011075bcfc0dc295f0724994cd123ee71; upgraded 2026-11-02 (WP Q3-SKILLS).
   Reviewed for prompt-injection patterns and hidden/zero-width/control unicode by skill-boss, 2026-11-02 -- clean; every upstream file git-blob-hash-verified against the pinned commit's tree before copying.
 -->
 
 # Writing Skills
+
+> **Forge addendum (not upstream):** in Forge, write or change a skill with `forge-skill-authoring`
+> and score it with `forge-skill-testing`; this skill is the pressure-test step. Inside Forge these points
+> override the upstream text below: skills live in the project `.claude/skills/`, not `~/.claude/skills/`; a
+> description is at most 200 characters (not 1024); evals run through
+> `node .claude/forge-bin/forge-skill-evals.cjs run --skill <name>`; commit, push and PR in the deployment
+> checklist are owner gates (a local commit at most, never a push).
 
 ## Overview
 

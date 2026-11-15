@@ -15,7 +15,7 @@ import { _resetExecBridgeForTests } from '../src/exec-bridge.mjs';
 import { _resetAskStoreForTests } from '../src/ask-store.mjs';
 import { _resetPermissionStoreForTests } from '../src/permissions/store.mjs';
 import { execSpawnEnv, ASK_AGENT_TOKEN_ENV, ASK_EXEC_TOKEN_ENV } from '../src/exec-cli.mjs';
-import { EXEC_TOKEN_HEADER } from '../src/security.mjs';
+import { EXEC_TOKEN_HEADER, getExecToken } from '../src/security.mjs';
 import { REGISTERED_ROUTES, MODULE, TOKEN_ERROR_CODES } from '../src/routes/permissions.mjs';
 import { request, requestWithBody } from '../test-support/helpers.mjs';
 
@@ -73,6 +73,8 @@ function childToken(convId) {
   return env[ASK_AGENT_TOKEN_ENV];
 }
 
+// Round 11 (L3): GET pending and GET auto-log need the dashboard credential.
+const asDashboard = { headers: { [EXEC_TOKEN_HEADER]: getExecToken() } };
 const withToken = (token, extra = {}) => ({ headers: { [EXEC_TOKEN_HEADER]: token }, ...extra });
 
 test('the child token registers and long-polls its own card through the real server; only the dashboard token answers it', async () => {
@@ -82,7 +84,7 @@ test('the child token registers and long-polls its own card through the real ser
   assert.equal(created.statusCode, 200, JSON.stringify(created.json));
   const id = created.json.id;
 
-  const listed = await request(port, '/api/permissions/pending?conversation=' + convId);
+  const listed = await request(port, '/api/permissions/pending?conversation=' + convId, asDashboard);
   assert.equal(listed.json.pending[0].rememberable, false);
 
   const selfAnswer = await requestWithBody(port, '/api/permissions/' + id + '/answer', withToken(token, { jsonBody: { behavior: 'allow' } }));

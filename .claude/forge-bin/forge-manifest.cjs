@@ -130,6 +130,10 @@ const RUN_ID_RE = /^[A-Za-z0-9_-]+$/;
 const DONE_EVENT_TYPES = new Set(['wp_completed', 'check_passed', 'subagent_completed']);
 const FAILED_EVENT_TYPES = new Set(['wp_failed', 'check_failed', 'subagent_failed']);
 const WP_DONE_STATUS = 'done';
+// Verify Boss logs `wp_verified {wp_id, verdict}` per package (router-team-routing-and-goat.md); same closed pass list
+// as forge-runcontract's review verdicts.
+const VERIFIED_EVENT_TYPE = 'wp_verified';
+const VERIFY_PASS_VERDICTS = new Set(['pass', 'passed', 'approved', 'ok']);
 
 // ---- root / path resolution (mirrors forge-run-state.cjs / forge-checkpoint.cjs conventions) ----
 // WP 2.1 state paths: forge-paths.cjs decides the layout (the opt-in .forge/ folder, else the legacy .claude/forge-*
@@ -345,21 +349,32 @@ function eventIsDisproven(e) { return !!(e && e._forge_verify && e._forge_verify
 /** projectManifest(wps, events) -> WP[] — PURE function of (wps, events); no I/O, never mutates its
  *  inputs. For each wp, scans events in order; the LAST qualifying event (matching wp_id, not disproven,
  *  event_type in DONE_EVENT_TYPES or FAILED_EVENT_TYPES) wins, so a real later retry can flip a WP from
- *  failed back to done within the same run. No qualifying event at all => status stays exactly what it
- *  was on the input record (normally "armed" for a freshly-armed WP) — this is the "never fabricate a
- *  completed WP" invariant. This is the function `reconcile()`'s honesty guarantee is mutation-verified
+ *  failed back to done within the same run — except that a `wp_verified` verdict outranks builder events and a
+ *  check_passed never undoes a failure (see the loop). No qualifying event at all => status is "armed" and
+ *  last_proof null, whatever the stored record says (FB-INSTALL-2-F10: a stored "done" used to be carried over) —
+ *  this is the "never fabricate a completed WP" invariant; status() alone shows the stored value. This is the function `reconcile()`'s honesty guarantee is mutation-verified
  *  against (see forge-manifest.test.cjs). */
 function projectManifest(wps, events) {
   return wps.map((wp) => {
-    let status = wp.status || 'armed';
-    let lastProof = wp.last_proof != null ? wp.last_proof : null;
+    // FB-INSTALL-2-F10: status comes from the events only; a stored 'done' with no supporting event is not kept
+    let status = 'armed';
+    let lastProof = null;
+    let failVerdict = false;
     for (let i = 0; i < events.length; i++) {
       const e = events[i];
       if (!e || typeof e !== 'object') continue;
       if (e.wp_id == null || String(e.wp_id) !== String(wp.wp_id)) continue;
       if (eventIsDisproven(e)) continue; // a disproven claim is not evidence — ignored, never flips status
       const et = e.event_type;
-      if (DONE_EVENT_TYPES.has(et)) {
+      // FB-INSTALL-2-F1: the Verify Boss verdict outranks builder claims. Only an explicit pass verdict is done; after
+      // any other verdict no builder event flips the package back to done, only a new verdict does. A check_passed
+      // (lint, one test file) never undoes a failure on its own.
+      if (et === VERIFIED_EVENT_TYPE) {
+        failVerdict = !VERIFY_PASS_VERDICTS.has(String(e.verdict == null ? '' : e.verdict).trim().toLowerCase());
+        status = failVerdict ? 'failed' : 'done';
+        lastProof = { event_type: et, evIdx: i, ts: e.timestamp || null };
+      } else if (DONE_EVENT_TYPES.has(et)) {
+        if (failVerdict || (et === 'check_passed' && status === 'failed')) continue;
         status = 'done';
         lastProof = { event_type: et, evIdx: i, ts: e.timestamp || null };
       } else if (FAILED_EVENT_TYPES.has(et)) {

@@ -291,6 +291,13 @@ function computeDuplicateMatchers(hooksObj) {
   return out;
 }
 
+/** matcherCovered(old, list) — true when every `|` alternative of a plain tool-name matcher `old` is an alternative of
+ *  one matcher in `list`. A missing/empty matcher (all tools) or a regex-looking one is never covered. */
+function matcherCovered(old, list) {
+  if (typeof old !== 'string' || !/^[A-Za-z0-9_]+(\|[A-Za-z0-9_]+)*$/.test(old)) return false;
+  return list.some((m) => typeof m === 'string' && old.split('|').every((a) => m.split('|').includes(a)));
+}
+
 /** mergeForgeSettings(existing, source) -> { settings, added, adjusted, upgraded, deny_added,
  *  duplicate_matchers }. See file header SAFETY MODEL. Never mutates `existing` or `source`. `existing` may
  *  be null/undefined (treated as `{}`). Assumes both have already passed
@@ -318,9 +325,32 @@ function mergeForgeSettings(existing, source) {
   out.hooks = out.hooks && typeof out.hooks === 'object' && !Array.isArray(out.hooks) ? out.hooks : {};
   const srcHooks = src.hooks && typeof src.hooks === 'object' && !Array.isArray(src.hooks) ? src.hooks : {};
 
+  const moved = [];
   for (const event of Object.keys(srcHooks)) {
     const srcList = Array.isArray(srcHooks[event]) ? srcHooks[event] : [];
     out.hooks[event] = Array.isArray(out.hooks[event]) ? out.hooks[event] : [];
+    // FB-INSTALL-1-F3: an exact-known Forge hook that sits here under a matcher the template no longer uses for it, while
+    // a template matcher for the same script COVERS every tool of the old one (Bash -> Bash|PowerShell), was moved by the
+    // template: drop it from the old matcher (an entry left empty by that goes too), so the merge below puts it under the
+    // new matcher and it never fires twice. A matcher the template does not cover (an older template, a narrowed or
+    // match-all matcher) is left alone: never lose a hook on a guess.
+    const srcMatchers = new Map();
+    for (const se of srcList) for (const h of (se && Array.isArray(se.hooks) ? se.hooks : [])) {
+      const script = h && isForgeHookCommand(h.command) ? forgeScriptName(h.command) : null;
+      if (script) srcMatchers.set(script, (srcMatchers.get(script) || []).concat([se.matcher]));
+    }
+    out.hooks[event] = out.hooks[event].filter((e) => {
+      if (!e || typeof e !== 'object' || !Array.isArray(e.hooks)) return true;
+      const keep = e.hooks.filter((h) => {
+        const to = h && isForgeHookCommand(h.command) ? srcMatchers.get(forgeScriptName(h.command)) : null;
+        if (!to || to.includes(e.matcher) || !matcherCovered(e.matcher, to)) return true;
+        moved.push({ event, from: e.matcher === undefined ? null : e.matcher, to: to.map((m) => (m === undefined ? null : m)), command: h.command });
+        return false;
+      });
+      if (keep.length === e.hooks.length) return true;
+      e.hooks = keep;
+      return keep.length > 0;
+    });
     for (const srcEntry of srcList) {
       if (!srcEntry || typeof srcEntry !== 'object') continue;
       const matcher = srcEntry.matcher;
@@ -387,7 +417,7 @@ function mergeForgeSettings(existing, source) {
   }
 
   const duplicate_matchers = computeDuplicateMatchers(out.hooks);
-  return { settings: out, added, added_detail, adjusted, upgraded, deny_added, duplicate_matchers };
+  return { settings: out, added, added_detail, adjusted, upgraded, moved, deny_added, duplicate_matchers };
 }
 
 /** unmergeForgeSettings(existing, source, opts) -> { settings, removed_hooks, removed_events, reported_hooks,
@@ -556,6 +586,15 @@ function readTargetKind(target) {
 function writeRecommended(target, sourceRaw, opts) {
   const dir = path.dirname(target);
   const contents = sourceRaw.endsWith('\n') ? sourceRaw : sourceRaw + '\n';
+  // FB-INSTALL-1-F8: a refusal that repeats with the same source reuses the identical copy instead of adding one more
+  if (!guards.isSymlinkPath(dir)) {
+    try {
+      for (const name of fs.readdirSync(dir).filter((n) => /^settings\.forge-recommended-.*\.json$/.test(n)).sort()) {
+        const p = path.join(dir, name);
+        if (fs.lstatSync(p).isFile() && fs.readFileSync(p, 'utf8') === contents) return { ok: true, path: p, reused: true };
+      }
+    } catch { /* unreadable folder: fall through and write a new copy */ }
+  }
   return guards.writeExclusiveUnique(dir, 'settings.forge-recommended', '.json', contents, { now: opts.now });
 }
 
@@ -652,16 +691,18 @@ function applySettingsMerge(opts) {
     };
   }
 
-  const { settings, added, added_detail, adjusted, upgraded, deny_added, duplicate_matchers } = mergeForgeSettings(targetJson, sourceJson);
-  const changed = added.length > 0 || adjusted.length > 0 || upgraded.length > 0 || deny_added.length > 0;
+  const { settings, added, added_detail, adjusted, upgraded, moved, deny_added, duplicate_matchers } = mergeForgeSettings(targetJson, sourceJson);
+  const changed = added.length > 0 || adjusted.length > 0 || upgraded.length > 0 || moved.length > 0 || deny_added.length > 0;
   if (!changed) {
     const res = { ok: true, status: 'noop', target, added, added_detail, adjusted, upgraded, deny_added };
     if (duplicate_matchers.length) res.duplicate_matchers = duplicate_matchers;
+    if (moved.length) res.moved = moved;
     return res;
   }
   if (opts.dryRun) {
     const res = { ok: true, dryRun: true, status: 'would-merge', target, added, added_detail, adjusted, upgraded, deny_added };
     if (duplicate_matchers.length) res.duplicate_matchers = duplicate_matchers;
+    if (moved.length) res.moved = moved;
     return res;
   }
 
@@ -693,6 +734,7 @@ function applySettingsMerge(opts) {
   }
   const res = { ok: true, status: 'merged', target, added, added_detail, adjusted, upgraded, deny_added, backupPath: backupRes.path, writtenSha256: require('crypto').createHash('sha256').update(Buffer.from(finalContents, 'utf8')).digest('hex') }; // forge-sync R4 / F03
   if (duplicate_matchers.length) res.duplicate_matchers = duplicate_matchers;
+  if (moved.length) res.moved = moved;
   return res;
 }
 
@@ -720,10 +762,11 @@ function checkSettingsMerge(opts) {
   if (risks.duplicateKeys.length || risks.unsafeNumbers.length) {
     return { ok: false, status: 'unsafe-content', duplicateKeys: risks.duplicateKeys, unsafeNumbers: risks.unsafeNumbers, message: 'existing target has content a merge cannot safely preserve' };
   }
-  const { added, adjusted, upgraded, deny_added, duplicate_matchers } = mergeForgeSettings(targetJson, sourceJson);
-  const upToDate = added.length === 0 && adjusted.length === 0 && upgraded.length === 0 && deny_added.length === 0;
+  const { added, adjusted, upgraded, moved, deny_added, duplicate_matchers } = mergeForgeSettings(targetJson, sourceJson);
+  const upToDate = added.length === 0 && adjusted.length === 0 && upgraded.length === 0 && moved.length === 0 && deny_added.length === 0;
   const res = { ok: upToDate, status: upToDate ? 'up-to-date' : 'missing-entries', added, adjusted, upgraded, deny_added };
   if (duplicate_matchers.length) res.duplicate_matchers = duplicate_matchers;
+  if (moved.length) res.moved = moved;
   return res;
 }
 

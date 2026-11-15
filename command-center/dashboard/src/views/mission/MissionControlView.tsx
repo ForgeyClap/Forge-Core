@@ -64,7 +64,7 @@ export default function MissionControlView() {
   /**
    * Progress, keyed by the agent name the graph nodes carry — a real completed/total ratio in
    * production (`buildAgentProgressMap`, `gateway-adapter.ts`), the fixture's own example value
-   * otherwise. cc-finish fix-cert-fabrication: this comment used to say "Example progress"
+   * otherwise. cc-finish fix-cert-fabrication (F1): this comment used to say "Example progress"
    * unconditionally, which was only ever true on the fixture path — the value is real whenever a
    * real run is executing.
    */

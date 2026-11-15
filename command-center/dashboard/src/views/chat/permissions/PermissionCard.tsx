@@ -287,12 +287,32 @@ export interface PermissionCardsProps {
   readonly pending: readonly PendingPermission[];
   readonly projectDir?: string | null;
   readonly onAnswer: AnswerPermission;
+  /** Set when the gateway refused the pending read (401/403); shown above the cards, never hidden. */
+  readonly readError?: string | null;
 }
 
 /** What a chat mounts: nothing, one card, or one group card. Oldest request first. */
-export function PermissionCards({ pending, projectDir, onAnswer }: PermissionCardsProps) {
-  if (pending.length === 0) return null;
+export function PermissionCards({ pending, projectDir, onAnswer, readError = null }: PermissionCardsProps) {
+  const { t } = useLocale();
+  const refused = readError ? (
+    <p className="fw-perm__note" role="alert" data-state="failed" title={readError}>
+      {t('chatCards.permissions.readRefused')}
+    </p>
+  ) : null;
+  if (pending.length === 0) return refused;
   const ordered = [...pending].sort((a, b) => a.created_at.localeCompare(b.created_at));
-  if (ordered.length === 1) return <PermissionCard request={ordered[0]} projectDir={projectDir} onAnswer={onAnswer} />;
-  return <PermissionGroupCard requests={ordered} projectDir={projectDir} onAnswer={onAnswer} />;
+  const cards =
+    ordered.length === 1 ? (
+      <PermissionCard request={ordered[0]} projectDir={projectDir} onAnswer={onAnswer} />
+    ) : (
+      <PermissionGroupCard requests={ordered} projectDir={projectDir} onAnswer={onAnswer} />
+    );
+  return refused ? (
+    <>
+      {refused}
+      {cards}
+    </>
+  ) : (
+    cards
+  );
 }

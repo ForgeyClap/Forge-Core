@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Hermetic tests for forge-anticipate.cjs (modernization WP I.2). A temp project root (FORGE_PROJECT_ROOT), a temp
  *  config home (FORGE_CONFIG_HOME) and a temp home for global skills (FORGE_ANTICIPATE_HOME) keep this repo's runs and the
  *  owner's FORGE_CONFIG.json out of reach; settings are changed only through the real forge-config.cjs CLI.

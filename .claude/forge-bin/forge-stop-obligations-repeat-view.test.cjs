@@ -1,4 +1,8 @@
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-stop-obligations-repeat-view.test.cjs — the Stop hook's owner-repeat line is judged on the OWNER VIEW
 // (forge-scribe.cjs ownerView + the scribe config), not on the raw stored repeat_of links (WP 3.8 made raw links
 // unreliable: a stale hand-back link can create a false REPEAT, or join a genuine repeat to an already addressed chain

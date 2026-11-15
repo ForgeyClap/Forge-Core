@@ -88,6 +88,16 @@ const EXPECTED = [
   ['api', 'GET', '/api/permissions/pending', 'permissions', 'pending'],
   ['api', 'POST', '^\\/api\\/permissions\\/([^/]+)\\/wait$', 'permissions', 'wait'],
   ['api', 'POST', '^\\/api\\/permissions\\/([^/]+)\\/answer$', 'permissions', 'answer'],
+  // Autonomy (WP-AUTONOMY-GW, owner decision R-0203): added deliberately on 2026-11-09.
+  ['api', 'GET', '/api/permissions/autonomy', 'permissions', 'autonomyGet'],
+  ['api', 'PUT', '/api/permissions/autonomy', 'permissions', 'autonomyPut'],
+  ['api', 'GET', '/api/permissions/auto-log', 'permissions', 'autoLog'],
+  ['api', 'GET', '/api/remote', 'remote-admin', 'status'],
+  ['api', 'POST', '/api/remote/enable', 'remote-admin', 'enable'],
+  ['api', 'POST', '/api/remote/disable', 'remote-admin', 'disable'],
+  ['api', 'POST', '/api/remote/pairing', 'remote-admin', 'pairing'],
+  ['api', 'GET', '/api/remote/devices', 'remote-admin', 'devices'],
+  ['api', 'POST', '^\\/api\\/remote\\/devices\\/([^/]+)\\/revoke$', 'remote-admin', 'revoke'],
 ];
 
 const rows = () => describeRoutes().map((r) => [r.kind, r.method, r.path, r.module, r.handler]);

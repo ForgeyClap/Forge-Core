@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-actiongate.test.cjs — real tests for the hard-gates classifier (WAVE A / A1).
 // Every regex gate is proven BOTH ways (fires on its real trigger phrase, stays silent on adjacent benign
 // text) so the config can't silently over- or under-match. The isolation gate is proven against a relative
@@ -650,7 +654,7 @@ t('N09: cArgLiveAfterFlag() direct unit — a currency-shaped dollar is silenced
 });
 
 // ---------------------------------------------------------------------------
-// N14 (codex-recheck 2026-09-24) — a REGRESSION the fifth pass introduced: isSubstitutionDollar()
+// N14 (codex-recheck 2026-09-24) — a REGRESSION the fifth pass (N09) introduced: isSubstitutionDollar()
 // treated ANY digit or special character after "$" as inert currency, silently passing a genuine positional or
 // special parameter inside a REAL interpreter's own -c argument. Every form below is a real Bash expansion (GNU
 // Bash manual, "Positional Parameters" / "Special Parameters") and must fire when it belongs to a REAL invocation,

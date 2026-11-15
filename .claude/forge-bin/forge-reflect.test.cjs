@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Offline, hermetic tests for forge-reflect.cjs. Hermetic like forge-distill.test.cjs: every case gets
  *  its own subdirectory under one os.tmpdir() root with a fake .claude/{config/agents/agent-registry.json,
  *  agent-memory/}. The CLI is exercised for real via spawnSync (never required directly for the assertions
@@ -145,6 +149,19 @@ function runCli(args, root) {
   t('case9b: bad --type value -> usage error exit 2', badType.status === 2);
   t('case9b: stderr names --type', /--type/.test(badType.stderr));
   t('case9b: nothing written for the bad --type attempt', lessonsFor(root, 'build-boss').length === 0);
+}
+
+// ---- 10) FB-MEMORY-F5: agent-memory switched off -> SKIPPED, exit 3, never "stored" ----
+{
+  const root = makeFixture('case10');
+  fs.writeFileSync(path.join(root, '.claude', 'FORGE_CONFIG.json'), JSON.stringify({ version: 1, settings: { 'agent-memory': { value: false } } }));
+  const home = path.join(TMP, 'case10-home');
+  fs.mkdirSync(home, { recursive: true });
+  const r = spawnSync(process.execPath, [REFLECT_CLI, 'add', 'build-boss', '--text', 'a lesson while memory is off', '--quote', 'owner said so'],
+    { env: Object.assign({}, process.env, { FORGE_PROJECT_ROOT: root, FORGE_CONFIG_HOME: home }), encoding: 'utf8' });
+  t('case10: memory off -> exit 3', r.status === 3);
+  t('case10: says SKIPPED, never "lesson <id> (<type>) stored"', /SKIPPED/.test(r.stdout + r.stderr) && !/lesson \S+ \(\S+\) stored for/.test(r.stdout));
+  t('case10: nothing written', lessonsFor(root, 'build-boss').length === 0);
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

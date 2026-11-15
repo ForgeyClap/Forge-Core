@@ -19,8 +19,15 @@
  * search, docs fetch, GitHub READ) · 2 = SANDBOXED action (browser-QA drive, no persistent writes) ·
  * 3 = WRITE-PRIMITIVE (any mcp write: GitHub write, file write, deploy, publish).
  *
- * TIER-3 IS NEVER A STANDING GRANT (doctrine #3/#4): config/orchestration/mcp-grants.json never lists a
- * tier-3 server for any Boss. A tier-3 request is always a separate, per-use, owner-approved exception:
+ * ADVISORY TODAY (FB-GUARDS-1-F5): no hook calls validateGrant() before an MCP tool runs — the
+ * project PreToolUse matchers are Bash|PowerShell and Agent, none covers mcp__ tools — so this module decides only
+ * when a Boss or tool asks it. forge-mcp-usage.cjs measures how often that happens. Real enforcement needs a
+ * PreToolUse hook with matcher mcp__.* that maps the tool to a registry id and calls validateGrant().
+ *
+ * TIER-3 IS NEVER A STANDING GRANT (doctrine #3/#4). A tier-3 server may appear in a Boss's allow_servers only to
+ * make that Boss ELIGIBLE to ask (FB-GUARDS-1-F4: the owner token is one static value, so it must not open every
+ * tier-3 server for every Boss; today no Boss lists one, so every tier-3 request is refused). Each use is still a
+ * separate, per-use, owner-approved exception:
  * without opts.ownerGrant it is denied outright; WITH opts.ownerGrant it still ALWAYS calls the real
  * forge-actiongate.cjs::classify() (the existing hard-gate, reused — not duplicated) against the described
  * action text, and is allowed ONLY if that classifier genuinely confirms a matching hard gate — exactly the
@@ -48,6 +55,11 @@
  *   mutable image tag) or UNVERIFIED (the registry honestly records no verified pin). The check runs after the
  *   opt-in check and BEFORE the tier-3 branch, so not even a verified owner grant authorises a floating launch.
  *   MEDIUM (a version range) is allowed but named in the reason. A missing pin module refuses every grant.
+ *
+ * HOST POLICY GATE (CF-3-F3): for a registry entry with host_policy, validateGrant() refuses a tool in
+ *   deny_tools (or outside a non-empty allow_tools), and refuses the grant unless the host settings (project
+ *   .claude/settings.json + settings.local.json + ~/.claude/settings.json) deny every deny_tools entry as
+ *   mcp__<id>__<tool> and, with a non-empty allow_tools, allow nothing else of that server. planLoad() does not check it.
  *
  * EVENT_TYPES (declared here for Head Chef/G-integrate to wire into forge-dashboard/log-event.cjs — this
  * file does NOT call log-event.cjs itself, per the shared-file rule for this wave):
@@ -217,6 +229,42 @@ function defaultActionText(serverId, tool, bossSlug) {
   return 'mcp write-primitive tool "' + (tool || serverId) + '" on server "' + serverId + '" requested by boss "' + bossSlug + '"';
 }
 
+/** hostPolicyRefusal(serverEntry, tool, opts) -> null (ok) or a refusal reason. Reads permissions.deny/allow from
+ *  <projectRoot>/.claude/settings.json, settings.local.json and <home>/.claude/settings.json (a rule in any scope
+ *  counts, as Claude Code merges them). An unreadable file refuses: unreadable is not empty. */
+function hostPolicyRefusal(serverEntry, tool, opts) {
+  const hp = serverEntry.host_policy;
+  if (!hp || typeof hp !== 'object') return null;
+  const id = serverEntry.id;
+  const denyTools = Array.isArray(hp.deny_tools) ? hp.deny_tools : [];
+  const allowTools = Array.isArray(hp.allow_tools) ? hp.allow_tools : [];
+  if (tool && denyTools.includes(tool)) return 'tool "' + tool + '" is in deny_tools';
+  if (tool && allowTools.length && !allowTools.includes(tool)) return 'tool "' + tool + '" is not in allow_tools';
+  const projectRoot = opts.projectRoot ? path.resolve(opts.projectRoot) : DISCOVERED_ROOT;
+  const home = opts.homeDir ? path.resolve(opts.homeDir) : require('os').homedir();
+  const files = [path.join(home, '.claude', 'settings.json')];
+  if (projectRoot) files.push(path.join(projectRoot, '.claude', 'settings.json'), path.join(projectRoot, '.claude', 'settings.local.json'));
+  const deny = new Set(); const allow = [];
+  for (const f of files) {
+    if (!fs.existsSync(f)) continue;
+    let s;
+    try { s = JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return 'cannot read host settings ' + f + ' (' + e.message + ') — refusing rather than reading it as empty'; }
+    const perms = s && s.permissions && typeof s.permissions === 'object' ? s.permissions : {};
+    if (Array.isArray(perms.deny)) perms.deny.forEach((r) => deny.add(String(r)));
+    if (Array.isArray(perms.allow)) perms.allow.forEach((r) => allow.push(String(r)));
+  }
+  const prefix = 'mcp__' + id;
+  const wholeServer = (r) => r === prefix || r === prefix + '__*';
+  const denied = (t) => deny.has(prefix + '__' + t) || [...deny].some(wholeServer);
+  const missing = denyTools.filter((t) => !denied(t)).map((t) => prefix + '__' + t);
+  if (missing.length) return 'the host settings permissions.deny lack ' + missing.join(', ');
+  if (allowTools.length) {
+    const extra = allow.filter((r) => wholeServer(r) || (r.startsWith(prefix + '__') && !allowTools.includes(r.slice(prefix.length + 2))));
+    if (extra.length) return 'allow-list mode, but the host settings permissions.allow also allow ' + extra.join(', ');
+  }
+  return null;
+}
+
 /** validateGrant — see file header for the full contract. Never throws for a normal decision; throws only
  *  on malformed/missing config (loadRegistry/loadGrants/loadOptIn), matching the sibling gate files' posture. */
 function validateGrant(params, opts) {
@@ -262,11 +310,21 @@ function validateGrant(params, opts) {
   }
   const pinNote = pinCheck.risk === 'MEDIUM' ? ' — WARNING pin-check MEDIUM: ' + pinCheck.reason : '';
 
+  // CF-3-F3 host_policy gate, also BEFORE the tier-3 branch: the server has no switch for its dangerous tools, so
+  // the host permissions must deny them, and an allow-list server must have nothing outside allow_tools allowed.
+  const hostRefusal = hostPolicyRefusal(serverEntry, params.tool, opts);
+  if (hostRefusal) return { allowed: false, tier, pin: pinInfo, reason: 'host_policy for server "' + serverId + '": ' + hostRefusal };
+
   // Tier 3 (WRITE-PRIMITIVE) is NEVER a standing grant — always a separate, per-use, owner-approved
-  // exception verified live through the real forge-actiongate.cjs classifier, regardless of max_tier/
-  // allow_servers for this boss (doctrine #3/#4). This branch is intentionally reached BEFORE the
-  // standard tier<=max_tier / allow_servers check below so a tier-3 request can never slip through it.
+  // exception verified live through the real forge-actiongate.cjs classifier, regardless of max_tier
+  // for this boss (doctrine #3/#4). This branch is intentionally reached BEFORE the standard
+  // tier<=max_tier check below so a tier-3 request can never slip through it.
+  // FB-GUARDS-1-F4: allow_servers still applies here. The owner token is one static value, so it
+  // must not open every tier-3 server for every Boss; only a Boss the grants file names for this server can ask.
   if (tier === 3) {
+    if (!bossGrant.allow_servers.includes(serverId)) {
+      return { allowed: false, tier, reason: 'write-primitive: boss "' + bossSlug + '" is not granted server "' + serverId + '" (allow_servers) — an owner grant cannot widen a Boss\'s server list' };
+    }
     if (!opts.ownerGrant) {
       return { allowed: false, tier, reason: 'write-primitive: requires per-use owner grant via hard-gate' };
     }
@@ -421,11 +479,42 @@ function discoverConfiguredServers(opts) {
   harvest(readJson(path.join(home, '.claude', 'settings.json'), '~/.claude/settings.json'), '~/.claude/settings.json');
 
   const globalCfg = readJson(path.join(home, '.claude.json'), '~/.claude.json');
+  // FB-GUARDS-1-F6: Windows paths compare case-insensitively (a "c:/..." key in ~/.claude.json names "C:\...").
+  const samePath = (a, b) => (process.platform === 'win32' ? path.resolve(a).toLowerCase() === String(b).toLowerCase() : path.resolve(a) === b);
   if (globalCfg) {
     harvest(globalCfg, '~/.claude.json');
     const projects = globalCfg.projects && typeof globalCfg.projects === 'object' ? globalCfg.projects : {};
     for (const key of Object.keys(projects)) {
-      if (path.resolve(key) === projectRoot) harvest(projects[key], '~/.claude.json (this project)');
+      if (projectRoot && samePath(key, projectRoot)) harvest(projects[key], '~/.claude.json (this project)');
+    }
+  }
+
+  // FB-GUARDS-1-F6: an ENABLED plugin brings its own MCP servers (<installPath>/.mcp.json and the mcpServers of
+  // .claude-plugin/plugin.json, an object or a relative file). They are listed as plugin:<plugin>:<server>, the id the
+  // session shows. installed_plugins.json gives the install path.
+  const enabled = new Set();
+  const settingsFiles = [[path.join(home, '.claude', 'settings.json'), '~/.claude/settings.json']];
+  if (projectRoot) settingsFiles.push([path.join(projectRoot, '.claude', 'settings.json'), '.claude/settings.json'], [path.join(projectRoot, '.claude', 'settings.local.json'), '.claude/settings.local.json']);
+  for (const [p] of settingsFiles) {
+    let s = null;
+    try { s = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null; } catch { s = null; } // unreadable: already recorded above
+    const ep = s && s.enabledPlugins && typeof s.enabledPlugins === 'object' ? s.enabledPlugins : {};
+    for (const k of Object.keys(ep)) { if (ep[k] === true) enabled.add(k); else enabled.delete(k); }
+  }
+  if (enabled.size) {
+    const installed = readJson(path.join(home, '.claude', 'plugins', 'installed_plugins.json'), '~/.claude/plugins/installed_plugins.json');
+    const table = installed && installed.plugins && typeof installed.plugins === 'object' ? installed.plugins : {};
+    for (const key of enabled) {
+      const rows = Array.isArray(table[key]) ? table[key] : (table[key] ? [table[key]] : []);
+      const dir = rows[0] && typeof rows[0].installPath === 'string' ? rows[0].installPath : null;
+      if (!dir) continue;
+      const plugin = key.split('@')[0];
+      const src = 'plugin ' + key;
+      const addAll = (obj) => { if (obj && obj.mcpServers && typeof obj.mcpServers === 'object') Object.keys(obj.mcpServers).forEach((k) => add('plugin:' + plugin + ':' + k, src)); };
+      addAll(readJson(path.join(dir, '.mcp.json'), src + ' .mcp.json'));
+      const manifest = readJson(path.join(dir, '.claude-plugin', 'plugin.json'), src + ' plugin.json');
+      if (manifest && typeof manifest.mcpServers === 'string') addAll(readJson(path.resolve(dir, manifest.mcpServers), src + ' ' + manifest.mcpServers));
+      else addAll(manifest);
     }
   }
   out.unreadableSources = unreadable; // carried on the array so callers can see what could NOT be read
@@ -447,12 +536,14 @@ function unregisteredServers(opts) {
     byId.get(c.id).sources.push(c.source);
   }
   const unregistered = Array.from(byId.values()).sort((a, b) => a.id.localeCompare(b.id));
+  // FB-GUARDS-1-F6: what local config can never show, named instead of implied clean.
+  const blindSpots = ['claude.ai account connectors (they live in the account, not in a local config file) are not visible to this check'];
   // An UNREADABLE source is not a clean bill of health (audit #28): if a config exists but cannot be
   // parsed, this check simply could not see what it is meant to see, so it is not ok.
   const unreadable = Array.isArray(configured.unreadableSources) ? configured.unreadableSources : [];
   if (unreadable.length) {
     return {
-      ok: false, unregistered, unreadable,
+      ok: false, unregistered, unreadable, blind_spots: blindSpots,
       configured: configured.map((c) => c.id).filter((v, i, a) => a.indexOf(v) === i).sort(),
       known: Array.from(known).sort(),
       reason: unreadable.length + ' MCP config source(s) exist but could NOT be read, so this check is blind rather than clean: '
@@ -463,13 +554,14 @@ function unregisteredServers(opts) {
   return {
     ok: unregistered.length === 0,
     unreadable,
+    blind_spots: blindSpots,
     unregistered,
     configured: configured.map((c) => c.id).filter((v, i, a) => a.indexOf(v) === i).sort(),
     known: Array.from(known).sort(),
     reason: unregistered.length
       ? unregistered.length + ' configured MCP server(s) are absent from the registry, so no tier and no per-Boss grant governs them: '
         + unregistered.map((u) => u.id + ' (' + u.sources.join(', ') + ')').join('; ')
-      : 'every configured MCP server is present in the registry',
+      : 'every configured MCP server (local config and enabled plugins) is present in the registry; not visible: claude.ai account connectors',
   };
 }
 

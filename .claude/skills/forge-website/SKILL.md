@@ -23,7 +23,7 @@ description: "Playbook for websites, landing pages and frontend UI: responsive, 
 - **Finish gate:** a page is done only when `craft-evidence-web-ui.json` (a screenshot per viewport and per state, or n/a with a reason) passes `node .claude/forge-bin/forge-craft-evidence.cjs check --run <run_id> --type web-ui` (exit 0).
 
 ## Team (conditional by stack/level)
-- Lead: `planner` / `architect`.
+- Lead: `ui-boss`; `planner` and `architect` are optional read-only design advisors (not Bosses).
 - Build review: `react-reviewer` **or** `vue-reviewer` (by stack).
 - Audits (parallel): `a11y-architect`, `seo-specialist`, `performance-optimizer`.
 - Copy/CTA: `marketing-agent`.

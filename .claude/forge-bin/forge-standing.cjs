@@ -105,17 +105,23 @@
  *   never silently mask a product rule). opts.userRulesPath overrides the default user-file path (test
  *   hermeticity, same seam as load()/match()); opts.rulesPath still lets a caller point the (best-effort)
  *   template id-collision check at a fixture instead of the real shipped file.
+ *   SOURCE (CF-4-F2): the Lead calls this too, so the owner source is no longer assumed. Without
+ *   opts.ownerPrompt (CLI --prompt P-n) the rule gets source:"lead" and an id lead-remember-*. With it, the
+ *   prompt must pass ownerPromptProblem() (the scribe's owner origin check) and the rule gets
+ *   source:"owner /forge remember", owner_prompt:<P-n> and an id owner-remember-*; a prompt that fails is
+ *   refused and nothing is written.
  *
  * CLI:
  *   node forge-standing.cjs match [--type <domain>] [--paths <glob,glob,...>] [--on-request] [--json]
  *   node forge-standing.cjs list [--json]
  *   node forge-standing.cjs remember "<text>" [--scope <scope>] [--trigger <trigger>] [--domain <domain>]
- *     [--glob <glob>] [--topic <topic>] [--id <id>] [--json]
+ *     [--glob <glob>] [--topic <topic>] [--id <id>] [--prompt P-n] [--json]
  * Exit codes: match/list: 0 = command ran (regardless of how many rules matched — this is advisory, not a
  * gate) · 2 = usage error or a malformed/unreadable rules file. remember: 0 = rule written · 2 = usage/
  * validation error (nothing written).
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_STANDING_RULES.json');
@@ -124,6 +130,8 @@ const CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE
 // own comment next to SYSTEM for the matching note.
 const USER_CONFIG_PATH = path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_STANDING_RULES.user.json');
 const OWNER_REMEMBER_SOURCE = 'owner /forge remember';
+// CF-4-F2: the source of a remembered rule without a checked owner prompt (the Lead wrote it, not the owner)
+const LEAD_REMEMBER_SOURCE = 'lead';
 const KNOWN_TRIGGERS = ['always', 'domain', 'glob', 'on-request'];
 const KNOWN_STATUSES = ['active', 'proposed', 'retired'];
 const PRECEDENCE = { glob: 3, domain: 2, 'on-request': 2, always: 1 };
@@ -263,8 +271,8 @@ function migrateOwnerRules(templateData, templatePath, userPath) {
 
   try {
     fs.mkdirSync(path.dirname(userPath), { recursive: true });
-    fs.writeFileSync(userPath, JSON.stringify(userDoc, null, 2) + '\n', 'utf8');
-    fs.writeFileSync(templatePath, JSON.stringify(cleanedTemplate, null, 2) + '\n', 'utf8');
+    writeJsonAtomic(userPath, JSON.stringify(userDoc, null, 2) + '\n');
+    writeJsonAtomic(templatePath, JSON.stringify(cleanedTemplate, null, 2) + '\n');
   } catch (e) {
     // Best-effort: the in-memory result below still reflects the migrated state for THIS read even if the
     // disk write failed (permission/lock/read-only fs) — never silently lose the rule, never crash load().
@@ -378,7 +386,9 @@ function globToRegExp(glob) {
   for (let i = 0; i < norm.length; i++) {
     const c = norm[i];
     if (c === '*') {
-      if (norm[i + 1] === '*') { out += '.*'; i++; }
+      // '**/' also matches zero folders (src/**/*.ts matches src/index.ts) — FB-SCRIBE-1-F11.
+      if (norm[i + 1] === '*' && norm[i + 2] === '/') { out += '(?:.*/)?'; i += 2; }
+      else if (norm[i + 1] === '*') { out += '.*'; i++; }
       else out += '[^/]*';
     } else if (c === '?') {
       out += '[^/]';
@@ -391,10 +401,16 @@ function globToRegExp(glob) {
   return new RegExp('^' + out + '$', 'i');
 }
 
+const PROJECT_ROOT_FWD = path.resolve(__dirname, '..', '..').replace(/\\/g, '/').replace(/\/+$/, '');
+/** pathMatchesGlob(candidate, glob): a leading './' is dropped, and an absolute path inside this project is also tried
+ *  relative to the project root (case-insensitive, Windows drive letters differ in case). */
 function pathMatchesGlob(candidatePath, glob) {
   if (!candidatePath || !glob) return false;
   const re = globToRegExp(glob);
-  return re.test(String(candidatePath).replace(/\\/g, '/'));
+  const p = String(candidatePath).replace(/\\/g, '/').replace(/^(\.\/)+/, '');
+  if (re.test(p)) return true;
+  const rootLc = PROJECT_ROOT_FWD.toLowerCase() + '/';
+  return p.toLowerCase().startsWith(rootLc) && re.test(p.slice(rootLc.length));
 }
 
 function ruleFires(rule, ctx) {
@@ -475,10 +491,71 @@ function match(params, opts) {
  *  EXCLUSIVELY into the user rules file (never the shipped template). Fail-closed: validates BEFORE
  *  writing, so an invalid call never partially writes or corrupts the user file. Bypasses the module's read
  *  cache on write (invalidates it) so an immediately-following load()/match() call sees the new rule. */
+/** ownerPromptProblem(pid, opts) -> null when `pid` is an owner prompt, else why not (CF-4-F2). Reuses the scribe's
+ *  owner origin (forge-scribe-store.cjs ownerAuthority checks 1 and 2): a record of an unbroken hash-chained inbox,
+ *  captured by the UserPromptSubmit hook, found as the same typed message in this project's Claude transcript. The
+ *  affirmative-act check (3) is per scribe item and does not apply to a rule. Seams: opts.scribeRoot,
+ *  opts.claudeProjectsRoot, opts.scribeConfig. */
+function ownerPromptProblem(pid, opts) {
+  if (typeof pid !== 'string' || !/^P-\d+$/.test(pid)) return 'the owner prompt must be an inbox id P-n (shown in the hook receipt)';
+  let S, SCC;
+  try { S = require('./forge-scribe-store.cjs'); SCC = require('./forge-scribe-classify.cjs'); }
+  catch (e) { return 'the scribe is not installed here (' + e.message + '), so the owner prompt cannot be checked'; }
+  const root = path.resolve(opts.scribeRoot || path.join(__dirname, '..', '..'));
+  const ix = S.inboxIndex(S.paths(root));
+  if (!ix.chain.ok) return 'the scribe inbox hash chain is broken, so owner origin cannot be trusted';
+  const rec = ix.byPid.get(pid);
+  const why = S.hookOrigin(rec);
+  if (why) return pid + ' ' + why;
+  const dir = S.transcriptDirOf(root, { claudeProjectsRoot: opts.claudeProjectsRoot });
+  if (!dir) return 'this project has no Claude transcript folder, so the owner origin of ' + pid + ' cannot be checked';
+  const real = S.containedReal(String(rec.transcript_path || '').replace(/^~(?=$|[\\/])/, os.userInfo().homedir), dir);
+  if (!real) return 'the transcript of ' + pid + ' is missing or lies outside this project\'s transcript folder';
+  if (!S.transcriptEntryOf(real, rec, opts.scribeConfig || SCC.loadConfig())) return pid + ' was not found as an owner message in its transcript';
+  return null;
+}
+
+// FB-SCRIBE-1-F12: the owner rules file is read-modify-written under an exclusive lock file and replaced atomically
+// (temp + rename), so two remember calls never lose a rule and a crash never leaves half a JSON file.
+const LOCK_STALE_MS = 60 * 1000;
+function writeJsonAtomic(file, data) {
+  const tmp = file + '.tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8);
+  fs.writeFileSync(tmp, data, 'utf8');
+  try { fs.renameSync(tmp, file); } catch (e) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw e; }
+}
+function withFileLock(file, waitMs, fn) {
+  const lock = file + '.lock';
+  const until = Date.now() + (Number.isFinite(waitMs) ? waitMs : 5000);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  for (;;) {
+    try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; } catch (e) {
+      if (!e || e.code !== 'EEXIST') throw e;
+      let age = 0; try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { continue; } // released meanwhile: retry
+      if (age > LOCK_STALE_MS) { try { fs.rmSync(lock, { force: true }); } catch { /* another writer took it over */ } continue; }
+      if (Date.now() >= until) throw new Error('forge-standing: ' + file + ' is locked by another writer (' + lock + '); nothing written, try again');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+  try { return fn(); } finally { try { fs.rmSync(lock, { force: true }); } catch { /* a stale-lock sweep may already have removed it */ } }
+}
+
 function remember(text, opts) {
   opts = opts || {};
   if (typeof text !== 'string' || !text.trim()) {
     throw new Error('forge-standing: remember requires non-empty "text" (the rule content)');
+  }
+  return withFileLock(resolveUserPath(opts), opts.lockWaitMs, () => rememberUnlocked(text, opts));
+}
+
+function rememberUnlocked(text, opts) {
+  if (typeof text !== 'string' || !text.trim()) {
+    throw new Error('forge-standing: remember requires non-empty "text" (the rule content)');
+  }
+  // CF-4-F2: a rule is the owner's only when a hook-captured owner prompt is named and checked; otherwise 'lead'
+  const ownerPrompt = opts.ownerPrompt != null ? String(opts.ownerPrompt) : null;
+  if (ownerPrompt) {
+    const problem = ownerPromptProblem(ownerPrompt, opts);
+    if (problem) throw new Error('forge-standing: remember: owner prompt ' + ownerPrompt + ' refused: ' + problem + ' (nothing written; leave --prompt out to record it as a lead rule)');
   }
 
   const trigger = opts.trigger || 'always';
@@ -505,10 +582,13 @@ function remember(text, opts) {
     else throw new Error('forge-standing: remember could not read/parse ' + userPath + ': ' + e.message);
   }
 
-  const id = opts.id || ('owner-remember-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8));
+  const id = opts.id || ((ownerPrompt ? 'owner-remember-' : 'lead-remember-') + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8));
   if (userDoc.rules.some((r) => r.id === id)) {
     throw new Error('forge-standing: remember: rule id "' + id + '" already exists in ' + userPath);
   }
+  const fold = (s) => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').toLowerCase();
+  const dup = userDoc.rules.find((r) => r && fold(r.text) === fold(text));
+  if (dup) throw new Error('forge-standing: remember: this rule text already exists in ' + userPath + ' (id ' + dup.id + ')');
   // Best-effort: never let a new owner rule silently mask a shipped product rule id. An unreadable/missing
   // template never blocks remember() — only an ACTUAL id collision does.
   try {
@@ -530,7 +610,8 @@ function remember(text, opts) {
     domain: trigger === 'domain' ? opts.domain : null,
     glob: trigger === 'glob' ? opts.glob : null,
     topic: opts.topic || null,
-    source: OWNER_REMEMBER_SOURCE,
+    source: ownerPrompt ? OWNER_REMEMBER_SOURCE : LEAD_REMEMBER_SOURCE,
+    ...(ownerPrompt ? { owner_prompt: ownerPrompt } : {}),
     confidence: 'high',
     status: 'active',
     // NEVER settable via remember() — minting a new untouchable-core rule stays a hand-seeded, reviewed
@@ -540,7 +621,7 @@ function remember(text, opts) {
   };
 
   fs.mkdirSync(path.dirname(userPath), { recursive: true });
-  fs.writeFileSync(userPath, JSON.stringify(Object.assign({}, userDoc, { rules: userDoc.rules.concat([rule]) }), null, 2) + '\n', 'utf8');
+  writeJsonAtomic(userPath, JSON.stringify(Object.assign({}, userDoc, { rules: userDoc.rules.concat([rule]) }), null, 2) + '\n');
   _cache = null; // invalidate so the next load()/match() sees the write, regardless of which path combo was cached
 
   return rule;
@@ -548,14 +629,14 @@ function remember(text, opts) {
 
 module.exports = {
   load, listActive, match, remember, globToRegExp, pathMatchesGlob, ruleFires, rank,
-  KNOWN_TRIGGERS, KNOWN_STATUSES, PRECEDENCE, CONFIG_PATH, USER_CONFIG_PATH, OWNER_REMEMBER_SOURCE,
+  KNOWN_TRIGGERS, KNOWN_STATUSES, PRECEDENCE, CONFIG_PATH, USER_CONFIG_PATH, OWNER_REMEMBER_SOURCE, LEAD_REMEMBER_SOURCE, ownerPromptProblem,
 };
 
 // ---- CLI ----
 function parseArgs(argv) {
   const cmd = argv[0] || null;
   const rest = argv.slice(1);
-  const opts = { cmd, type: null, paths: [], onRequest: false, json: false, scope: null, trigger: null, domain: null, glob: null, topic: null, id: null, positional: [] };
+  const opts = { cmd, type: null, paths: [], onRequest: false, json: false, scope: null, trigger: null, domain: null, glob: null, topic: null, id: null, prompt: null, positional: [] };
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--type') opts.type = rest[++i];
@@ -568,6 +649,7 @@ function parseArgs(argv) {
     else if (a === '--glob') opts.glob = rest[++i];
     else if (a === '--topic') opts.topic = rest[++i];
     else if (a === '--id') opts.id = rest[++i];
+    else if (a === '--prompt') opts.prompt = rest[++i];
     else opts.positional.push(a);
   }
   return opts;
@@ -575,7 +657,7 @@ function parseArgs(argv) {
 function printUsage() {
   console.error('Usage: node forge-standing.cjs match [--type <domain>] [--paths <glob,glob,...>] [--on-request] [--json]');
   console.error('       node forge-standing.cjs list [--json]');
-  console.error('       node forge-standing.cjs remember "<text>" [--scope <scope>] [--trigger <trigger>] [--domain <domain>] [--glob <glob>] [--topic <topic>] [--id <id>] [--json]');
+  console.error('       node forge-standing.cjs remember "<text>" [--scope <scope>] [--trigger <trigger>] [--domain <domain>] [--glob <glob>] [--topic <topic>] [--id <id>] [--prompt P-n] [--json]');
 }
 
 if (require.main === module) {
@@ -606,8 +688,12 @@ if (require.main === module) {
     } else if (opts.cmd === 'remember') {
       const text = opts.positional[0];
       if (!text) { console.error('forge-standing: remember requires "<text>"'); process.exitCode = 2; }
-      else {
-        const rememberOpts = Object.assign({ scope: opts.scope, trigger: opts.trigger, domain: opts.domain, glob: opts.glob, topic: opts.topic, id: opts.id }, fileOpts);
+      else if (opts.positional.length > 1) {
+        // FB-SCRIBE-1-F10: lost quotes split the rule into words; storing only the first word would be a wrong rule.
+        console.error('forge-standing: remember got ' + opts.positional.length + ' separate words; put the whole rule in one pair of quotes: remember "<text>"');
+        process.exitCode = 2;
+      } else {
+        const rememberOpts = Object.assign({ scope: opts.scope, trigger: opts.trigger, domain: opts.domain, glob: opts.glob, topic: opts.topic, id: opts.id, ownerPrompt: opts.prompt }, fileOpts);
         const rule = remember(text, rememberOpts);
         if (opts.json) console.log(JSON.stringify(rule));
         else console.log('REMEMBERED ' + rule.id + ' — ' + rule.text);

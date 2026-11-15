@@ -112,11 +112,18 @@ function readActiveRun(root, sessionId, opts) {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const limit = maxAgeMs(opts.env);
     const own = readPointer(f.session);
+    const fb = readPointer(f.fallback);
     if (own.ok) {
       const j = judge(own, f.bucket, now, limit, 'pointer-session');
-      if (j.run || j.reason === 'cleared') return j;
+      if (j.run || j.reason === 'cleared') {
+        // FB-CONTRACT-2-F3: log-event sets a later run without a session id, so only the fallback moves on. A fallback
+        // set after this session's own pointer (set or cleared) and valid for this session names the newer run.
+        const ownMs = Date.parse(own.data.run === null ? own.data.cleared_at : own.data.set_at);
+        const fj = fb.ok ? judge(fb, f.bucket, now, limit, 'pointer-fallback') : null;
+        if (fj && fj.run && Number.isFinite(ownMs) && Date.parse(fj.set_at) > ownMs) return fj;
+        return j;
+      }
     }
-    const fb = readPointer(f.fallback);
     if (fb.ok) return judge(fb, f.bucket, now, limit, 'pointer-fallback');
     return { run: null, source: null, reason: fb.present ? 'fallback pointer unreadable (' + fb.error + ')' : 'no active-run pointer', set_at: null };
   } catch (e) {

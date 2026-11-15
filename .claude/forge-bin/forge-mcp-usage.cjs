@@ -12,8 +12,9 @@
  *
  * Forge cannot hook Claude Code's own tool dispatcher, so this does the next honest thing: it makes the
  * gap VISIBLE and measurable instead of theoretical. The PostToolUse tool ledger
- * (`.claude/forge-runs/_toollog/*.jsonl`, written by forge-toolhook.cjs) records EVERY tool call, MCP
- * ones included (`mcp__<server>__<tool>`). Cross-referencing that against `mcp_grant_validated` events
+ * (`.claude/forge-runs/_toollog/*.jsonl`, written by forge-toolhook.cjs) records the tool calls its settings
+ * matchers cover; MCP ones (`mcp__<server>__<tool>`) only when a matcher covers mcp__ names (FB-GUARDS-2-F1:
+ * the shipped matchers did not, so check() says UNKNOWN then, never "nothing to gate"). Cross-referencing that against `mcp_grant_validated` events
  * answers a question nobody could answer before: *was any MCP tool used without the gate ever running?*
  *
  *   check(opts) -> { ok, usedTools, ungated, validations, reason }
@@ -95,6 +96,26 @@ function collectGateEvents(root) {
   return { validated, denied };
 }
 
+/** ledgerSeesMcp(root) -> true | false | null. FB-GUARDS-2-F1: the ledger only records an mcp__ call when a
+ *  PostToolUse matcher that runs forge-toolhook covers mcp__ tool names. null = no readable settings to tell. */
+function ledgerSeesMcp(root) {
+  let any = false;
+  for (const f of ['settings.json', 'settings.local.json']) {
+    let s;
+    try { s = JSON.parse(fs.readFileSync(path.join(root, '.claude', f), 'utf8').replace(/^﻿/, '')); } catch { continue; }
+    any = true;
+    const post = s && s.hooks && Array.isArray(s.hooks.PostToolUse) ? s.hooks.PostToolUse : [];
+    for (const h of post) {
+      const runsToolhook = Array.isArray(h && h.hooks) && h.hooks.some((x) => x && typeof x.command === 'string' && x.command.includes('forge-toolhook'));
+      if (!runsToolhook) continue;
+      const m = typeof h.matcher === 'string' ? h.matcher : '';
+      if (m === '' || m === '*') return true;
+      try { if (new RegExp('^(?:' + m + ')$').test('mcp__probe__tool')) return true; } catch { /* an invalid matcher covers nothing */ }
+    }
+  }
+  return any ? false : null;
+}
+
 function check(opts) {
   opts = opts || {};
   const root = opts.root ? path.resolve(opts.root) : DEFAULT_ROOT;
@@ -111,6 +132,13 @@ function check(opts) {
     return {
       ok: true, unknown: true, usedTools: [], validations: gate, reason:
         'no PostToolUse tool ledger on this machine (' + activeRunsRel(root) + '/_toollog/), so MCP tool use cannot be observed — reported as UNKNOWN, not as "the gate is fine"',
+    };
+  }
+  if (totalUses === 0 && ledgerSeesMcp(root) === false) {
+    return {
+      ok: true, unknown: true, usedTools: [], validations: gate, reason:
+        'no MCP tool calls in the ledger, but forge-toolhook is not registered for mcp__ tools (no PostToolUse matcher in .claude/settings.json covers mcp__*), '
+        + 'so MCP use cannot be seen — reported as UNKNOWN, not as "nothing to gate" (add a PostToolUse matcher "mcp__.*" for forge-toolhook.cjs)',
     };
   }
   if (totalUses === 0) {
@@ -134,7 +162,7 @@ function check(opts) {
   };
 }
 
-module.exports = { check, collectMcpToolUse, collectGateEvents, MCP_TOOL_RE, DEFAULT_ROOT };
+module.exports = { check, collectMcpToolUse, collectGateEvents, ledgerSeesMcp, MCP_TOOL_RE, DEFAULT_ROOT };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);

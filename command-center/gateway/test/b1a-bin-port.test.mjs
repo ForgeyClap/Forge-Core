@@ -25,7 +25,7 @@ function tempDataDir(t) {
 }
 
 function startGateway(t, extraEnv) {
-  const env = { ...process.env, CC_DISCORD_AUTOSTART: 'off', ...extraEnv };
+  const env = { ...process.env, CC_DISCORD_AUTOSTART: 'off', FORGE_REMOTE_BRIDGE_AUTOSTART: 'off', ...extraEnv };
   for (const k of ['CC_PORT', 'FORGE_GATEWAY_PORT', 'CC_TEST_PREFERRED_PORT']) if (!(k in extraEnv)) delete env[k];
   const child = spawn(process.execPath, [BIN], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const out = { stdout: '', stderr: '' };

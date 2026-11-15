@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * usage-guard-override.test.cjs — unit tests for the credits-override DEFENSE IN DEPTH layer (V15, FOURTH
  * Codex recheck, 2026-09-24). See usage-guard-override.cjs's own header for WHY this file exists. No
@@ -122,7 +126,7 @@ t('N10 wave-8: a credential-file generation change IS honoured again once a prio
   // tick A: trivial match (grant's own stamp) seeds the in-memory baseline for this account.
   const rA = O.resolveOwnerOverride({ projectRoot: dir, accountLabel: 'acct-gen-refresh', credentialGeneration: 'G0', credentialFp: 'fp-stable' });
   assert.strictEqual(rA.active, true, JSON.stringify(rA));
-  // tick B: the FILE changed but the bearer credential (fp) is UNCHANGED — proven in memory.
+  // tick B: the FILE changed (G0 -> G1) but the bearer credential (fp) is UNCHANGED — proven in memory.
   const rB = O.resolveOwnerOverride({ projectRoot: dir, accountLabel: 'acct-gen-refresh', credentialGeneration: 'G1', credentialFp: 'fp-stable' });
   assert.strictEqual(rB.active, true, 'the same bearer credential across the change must re-honour the grant without any owner action: ' + JSON.stringify(rB));
 });
@@ -148,7 +152,7 @@ t('N10 wave-8: __resetCredentialProofForTests() clears the in-memory baseline �
 
 // ---- N10 RESIDUAL, (2026-09-24, Codex p14 out-p14 finding N10 — "PARTLY CLOSED": the memory
 // proof was keyed by account label ALONE, with no binding to the specific grant ISSUANCE it was established
-// under. Codex's `N10_reissued_grant_stale_watcher`: a watcher confirms account A's grant G1 under
+// under. Codex's `N10_reissued_grant_stale_watcher`: a watcher (W1) confirms account A's grant G1 under
 // credential C1 (seeding the in-memory baseline); the grant is then REPLACED with G2 for the CURRENT
 // credential C2 while the profile label stays A; C1 later returns with new file metadata; W1's stale
 // baseline (still keyed only by "account A" + "fp(C1)") matched and WRONGLY honoured G2 — a grant it never

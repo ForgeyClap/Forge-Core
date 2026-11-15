@@ -32,10 +32,12 @@ const SCRIPT = path.join(__dirname, 'account-rotator.cjs');
 const AGENT_MARKERS = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED'];
 const REVOKE = 'het token staat nu in je shell-geschiedenis: trek het in en maak een nieuw met `claude setup-token` / the token is now in your shell history: revoke it and create a new one with `claude setup-token`';
 
-function agentMarker(env) { const e = env || process.env; return AGENT_MARKERS.find((k) => e[k] !== undefined && e[k] !== '') || null; }
+// FB-ROTATOR-F2: a marker that is SET counts, also when empty (CLAUDECODE='' used to switch the refusal off).
+function agentMarker(env) { const e = env || process.env; return AGENT_MARKERS.find((k) => e[k] !== undefined) || null; }
 function psQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
 function posixQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 const isTTYOf = (deps) => (deps.isTTY !== undefined ? deps.isTTY : !!process.stdout.isTTY);
+const stdinTTYOf = (deps) => (deps.stdinTTY !== undefined ? deps.stdinTTY : !!process.stdin.isTTY);
 
 // ---- enroll-token ---------------------------------------------------------------------------------------------
 async function cmdEnrollToken(P, args, deps, h) {
@@ -244,6 +246,8 @@ function refuseInAgentOrPipe(deps, args, cmd) {
   if (marker) return 'geweigerd in een AI-agentomgeving (' + marker + ' staat aan) — voer dit zelf uit in je eigen terminal / refused inside an AI agent\'s tool environment (' + marker + ' is set) — run it yourself in your own terminal';
   if (cmd === 'token-for-shell' && isTTYOf(deps)) return 'geweigerd — dit zou het token op je scherm zetten; gebruik de regel van `env` / refused — this would print the token on screen; use the line `env` prints';
   if (!isTTYOf(deps) && !args.includes('--i-know')) return 'geweigerd — uitvoer gaat niet naar een terminal; alleen met --i-know / refused — output is not a terminal; only with --i-know';
+  // FB-ROTATOR-F2: the owner's $( ) substitution keeps the terminal on stdin; an agent's Bash tool does not
+  if (cmd === 'token-for-shell' && !stdinTTYOf(deps)) return 'geweigerd — geen terminal op stdin; voer de regel van `env` uit in je eigen terminal / refused — no terminal on stdin; run the line `env` prints in your own terminal';
   return null;
 }
 function cmdEnv(P, args, deps, h) {

@@ -49,35 +49,38 @@ Pick the primary domain (if mixed, pick the primary and attach the secondary pla
 
 | Signals / keywords | Domain | Playbook |
 |---|---|---|
-| website, landing page, hero, CTA, responsive, UI/UX, a11y, SEO, frontend | Website/frontend | `forge-website` |
-| app, SaaS, backend + frontend + DB, login/auth, CRUD, dashboard with data | Full-stack app | `forge-fullstack` |
-| n8n, workflow, webhook, node, trigger, schedule/cron, automation pipeline | n8n/automation | `forge-n8n` |
-| scrape, crawler, harvest, data collection, lead list, API pull | Scraping/data | `forge-scraping` |
-| chatbot, assistant, RAG, retrieval, embeddings, knowledge base, ingestion | AI chatbot/RAG | `forge-rag` |
-| prediction, forecast, sports, betting, odds, value, backtest, tips | Prediction/data | `forge-prediction` |
+| website, landing page, hero, CTA, responsive, UI/UX, a11y, SEO, frontend | Website/frontend; the website pack: `web-*` specialists (`.claude/config/packs/website.json`, presets `website-all` + `process`) | `forge-website` |
+| app, SaaS, backend + frontend + DB, login/auth, CRUD, dashboard with data | Full-stack app; the app pack: `app-*` specialists (`.claude/config/packs/app.json`, presets `app-all` + `process`) | `forge-fullstack` |
+| n8n, workflow, webhook, node, trigger, schedule/cron, automation pipeline | n8n/automation; the automation pack: `auto-*` specialists (`.claude/config/packs/automation.json`, presets `automation-all` + `process`) | `forge-n8n` |
+| scrape, crawler, harvest, data collection, lead list, API pull | Scraping/data; the data pack: `data-*` specialists, `data-scientist`, `ml-engineer` (`.claude/config/packs/data.json`, presets `data-all` + `process`) | `forge-scraping` |
+| chatbot, assistant, RAG, retrieval, embeddings, knowledge base, ingestion | AI chatbot/RAG; the ai pack: `ai-*` specialists, `mcp-developer` (`.claude/config/packs/ai.json`, presets `ai-all` + `process`) | `forge-rag` |
+| prediction, forecast, sports, betting, odds, value, backtest, tips | Prediction/data; data pack: `data-backtest-auditor` | `forge-prediction` |
 | integration, API, Gmail/Calendar/CRM, OAuth, webhook between apps, sync | Business automation | `forge-integration` |
 | payment, checkout, Stripe/Mollie/Adyen/PayPal, iDEAL, card, PCI, subscription, refund, charge, webhook signature | Payments/billing | `forge-payments` |
-| shop, store, cart, catalog, product/SKU, inventory, order, Shopify/WooCommerce/Etsy, digital product, cashflow | E-commerce | `forge-ecommerce` |
-| electron, desktop app, .exe, installer, preload, IPC, contextIsolation, nodeIntegration, code signing, an accounting desktop app | Electron/desktop | `forge-electron` |
+| shop, store, cart, catalog, product/SKU, inventory, order, Shopify/WooCommerce/Etsy, digital product, cashflow | E-commerce; the shop pack: `shop-*` specialists, `payment-integration` (`.claude/config/packs/shop.json`, presets `shop-all` + `process`) | `forge-ecommerce` |
+| electron, desktop app, .exe, installer, preload, IPC, contextIsolation, nodeIntegration, code signing, an accounting desktop app | Electron/desktop; the desktop pack: `desk-*` specialists, `electron-pro` (`.claude/config/packs/desktop.json`, presets `desktop-all` + `process`) | `forge-electron` |
 | voice agent, voicebot, phone, call, telephony, IVR, Twilio/Vapi/Retell, barge-in, Dutch call, outbound | Voice/phone agent | `forge-voice` |
 | agent, LLM app, tool use, function calling, tool schema, prompt injection, jailbreak, eval, benchmark, guardrail, agent loop, MCP tool | Agent / LLM app + evals | `forge-agent` |
 | API, REST, endpoint, route, OpenAPI, Swagger, GraphQL, gRPC, proto, contract test, versioning, idempotency, rate limit, pagination, error envelope, backend | Contract-first API | `forge-api` |
-| bot, Discord, Slack, Telegram, slash command, interaction, webhook, Ed25519, Slack-Signature, bot token, intents, gateway, dead-letter | Chat/messaging bots | `forge-bots` |
+| bot, Discord, Slack, Telegram, slash command, interaction, webhook, Ed25519, Slack-Signature, bot token, intents, gateway, dead-letter | Chat/messaging bots; automation pack: `auto-bot-engineer` | `forge-bots` |
 | CLI, command line, argparse, commander, clap, cobra, flag, --help, exit code, stdin/stdout/stderr, pipe, dry-run, shell tool, terminal, subcommand | CLI / dev tool | `forge-cli` |
 | CMS, WordPress, wp-config, theme, plugin, ACF, custom post type, WP-CLI, headless CMS, Contentful, Sanity, Strapi, Payload, content model | CMS | `forge-cms` |
 | data pipeline, ETL, ELT, dbt, warehouse, Snowflake, BigQuery, Redshift, staging, marts, medallion, incremental load, backfill, data quality, lineage, Airflow, Dagster | Data engineering / ETL | `forge-data` |
 | chrome extension, browser extension, MV3, manifest v3, service worker, content script, chrome.runtime, host_permissions, chrome.storage, CSP, CRX, Web Store | Browser extension | `forge-extension` |
 | figma, design to code, mockup, redlines, design tokens, component library, variants, auto-layout, pixel-perfect, breakpoints, dev mode | Design → code | `forge-figma` |
-| game, browser game, canvas, WebGL, Phaser, vanilla JS game, Godot, GDScript, game loop, win state, lose state, sprite, collision, playtest | Games | `forge-game` |
+| game, browser game, canvas, WebGL, Phaser, vanilla JS game, Godot, GDScript, game loop, win state, lose state, sprite, collision, playtest | Games (not Roblox); the game pack: `game-*` specialists (`.claude/config/packs/game.json`, presets `game-all` + `process`) | `forge-game` |
+| roblox, Luau, Roblox Studio, Rojo, obby, simulator, tycoon, Robux, game pass, DataStore, RemoteEvent, .rbxl | Roblox game | `forge-game` + the Roblox pack: `rbx-*` specialists and the `roblox-*` skills (`.claude/config/packs/roblox.json`; lanes open presets `roblox-all` + `process`, checked by `forge-lane-skills.cjs`) |
 | migration, modernization, legacy, rewrite, port, upgrade, strangler fig, characterization test, golden master, parity, shadow traffic, dual-write, feature flag, replatform | Legacy modernization | `forge-migration` |
 | mlops, ML pipeline, training pipeline, model registry, MLflow, DVC, feature store, train/serve skew, drift, canary, retraining, rollback, model serving | Production ML / MLOps | `forge-mlops` |
-| mobile, mobile app, React Native, Expo, EAS, Flutter, Dart, iOS, Android, apk, aab, ipa, emulator, simulator, secure storage, App Store, Play Store | Mobile app | `forge-mobile` |
+| mobile, mobile app, React Native, Expo, EAS, Flutter, Dart, iOS, Android, apk, aab, ipa, emulator, simulator, secure storage, App Store, Play Store | Mobile app; the mobile pack: `mob-*` specialists (`.claude/config/packs/mobile.json`, presets `mobile-all` + `process`) | `forge-mobile` |
+| research, onderzoek, deep dive, compare options, vergelijk, sources, bronnen, fact check, stappenplan, business plan | Research/planning; the research pack: `res-*` specialists (`.claude/config/packs/research.json`, presets `research-all` + `process`) | `forge-research-evidence` (no domain playbook) |
 
-Dashboards fold into `forge-website` or `forge-fullstack`; card handling always folds into `forge-payments`; pure refactor/audit/debug/research/security-review → no domain playbook (fold-in rules in the reference doc). If no domain matches, default to `general-purpose` + `planner`.
+Dashboards fold into `forge-website` or `forge-fullstack`; card handling always folds into `forge-payments`; pure refactor/audit/debug/security-review → no domain playbook; a pack named on a row: its lanes open the presets, checked by `forge-lane-skills.cjs --require <pack>-all,process` (fold-in rules in the reference doc). If no domain matches, default to `general-purpose` + `planner`.
 Unknown, low-confidence or mixed type: never force-fit; follow `references/unknown-project-types.md` (classify, discovery brief, provisional card, `gate --domain <slug>`).
-Cross-cutting craft playbooks (not domains; add them per work package on top of the domain playbook when the package touches that area): database/migrations → `forge-database`; login/sessions/roles → `forge-auth`; tests/e2e/flaky → `forge-testing`; security review, secrets, skill/MCP vetting → `forge-security-review`; WCAG/keyboard/contrast → `forge-a11y`; speed, Core Web Vitals, SEO → `forge-web-quality`; CI/CD, Docker, deploy config → `forge-devops`; logs/tracing/monitoring → `forge-observability`; translations, README/ADR/API docs → `forge-i18n-docs`.
+Cross-cutting craft playbooks (not domains; add them per work package on top of the domain playbook when the package touches that area): database/migrations → `forge-database`; login/sessions/roles → `forge-auth`; tests/e2e/flaky → `forge-testing`; security review, secrets, skill/MCP vetting → `forge-security-review`; WCAG/keyboard/contrast → `forge-a11y`; speed, Core Web Vitals, SEO → `forge-web-quality`; CI/CD, Docker, deploy config → `forge-devops`; logs/tracing/monitoring → `forge-observability`; translations, README/ADR/API docs → `forge-i18n-docs`; glassy / zwart wit / zoals Grok UI style → `forge-glass-ui`; web UI to apk / telefoon app → `forge-android-app` (+ `forge-mobile`); control Forge from the phone / op afstand goedkeuren → `forge-remote-access`.
 
 ## Reference index (on-demand, full verbatim wording)
+A question about Forge itself (what it is, which Boss, gates, settings, resume) → open `forge-system`; regenerate it with `node .claude/forge-bin/forge-system-skill.cjs generate`. Which model or effort for a task, or the escalation ladder → `forge-model-routing` (compact GOAT table).
 Docs: `.claude/docs/forge-reference/router-intake-and-skill-discovery.md` (Steps 0–0b) · `.claude/docs/forge-reference/router-classify-domain-complexity.md` (Steps 1–2) · `.claude/docs/forge-reference/router-team-routing-and-goat.md` (Steps 3, 3x) · `.claude/docs/forge-reference/router-web-quality-mcp-wave-j.md` (Steps 3a–3c) · `.claude/docs/forge-reference/router-parallel-handoff-review.md` (Steps 4–6) · `.claude/docs/forge-reference/router-team-plan-and-work-packages.md` (TEAM PLAN, work packages) · `.claude/docs/forge-reference/router-dispatch-v10-contract-first.md` (Step 4d). "Read it when" table: `references/routing-checklist.md`. Prompt format: `PROMPT_TEMPLATE.md` (this folder).
 
 ## Team chat (WP A1, 2026-11-01)

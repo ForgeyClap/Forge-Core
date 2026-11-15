@@ -1,0 +1,58 @@
+{
+  "schema": "forge-pack/v1",
+  "name": "data",
+  "_doc": "The Data pack (owner request R-0239): 3 data-* SPECIALIST agents plus the existing data-scientist and ml-engineer specialists, which join by reference (no rename). For scraping public or permitted sources, data work and predictions. Evidence: AutoWeb (compliance-critic role). forge-router sends a scraping, data or prediction request to this pack; forge-pack.cjs (doctor check packs) is red when a pack agent or skill is missing, unrouted or not a registered specialist. Presets are expanded by forge-lane-skills.cjs (--require data-all,process). No login, paywall or bot-protection bypass; outreach stays a draft; never an automatic real-money action.",
+  "projectTypes": [
+    "scraping",
+    "data",
+    "prediction",
+    "mlops"
+  ],
+  "signals": [
+    "scrape",
+    "scraper",
+    "scraping",
+    "crawler",
+    "crawl",
+    "harvest",
+    "data collection",
+    "lead list",
+    "dataset",
+    "prediction",
+    "forecast",
+    "backtest",
+    "odds",
+    "sports data",
+    "voorspelling"
+  ],
+  "playbook": "forge-scraping",
+  "agents": [
+    "data-scraper-engineer",
+    "data-compliance-reviewer",
+    "data-backtest-auditor",
+    "data-scientist",
+    "ml-engineer"
+  ],
+  "skills": [
+    "forge-scraping",
+    "forge-data",
+    "forge-prediction",
+    "forge-graded-verify",
+    "forge-security-review",
+    "forge-verify",
+    "test-driven-development",
+    "forge-mlops"
+  ],
+  "presets": {
+    "data-all": [
+      "forge-scraping",
+      "forge-data",
+      "forge-prediction"
+    ],
+    "process": [
+      "forge-conduct",
+      "forge-token-economy",
+      "verification-before-completion"
+    ]
+  }
+}

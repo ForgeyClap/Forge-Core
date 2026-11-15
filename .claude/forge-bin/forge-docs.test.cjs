@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-docs.test.cjs — real tests for the zero-dependency office-document generator (H1).
 // Every fixture writes into a fresh os.tmpdir() dir — this file never touches real project output.
 // The OOXML formats are verified by UNZIPPING the produced bytes ourselves (zlib.inflateRawSync + a
@@ -213,6 +217,14 @@ t('pdf() escapes parentheses and backslashes so the PDF string literal stays wel
   const buf = docs.pdf({ title: 'T', blocks: [{ type: 'p', text: 'A (parenthetical) and a \\backslash\\.' }] });
   const text = buf.toString('latin1');
   assert.ok(text.includes('A \\(parenthetical\\) and a \\\\backslash\\\\.'), 'parens/backslashes must be escaped per the PDF spec');
+});
+
+t('pdf() writes euro, dashes and smart quotes as their WinAnsi bytes; an unmappable character becomes ? (FB-MISC-1-F9)', () => {
+  const buf = docs.pdf({ title: 'Prijs € 10 — offerte', blocks: [{ type: 'p', text: '‘a’ “b” 1–2 … café \u{1F600}' }] });
+  const bytes = buf.toString('latin1');
+  assert.ok(bytes.includes('(Prijs \x80 10 \x97 offerte) Tj'), 'euro must be 0x80 and the em dash 0x97');
+  assert.ok(bytes.includes('(\x91a\x92 \x93b\x94 1\x962 \x85 caf\xE9 ?) Tj'), 'quotes, en dash, ellipsis, latin-1 and the unmappable emoji');
+  assert.ok(!bytes.includes('\x14') && !bytes.includes('\xAC'), 'no truncated UTF-16 bytes');
 });
 
 t('pdf() auto-paginates long content into more than one page', () => {

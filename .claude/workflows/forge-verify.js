@@ -1,9 +1,9 @@
 export const meta = {
   name: 'forge-verify',
   description: 'Read-only verification: one verifier agent per check in parallel, returns a PASS/FAIL table with evidence',
-  whenToUse: 'After a change, or to re-check a tree independently. args: {projectRoot, checks} required (checks: strings or {name, command, scope}); optional {risk, forge, context}. Never edits files.',
+  whenToUse: 'After a change, or to re-check a tree independently. args: {projectRoot, checks} required (checks: strings or {name, command, scope}); optional {risk, forge, context, maxParallel}. Pass maxParallel = the lane count node .claude/forge-bin/forge-lane-budget.cjs reports (read-only lanes count too). Never edits files.',
   phases: [
-    { title: 'Verify', detail: 'verify-boss or verifier, sonnet/medium, one per check, at most 16 at a time' },
+    { title: 'Verify', detail: 'verify-boss or verifier, sonnet/medium, one per check, at most maxParallel (default and cap 16) at a time' },
   ],
 }
 
@@ -12,12 +12,17 @@ export const meta = {
 const ARGS = typeof args === 'string' ? (() => { try { return JSON.parse(args) } catch (e) { return args } })() : args
 
 const MAX_CHECKS = 64
-const BATCH = 16 // the workflow runner's default cap of concurrent agents per run
+const MAX_BATCH = 16 // the workflow runner's default cap of concurrent agents per run
 const RISKS = ['low', 'medium', 'high']
 
 if (!ARGS || typeof ARGS !== 'object' || Array.isArray(ARGS)) {
   throw new Error('forge-verify requires args: {projectRoot: "<absolute path>", checks: ["tests", ...]}')
 }
+// The lane budget (forge-lane-budget.cjs) tapers with usage; the Lead passes it here so this fan-out stays within it.
+if (ARGS.maxParallel != null && (!Number.isInteger(ARGS.maxParallel) || ARGS.maxParallel < 1)) {
+  throw new Error('forge-verify: args.maxParallel must be a whole number of at least 1 (the lane budget)')
+}
+const BATCH = ARGS.maxParallel == null ? MAX_BATCH : Math.min(ARGS.maxParallel, MAX_BATCH)
 const ROOT = typeof ARGS.projectRoot === 'string' ? ARGS.projectRoot.trim() : ''
 if (!/^(\/|[A-Za-z]:[\\/])/.test(ROOT) || /[\r\n\t]/.test(ROOT)) {
   throw new Error('forge-verify: args.projectRoot must be an absolute path on one line')

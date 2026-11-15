@@ -12,7 +12,9 @@ const S = require('./forge-sync.cjs');
 
 let pass = 0, fail = 0;
 const t = (name, fn) => { try { fn(); pass++; console.log('  ok  ' + name); } catch (e) { fail++; console.error('  FAIL ' + name + ' — ' + ((e && e.message) || e)); } };
-const plan = (devDir) => ({ dev: { git: { available: true, head: 'abc', dirtyPaths: [] } }, blocked: [], devMissingBlocking: [], templateDir: path.join(__dirname, '__no_template__'), devDir });
+// srcHashes: every real plan carries the published set's hashes (planPublishTemplate); an empty set here keeps the
+// publish guard (forge-sync-publish-guard.cjs) from listing a real one, so only check_the_checks is judged.
+const plan = (devDir) => ({ dev: { git: { available: true, head: 'abc', dirtyPaths: [] } }, blocked: [], devMissingBlocking: [], templateDir: path.join(__dirname, '__no_template__'), devDir, srcHashes: {} });
 
 t('publishApplyBlockers is exported', () => assert.strictEqual(typeof S.publishApplyBlockers, 'function'));
 t('a red check_the_checks in the dev tree refuses the publish and names the suite', () => {

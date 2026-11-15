@@ -24,10 +24,11 @@
 - A fixed delay with a little random jitter is the baseline. Better is an adaptive throttle per domain:
   - start slow (a few seconds), then move the delay toward the time the server takes to answer;
   - a latency spike raises the delay at once; recovery is gradual;
-  - every non-2xx answer or blocked-looking page **doubles** that domain's delay up to a cap (a `429` or
-    `403` often answers faster than real content, so latency alone would speed you up — wrong);
+  - a transient answer (a `429` with `Retry-After`, a `5xx`, a timeout) **doubles** that domain's delay up to a
+    cap (a `429` often answers faster than real content, so latency alone would speed you up — wrong);
   - honour `Retry-After` even when it is above your cap (raise the cap, or stop);
-  - two blocked answers in a row on the same domain: stop that domain for the run (see
+  - a `401`, `403` or `407`, a persistent `429`, a login wall, paywall, CAPTCHA or challenge page stops that
+    domain for the run at the first sighting, with no further request (the `blocked` row in
     `failure-states.md`).
 - Identify yourself: a descriptive User-Agent with a project name and a contact address (owner-chosen, not
   a personal address in the repo). Never a random or rotated browser User-Agent to blend in.

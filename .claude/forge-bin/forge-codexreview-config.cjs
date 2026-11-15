@@ -96,7 +96,7 @@ function nonEmptyString(v) { return typeof v === 'string' && v.trim() ? v.trim()
 // narrowing the rest of the allowed alphabet real model ids use (`.`, `_`, `:`, `-`).
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const ALLOWED_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-// a script-extension codexBin (see runCodex()) is run via `node <script> <args>` instead of being
+// N3 fix — a script-extension codexBin (see runCodex()) is run via `node <script> <args>` instead of being
 // exec'd directly, so a hermetic test can stand in a tiny fake "codex" on every OS without a compiled
 // binary. This NEVER activates for the real 'codex' name — only when FORGE_CODEX_BIN/opts.codexBin is
 // explicitly pointed at a .js/.cjs/.mjs file.
@@ -432,7 +432,7 @@ function resolveCodexBin(env, platform, arch) {
         if (fs.existsSync(script)) return script;
       }
     }
-    return null; // never spawn a bare 'codex' name on win32 — see doc comment above
+    return null; // F3: never spawn a bare 'codex' name on win32 — see doc comment above
   }
   return 'codex';
 }
@@ -453,7 +453,7 @@ function resolveCodexBin(env, platform, arch) {
  *  the real 'codex' name, only when the operator/test explicitly points at a script file.
  *
  *  A `.cmd`/`.bat` codex install (possible on Windows for an npm-shimmed CLI) is NOT silently worked
- *  around with a shell: verified live on this Node (win32) — a bare `.cmd` name spawns ENOENT and an
+ *  around with a shell: verified live on this Node (v24, win32) — a bare `.cmd` name spawns ENOENT and an
  *  absolute `.cmd` path spawns EINVAL under shell:false (Node's own CVE-2024-27980 mitigation), and
  *  `shell:true` with an argv array is Node's own documented "arguments are not escaped, only concatenated"
  *  footgun (reproduced live: a crafted "prompt" containing ` & echo ... ` executed as a second command)
@@ -461,7 +461,7 @@ function resolveCodexBin(env, platform, arch) {
  *  never silently swallowed and never retried with a shell; the caller is told to point FORGE_CODEX_BIN at
  *  a real executable (or the shim's underlying script, run via node) instead.
  *
- *  the real spawnSync always carries a timeout (`opts.timeoutMs` / FORGE_CODEX_TIMEOUT_MS / a 30-minute
+ *  F7: the real spawnSync always carries a timeout (`opts.timeoutMs` / FORGE_CODEX_TIMEOUT_MS / a 30-minute
  *  default — see resolveCodexTimeoutMs()). A timeout is reported as `timed_out: true` plus an honest
  *  `spawn_error` (Node's own ETIMEDOUT) — status is never 0 and it is never mistaken for a successful run. */
 function runCodex(effective, opts) {
@@ -501,7 +501,7 @@ function runCodex(effective, opts) {
   if (o.dryRun) {
     return { dry_run: true, codex_bin: codexBin, argv: finalArgv, exec_target: execTarget, exec_args: execArgs, status: null, stdout: '', stderr: '', spawn_error: null, timed_out: false, timeout_ms: timeoutMs };
   }
-  // see DEFAULT_CODEX_TIMEOUT_MS/resolveCodexTimeoutMs() above: never let a hung codex process
+  // F7 fix — see DEFAULT_CODEX_TIMEOUT_MS/resolveCodexTimeoutMs() above: never let a hung codex process
   // block the caller forever. On timeout, Node reports r.error.code === 'ETIMEDOUT' and r.status stays
   // null (never 0) — surfaced below as BOTH an honest spawn_error string AND an explicit timed_out:true,
   // so a caller checking either one sees the truth; it is never reported as a successful run.

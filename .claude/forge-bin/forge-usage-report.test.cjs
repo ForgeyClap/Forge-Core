@@ -1,4 +1,8 @@
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 let pass = 0, fail = 0;
 const queue = [];
 function test(name, fn) { queue.push([name, fn]); }
@@ -119,6 +123,27 @@ test('--by-run joins by run-id marker, segments, parent session and date window'
   assert.strictEqual(b.method_turns.parent_marker, 2);
   assert.strictEqual(r.by_run.unattributed.turns, 0);
   assert.strictEqual(r.by_run.runs.length, 2, 'unknown run id must be ignored');
+});
+
+// FB-USAGE-F6: only a Bash/PowerShell log-event or runcontract call is a run marker.
+test('a Read of a run folder is no marker; a marker covers turns from its time onward', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-root-f6-'));
+  const tx = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-tx-f6-'));
+  const OLD = 'forge-2026-01-01-old';
+  fs.mkdirSync(path.join(root, '.claude', 'forge-runs', OLD), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', 'forge-runs', OLD, 'events.jsonl'), [ev('run_started', '2026-01-01T00:00:00.000Z'), ev('run_completed', '2026-01-01T01:00:00.000Z')].join('\n'));
+  const readTurn = (id, ts) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { id, model: 'claude-opus-x',
+    content: [{ type: 'tool_use', name: 'Read', input: { file_path: root + '/.claude/forge-runs/' + OLD + '/report.md' } }],
+    usage: { input_tokens: 1, cache_read_input_tokens: 1, cache_creation_input_tokens: 1, output_tokens: 1 } } });
+  fs.writeFileSync(path.join(tx, 'r1.jsonl'), [readTurn('q1', '2026-03-01T00:00:00.000Z'), turn('q2', '2026-03-01T00:01:00.000Z', [1, 1, 1, 1])].join('\n'));
+  fs.writeFileSync(path.join(tx, 'r2.jsonl'), [turn('p1', '2026-03-02T00:00:00.000Z', [1, 1, 1, 1]),
+    turn('p2', '2026-03-02T00:01:00.000Z', [1, 1, 1, 1], 'node log-event.cjs ' + OLD + ' agent_note'), turn('p3', '2026-03-02T00:02:00.000Z', [1, 1, 1, 1])].join('\n'));
+  const r = await buildReport({ projectDir: tx, root, byRun: true });
+  const o = r.by_run.runs.find((x) => x.run_id === OLD);
+  assert.ok(o, JSON.stringify(r.by_run));
+  assert.strictEqual(o.method_turns.marker, 2, 'only p2 and p3 (from the marker onward): ' + JSON.stringify(o.method_turns));
+  assert.strictEqual(o.tokens_measured, 8);
+  assert.strictEqual(r.by_run.unattributed.turns, 3, 'q1, q2 (Read only) and p1 (before the marker) are not measured: ' + JSON.stringify(r.by_run.unattributed));
 });
 
 test('--verifier counts verdicts, escalations and rework after completion', async () => {

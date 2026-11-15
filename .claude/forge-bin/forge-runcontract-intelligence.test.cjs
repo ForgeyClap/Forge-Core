@@ -212,9 +212,10 @@ try {
       const b = chk(root, 'pc-bad' + i);
       t('a bad exception (' + label + ') leaves it MISSING and says why', b.missing.includes('plan-card-recorded') && re.test(b.rule_details['plan-card-recorded'].reason) && !b.exceptions.length, b.rule_details['plan-card-recorded'].reason);
     });
-    writeRun(root, 'pc-owner', BASE_EVENTS.concat([{ event_type: 'owner_override', rule: 'plan-card-recorded', reason: 'owner reviewed: tiny hotfix, no card wanted', by: 'owner' }]), { 'run.json': { work_packages: 4 } });
+    writeRun(root, 'pc-owner', BASE_EVENTS.concat([{ event_type: 'owner_override', rule: 'plan-card-recorded', reason: 'owner reviewed: tiny hotfix, no card wanted', by: 'owner', _forge_verify: { owner_act: { via: 'command-center-confirm' } } }]), { 'run.json': { work_packages: 4 } }); // FB-CONTRACT-1-F2: writer-owned owner stamp
     const o = chk(root, 'pc-owner');
-    t('a valid owner_override clears it (owner path) and is reported as overridden', o.overridden.some((x) => x.id === 'plan-card-recorded') && !o.missing.includes('plan-card-recorded'));
+    // FB-CONTRACT-1-F2 (fail closed): no owner-only writer path exists yet, so the override is label-only
+    t('a well-formed owner_override is reported label-only and does not clear it yet', !o.overridden.some((x) => x.id === 'plan-card-recorded') && o.missing.includes('plan-card-recorded') && o.override_label_only.some((x) => x.id === 'plan-card-recorded'));
     writeRun(root, 'pc-notowner', BASE_EVENTS.concat([{ event_type: 'owner_override', rule: 'plan-card-recorded', reason: 'build boss says it is fine', by: 'build-boss' }]), { 'run.json': { work_packages: 4 } });
     t('an owner_override by a non-owner does not', chk(root, 'pc-notowner').missing.includes('plan-card-recorded'));
   }

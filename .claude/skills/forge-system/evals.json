@@ -1,0 +1,25 @@
+{
+  "skill": "forge-system",
+  "assertions": [
+    { "id": "skillmd-exists", "type": "file_exists", "path": ".claude/skills/forge-system/SKILL.md",
+      "why": "the generated entry point must exist" },
+    { "id": "description-budget", "type": "frontmatter_field", "field": "description", "max_length": 90,
+      "why": "R-0235: the skill listing is already over the 200k-window budget, so this description stays minimal" },
+    { "id": "says-it-cannot-enforce", "type": "contains", "path": ".claude/skills/forge-system/SKILL.md", "needle": "A skill cannot enforce anything",
+      "why": "owner R-0235: the skill must say plainly that enforcement lives in code, not in markdown" },
+    { "id": "generated-mark", "type": "contains", "path": ".claude/skills/forge-system/SKILL.md", "needle": "generated: forge-system-skill",
+      "why": "the files are generated; the mark tells a reader not to hand-edit and lets generate remove stale files" },
+    { "id": "agents-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/agents.md", "why": "map pointer target" },
+    { "id": "skills-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/skills.md", "why": "map pointer target" },
+    { "id": "commands-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/commands.md", "why": "map pointer target" },
+    { "id": "hooks-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/hooks.md", "why": "map pointer target" },
+    { "id": "gates-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/gates.md", "why": "map pointer target" },
+    { "id": "config-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/config.md", "why": "map pointer target" },
+    { "id": "routes-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/routes.md", "why": "map pointer target" },
+    { "id": "tools-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/tools.md", "why": "map pointer target" },
+    { "id": "workflows-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/workflows.md", "why": "map pointer target" },
+    { "id": "limits-ref", "type": "file_exists", "path": ".claude/skills/forge-system/references/limits.md", "why": "map pointer target" },
+    { "id": "push-is-owner-gate", "type": "contains", "path": ".claude/skills/forge-system/references/gates.md", "needle": "owner gates: the owner decides",
+      "why": "a push is an owner gate, not a hook block; the gates reference must keep that split visible" }
+  ]
+}

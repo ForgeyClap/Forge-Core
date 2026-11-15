@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-doctor-hygiene-links.test.cjs — W2-LOWS: two gaps in skill_hygiene's link check
  * (doctor/checks-hygiene.cjs skillHygiene), named in the skills-audit final report:
@@ -86,7 +90,7 @@ t('F5b: a link to an absent project memory file is optional, a misspelt one stay
   wf(root, '.claude/skills/memtypo/SKILL.md', '---\nname: memtypo\ndescription: x\n---\nRead `.claude/FORGE_MEMROY.md` first.\n');
   assert.strictEqual(entry(H.skillHygiene(root), 'memtypo').ok, false);
 });
-// 2026-11-07 (category tests): the REAL-tree case above passes in the development checkout because local
+// 2026-11-07 (category tests, F5): the REAL-tree case above passes in the development checkout because local
 // files such as .claude/agent-memory/head-chef/MEMORY.md exist there, while every fresh install from the published
 // template failed its doctor on the same skill link and rolled back. Judge the SHIPPED set (exactly what
 // publish-template copies) in an empty project, the way a fresh install sees it. Runs only in the dev tree: in an
@@ -103,7 +107,7 @@ t('SHIPPED tree: skill_hygiene is green on only the files publish-template ships
     fs.copyFileSync(path.join(root, '.claude', ...rel.split('/')), to);
   }
   // No stubs: forge-sync install creates none of the project memory files (FORGE_MEMORY.md and the rest are written
-  // by the Lead's first scan). An earlier version of this case stubbed them and so hid the second cause.
+  // by the Lead's first scan). An earlier version of this case stubbed them and so hid the second cause (F5b).
   const r = H.skillHygiene(fresh);
   assert.strictEqual(r.ok, true, JSON.stringify(r.skills.filter((s) => !s.ok)));
 });

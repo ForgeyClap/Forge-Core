@@ -59,7 +59,8 @@
  *   completed-after-fail  a FAIL verdict (wp_verified, review_completed or any event with wp_id + verdict FAIL) followed
  *                         by work (wp_completed, file_changed, a commit) and never cleared by a PASS of the same kind;
  *   committed-before-pass a commit for the wp between a FAIL (or wp_failed) and the PASS that cleared it;
- *   not-verified          a wp with a wp_completed and no wp_verified PASS at all (incl. "verified via sub-packages").
+ *   not-verified          a wp with a wp_completed and no wp_verified PASS at all (incl. "verified via sub-packages");
+ *   failed-last           the LAST wp_verified of a wp is a FAIL, even after an earlier PASS (FB-FINALIZE-1-F5).
  *   Boundaries (real data): FAIL -> fix -> wp_completed -> PASS is no exception; PASS -> commit -> wp_completed is
  *   integration bookkeeping, no exception (RED-SUITES, 2026-11-02 replay).
  *
@@ -477,14 +478,20 @@ function ledgerExceptions(events) {
       else if (w.work) add(wp, 'completed-after-fail', (w.commit || w.work).type + ' #' + (w.commit || w.work).index + ' after the ' + kind + ' FAIL #' + w.index + ', never cleared by a later ' + kind + ' PASS', w.index);
     }
   }
-  const lastCompleted = new Map(), passed = new Set();
+  // FB-FINALIZE-1-F5: the LAST wp_verified verdict of a package decides; a PASS that a later FAIL overturned (a
+  // regression found on re-verify) no longer counts as verified, whether or not work followed the FAIL.
+  const lastCompleted = new Map(), lastVerdict = new Map();
   list.forEach((e, i) => {
     const wp = wpOf(e);
     if (!wp) return;
     if (e.event_type === 'wp_completed') lastCompleted.set(wp, i);
-    if (e.event_type === 'wp_verified' && typeof e.verdict === 'string' && PASS_RE.test(e.verdict)) passed.add(wp);
+    if (e.event_type === 'wp_verified' && typeof e.verdict === 'string' && (PASS_RE.test(e.verdict) || FAIL_RE.test(e.verdict))) lastVerdict.set(wp, { pass: PASS_RE.test(e.verdict), index: i });
   });
-  for (const [wp, i] of lastCompleted) { const ok = passed.has(wp); if (!ok) add(wp, 'not-verified', 'wp_completed #' + i + ' and no wp_verified PASS for this package', i); }
+  for (const [wp, v] of lastVerdict) if (!v.pass) add(wp, 'failed-last', 'the last wp_verified of this package (#' + v.index + ') is a FAIL', v.index);
+  for (const [wp, i] of lastCompleted) {
+    const v = lastVerdict.get(wp);
+    if (!v) add(wp, 'not-verified', 'wp_completed #' + i + ' and no wp_verified PASS for this package', i);
+  }
   return out;
 }
 /** check(reportText, events) -> {ok, claims, findings, exceptions}. */
@@ -519,6 +526,9 @@ function checkReports(opts) {
   }
   const sel = R.reportsForRun({ root: rr.root || undefined, runDir: rr.dir, events });
   const exceptions = ledgerExceptions(events);
+  // FB-FINALIZE-1-F10: sealed = a valid receipt (finalize appends run_finalized BEFORE its refusals, so the event is
+  // no seal). opts.sealed lets a caller that knows better pass it in.
+  const sealed = typeof opts.sealed === 'boolean' ? opts.sealed : receiptSealed(rr.dir);
   const reports = [], findings = [], claims = [], problems = [];
   for (const r of sel.reports) {
     let text;
@@ -526,7 +536,7 @@ function checkReports(opts) {
       if (fs.statSync(r.file).size > MAX_REPORT_BYTES) throw new Error('larger than ' + MAX_REPORT_BYTES + ' bytes');
       text = fs.readFileSync(r.file, 'utf8');
     } catch (e) { problems.push(r.rel + ' could not be judged (' + ((e && (e.code || e.message)) || e) + ')'); continue; }
-    const j = judge(text, exceptions, { complete: !events.some((e) => e && e.event_type === 'run_finalized') });
+    const j = judge(text, exceptions, { complete: !sealed });
     reports.push({ file: r.rel, source: r.source, ok: j.ok, claims: j.claims.length, findings: j.findings.length });
     for (const f of j.findings) findings.push(Object.assign({ file: r.rel }, f));
     for (const c of j.claims) claims.push(Object.assign({ file: r.rel }, c));
@@ -535,6 +545,10 @@ function checkReports(opts) {
   return { code, ok: code === 0, root: sel.root, run_dir: rr.dir, reports, findings, claims, exceptions, problems, notes: sel.notes };
 }
 const RECEIPT_FILE = 'run-finalized.json';
+/** receiptSealed(dir) — true only when <dir>/run-finalized.json parses and carries a readable finalized_at. */
+function receiptSealed(dir) {
+  try { return Number.isFinite(Date.parse(JSON.parse(fs.readFileSync(path.join(dir, RECEIPT_FILE), 'utf8')).finalized_at)); } catch { return false; }
+}
 /** runsDirFor(root) — the folder that holds the run folders (same layout rule as runDirFor). */
 function runsDirFor(root) {
   const legacy = path.join(root, '.claude', 'forge-runs');

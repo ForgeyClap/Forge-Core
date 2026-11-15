@@ -61,7 +61,7 @@ const MEMORY_REL = 'FORGE_MEMORY.md';
  *  rel -> the kinds adoptApply writes it with, and the scribe file names. A record naming anything else is forged. */
 const RECORD_TARGETS = { [OVERLAY_REL]: ['json-merge', 'create'], [LEGACY_REL]: ['json-merge', 'create'], [BRIEFING_REL]: ['create'], [MEMORY_REL]: ['append'] };
 const SCRIBE_FILES = ['ledger.jsonl', 'state.json', 'DIGEST.md'];
-/** LEGACY_CUTOFF — mirrors forge-runcontract COMPLETION_PROOF_CUTOFF. Legacy receipts only matter for runs before
+/** LEGACY_CUTOFF — mirrors forge-runcontract COMPLETION_PROOF_CUTOFF (F01). Legacy receipts only matter for runs before
  *  it; the project's own FORGE_HARD_RULES.json value is never trusted alone (see legacyCutoff). */
 const LEGACY_CUTOFF = '2026-10-09T00:00:00Z';
 const STRICT_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
@@ -217,7 +217,7 @@ function fileMap(project) {
   return { files, truncated };
 }
 /** sameEntry(a, b) — two file-map entries describe the same thing. Secret-like files (meta): size + mtime. WP-SYNC-R10 (Codex
- *  two versioned worktrees entries also need the same child name/kind hash; an R8 count-only worktrees entry against a
+ *  R8-02): two versioned worktrees entries also need the same child name/kind hash; an R8 count-only worktrees entry against a
  *  versioned one can only compare the count — all R8 recorded (compareFiles names that limit in its notes). */
 function sameEntry(a, b) {
   if (!a || !b) return false;

@@ -17,8 +17,8 @@
  *
  * Above the composer also: the quiet usage line (`UsageLine`, only at 80 % of a current limit or more).
  * The "Start hier" steps read real signals only (see `start-checklist.ts`): an account, not the gateway
- * connection; the proof step opens Klussen & bewijs (/jobs, as Leer Forge lesson 3) and ticks only
- * once a real proof was on screen in a klus (JobDetail.tsx).
+ * connection (F1); the proof step opens Klussen & bewijs (/jobs, as Leer Forge lesson 3) and ticks only
+ * once a real proof was on screen in a klus (JobDetail.tsx, F5).
  */
 
 import './home.css';

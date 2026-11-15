@@ -286,8 +286,9 @@ try {
     const RUN = 'wp5-failed';
     log(root, RUN, 'run_started', { agent: 'orchestrator' });
     log(root, RUN, 'agent_note', { agent: 'orchestrator', note: 'the approach did not work' });
-    const r = log(root, RUN, 'run_completed', { agent: 'orchestrator', status: 'failed', summary: 'stopped: the approach failed' }, STRICT);
-    t('a failure close (status failed) is not gated: strict writes it with a NOTE', r.status === 0 && /honest failure close/.test(String(r.stderr)) && events(root, RUN).some((e) => e.event_type === 'run_completed'), out(r));
+    // this run leaves Lead-doable rules open, so the close must name its blocker (section 10)
+    const r = log(root, RUN, 'run_completed', { agent: 'orchestrator', status: 'failed', summary: 'stopped: the approach failed', blocker: 'work package WP-1 failed after its one escalation' }, STRICT);
+    t('a failure close (status failed) that names its blocker is not gated: strict writes it with a NOTE', r.status === 0 && /honest failure close/.test(String(r.stderr)) && events(root, RUN).some((e) => e.event_type === 'run_completed'), out(r));
     const plan = RC.planFor({ run_id: RUN }, { root });
     t('plan: a failure-closed run is closed-failed, finalize is n/a, next says nothing to finalize', plan.state.status === 'closed-failed' && plan.sequence.find((s) => s.id === 'finalize').status === 'n/a' && plan.next.kind === 'closed', JSON.stringify(plan.state) + JSON.stringify(plan.next));
     const fin = rcCli(root, ['check', '--run', RUN, '--log-event', '--finalize']);
@@ -487,6 +488,116 @@ try {
     t('SV-04b: the same (unchanged) object appended again after the gate turned red is re-judged and refused', w8.ok === true && w9.ok === false && /OWNER REQUESTS NOT RECONCILED/.test(w9.message || '') && events(root, RUN).length === n8, JSON.stringify({ w8: w8.ok, w9: w9.ok, m: String(w9.message || '').slice(0, 160) }));
     t('SV-04c: a refused re-append keeps no earlier pass stamp on the object', !(again._forge_verify && again._forge_verify.scribe_gate), JSON.stringify(again._forge_verify || null));
   } catch (e) { t('SC-04 section ran without throwing', false, e && e.stack); }
+
+  // ==============================================================================================
+  console.log('\n10) R8B-F3: a failure close over Lead-doable rules is refused under strict events unless it names a blocker');
+  // ==============================================================================================
+  // Round 8b: the android-v9 Lead skipped the /forge procedure and closed with status "partial" over
+  // 9 red rules; the writer only recorded it. The fixture replays that run through the writer copy: the same
+  // run_started and check_passed payloads, a final-report.md, then the same close.
+  const ANDROID = 'forge-2026-11-08-android-stackr';
+  const androidRun = (root) => {
+    const problems = [];
+    const must = (r, what) => { if (r.status !== 0) problems.push(what + ' exit ' + r.status + ': ' + out(r).slice(0, 300)); };
+    must(log(root, ANDROID, 'run_started', { goal: 'Android tap game APK (Stackr)' }), 'run_started');
+    // CORE-2-F1: the original check_passed had no agent; the writer now refuses that (anonymous work fails
+    // independent-verification for good), so the replay names the Lead as the contract asks.
+    must(log(root, ANDROID, 'check_passed', { agent: 'orchestrator', command: 'node build.cjs', exit_code: 0, evidence: 'RulesTest ALL PASSED 11/11; apksigner Verifies v2+v3; aapt2 badging package com.forge.stackr target 35; classes.dex in APK' }), 'check_passed');
+    fs.writeFileSync(path.join(runDirOf(root, ANDROID), 'final-report.md'), '# Stackr\n\nAPK built and verified by build/tests/badging; not run on a device.\n');
+    return problems;
+  };
+  const PARTIAL = { status: 'partial', note: 'APK built and verified by build/tests/badging; not run on a device; memory/skill-map ceremony skipped' };
+  {
+    const root = makeRoot();
+    const setup = androidRun(root);
+    t('R8B setup: the android-v9 run replayed through the writer copy (run_started, check_passed, final report)', setup.length === 0, setup.join(' | '));
+    const n0 = events(root, ANDROID).length;
+    const r = log(root, ANDROID, 'run_completed', PARTIAL);
+    const err = String(r.stderr || '');
+    t('R8B strict events (the default): run_completed {status:"partial"} is REFUSED (exit 2) and nothing is written', r.status === 2 && events(root, ANDROID).length === n0, out(r));
+    t('R8B the refusal names the Lead-doable rules (memory-read, skill-map-recorded) with how to meet them', /FAILURE CLOSE REFUSED/.test(err) && /memory-read/.test(err) && /skill-map-recorded/.test(err) && /log memory_loaded/.test(err), err);
+    t('R8B the refusal gives the plan command and says how an honest blocker is named', /node \.claude\/forge-bin\/forge-runcontract\.cjs plan --run forge-2026-11-08-android-stackr/.test(err) && /"blocker"/.test(err) && /hard gate/.test(err), err);
+    t('R8B a rule the Lead cannot always do itself (evidence-satisfied) is listed apart, never as Lead-doable', /not counted as Lead-doable: [^\n]*evidence-satisfied/.test(err) && !/✗ evidence-satisfied/.test(err), err);
+    const strictGate = log(root, ANDROID, 'run_completed', PARTIAL, STRICT);
+    t('R8B FORGE_COMPLETION_GATE=strict refuses it the same way', strictGate.status === 2 && events(root, ANDROID).length === n0 && /FAILURE CLOSE REFUSED/.test(String(strictGate.stderr)), out(strictGate));
+    for (const bad of ['', '   ', 'none', 'n/a', 'x', 'owner']) {
+      const rb = log(root, ANDROID, 'run_completed', Object.assign({ blocker: bad }, PARTIAL));
+      t('R8B a placeholder or too-short blocker (' + JSON.stringify(bad) + ') is not a blocker: still refused', rb.status === 2 && events(root, ANDROID).length === n0, out(rb));
+    }
+    const rn = log(root, ANDROID, 'run_completed', Object.assign({ blocker: 42 }, PARTIAL));
+    t('R8B a non-string blocker is not a blocker: still refused', rn.status === 2 && events(root, ANDROID).length === n0, out(rn));
+    const bat = batch(root, ANDROID, [{ event_type: 'agent_note', agent: 'orchestrator', note: 'wrapping up' }, Object.assign({ event_type: 'run_completed' }, PARTIAL)]);
+    t('R8B the batch path refuses it as a whole (0 written)', bat.status === 2 && events(root, ANDROID).length === n0 && /FAILURE CLOSE REFUSED/.test(String(bat.stderr)) && /batch REFUSED as a whole/.test(String(bat.stderr)), out(bat));
+    const ok = log(root, ANDROID, 'run_completed', { status: 'failed', blocker: 'hard gate: deploy needs owner' });
+    const last = events(root, ANDROID).slice(-1)[0];
+    t('R8B {status:"failed", blocker:"hard gate: deploy needs owner"} IS written (an honest failure with a real blocker)', ok.status === 0 && events(root, ANDROID).length === n0 + 1 && last.event_type === 'run_completed' && last.status === 'failed' && last.blocker === 'hard gate: deploy needs owner', out(ok));
+    t('R8B ... with a NOTE naming the blocker', /blocker/.test(String(ok.stderr)) && /hard gate: deploy needs owner/.test(String(ok.stderr)), String(ok.stderr));
+    const fin = rcCli(root, ['check', '--run', ANDROID, '--log-event', '--finalize']);
+    t('R8B forge-finalize keeps refusing the failure close (no receipt)', fin.status !== 0 && !fs.existsSync(path.join(runDirOf(root, ANDROID), 'run-finalized.json')), out(fin));
+  }
+  {
+    const root = makeRoot();
+    androidRun(root);
+    const n0 = events(root, ANDROID).length;
+    const w = log(root, ANDROID, 'run_completed', PARTIAL, { FORGE_STRICT_EVENTS: '0' });
+    t('R8B FORGE_STRICT_EVENTS=0: the failure close is written (exit 0) with a WARNING that names memory-read and the plan command', w.status === 0 && events(root, ANDROID).length === n0 + 1 && /FAILURE CLOSE WARNING/.test(String(w.stderr)) && /memory-read/.test(String(w.stderr)) && /plan --run forge-2026-11-08-android-stackr/.test(String(w.stderr)), out(w));
+    const plan = RC.planFor({ run_id: ANDROID }, { root });
+    t('R8B plan after that close: next says the close skipped Lead-doable work and how to reopen it (not "nothing to finalize")', plan.state.status === 'closed-failed' && plan.next.kind === 'closed' && plan.next.avoidable === true && plan.next.id === 'memory-read' && /reopens this run/.test(plan.next.text) && /"blocker"/.test(plan.next.text), JSON.stringify(plan.next));
+    const ok = log(root, ANDROID, 'run_completed', { status: 'failed', blocker: 'hard gate: deploy needs owner' }, { FORGE_STRICT_EVENTS: '0' });
+    const plan2 = RC.planFor({ run_id: ANDROID }, { root });
+    t('R8B plan after a close that names its blocker: next keeps "nothing to finalize"', ok.status === 0 && plan2.next.kind === 'closed' && !plan2.next.avoidable && /nothing to finalize/.test(plan2.next.text), JSON.stringify(plan2.next));
+  }
+  {
+    const root = makeRoot();
+    const RUN = 'r8b-green-failed';
+    const b = buildRun(root, RUN);
+    t('R8B setup: a run whose contract is green', b.problems.length === 0 && RC.check({ run_id: RUN, phase: 'complete' }, { root }).ok === true, b.problems.join(' | '));
+    const r = log(root, RUN, 'run_completed', { agent: 'orchestrator', status: 'failed', summary: 'the deliverable did not work' });
+    t('R8B a failure close with no Lead-doable rule open is written without a blocker (nothing the Lead skipped)', r.status === 0 && events(root, RUN).slice(-1)[0].event_type === 'run_completed' && !/FAILURE CLOSE REFUSED/.test(String(r.stderr)), out(r));
+  }
+  {
+    const root = makeRoot();
+    const RUN = 'r8b-empty';
+    const r = log(root, RUN, 'run_completed', { agent: 'orchestrator', status: 'aborted' });
+    t('R8B a failure close as the very first event (no run_started) is refused too: nothing was started', r.status === 2 && events(root, RUN).length === 0 && /no events before run_completed/.test(String(r.stderr)), out(r));
+  }
+  {
+    // the forge-doctor.test.cjs fixture shape: run_started and the failure close in ONE batch, no earlier events
+    const root = makeRoot();
+    const RUN = 'r8b-batch-close';
+    const started = { event_type: 'run_started', agent: 'orchestrator' };
+    const close = { event_type: 'run_completed', agent: 'orchestrator', status: 'failed', summary: 'stopped' };
+    const no = batch(root, RUN, [started, close]);
+    t('R8B a batch of run_started + a failure close without a blocker is refused as a whole (0 written): the batch lines are judged as the run', no.status === 2 && events(root, RUN).length === 0 && /FAILURE CLOSE REFUSED/.test(String(no.stderr)) && /memory-read/.test(String(no.stderr)), out(no));
+    const yes = batch(root, RUN, [started, Object.assign({ blocker: 'hard gate: deploy needs the owner' }, close)]);
+    t('R8B ... the same batch with a blocker is written (2 events) and the run reads as closed-failed', yes.status === 0 && events(root, RUN).length === 2 && RC.planFor({ run_id: RUN }, { root }).state.status === 'closed-failed', out(yes));
+  }
+  {
+    // in-process: the writer's review step, with a fake checker (no files)
+    const LE = require('../forge-dashboard/log-event.cjs');
+    const fc = { run_id: 'x', event_type: 'run_completed', status: 'partial' };
+    const fake = (review) => ({ isFailureClose: RC.isFailureClose, completionGate: () => ({ ok: true, applicable: false, failure_close: true, run_id: 'x', plan_command: 'node .claude/forge-bin/forge-runcontract.cjs plan --run x' }), failureCloseReview: review });
+    const avoid = () => ({ avoidable: true, lead_doable: [{ id: 'memory-read', severity: 'block', how: 'log memory_loaded' }], other: [], blocker: null, plan_command: 'node .claude/forge-bin/forge-runcontract.cjs plan --run x' });
+    const ref = LE.evaluateCompletionGate(fc, [], { runcontract: fake(avoid), mode: 'warn', strictEvents: true });
+    t('R8B evaluateCompletionGate(): an avoidable failure close under strict events -> refuse, the rule on a line', ref.decision === 'refuse' && ref.lines.some((l) => /memory-read/.test(l)), JSON.stringify(ref));
+    const warn = LE.evaluateCompletionGate(fc, [], { runcontract: fake(avoid), mode: 'warn', strictEvents: false });
+    t('R8B evaluateCompletionGate(): the same close without strict events -> pass with the warning lines', warn.decision === 'pass' && warn.lines.some((l) => /FAILURE CLOSE WARNING/.test(l)), JSON.stringify(warn));
+    const boom = LE.evaluateCompletionGate(fc, [], { runcontract: fake(() => { throw new Error('rules unreadable'); }), mode: 'strict', strictEvents: true });
+    t('R8B evaluateCompletionGate(): a review that throws never blocks a failure close (pass + NOTE with the reason)', boom.decision === 'pass' && boom.lines.some((l) => /rules unreadable/.test(l)), JSON.stringify(boom));
+    const old = fake(undefined); delete old.failureCloseReview;
+    const skew = LE.evaluateCompletionGate(fc, [], { runcontract: old, mode: 'strict', strictEvents: true });
+    t('R8B evaluateCompletionGate(): an older checker without failureCloseReview -> pass with a NOTE (fail-open)', skew.decision === 'pass' && skew.lines.some((l) => /failure-close review is unavailable/.test(l)), JSON.stringify(skew));
+  }
+  {
+    const rules = JSON.parse(fs.readFileSync(REAL.rules, 'utf8'));
+    const ids = new Set(rules.rules.map((r) => r.id));
+    const want = ['memory-read', 'owner-prefs-loaded', 'research-done', 'plan-or-prd-present', 'skill-map-recorded', 'dispatch-logged', 'report-present', 'verify-checked', 'run-shape-declared', 'owner-requests-reconciled', 'memory-files-touched'];
+    t('R8B LEAD_DOABLE_RULES is the one frozen list of the 11 rule ids, exported next to isFailureClose', Array.isArray(RC.LEAD_DOABLE_RULES) && Object.isFrozen(RC.LEAD_DOABLE_RULES) && JSON.stringify(RC.LEAD_DOABLE_RULES.slice().sort()) === JSON.stringify(want.slice().sort()), JSON.stringify(RC.LEAD_DOABLE_RULES));
+    t('R8B every Lead-doable id exists in the production FORGE_HARD_RULES.json (a renamed rule cannot drop out silently)', Array.isArray(RC.LEAD_DOABLE_RULES) && RC.LEAD_DOABLE_RULES.every((id) => ids.has(id)), JSON.stringify((RC.LEAD_DOABLE_RULES || []).filter((id) => !ids.has(id))));
+    t('R8B failureCloseBlocker(): a named blocker is returned trimmed; empty, placeholder, short or non-string is null', typeof RC.failureCloseBlocker === 'function' && RC.failureCloseBlocker({ blocker: '  hard gate: deploy needs owner ' }) === 'hard gate: deploy needs owner'
+      && [undefined, null, 42, '', '  ', 'none', 'N/A', '-', 'todo', 'x', 'owner'].every((b) => RC.failureCloseBlocker({ blocker: b }) === null) && RC.failureCloseBlocker(null) === null);
+    t('R8B leadDoableOf(): the unmet (missing + warnings) rules that are Lead-doable, in contract order', typeof RC.leadDoableOf === 'function' && JSON.stringify(RC.leadDoableOf({ missing: ['memory-read', 'evidence-satisfied', 'dispatch-logged'], warnings: ['memory-files-touched', 'wp-closure'] }).map((x) => x.id + ':' + x.severity)) === JSON.stringify(['memory-read:block', 'dispatch-logged:block', 'memory-files-touched:warn']) && RC.leadDoableOf(null).length === 0);
+  }
 } finally {
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch { /* best-effort cleanup */ } }
 }

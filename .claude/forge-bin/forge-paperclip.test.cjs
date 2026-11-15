@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * Hermetic tests for forge-paperclip.cjs — the Forge <-> Paperclip control-plane bridge
  * (FOLLOW-UP C,: architectural refactor for real testability).
@@ -105,6 +109,10 @@ const EXPECTED_EXPORT_KEYS = ['pcRole', 'pcAdapter', 'modelFor', 'skillsForRole'
   'toForwardSlashes', 'isSafeRunId', 'resolveClaudeBin', 'agentDocs', 'list',
   // the owner-setting gate for up/ensure — a PURE decision (reads settings only, no network/process)
   'paperclipGate', 'PAPERCLIP_OFF_MESSAGE',
+  // FB-MISC-1-F1/F2/F4: PURE stop and launch decisions (no process, port or network work)
+  'basePort', 'pickStopPids', 'liveStopPids', 'stopVerdict', 'launchSpec',
+  // FB-MISC-1-F5/F6: PURE lock and git-guard decisions
+  'mayRemovePgLock', 'gitGuardPlan', 'secretShapedPaths',
   'ROLE_MAP', 'LOCAL_ADAPTERS', 'ROUTER_ROLES', 'ROLE_AGENT', 'PAPERCLIP_MODEL_IDS', 'SKILLS_BY_ROLE'].sort();
 t('R2 the export surface is EXACTLY the documented pure/safe set (no accidental extra export, none missing)', JSON.stringify(Object.keys(pc).sort()) === JSON.stringify(EXPECTED_EXPORT_KEYS));
 const NEVER_EXPORTED = ['cmdStatus', 'cmdUp', 'cmdEnsure', 'cmdTicket', 'cmdPause', 'cmdResume', 'cmdStop',
@@ -173,7 +181,7 @@ function caseDir() { const d = path.join(TMP, 'case' + (++caseN)); fs.mkdirSync(
     Object.keys(pc.ROLE_MAP).every((r) => { try { return !['haiku', 'claude-fable-5-1'].includes(pc.modelFor(r).model); } catch (e) { return e.code === 'FORGE_UNMAPPED_ROLE'; } }));
   t('C4 ROUTER_ROLES / ROLE_AGENT membership', pc.ROUTER_ROLES.has('ceo') && pc.ROUTER_ROLES.has('lead') && pc.ROLE_AGENT.cto === 'boss' && pc.ROLE_AGENT.summarizer === 'docs-boss' && !pc.ROUTER_ROLES.has('engineer'));
   t('C4 every ROLE_AGENT target is a registered Forge agent in agent-model-map.json (no dangling mapping)', Object.values(pc.ROLE_AGENT).every((a) => Object.prototype.hasOwnProperty.call(REAL_MAP.agents, a)));
-  // the five roles Codex named, by role alone, now land on their agents' DECLARED model/effort (were opus/medium).
+  // F2: the five roles Codex named, by role alone, now land on their agents' DECLARED model/effort (were opus/medium).
   for (const [role, agent] of [['execution-controller', 'head-chef'], ['testing', 'test-boss'], ['seo', 'seo-boss'], ['skills', 'skill-boss'], ['documentation', 'docs-boss']]) {
     t('C5 role "' + role + '" -> ' + agent + ' declared values ' + JSON.stringify(expectAgent(agent)), JSON.stringify(pc.modelFor(role)) === JSON.stringify(expectAgent(agent)));
   }
@@ -406,6 +414,35 @@ function caseDir() { const d = path.join(TMP, 'case' + (++caseN)); fs.mkdirSync(
 }
 
 // ===================================================================================
+// GROUP S — FB-MISC-1-F1/F2/F4: stop only what is ours, prove the stop, pin the launch.
+// Pure helpers only; no process, port or network is touched.
+// ===================================================================================
+{
+  t('S1 basePort takes the port from PAPERCLIP_URL (default 3100)', pc.basePort && pc.basePort('http://127.0.0.1:3100') === '3100' && pc.basePort('http://127.0.0.1:4555/') === '4555' && pc.basePort('not a url') === null);
+  t('S2 pickStopPids keeps the recorded runtime PID only when its command line is paperclip', pc.pickStopPids && JSON.stringify(pc.pickStopPids({ recordedPid: 4242, recordedCmd: 'node npx-cache\\paperclipai\\cli.js run', owned: [] })) === JSON.stringify(['4242'])
+    && pc.pickStopPids({ recordedPid: 4242, recordedCmd: 'C:\\loki\\loki.exe -config', owned: [] }).length === 0);
+  t('S3 pickStopPids never adds a port listener that is not proven ours', pc.pickStopPids && JSON.stringify(pc.pickStopPids({ recordedPid: null, recordedCmd: '', owned: ['77'] })) === JSON.stringify(['77']));
+  t('S4 stopVerdict: stopped only when health is gone and no runtime or Postgres listener is left', pc.stopVerdict && pc.stopVerdict({ healthy: false, runtimePids: [], dbPids: [] }).stopped === true
+    && pc.stopVerdict({ healthy: true, runtimePids: [], dbPids: [] }).stopped === false && pc.stopVerdict({ healthy: false, runtimePids: ['5'], dbPids: [] }).stopped === false
+    && pc.stopVerdict({ healthy: false, runtimePids: [], dbPids: ['9'] }).stopped === false);
+  // Rework (Verify Boss FAIL): the recorded PID is re-read on every check, so once the force step killed it, it no
+  // longer counts and a stop that worked is reported as stopped (it used to reuse the pre-kill process info).
+  { let alive = true; const infoOf = (pid) => (alive && pid === 4242 ? { cmd: 'node npx-cache\paperclipai@1.4.2 run' } : null);
+    const before = pc.liveStopPids ? pc.liveStopPids(4242, infoOf, []) : null; alive = false;
+    const after = pc.liveStopPids ? pc.liveStopPids(4242, infoOf, []) : null;
+    t('S5 liveStopPids re-reads the recorded PID: alive before the kill, gone after, so the force-stop verdict is stopped',
+      JSON.stringify(before) === JSON.stringify(['4242']) && JSON.stringify(after) === '[]'
+      && pc.stopVerdict({ healthy: false, runtimePids: after, dbPids: [] }).stopped === true); }
+  t('S5 cmdStop no longer kills every listener of the literal port 3100', !/pidsOnPort\('3100'\)/.test(SOURCE_TEXT));
+  t('S6 cmdStop logs a failed stop event when the verdict is not stopped', /status: 'failed'[^\n]*paperclip_runtime_stopped|paperclip_runtime_stopped[^\n]*status: 'failed'/.test(SOURCE_TEXT));
+  const ls = pc.launchSpec && pc.launchSpec('1.4.2', { PATH: 'C:\\bin', SystemRoot: 'C:\\Windows', ANTHROPIC_API_KEY: 'FAKE', GITHUB_TOKEN: 'FAKE2' }, 'C:/x/paperclip-home');
+  t('S7 launchSpec pins an exact version: npx --yes paperclipai@1.4.2 run', !!ls && !ls.refused && JSON.stringify(ls.args) === JSON.stringify(['--yes', 'paperclipai@1.4.2', 'run']));
+  t('S8 launchSpec passes a minimal env (PATH kept, keys and tokens dropped, PAPERCLIP_HOME set)', !!ls && ls.env.PATH === 'C:\\bin' && ls.env.ANTHROPIC_API_KEY === undefined && ls.env.GITHUB_TOKEN === undefined && ls.env.PAPERCLIP_HOME === 'C:/x/paperclip-home');
+  t('S9 launchSpec refuses a missing or non-exact version (latest, a range, empty)', pc.launchSpec && ['', null, 'latest', '^1.2.0', '1.x', '1.2'].every((v) => pc.launchSpec(v, {}, 'h').refused));
+  t('S10 the source no longer spawns an unpinned paperclipai', !/'--yes', 'paperclipai', 'run'/.test(SOURCE_TEXT));
+}
+
+// ===================================================================================
 // GROUP K — STATIC SOURCE-TEXT GUARDS (read-only; the real file's cmd*/network/git/port code
 // paths are never executed) — pins the security/architecture properties named in the work package
 // directly against the shipped code.
@@ -419,7 +456,8 @@ function caseDir() { const d = path.join(TMP, 'case' + (++caseN)); fs.mkdirSync(
   // written INTO the generated agent docs (or the header doc-comment) — never a variable, file
   // path, or header carrying an actual secret/token.
   const credentialLines = SOURCE_TEXT.split(/\r?\n/).filter((l) => /credential/i.test(l));
-  t('K2 exactly 3 lines in the source mention "credential" at all', credentialLines.length === 3);
+  // 4 since FB-MISC-1-F6: SECRET_FILE_RE names credentials files to keep OUT of the baseline commit
+  t('K2 exactly 4 lines in the source mention "credential" at all', credentialLines.length === 4);
   t('K2 none of those lines reference an auth header, token, or env-based secret', credentialLines.every((l) => !/Bearer|Authorization|process\.env|\.env\b|token/i.test(l)));
   t('K2 the doc-template lines are prohibitions ("No credentials" / "FORBIDDEN: credentials"), not credential handling', credentialLines.some((l) => /No credentials/.test(l)) && credentialLines.some((l) => /FORBIDDEN: credentials/.test(l)));
 
@@ -575,6 +613,25 @@ function caseDir() { const d = path.join(TMP, 'case' + (++caseN)); fs.mkdirSync(
   }
   const realDocsAgentsExistsAfter = fs.existsSync(REAL_DOCS_AGENTS_DIR);
   t('Z2 the real project docs/agents directory existence is unchanged by this whole test run', realDocsAgentsExistedBefore === realDocsAgentsExistsAfter);
+}
+
+// ---- FB-MISC-1-F3 / F5 / F6 (low) ----
+{
+  const upSrc = SOURCE_TEXT.slice(SOURCE_TEXT.indexOf('async function cmdUp'), SOURCE_TEXT.indexOf('async function', SOURCE_TEXT.indexOf('async function cmdUp') + 10));
+  t('L1 (F3) up creates PC_HOME before it opens the log file there', /mkdirSync\(PC_HOME, \{ recursive: true \}\)/.test(upSrc) && upSrc.indexOf('mkdirSync(PC_HOME') < upSrc.indexOf('openSync(logFile'));
+  t('L2 (F3) the CLI command runner catches a rejected command (one plain line, exit code 1)', /\}\)\(\)\.catch\(/.test(SOURCE_TEXT));
+  const PCm = require('./forge-paperclip.cjs');
+  const may = PCm.mayRemovePgLock;
+  t('L3 (F5) the PG lock goes only when every port query worked and found nothing, and the lock PID is not alive',
+    typeof may === 'function' && may([[], [], []], null, () => true) === true && may([[], null, []], null, () => false) === false
+    && may([['123'], [], []], null, () => false) === false && may([[], [], []], 4242, () => true) === false && may([[], [], []], 4242, () => false) === true);
+  const plan = PCm.gitGuardPlan;
+  t('L4 (F6) no nested git init inside an enclosing repo; init only when no repo encloses the folder',
+    typeof plan === 'function' && plan({ ownGit: false, enclosingTop: 'C:/parent' }).init === false && plan({ ownGit: false, enclosingTop: null }).init === true && plan({ ownGit: true, enclosingTop: 'C:/p' }).init === false);
+  const sec = PCm.secretShapedPaths;
+  t('L5 (F6) secret-shaped paths in git status are named (the baseline is refused), .env.example is not',
+    typeof sec === 'function' && JSON.stringify(sec(['?? .env.local', '?? id_rsa', 'A  src/x.js', '?? config/secrets.json', '?? .env.example', '?? "keys/my cert.pem"'])) === JSON.stringify(['.env.local', 'id_rsa', 'config/secrets.json', 'keys/my cert.pem']));
+  t('L6 (F6) the baseline commit no longer skips hooks (--no-verify)', !/--no-verify/.test(SOURCE_TEXT));
 }
 
 for (const d of [CONFIG_HOME, EMPTY_PROJECT]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ } }

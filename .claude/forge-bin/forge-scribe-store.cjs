@@ -55,6 +55,15 @@
  * they are not re-read there). LIMIT (same-actor model, CODEX-R2-completion-proof.md class B): an actor who can write the
  * project AND the user profile could forge the inbox record, a transcript and the chains together; this raises the bar
  * to forging all of them consistently, it does not make it impossible. TEST SEAM (library only): opts.claudeProjectsRoot.
+ *
+ * DELEGATED ACK (owner R-0233, 2026-11-11: "ik wil niet meer de scribe accept doen ... maak een aparte agent die
+ * speciaal dit accepteert!"). The owner delegated the ack of ROUTINE items to one identity, AUTOACK_BY ('scribe-acker'),
+ * under delegation id 'owner-R-0233'. Only forge-scribe.cjs autoack() writes such an op ({op:'ack', by:'scribe-acker',
+ * delegation, autoack:{kind, evidence, contract, checks}}), only while config scribe-autoack is on, and only for an item
+ * its rules allow (see AUTOACK in forge-scribe.cjs); the gate replays every scribe-acker op (recheckAutoackOps). The fold
+ * treats it like any ack (done -> acked, defer-proposed -> deferred) and marks the item acked_by + delegation. Everything
+ * else that removes an item from the owner's view (cancel, supersede without a replacement, a reclassification to
+ * question/ack/preference) and every hard-gate item still needs ownerAuthority() below.
  */
 const fs = require('fs');
 const os = require('os');
@@ -65,6 +74,8 @@ const scrub = require('./forge-secret-scrub.cjs');
 const C = require('./forge-scribe-classify.cjs');
 
 const GENESIS = '0'.repeat(64);
+// R-0233: the one identity that acks under the owner's delegation (set only by forge-scribe.cjs autoack)
+const AUTOACK_BY = 'scribe-acker';
 const ACTIVE = ['unclassified', 'open', 'planned', 'in-progress'];
 const FINAL_BLOCKING = ACTIVE.concat(['done', 'defer-proposed']);
 const LOCK_STALE_MS = 10000;
@@ -432,6 +443,8 @@ function applyOp(state, rec) {
     case 'ack': // SC-03: the owner's ack of a defer proposal confirms the carry-over; otherwise it accepts done work
       if (it.status === 'defer-proposed') { it.status = 'deferred'; it.deferred_by_pid = rec.pid || null; }
       else { it.status = 'acked'; it.acked_by_pid = rec.pid || null; }
+      // R-0233: an ack under the owner's delegation (forge-scribe.cjs autoack) says so on the item
+      if (rec.by === AUTOACK_BY) { it.acked_by = AUTOACK_BY; it.delegation = rec.delegation || null; }
       break;
     case 'reopen': it.status = 'open'; it.evidence = null; it.done_at = null; it.reason = rec.reason || null; break;
     case 'supersede': it.status = 'superseded'; it.superseded_by = rec.supersedes || null; it.reason = rec.reason || ('superseded by ' + (rec.supersedes || '?')); break;
@@ -453,6 +466,8 @@ function recount(state) {
   for (const it of Object.values(state.items)) counts[it.status] = (counts[it.status] || 0) + 1;
   counts.done_unacked = counts.done || 0;
   counts.defer_proposed = counts['defer-proposed'] || 0;
+  const auto = Object.values(state.items).filter((i) => i.acked_by === AUTOACK_BY && ['acked', 'deferred'].includes(i.status)).length;
+  if (auto) counts.autoacked = auto; // R-0233 (absent when 0, so older caches and states compare as before)
   state.counts = counts;
 }
 
@@ -566,7 +581,8 @@ function buildDigest(state, cap) {
     .sort((a, b) => (b.created || '').localeCompare(a.created || '') || b.rid.localeCompare(a.rid));
   let head = 'Scribe: ' + active.length + ' active (' + (c.unclassified || 0) + ' unclassified, ' + (c.open || 0) + ' open, ' +
     (c.planned || 0) + ' planned, ' + (c['in-progress'] || 0) + ' in-progress) · ' + (c.done_unacked || 0) + ' done-unacked · '
-    + (c.defer_proposed || 0) + ' defer-proposed · ' + (c.deferred || 0) + ' deferred';
+    + (c.defer_proposed || 0) + ' defer-proposed · ' + (c.deferred || 0) + ' deferred'
+    + (c.autoacked ? ' · ' + c.autoacked + ' auto-acked by ' + AUTOACK_BY + ' (R-0233)' : '');
   const reps = unaddressedRepeats(state);
   if (reps.length) head += ' · ' + reps[0].rid + ' ' + repeatNote(reps[0]) + (reps.length > 1 ? ' (+' + (reps.length - 1) + ' more repeat chain(s))' : '');
   const lines = [head];
@@ -812,7 +828,7 @@ function recheckOwnerOps(records, inbox, cfg) {
 }
 
 module.exports = {
-  GENESIS, ACTIVE, FINAL_BLOCKING, LOCK_STALE_MS, sha256, paths, withLock, acquireLock, releaseLock, pidAlive, scrubText, scrubMeta, writeFenced, assertLockHeld,
+  GENESIS, ACTIVE, FINAL_BLOCKING, LOCK_STALE_MS, AUTOACK_BY, sha256, paths, withLock, acquireLock, releaseLock, pidAlive, scrubText, scrubMeta, writeFenced, assertLockHeld,
   normalizePrompt, redactPem, appendChained, readJsonl, lastLine, tailLine, verifyChain, chainOfText,
   emptyState, applyOp, foldBuffer, rebuildState, loadState, saveState, cacheSha, buildDigest,
   // owner repeats (WP-SCRIBE-REPEAT)

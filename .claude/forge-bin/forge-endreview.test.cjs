@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-endreview.test.cjs — E.1 (owner HARD MUST "end-of-work self-review"): forge-endreview.cjs
  * (questions, template, record, check) and the run-contract rule end-self-review. Hermetic: every fixture lives in one
@@ -226,8 +230,8 @@ try {
   // ================================================================================================
   const rule = PROD.rules.find((r) => r.id === 'end-self-review');
   {
-    t('the rule is in the production registry: run-evidence self-review, warn, complexity:>=L2, phase complete, since 2026-10-24',
-      !!rule && rule.check.type === 'run-evidence' && rule.check.evidence === 'self-review' && rule.severity === 'warn' && rule.trigger === 'complexity:>=L2' && rule.phase === 'complete' && rule.since === '2026-10-24');
+    t('the rule is in the production registry: run-evidence self-review, block, complexity:>=L2, phase complete, since 2026-10-24',
+      !!rule && rule.check.type === 'run-evidence' && rule.check.evidence === 'self-review' && rule.severity === 'block' && rule.trigger === 'complexity:>=L2' && rule.phase === 'complete' && rule.since === '2026-10-24');
     t('no agent exception and not cannot_override: only the owner_override path clears it', !!rule && rule.check.exception === undefined && rule.cannot_override === undefined && /owner_override/.test(rule.override));
     t('it carries message {en, nl} and a next_step naming template and record', !!rule && rule.message.en.length > 60 && rule.message.nl.length > 60 && /forge-endreview\.cjs template/.test(rule.next_step) && /forge-endreview\.cjs record/.test(rule.next_step));
     const meta = RC.loadRulesMeta(REAL_RULES);
@@ -241,15 +245,15 @@ try {
     writeRun(root, 'c-none', { report: REPORT });
     let c = chk(root, 'c-none');
     const d = c.rule_details['end-self-review'] || {};
-    t(L + ' L2 run without a self-review -> end-self-review is a WARNING (not missing, the run is not turned red by it)',
-      c.warnings.includes('end-self-review') && !c.missing.includes('end-self-review') && !c.satisfied.includes('end-self-review'), JSON.stringify({ w: c.warnings, m: c.missing }));
+    t(L + ' L2 run without a self-review -> end-self-review is MISSING (block: the run is red)',
+      c.missing.includes('end-self-review') && !c.warnings.includes('end-self-review') && !c.satisfied.includes('end-self-review'), JSON.stringify({ w: c.warnings, m: c.missing }));
     t(L + ' its detail says why and gives the next command with the run id filled in', /no self-review\.json/.test(d.reason) && /forge-endreview\.cjs template --run c-none/.test(d.next_step || '') && /forge-endreview\.cjs record --run c-none/.test((d.message || {}).en || ''), JSON.stringify(d));
     writeRun(root, 'c-ok', { report: REPORT, level: 'L3' });
     E.recordSelfReview({ root, runId: 'c-ok', form: goodForm(), log: false });
     c = chk(root, 'c-ok');
     t(L + ' L3 run with a valid record and the heading -> end-self-review is satisfied (clean)', c.satisfied.includes('end-self-review') && !c.warnings.includes('end-self-review') && c.rule_details['end-self-review'].via === 'evidence', JSON.stringify(c.rule_details['end-self-review']));
     fs.writeFileSync(path.join(runDirIn(root, 'c-ok'), 'final-report.md'), '# Final report without the section\n');
-    t(L + ' the same record but the report lost its heading -> warning again', chk(root, 'c-ok').warnings.includes('end-self-review'));
+    t(L + ' the same record but the report lost its heading -> missing again', chk(root, 'c-ok').missing.includes('end-self-review'));
   }
   {
     const root = mkRoot();
@@ -261,9 +265,9 @@ try {
     t('a run that started before 2026-10-24 is judged by the rules of its own time (historical_exempt)', o.historical_exempt.some((x) => x.id === 'end-self-review') && !o.warnings.includes('end-self-review'));
     writeRun(root, 'c-own', { report: REPORT, extra: [{ event_type: 'owner_override', rule: 'end-self-review', reason: 'owner reviewed this run in person with the lead', by: 'owner' }] });
     const w = chk(root, 'c-own');
-    t('a valid owner_override clears it and is reported as overridden', w.overridden.some((x) => x.id === 'end-self-review') && !w.warnings.includes('end-self-review'), JSON.stringify(w.overridden));
+    t('a well-formed owner_override is label-only and does not clear it yet (FB-CONTRACT-1-F2)', !w.overridden.some((x) => x.id === 'end-self-review') && (w.missing.includes('end-self-review') || w.warnings.includes('end-self-review')) &&w.override_label_only.some((x) => x.id === 'end-self-review'), JSON.stringify(w.override_label_only));
     writeRun(root, 'c-agent', { report: REPORT, extra: [{ event_type: 'owner_override', rule: 'end-self-review', reason: 'build boss says it is fine', by: 'build-boss' }, { event_type: 'decision_logged', agent: 'orchestrator', rule: 'end-self-review', decision: 'not-applicable', reason: 'a tiny change, no self-review needed' }] });
-    t('an agent cannot excuse it: an override by a non-owner and a decision_logged exception do not count', chk(root, 'c-agent').warnings.includes('end-self-review'));
+    t('an agent cannot excuse it: an override by a non-owner and a decision_logged exception do not count (stays missing)', chk(root, 'c-agent').missing.includes('end-self-review'));
     writeRun(root, 'c-plan');
     const plan = RC.planFor({ run_id: 'c-plan' }, { root, ownerProfilePath: NO_PROFILE });
     const text = RC.formatPlan(plan);
@@ -295,6 +299,37 @@ try {
     const root3 = mkRoot({ rules: blockRule });
     writeRun(root3, 'm-3', { report: REPORT });
     t('MUTANT severity block: the rule lands in missing instead of warnings -> the E warn test would fail', chk(root3, 'm-3').missing.includes('end-self-review'));
+  }
+
+  // ================================================================================================
+  console.log('\nG) check adds owner-text warnings (SD-T8: the owner\'s language and AI tells) and keeps its exit code');
+  // ================================================================================================
+  {
+    const prevProfile = process.env.FORGE_OWNER_PROFILE;
+    const profile = path.join(TMP, 'g-owner-profile.json');
+    fs.writeFileSync(profile, JSON.stringify({ version: 1, prefs: { language: { value: { ui: 'match-owner (nl when owner writes Dutch)', code_docs: 'en' }, source: 'test fixture', confidence: 'evidenced', scope: 'global' } } }));
+    process.env.FORGE_OWNER_PROFILE = profile;
+    try {
+      const root = mkRoot();
+      fs.writeFileSync(path.join(mk(root, '.claude', 'forge-scribe'), 'ledger.jsonl'),
+        JSON.stringify({ seq: 1, op: 'open', rid: 'R-0001', quote: 'Ik wil dat je de rest van de taken nu ook afmaakt en dat het niet meer kapot gaat.', run_id: 'g-1' }) + '\n');
+      const enReport = '# Final report\n\nThis is the report of the run. The change is done and the tests are green, but there is one open item that we have to delve into with the integrator when the branch is merged. It is small.\n\n## Self-review\n\nq1 ... q12 answered below.\n';
+      writeRun(root, 'g-1', { report: enReport });
+      const r = E.recordSelfReview({ root, runId: 'g-1', form: goodForm(), log: false });
+      t('G: the self-review records on an English report (setup)', r.code === 0, JSON.stringify(r.problems));
+      const c = cli(root, ['check', '--run', 'g-1']);
+      t('G: check still exits 0 (warn, never block)', c.code === 0, c.out + c.err);
+      t('G: check prints a language warning (English report, the owner writes Dutch)', /warning: .*language/i.test(c.out), c.out);
+      t('G: check prints the AI-tell warning (delve)', /warning: .*delve/.test(c.out), c.out);
+      const j = cli(root, ['check', '--run', 'g-1', '--json']);
+      let jd = null;
+      try { jd = JSON.parse(j.out); } catch { jd = null; }
+      t('G: --json carries the owner-text warnings and the exit code stays 0', j.code === 0 && jd && Array.isArray(jd.owner_text_warnings) && jd.owner_text_warnings.length === 2, j.out);
+      writeRun(root, 'g-2', { report: REPORT });
+      t('G: a not-done self-review keeps exit 1 (the warnings never change the code)', cli(root, ['check', '--run', 'g-2']).code === 1);
+    } finally {
+      if (prevProfile === undefined) delete process.env.FORGE_OWNER_PROFILE; else process.env.FORGE_OWNER_PROFILE = prevProfile;
+    }
   }
 } finally {
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) { console.error('  note: could not remove ' + TMP + ' (' + e.message + ')'); }

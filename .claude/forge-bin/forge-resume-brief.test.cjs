@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-resume-brief.test.cjs — the SessionStart resume brief (.7, R-0069). Exactly two tests (owner R-0068):
  * T1 a throwaway root with one unfinalized run (3 created, 1 completed WP) names the 2 unfinished ids and the
- *    'continue' instruction; source=compact and FORGE_RESUME_BRIEF=off print nothing.
+ *    'continue' instruction; source=compact and FORGE_RESUME_BRIEF=off print nothing; a paused run gets no continue
+ *    instruction and an aborted run is not surfaced (FB-MEMORY-F3, a second check inside T1).
  * T2 the real CLI in this repo with source=clear exits 0 and stays within the char cap. Exit 0 = all pass.
  */
 const fs = require('fs');
@@ -38,6 +43,31 @@ try {
     /Open work packages: 2 -> WP-A, WP-C\n/.test(out) && !out.includes('WP-B') && out.includes('Continue the unfinished work') &&
     out.includes('forge-2026-11-01-fixture') && compact === '' && off === '',
     JSON.stringify({ out, compact, off }));
+  // FB-MEMORY-F3, part of T1: a run the owner PAUSED is labelled paused and never gets the
+  // continue instruction; a later run_resumed makes it open again; an aborted run is not surfaced.
+  const write = (lines) => fs.writeFileSync(path.join(run, 'events.jsonl'), lines.join('\n') + '\n');
+  write([ev('run_started'), ev('agent_work_package_created', 'WP-A'), ev('run_paused')]);
+  const paused = RB.brief(JSON.stringify({ source: 'startup' }), opts({}));
+  write([ev('run_started'), ev('agent_work_package_created', 'WP-A'), ev('run_paused'), ev('run_resumed')]);
+  const resumed = RB.brief(JSON.stringify({ source: 'startup' }), opts({}));
+  write([ev('run_started'), ev('agent_work_package_created', 'WP-A'), ev('run_aborted')]);
+  const aborted = RB.brief(JSON.stringify({ source: 'startup' }), opts({}));
+  t('T1 a paused run is labelled PAUSED without the continue instruction; resumed is open again; aborted prints nothing',
+    /PAUSED/.test(paused) && !paused.includes('Continue the unfinished work') && resumed.includes('Continue the unfinished work') &&
+    !/PAUSED/.test(resumed) && aborted === '',
+    JSON.stringify({ paused, resumed, aborted }));
+  // Rework (Verify Boss FAIL): Forge records an abort as run_completed with a failure-close status (the registered
+  // shape; run_aborted is not a log-event type). Such a run is closed; a plain run_completed without it is not.
+  const closeWith = (status) => JSON.stringify({ run_id: 'forge-2026-11-01-fixture', event_type: 'run_completed', status });
+  const closedBriefs = ['aborted', 'abandoned', 'cancelled', 'failed'].map((s) => {
+    write([ev('run_started'), ev('agent_work_package_created', 'WP-A'), closeWith(s)]);
+    return RB.brief(JSON.stringify({ source: 'startup' }), opts({}));
+  });
+  write([ev('run_started'), ev('agent_work_package_created', 'WP-A'), closeWith('done')]);
+  const doneOpen = RB.brief(JSON.stringify({ source: 'startup' }), opts({}));
+  t('T1 run_completed with status aborted/abandoned/cancelled/failed is closed; status done with an open WP still surfaces',
+    closedBriefs.every((b) => b === '') && doneOpen.includes('WP-A'),
+    JSON.stringify({ closedBriefs, doneOpen }));
 
   console.log('\nT2) real CLI in this repo, source=clear');
   const t0 = Date.now();

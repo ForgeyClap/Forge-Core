@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-harness-score.test.cjs —: forge-harness-score.cjs + the shipped rubric. Hermetic: the fixture
  * project lives in one os.mkdtemp folder (removed at the end); the real project is only read (one smoke run).
@@ -26,10 +30,23 @@ const put = (root, rel, content) => { const p = path.join(root, ...rel.split('/'
 const cat = (rep, id) => rep.categories.find((c) => c.id === id);
 const chk = (rep, id) => rep.categories.flatMap((c) => c.checks).find((c) => c.id === id);
 
-function chained(n, runId) {
+// Real hashes, computed the way the writer (log-event.cjs) does: sha256(canonical body without the hashes + prev_hash).
+function chained(n, runId, lastType) {
+  const crypto = require('crypto');
   const out = [];
   let prev = 'genesis:' + runId;
-  for (let i = 1; i <= n; i++) { const h = 'h' + i; out.push(JSON.stringify({ run_id: runId, event_type: i === 1 ? 'run_started' : 'agent_note', seq: i, prev_hash: prev, entry_hash: h })); prev = h; }
+  for (let i = 1; i <= n; i++) {
+    const ev = { run_id: runId, event_type: i === 1 ? 'run_started' : i === n && lastType ? lastType : 'agent_note', seq: i };
+    const canon = JSON.stringify(Object.fromEntries(Object.keys(ev).sort().map((k) => [k, ev[k]])));
+    const h = crypto.createHash('sha256').update(canon + prev).digest('hex');
+    out.push(JSON.stringify({ ...ev, prev_hash: prev, entry_hash: h })); prev = h;
+  }
+  return out.join('\n') + '\n';
+}
+// Hash fields present but unlinked and not recomputable (the old presence-only check passed this).
+function forged(n, runId) {
+  const out = [];
+  for (let i = 1; i <= n; i++) out.push(JSON.stringify({ run_id: runId, event_type: 'agent_note', seq: i, prev_hash: 'p' + i, entry_hash: 'h' + i }));
   return out.join('\n') + '\n';
 }
 function fixture(name) {
@@ -43,7 +60,7 @@ function fixture(name) {
   for (const f of ['FORGE_MEMORY.md', 'FORGE_TASK_HISTORY.md', 'FORGE_AGENT_LEDGER.md']) put(r, '.claude/' + f, '# ' + f + '\n\n' + 'A real line of project memory text for the fixture.\n'.repeat(2));
   put(r, '.claude/forge-runs/forge-2026-01-01-old/events.jsonl', chained(3, 'forge-2026-01-01-old'));
   put(r, '.claude/forge-runs/forge-2026-01-01-old/run-finalized.json', { ok: true });
-  put(r, '.claude/forge-runs/forge-2026-01-02-new/events.jsonl', chained(4, 'forge-2026-01-02-new') + '{broken\n');
+  put(r, '.claude/forge-runs/forge-2026-01-02-new/events.jsonl', chained(4, 'forge-2026-01-02-new', 'run_completed') + '{broken\n');
   put(r, '.claude/skills/good-skill/SKILL.md', '---\nname: good-skill\ndescription: Reviews pull-request diffs for correctness. Use when the user asks for a code review.\n---\n# Good\n\nBody.\n');
   put(r, '.claude/agents/good-agent.md', '---\nname: good-agent\ndescription: Reviews code diffs for correctness. Use when a review is needed.\nmodel: sonnet\neffort: low\n---\nBody.\n');
   put(r, '.claude/config/intelligence/eval-baseline.json', { kind: 'forge-intel-evals-baseline', version: 1, summary: { scenarios: 10, PASS: 8, 'KNOWN-GAP': 2, FAIL: 0 }, results: [] });
@@ -113,7 +130,7 @@ try {
     ['not-measured-counts-as-zero', 'if (pts != null) { max += ch.points; earned += pts; }', 'max += ch.points; earned += pts || 0;', (m) => m.scoreHarness(root).categories.find((c) => c.id === 'tests').score === null],
     ['hook-matcher-ignored', 'const miss = c.matcher_includes.filter((m) => !covered.has(m));', 'const miss = [];', (m) => { const r2 = fixture('proj-nohook'); put(r2, '.claude/settings.json', { hooks: {} }); return m.scoreHarness(r2).categories.find((c) => c.id === 'hard_gates').checks.find((c) => c.id === 'gate-hook-registered').status === 'fail'; }],
     ['rank-reversed', 'candidates.sort((a, b) => (b.lost - a.lost)', 'candidates.sort((a, b) => (a.lost - b.lost)', (m) => m.scoreHarness(root, { doctorJson: doctorFile }).top_actions[0].check === 'latest-run-finalized'],
-    ['chain-unchecked', "if (!e.entry_hash || !e.prev_hash) bad++; } catch { bad++; }", '} catch { /* ignore */ }', (m) => m.scoreHarness(root).categories.flatMap((c) => c.checks).find((c) => c.id === 'latest-run-chained').status === 'partial'],
+    ['chain-unchecked', "{ verifyChain: true, runId: run.id }", '{}', (m) => { const f = fixture('proj-forged-mut'); put(f, '.claude/forge-runs/forge-2026-01-02-new/events.jsonl', forged(3, 'forge-2026-01-02-new')); return m.scoreHarness(f).categories.flatMap((c) => c.checks).find((c) => c.id === 'latest-run-chained').status === 'fail'; }],
   ];
   for (const [label, from, to, stillPasses] of muts) {
     const m = loadMutant(from, to);
@@ -121,6 +138,50 @@ try {
     try { survived = m ? stillPasses(m) : null; } catch (e) { survived = false; }
     t('F ' + label + ' MUTANT applies and the matching assertion would fail', m && survived === false, m ? 'mutant survived' : 'anchor not found');
   }
+
+  // FB-VERIFY-2-F2 / F3: a rubric field typo or an empty list can never make a check unfailable or the score NaN.
+  const rub = (checks) => put(TMP, 'r-' + Math.random().toString(36).slice(2) + '.json', { kind: 'forge-harness-rubric', version: 1, categories: [{ id: 'k', weight: 1, checks }] });
+  const okCheck = { id: 'ok', type: 'file-present', path: '.claude/settings.json', points: 1 };
+  const typo = rub([okCheck, { id: 'typo', type: 'json-ids-present', path: '.claude/config/orchestration/hard-gates.json', array: 'gates', key: 'id', idz: ['a'], points: 1 }]);
+  t('V1 (F2) validateRubric names a missing required field per type (ids)', H.validateRubric(JSON.parse(fs.readFileSync(typo, 'utf8'))).some((x) => /ids/.test(x)), H.validateRubric(JSON.parse(fs.readFileSync(typo, 'utf8'))));
+  t('V2 (F2) --strict refuses that rubric (exit 2), never exit 0', capture(['--root', root, '--rubric', typo, '--strict']).code === 2);
+  const emptyIds = rub([okCheck, { id: 'empty', type: 'json-ids-present', path: '.claude/config/orchestration/hard-gates.json', array: 'gates', key: 'id', ids: [], points: 1 }]);
+  t('V3 (F3) ids: [] is refused by validateRubric', H.validateRubric(JSON.parse(fs.readFileSync(emptyIds, 'utf8'))).length > 0);
+  const noMin = rub([okCheck, { id: 'nomin', type: 'eval-baseline-ratio', path: '.claude/config/intelligence/eval-baseline.json', points: 1 }]);
+  t('V4 (F3) eval-baseline-ratio without min is refused (exit 2 under --strict)', capture(['--root', root, '--rubric', noMin, '--strict']).code === 2);
+  const Ht = loadMutant("'file-present'(c, ctx) { return", "'file-present'(c, ctx) { throw new Error('boom'); return");
+  t('V5 (F2) a check that throws counts as fail, not not_measured', Ht && (() => { const r = Ht.scoreHarness(root, { rubricPath: rub([okCheck]) }); return chk(r, 'ok').status === 'fail' && /threw/.test(chk(r, 'ok').detail); })());
+  const Hm = loadMutant("const ratio = (s.PASS || 0) / s.scenarios;", 'const ratio = NaN;');
+  t('V6 (F3) a NaN ratio becomes a fail, so overall stays a finite number', Hm && (() => { const r = Hm.scoreHarness(root, { doctorJson: doctorFile }); return chk(r, 'eval-pass-ratio').status === 'fail' && Number.isFinite(r.overall); })());
+
+  // FB-VERIFY-2-F1: a chain whose hashes are present but unlinked is corrupt, not 'chained'
+  const fr = fixture('proj-forged');
+  put(fr, '.claude/forge-runs/forge-2026-01-02-new/events.jsonl', forged(3, 'forge-2026-01-02-new'));
+  const frc = chk(H.scoreHarness(fr), 'latest-run-chained');
+  t('H1 (F1) a forged chain (hash fields present, links and hashes wrong) fails', frc.status === 'fail' && /corrupt|prev_hash|entry_hash/.test(frc.detail), JSON.stringify(frc));
+  const okr = fixture('proj-valid');
+  put(okr, '.claude/forge-runs/forge-2026-01-02-new/events.jsonl', chained(3, 'forge-2026-01-02-new'));
+  t('H2 (F1) a real chain still passes', chk(H.scoreHarness(okr), 'latest-run-chained').status === 'pass', JSON.stringify(chk(H.scoreHarness(okr), 'latest-run-chained')));
+  // FB-VERIFY-2-F4: the run that is still open is not judged for finalize; the newest closed run is
+  const op = fixture('proj-open');
+  put(op, '.claude/forge-runs/forge-2026-01-03-open/events.jsonl', chained(2, 'forge-2026-01-03-open'));
+  const opRep = H.scoreHarness(op);
+  const opf = chk(opRep, 'latest-run-finalized');
+  t('H3 (F4) an open newest run does not make latest-run-finalized red; the newest closed run is judged', opRep.latest_run === 'forge-2026-01-03-open' && opf.status === 'fail' && /forge-2026-01-02-new/.test(opf.detail) && /still open/.test(opf.detail), JSON.stringify(opf));
+  const only = path.join(TMP, 'proj-only-open');
+  put(only, '.claude/forge-runs/forge-2026-01-03-open/events.jsonl', chained(2, 'forge-2026-01-03-open'));
+  const onf = chk(H.scoreHarness(only, { rubricPath: RUBRIC }), 'latest-run-finalized');
+  t('H4 (F4) with only an open run the finalize check is not_measured (still open)', onf.status === 'not_measured' && /still open/.test(onf.detail), JSON.stringify(onf));
+  // FB-VERIFY-2-F5: a sibling tool that fails to load is a fail, a missing one stays not_measured
+  const bin = path.join(TMP, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.copyFileSync(SRC, path.join(bin, 'forge-harness-score.cjs'));
+  fs.writeFileSync(path.join(bin, 'forge-config-scan.cjs'), 'module.exports = {;\n');
+  const Hb = require(path.join(bin, 'forge-harness-score.cjs'));
+  const br = Hb.scoreHarness(root, { rubricPath: RUBRIC });
+  const cs = br.categories.find((c) => c.id === 'config_scan').checks[0];
+  t('H5 (F5) a sibling that throws on load makes its check fail, not not_measured', cs.status === 'fail', JSON.stringify(cs));
+  t('H6 (F5) a sibling that is absent stays not_measured', chk(br, 'plugin-identical').status === 'not_measured' && /not available/.test(chk(br, 'plugin-identical').detail), JSON.stringify(chk(br, 'plugin-identical')));
 
   const realRoot = path.resolve(__dirname, '..', '..');
   if (fs.existsSync(path.join(realRoot, '.claude', 'settings.json'))) {

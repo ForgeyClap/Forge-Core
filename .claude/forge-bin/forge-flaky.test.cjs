@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-flaky.test.cjs — tests the nondeterminism detector. classify() is pure and covered
 // with synthetic outcome maps; runOnce/runSuiteN are exercised against tiny deterministic temp scripts so
 // the test stays fast and never recursively re-runs the whole suite set.
@@ -73,6 +77,29 @@ t('CLI -h is the same shorthand for --help', () => {
   const r = spawnSync(process.execPath, [CLI, '-h'], { encoding: 'utf8', timeout: 5000 });
   assert.strictEqual(r.status, 0, 'exit ' + r.status);
   assert.ok(/^Usage: node forge-flaky\.cjs/.test(r.stdout));
+});
+
+// FB-VERIFY-1-F11: the CLI must never pass vacuously.
+t('CLI --runs 0 / --runs abc / --runs as last argument exit 2 (nothing was checked)', () => {
+  for (const extra of [['--runs', '0'], ['--runs', 'abc'], ['--runs', '1'], ['--runs']]) {
+    const r = spawnSync(process.execPath, [CLI, passScript, ...extra], { encoding: 'utf8', timeout: 20000 });
+    assert.strictEqual(r.status, 2, extra.join(' ') + ' -> exit ' + r.status + ': ' + r.stdout + r.stderr);
+  }
+});
+t('CLI refuses a suite file that does not exist (exit 2)', () => {
+  const r = spawnSync(process.execPath, [CLI, path.join(dir, 'no-such.test.cjs'), '--runs', '2'], { encoding: 'utf8', timeout: 20000 });
+  assert.strictEqual(r.status, 2, 'exit ' + r.status + ': ' + r.stdout + r.stderr);
+  assert.ok(/not found/.test(r.stderr), r.stderr);
+});
+t('CLI: a suite that fails every run is not "deterministic": exit 1 and the outcome is printed', () => {
+  const r = spawnSync(process.execPath, [CLI, failScript, '--runs', '2'], { encoding: 'utf8', timeout: 20000 });
+  assert.strictEqual(r.status, 1, 'exit ' + r.status + ': ' + r.stdout);
+  assert.ok(/fail/.test(r.stdout) && !/all suites deterministic/.test(r.stdout), r.stdout);
+});
+t('CLI: a suite that passes every run exits 0 and names its outcome', () => {
+  const r = spawnSync(process.execPath, [CLI, passScript, '--runs', '2'], { encoding: 'utf8', timeout: 20000 });
+  assert.strictEqual(r.status, 0, 'exit ' + r.status + ': ' + r.stdout);
+  assert.ok(/always-pass\.cjs.*pass/.test(r.stdout), r.stdout);
 });
 
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}

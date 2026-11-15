@@ -94,7 +94,9 @@ function stackFromProfile(projDir) {
   return m[1].replace(/[*_`]/g, '').trim().slice(0, 120) || null;
 }
 
-/** newest run.json in .claude/forge-runs/ — prefer the state's latest_run_id, else the highest-sorting run dir. */
+// soft: the doctor's own "last event time" reader; without it the run.json times are the ranking
+const lastEventMs = (() => { try { const m = require('./doctor/checks-runs.cjs'); return typeof m.lastEventTimeMs === 'function' ? m.lastEventTimeMs : null; } catch { return null; } })();
+/** newest run.json in .claude/forge-runs/ — prefer the state's latest_run_id, else the run with the newest work. */
 function newestRun(projDir, preferredId) {
   if (preferredId && /^[A-Za-z0-9_-]+$/.test(preferredId)) {
     const j = readJsonGuarded(path.join(runDirOf(projDir, preferredId), 'run.json'));
@@ -108,10 +110,20 @@ function newestRun(projDir, preferredId) {
     for (const e of ents) if (e.isDirectory() && !where.has(e.name)) where.set(e.name, runsDir);
   }
   if (!any) return null;
-  const ids = Array.from(where.keys());
-  ids.sort(); // run ids are date-stamped, so lexical sort ≈ chronological
-  for (let i = ids.length - 1; i >= 0; i--) { const j = readJsonGuarded(path.join(where.get(ids[i]), ids[i], 'run.json')); if (j) return j; }
-  return null;
+  // FB-CONFIG-2-F6: rank by the run's WORK (last event time, like the doctor's rankRunCandidates), then its run.json
+  // times, then the folder mtime — never by name: 'forge-demo-...' sorts after every dated id.
+  const ranked = [];
+  for (const [id, runsDir] of where) {
+    const dir = path.join(runsDir, id);
+    const j = readJsonGuarded(path.join(dir, 'run.json'));
+    if (!j) continue;
+    let ms = lastEventMs ? lastEventMs(path.join(dir, 'events.jsonl')) : 0;
+    if (!ms) ms = Date.parse(j.completed || j.ended || j.started) || 0;
+    if (!ms) { try { ms = fs.statSync(dir).mtimeMs; } catch { ms = 0; } }
+    ranked.push({ id, ms, j });
+  }
+  ranked.sort((a, b) => (b.ms - a.ms) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+  return ranked.length ? ranked[0].j : null;
 }
 
 function countTickets(projDir) {

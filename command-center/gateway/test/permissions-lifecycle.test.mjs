@@ -107,17 +107,27 @@ test('PAUSE: an open permission card pauses the reaper without a cap; answering 
   assert.equal(startExecution({ convId: conv.id, turnId: 't1', requestId: 'r1', text: 'x', cwd: projectDir }).started, true);
   await new Promise((r) => setTimeout(r, 200));
 
+  // compare with the budget read just before the card opens, not with a wall-clock guess (a loaded machine
+  // took 1 s for the 200 ms above and the old "~4800 ms" check failed at 3985). The budget may only shrink by the time
+  // the two calls themselves took (measured), never by the time the card was open.
+  const before = _execTimeoutRemainingMsForTests(conv.id);
+  const t0 = Date.now();
   const { id } = createPermissionRequest({ convId: conv.id, turnId: 't1', requestId: 'r1', toolName: 'Bash', input: { command: 'npm install' } });
+  const callMs = Date.now() - t0;
   assert.equal(_execTimeoutRemainingMsForTests(conv.id), Infinity, 'no reaper deadline while a card waits');
+  await new Promise((r) => setTimeout(r, 300)); // time with the card open must not be counted
 
   // An ask that opens and closes meanwhile must not restart the reaper under an open card.
   pauseExecTimeoutForAsk(conv.id, 1000);
   resumeExecTimeoutAfterAsk(conv.id);
   assert.equal(_execTimeoutRemainingMsForTests(conv.id), Infinity);
 
+  const t2 = Date.now();
   answerPermission(id, 'allow');
   const remaining = _execTimeoutRemainingMsForTests(conv.id);
-  assert.ok(remaining > 4000 && remaining < 5000, 'the ORIGINAL remaining budget (~4800ms) is restored: got ' + remaining);
+  const answerMs = Date.now() - t2;
+  assert.ok(before > 0 && before < 5000, 'the reaper ran before the card: ' + before);
+  assert.ok(remaining <= before && before - remaining <= callMs + answerMs + 50, 'the ORIGINAL remaining budget is restored: before ' + before + ', after ' + remaining + ', calls ' + (callMs + answerMs) + ' ms');
   stopExecution(conv.id);
 });
 

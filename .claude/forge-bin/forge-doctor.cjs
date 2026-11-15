@@ -40,10 +40,14 @@
  * Writes a machine-readable report to <run>/doctor.json (when --run) and prints a green/red summary.
  *
  * CLI:
- *   node forge-doctor.cjs [--root <dir>] [--run <run_id>] [--json]
+ *   node forge-doctor.cjs [--root <dir>] [--run <run_id>] [--json] [--receipt]
  *     --root  project root (default: two levels up from forge-bin, i.e. this project)
  *     --run   also write <root>/.claude/forge-runs/<run_id>/doctor.json and log a doctor_run event
  *     --json  print the full report JSON to stdout
+ *     --receipt  development tree only (else exit 2 before any check): also write <root>/_scratch/forge-doctor-receipt.json,
+ *             the full-run proof `forge-sync publish-template --apply` requires (forge-sync-publish-guard.cjs); stderr only
+ *   Env: FORGE_DOCTOR_SUITE_TIMEOUT_MS (per-suite limit) · FORGE_DOCTOR_JOBS (pool size) · FORGE_DOCTOR_RETRY=0 = strict mode: red
+ *     suites are not retried (default: once, alone; green there with the same test count = listed as flaky; a timeout or >5 red = no retry; one 10-min budget; doctor/suite-retry.cjs)
  *   Exit code: 0 if everything passes, 1 if any check fails (so CI/hooks can gate on it). The advisory
  *   field never affects this exit code.
  *
@@ -231,7 +235,20 @@ const {
   claudeVersionAdvisory, compareVersionTriples, modelChoiceHint, parseVersionTriple, pathTools, promptCoachPresent,
   resolveOnPath, safeCheck, settingsTemplatePath, settingsWired, wslMntC,
 } = require('./doctor/checks-setup.cjs');
-const { printSummary } = require('./doctor/report.cjs');
+const { printSummary: printBaseSummary } = require('./doctor/report.cjs');
+// SD-T12c: these two modules need sibling tools (forge-run-file, forge-default-skills, forge-agent-skills-sync, ...), so
+// they load softly: a doctor copied without them still runs, and the check fails closed in the development tree.
+const softModule = (rel) => { try { return { mod: require(rel), error: null }; } catch (e) { return { mod: null, error: rel + ' does not load: ' + String((e && e.message) || e).split('\n')[0] }; } };
+const MEMORY_ORDER = softModule('./doctor/checks-memory-order.cjs');
+const DEFAULT_SKILLS = softModule('./doctor/checks-default-skills.cjs');
+const memoryOrderCheck = MEMORY_ORDER.mod && MEMORY_ORDER.mod.memoryOrderCheck;
+const defaultSkillsCheck = DEFAULT_SKILLS.mod && DEFAULT_SKILLS.mod.defaultSkillsCheck;
+const listingBudgetCheck = DEFAULT_SKILLS.mod && DEFAULT_SKILLS.mod.listingBudgetCheck;
+// Roblox pack: forge-roblox-pack.cjs, loaded softly like the two modules above.
+let ROBLOX_PACK;
+try { ROBLOX_PACK = { mod: require('./forge-roblox-pack.cjs'), error: null }; } catch (e) { ROBLOX_PACK = { mod: null, error: './forge-roblox-pack.cjs does not load: ' + String((e && e.message) || e).split('\n')[0] }; }
+// Every pack (R-0239): forge-pack.cjs, loaded the same soft way.
+const PACKS = softModule('./forge-pack.cjs');
 
 // forge-sync.test.cjs reads this literal from this file's source to compare its own mirror (case 156d); the value is
 // owned by doctor/checks-core.cjs and forge-doctor.test.cjs asserts the two are equal.
@@ -244,7 +261,7 @@ let forgePathsTool = null;
 try { const fp = require('./forge-paths.cjs'); if (fp && typeof fp.stateDir === 'function' && typeof fp.resolveExisting === 'function' && typeof fp.memoryFile === 'function' && typeof fp.scriptRoot === 'function') forgePathsTool = fp; } catch { forgePathsTool = null; }
 
 /** DOCTOR_MODULES — the doctor/*.cjs modules in load order (README "Doctor modules"). */
-const DOCTOR_MODULES = Object.freeze(["doctor/context.cjs","doctor/checks-core.cjs","doctor/checks-leak.cjs","doctor/checks-agents.cjs","doctor/checks-rebind.cjs","doctor/checks-completeness.cjs","doctor/checks-testscan.cjs","doctor/checks-runs.cjs","doctor/checks-ship.cjs","doctor/checks-adapters.cjs","doctor/checks-tools.cjs","doctor/checks-advisory.cjs","doctor/checks-hygiene.cjs","doctor/overrides.cjs","doctor/checks-gate.cjs","doctor/checks-setup.cjs","doctor/report.cjs"]);
+const DOCTOR_MODULES = Object.freeze(["doctor/context.cjs","doctor/suite-retry.cjs","doctor/checks-core.cjs","doctor/checks-leak.cjs","doctor/checks-agents.cjs","doctor/checks-rebind.cjs","doctor/checks-completeness.cjs","doctor/checks-testscan.cjs","doctor/checks-runs.cjs","doctor/checks-ship.cjs","doctor/checks-adapters.cjs","doctor/checks-tools.cjs","doctor/checks-memory-order.cjs","doctor/checks-default-skills.cjs","doctor/checks-advisory.cjs","doctor/checks-hygiene.cjs","doctor/overrides.cjs","doctor/checks-gate.cjs","doctor/checks-setup.cjs","doctor/report.cjs"]);
 
 // ===========================================================================================================
 // THE ORDERED CHECK TABLES (WP A11 part 2). runDoctor() used to build its report from three object
@@ -291,6 +308,16 @@ const ENFORCED_CHECKS = {
   // W2-WIRE: the two research tools still do their one job — see doctor/checks-tools.cjs.
   ecc_path: ({ root, overrideMap }) => applyDoctorOverride(overrideMap, 'ecc_path', eccPathCheck(root)),
   citations: ({ root, overrideMap }) => applyDoctorOverride(overrideMap, 'citations', citationsCheck(root)),
+  // SD-T12c: FORGE_MEMORY.md is newest-first, and the default skills really reach every agent. ENFORCED in
+  // the development tree; elsewhere a problem is named but labelled (ok:true, enforced:false), like skill_adapters.
+  memory_order: ({ root, overrideMap }) => applyDoctorOverride(overrideMap, 'memory_order', memoryOrderDoctor(root)),
+  default_skills: ({ root, o, overrideMap }) => applyDoctorOverride(overrideMap, 'default_skills', defaultSkillsDoctor(root, o)),
+  // Roblox pack: ENFORCED wherever the pack file ships — red when a pack agent or skill is missing, unrouted
+  // or not a registered specialist; n/a in an older project without .claude/config/packs/roblox.json. See forge-roblox-pack.cjs.
+  roblox_pack: ({ root, overrideMap }) => applyDoctorOverride(overrideMap, 'roblox_pack', robloxPackDoctor(root)),
+  // WP-AG5 (R-0239): forge-pack.cjs packCheck for EVERY .claude/config/packs/*.json — enforced in the
+  // development tree (no packs there is red), n/a in an install without a packs folder. See packsDoctor().
+  packs: ({ root, overrideMap }) => applyDoctorOverride(overrideMap, 'packs', packsDoctor(root)),
 };
 // WAVE A / A2 + V9-INTEGRATE: the completeness checks that remain ADVISORY-ONLY, grouped
 // under report.advisory.completeness so printSummary can emit a single compact advisory line — see the header doc
@@ -336,6 +363,24 @@ const ADVISORY_CHECKS = {
   always_loaded_budget: ({ root }) => advisorySafe('always_loaded_budget', () => alwaysLoadedBudget(root)),
   // Category tests F8: the personal ~/.claude/commands/forge.md must hand /forge over to this project's own command.
   global_forge_handover: ({ root }) => advisorySafe('global_forge_handover', () => globalForgeHandover(root)),
+  // FB-INSTALL-2-F2 / CORE-5-F4: the live ~/.claude files Forge needs vs their capture in global-install/ (dev tree only).
+  global_drift: ({ root }) => advisorySafe('global_drift', () => require('./doctor/checks-advisory.cjs').globalDrift(root)),
+  // FB-INSTALL-1-F1: the newest work run has a per-run rollback checkpoint record.
+  rollback_checkpoint: ({ root }) => advisorySafe('rollback_checkpoint', () => require('./doctor/checks-advisory.cjs').rollbackCheckpoint(root)),
+  // CORE-5-F2: the FORGE_MEMORY.md status block CLAUDE.md points at is not older than the newest work run.
+  memory_status_fresh: ({ root }) => advisorySafe('memory_status_fresh', () => require('./doctor/checks-advisory.cjs').memoryStatusFresh(root)),
+  // CF-3-F4: a .cjs consumer named in FORGE_CONFIG_SCHEMA.json mentions its setting (or is marked prose only).
+  config_consumers: ({ root }) => advisorySafe('config_consumers', () => require('./doctor/checks-advisory.cjs').configConsumers(root)),
+  // CORE-3-F2/F9: payload docs name live forge-bin tools; skill reference files fit one Read.
+  reference_fit: ({ root }) => advisorySafe('reference_fit', () => require('./doctor/checks-advisory.cjs').referenceFit(root)),
+  // SK-8-F1: every agent report template's status enum equals forge-report.cjs REQUIRED_STATUSES.
+  report_status_enum: ({ root }) => advisorySafe('report_status_enum', () => require('./doctor/checks-advisory.cjs').reportStatusEnum(root)),
+  // CF-2-F3: every hook script in the project settings is named in one of the two HOOKS_OPT_IN.md files.
+  hooks_documented: ({ root }) => advisorySafe('hooks_documented', () => require('./doctor/checks-advisory.cjs').hooksDocumented(root)),
+  // SK-1-F2: the generated forge-system skill matches its sources (forge-system-skill.cjs check).
+  system_skill_fresh: ({ root }) => advisorySafe('system_skill_fresh', () => require('./doctor/checks-advisory.cjs').systemSkillFresh(root)),
+  // FB-MISC-2-F7: the forge-killswitch KNOWN_TASKS scheduled tasks are registered (Windows, dev tree).
+  scheduled_tasks: ({ root }) => advisorySafe('scheduled_tasks', () => require('./doctor/checks-advisory.cjs').scheduledTasks(root)),
   // Category tests 2026-11-07: a modified tracked file must keep its line-ending style (Windows edits flipped 7 LF files to CRLF).
   eol_drift: ({ root }) => advisorySafe('eol_drift', () => { const r = require('./forge-eol-drift.cjs').eolDrift(root); return r.applicable ? { ok: !r.drift.length, applicable: true, drift: r.drift.slice(0, 20), fix: r.drift.length ? 'restore each file to its HEAD line endings before committing' : undefined } : { ok: true, applicable: false, reason: r.reason }; }),
   // WP 3.7: `claude plugin validate dist/forge-plugin`, only when both exist — see pluginValidate().
@@ -347,15 +392,182 @@ const ADVISORY_CHECKS = {
   // harnessScore(). Both run in-process, read-only.
   config_scan: ({ root }) => advisorySafe('config_scan', () => configScan(root)),
   harness_score: ({ root }) => advisorySafe('harness_score', () => harnessScore(root)),
+  // SD-T12c: would the skill listing drop descriptions? Advisory by construction (ok is always true).
+  listing_budget: ({ root, o }) => advisorySafe('listing_budget', () => { if (!listingBudgetCheck) throw new Error(DEFAULT_SKILLS.error); return listingBudgetCheck(root, skillMachineOpts(root, o)); }),
+  // 2026-11-08 (graphify part C): forge-start loads forge-graphify ensure() and graphify is locatable — see graphifyWired().
+  graphify_wired: ({ root }) => advisorySafe('graphify_wired', () => graphifyWired(root)),
+  // R-0234: every project feeds one central Obsidian brain - see forge-brain.cjs brainWired(). Advisory for now.
+  brain_wired: ({ root }) => advisorySafe('brain_wired', () => require('./forge-brain.cjs').brainWired(root)),
+  // G-SKILLS-1-F1: a ~/.claude/skills/synced/*/<name> skill that a project skill of the same name shadows.
+  skill_shadowing: ({ root, o }) => advisorySafe('skill_shadowing', () => skillShadowing(root, skillMachineOpts(root, o))),
   // the beginner setup traps — machine/preference findings, never a code defect, so
   // advisory by construction. The `claude doctor` probe runs only when the caller opts in (the CLI does).
   beginner_setup: ({ root, o, overrideMap }) => beginnerSetup(root, { overrideMap, env: o.env, platform: o.platform, probeClaudeDoctor: !!o.probeClaudeDoctor, claudeDoctorTimeoutMs: o.claudeDoctorTimeoutMs }),
-  completeness: (c) => runCheckTable(COMPLETENESS_CHECKS, c),
+  completeness: (c) => runCheckTable(COMPLETENESS_CHECKS, c, { advisory: true }),
 };
-/** runCheckTable(table, c) -> {key: result}, the rows evaluated in table order (string keys keep insertion order). */
-function runCheckTable(table, c) {
+// ---- SD-T12c wiring: memory_order, default_skills, listing_budget --------------------------------------------------
+const DEFAULT_SKILLS_REL = path.join('.claude', 'config', 'orchestration', 'FORGE_DEFAULT_SKILLS.json');
+const sameDir = (a, b) => { const n = (p) => { let r = path.resolve(p); try { r = fs.realpathSync(r); } catch { /* keep resolved */ } return process.platform === 'win32' ? r.toLowerCase() : r; }; return n(a) === n(b); };
+/** skillMachineOpts(root, o) -> the home and settings seams. Only this doctor's own project reads the real home (like
+ *  ecc_path); any other root gets a home that does not exist and its own two settings files, so a fixture is hermetic. */
+function skillMachineOpts(root, o) {
+  if (o && o.home) return { home: o.home, settingsFiles: o.settingsFiles };
+  let own = null;
+  if (!forgePathsTool) own = path.resolve(__dirname, '..', '..'); // forge-paths fallback
+  else { try { own = forgePathsTool.scriptRoot(__dirname); } catch { own = null; } }
+  if (own && sameDir(root, own)) return {};
+  const cfg = path.join(root, '.claude');
+  return { home: path.join(cfg, '_doctor-no-home'), settingsFiles: ['settings.json', 'settings.local.json'].map((n) => path.join(cfg, n)) };
+}
+/** labelled(dev, r) -> r, red only in the development tree; elsewhere its problems stay named but never red. */
+function labelled(dev, r) {
+  const problems = r.problems || [];
+  return Object.assign({}, r, { ok: dev ? !!r.ok : true, applicable: true, enforced: dev,
+    reason: problems.length ? problems.length + ' problem(s): ' + problems.join('; ') + (dev ? '' : ' (not enforced outside the development tree)') : '' });
+}
+function memoryOrderDoctor(root) {
+  const dev = readDevTreeMarker(root).valid;
+  if (!memoryOrderCheck) return labelled(dev, { ok: false, problems: [MEMORY_ORDER.error] });
+  const r = memoryOrderCheck(root);
+  if (!r.path) return { ok: true, applicable: false, enforced: dev, problems: [], reason: 'no FORGE_MEMORY.md yet' };
+  return labelled(dev, r);
+}
+function defaultSkillsDoctor(root, o) {
+  const dev = readDevTreeMarker(root).valid;
+  if (!fs.existsSync(path.join(root, DEFAULT_SKILLS_REL))) {
+    return { ok: true, applicable: false, enforced: dev, problems: [], skipped: [], advisory: [], checked: 0, reason: 'no FORGE_DEFAULT_SKILLS.json (an install from before the default skills)' };
+  }
+  if (!defaultSkillsCheck) return labelled(dev, { ok: false, problems: [DEFAULT_SKILLS.error], skipped: [], advisory: [], checked: 0 });
+  return labelled(dev, defaultSkillsCheck(root, skillMachineOpts(root, o)));
+}
+/** robloxPackDoctor(root) -> forge-roblox-pack.cjs packCheck(); a module that does not load is red in the development tree. */
+function robloxPackDoctor(root) {
+  const dev = readDevTreeMarker(root).valid;
+  if (!ROBLOX_PACK.mod) return labelled(dev, { ok: false, problems: [ROBLOX_PACK.error] });
+  return ROBLOX_PACK.mod.packCheck(root, { devTree: dev });
+}
+/** packsDoctor(root) -> forge-pack.cjs packCheck() over every pack file; a module that does not load is red in the development tree. */
+function packsDoctor(root) {
+  const dev = readDevTreeMarker(root).valid;
+  if (!PACKS.mod) return labelled(dev, { ok: false, packs: [], problems: [PACKS.error] });
+  return PACKS.mod.packCheck(root, { devTree: dev });
+}
+/** skillShadowing(root, opts) -> {ok, applicable, shadowed, problems, fix}. ADVISORY: a skill folder under
+ *  <home>/.claude/skills/synced/<id>/<name> whose name is also a project skill (.claude/skills/<name>/SKILL.md): two
+ *  skills answer to one name and the project copy shadows the synced one. opts.home replaces the real home (test seam).
+ *  A finding is printed by doctor/report.cjs's generic advisory line, from `reason`. */
+function skillShadowing(root, opts) {
+  const home = (opts && opts.home) || require('os').homedir();
+  const syncedDir = path.join(home, '.claude', 'skills', 'synced');
+  const dirsIn = (d) => fs.readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  let ids;
+  try { ids = dirsIn(syncedDir); } catch { return { ok: true, applicable: false, shadowed: [], problems: [], fix: '', reason: 'no ~/.claude/skills/synced folder' }; }
+  const shadowed = [], problems = [];
+  for (const id of ids) {
+    let names = [];
+    try { names = dirsIn(path.join(syncedDir, id)); } catch (e) { problems.push('synced ' + id + ' unreadable (' + (e.code || e.message) + ')'); }
+    for (const n of names) {
+      if (!fs.existsSync(path.join(root, '.claude', 'skills', n, 'SKILL.md'))) continue;
+      if (!shadowed.includes(n)) shadowed.push(n);
+      problems.push(n + ' (synced ' + id + ')');
+    }
+  }
+  const fix = shadowed.length ? 'keep one skill per name: rename the project skill, or switch the synced one off (skillOverrides "<name>": "off" in the user settings, an owner settings write)' : '';
+  return { ok: !problems.length, applicable: true, shadowed, problems, fix, reason: problems.length ? problems.join(' · ') + (fix ? ' — fix: ' + fix : '') : '' };
+}
+/** graphifyWired(root, opts) -> {ok, applicable, problems, fix, version}. ADVISORY (never part of doctor.ok): where
+ *  forge-graphify.cjs is installed, forge-start.cjs must load it and read its ensure(), the module must export ensure(),
+ *  and graphify itself must be found by the module's own locate(). opts.locate replaces locate() (test seam). Fails open:
+ *  a broken module or a throwing locate() is a named problem, never a crash. */
+function graphifyWired(root, opts) {
+  const o = opts || {};
+  const bin = path.join(root, '.claude', 'forge-bin');
+  const modPath = path.join(bin, 'forge-graphify.cjs');
+  if (!fs.existsSync(modPath)) return { ok: true, applicable: false, problems: [], fix: [], reason: 'forge-graphify.cjs is not installed here' };
+  const problems = [], fix = [];
+  let src = '';
+  try { src = fs.readFileSync(path.join(bin, 'forge-start.cjs'), 'utf8'); } catch (e) { problems.push('forge-start.cjs does not load (' + (e.code || e.message) + ')'); }
+  if (src && !/require\(\s*['"]\.\/forge-graphify\.cjs['"]\s*\)/.test(src)) problems.push("forge-start.cjs does not require('./forge-graphify.cjs'): the start brief has no graph line");
+  else if (src && !/\.ensure\b/.test(src)) problems.push('forge-start.cjs requires forge-graphify.cjs but never reads its ensure()');
+  if (problems.length) fix.push("in forge-start.cjs load the module (loadGraphEnsure: require('./forge-graphify.cjs').ensure, in a try) and print graphLine(loadGraphEnsure(), root)");
+  let G = null;
+  try { G = require(modPath); } catch (e) { problems.push('forge-graphify.cjs does not load: ' + String(e.message).split('\n')[0]); }
+  if (G && typeof G.ensure !== 'function') { problems.push('forge-graphify.cjs does not export ensure()'); fix.push('export ensure from forge-graphify.cjs (module.exports = { ..., ensure })'); }
+  let version = null;
+  const locate = o.locate || (G && typeof G.locate === 'function' ? G.locate : null);
+  if (G && locate) {
+    let loc;
+    try { loc = locate(); } catch (e) { loc = { ok: false, reason: String(e.message).split('\n')[0] }; }
+    if (loc && loc.ok) version = loc.version || null;
+    else {
+      problems.push('graphify cannot be located: ' + ((loc && loc.reason) || 'no reason given'));
+      fix.push('install it code-only with `uv tool install graphifyy` (or set GRAPHIFY_BIN to the graphify executable), then check with node .claude/forge-bin/forge-graphify.cjs which');
+    }
+  }
+  return { ok: !problems.length, applicable: true, problems, fix, version };
+}
+/** skillSummaryLines(rep) -> the report lines of the three SD-T12c checks (printed just before the verdict line). */
+function skillSummaryLines(rep) {
+  const c = rep.checks || {}, adv = rep.advisory || {}, out = [];
+  const line = (label, ok, detail) => (ok ? '  ✓ ' : '  ✗ ') + (label.length >= 16 ? label + ' ' : label.padEnd(16)) + (detail || '');
+  const tag = (r) => r.overridden ? ' [OVERRIDDEN by ' + (r.override_by || 'owner') + ': ' + r.override_reason + ']' : '';
+  const mo = c.memory_order;
+  if (mo) out.push(line('memory order', mo.ok, (mo.applicable === false ? 'n/a — ' + mo.reason : (mo.reason || 'FORGE_MEMORY.md is newest-first')) + tag(mo)));
+  const ds = c.default_skills;
+  if (ds) {
+    out.push(line('default skills', ds.ok, (ds.applicable === false ? 'n/a — ' + ds.reason : (ds.reason || ds.checked + ' agent(s) checked · source, agent files and preloads agree')) + tag(ds)));
+    for (const s of ds.skipped || []) out.push('      │ SKIP ' + s);
+    for (const a of ds.advisory || []) out.push('      │ ⚠ ' + a);
+  }
+  const rp = c.roblox_pack;
+  if (rp) out.push(line('roblox pack', rp.ok, (rp.applicable === false ? 'n/a — ' + rp.reason : rp.ok ? rp.agents + ' specialist agent(s), ' + rp.skills + ' skill(s): present, routed and registered' : rp.problems.join('; ')) + tag(rp)));
+  const pk = c.packs;
+  if (pk) {
+    const agents = (pk.packs || []).reduce((n, p) => n + (p.agents || 0), 0);
+    out.push(line('packs', pk.ok, (pk.applicable === false ? 'n/a — ' + pk.reason : pk.ok ? (pk.packs || []).length + ' pack(s), ' + agents + ' agent(s): present, routed, registered and in the router' : (pk.problems || []).join('; ')) + tag(pk)));
+  }
+  const lb = adv.listing_budget;
+  if (lb) {
+    const head = lb.estimateChars !== undefined ? 'estimate ' + lb.estimateChars + ' of ' + lb.budgetChars + ' chars (200k window), plugin skills not counted' : (lb.reason || 'could not run');
+    out.push('  ' + ((lb.advisory || []).length ? '⚠ listing budget (advisory, non-blocking): ' + lb.advisory.join(' · ') : '✓ listing budget (advisory): ' + head));
+  }
+  const gw = adv.graphify_wired;
+  if (gw) {
+    if (gw.applicable === false) out.push('  ✓ graphify wired (advisory): n/a — ' + gw.reason);
+    else if ((gw.problems || []).length) {
+      out.push('  ⚠ graphify wired (advisory, non-blocking): ' + gw.problems.join(' · '));
+      for (const f of gw.fix || []) out.push('      │ fix: ' + f);
+    } else if (gw.ok) out.push('  ✓ graphify wired (advisory): forge-start loads forge-graphify ensure(), graphify ' + (gw.version || 'found'));
+    else out.push('  ⚠ graphify wired (advisory): could not run — ' + (gw.reason || gw.error || 'unknown'));
+  }
+  const bw = adv.brain_wired;
+  if (bw) {
+    if (bw.applicable === false) out.push('  ✓ brain wired (advisory): n/a — ' + bw.reason);
+    else if ((bw.problems || []).length) {
+      out.push('  ⚠ brain wired (advisory, non-blocking): ' + bw.problems.join(' · '));
+      for (const f of bw.fix || []) out.push('      │ fix: ' + f);
+    } else out.push('  ✓ brain wired (advisory): ' + bw.projects + ' project(s) in ' + bw.brain + ', last sync ' + bw.lastSync);
+  }
+  return out;
+}
+/** printSummary(rep) -> doctor/report.cjs's summary with the SD-T12c lines inserted just before the verdict line. */
+function printSummary(rep) {
+  const lines = printBaseSummary(rep).split('\n');
+  lines.splice(lines.length - 1, 0, ...skillSummaryLines(rep));
+  return lines.join('\n');
+}
+/** runCheckTable(table, c, opts) -> {key: result}, the rows evaluated in table order (string keys keep insertion order).
+ *  FB-CONFIG-1-F8: a row that throws never aborts the doctor: an enforced row becomes ok:false with the message, an
+ *  advisory row (opts.advisory) is labelled not applicable, the same shape advisorySafe gives. */
+function runCheckTable(table, c, opts) {
+  const advisory = !!(opts && opts.advisory);
   const out = {};
-  for (const [key, fn] of Object.entries(table)) out[key] = fn(c);
+  for (const [key, fn] of Object.entries(table)) {
+    try { out[key] = fn(c); } catch (e) {
+      const msg = String((e && e.message) || e).split('\n')[0];
+      out[key] = advisory ? { ok: true, applicable: false, reason: key + ' could not run: ' + msg } : { ok: false, reason: 'check threw: ' + msg };
+    }
+  }
   return out;
 }
 /** DOCTOR_CHECK_ORDER — the ordered key lists of the three tables (pinned by a snapshot test). */
@@ -375,7 +587,7 @@ function runDoctor(root, opts) {
   const checks = runCheckTable(ENFORCED_CHECKS, ctx);
   // advisory checks are DELIBERATELY excluded from this ok computation — see backfillContinuity's doc.
   const ok = Object.values(checks).every((c) => c.ok);
-  const advisory = runCheckTable(ADVISORY_CHECKS, ctx);
+  const advisory = runCheckTable(ADVISORY_CHECKS, ctx, { advisory: true });
   return { ok, root, checks, advisory, generated_at: new Date().toISOString() };
 }
 
@@ -452,7 +664,13 @@ module.exports = { failingTestNames, FAIL_NAMES_MAX,
   // the two lint advisories
   skillLint, agentLint, lintSummary, configScan, harnessScore, HARNESS_MIN,
   // WP A11 part 2 — the ordered check tables behind runDoctor (pinned by a snapshot test)
-  DOCTOR_CHECK_ORDER, DOCTOR_MODULES,
+  DOCTOR_CHECK_ORDER, DOCTOR_MODULES, runCheckTable,
+  // SD-T12c — memory order and default skills (enforced in the development tree) and the listing budget
+  memoryOrderCheck, defaultSkillsCheck, listingBudgetCheck, memoryOrderDoctor, defaultSkillsDoctor, skillSummaryLines,
+  // Roblox pack, every pack and the skill_shadowing advisory
+  robloxPackDoctor, packsDoctor, skillShadowing,
+  // graphify part C — the graphify_wired advisory
+  graphifyWired,
 };
 
 // ---- CLI ----
@@ -464,14 +682,16 @@ if (require.main === module) {
      *  no-op by contract: usage on stdout, exit 0, nothing measured, nothing written. A mistyped flag
      *  likewise refuses instead of silently starting a self-test the caller did not ask for. */
     if (argv.includes('--help') || argv.includes('-h')) {
-      console.log('Usage: node forge-doctor.cjs [--root <projectDir>] [--run <run_id>] [--json]');
+      console.log('Usage: node forge-doctor.cjs [--root <projectDir>] [--run <run_id>] [--json] [--receipt]');
       console.log('');
       console.log('  Runs the full Forge self-test: every *.test.cjs suite, the leak scan, agent/hook/event checks.');
       console.log('  Takes several minutes. --json prints exactly one JSON report object; --run also writes');
       console.log('  doctor.json into that run and logs a doctor_run event. --help never runs anything.');
+      console.log('  --receipt (development tree only): also writes _scratch/forge-doctor-receipt.json, the proof');
+      console.log('  `forge-sync publish-template --apply` requires (green, on exactly the bytes it publishes).');
       return;
     }
-    const bekend = new Set(['--root', '--run', '--json']);
+    const bekend = new Set(['--root', '--run', '--json', '--receipt']);
     const onbekend = argv.filter((a, i) => a.startsWith('-') && !bekend.has(a) && !(i > 0 && (argv[i - 1] === '--root' || argv[i - 1] === '--run')));
     if (onbekend.length) {
       console.error('forge-doctor: unknown flag(s) ' + onbekend.join(' ') + ' — see --help. Refusing to start a multi-minute self-test on a mistyped flag.');
@@ -489,6 +709,16 @@ if (require.main === module) {
       else if (argv[i] === '--json') wantJson = true;
     }
     if (!root) { console.error('forge-doctor: no project root found (no .claude, .forge or .git above the current folder) — pass --root <dir>'); process.exitCode = 2; return; }
+    // Category tests round 8: --receipt (opt-in) proves a full run for publish-template --apply. The published
+    // set is hashed before and after the run (forge-sync-publish-guard.cjs); without the flag nothing here runs.
+    let receiptGuard = null, receiptStart = null;
+    if (argv.includes('--receipt')) {
+      try { receiptGuard = require('./forge-sync-publish-guard.cjs'); receiptStart = receiptGuard.beginDoctorReceipt(root); } catch (e) {
+        console.error('forge-doctor: --receipt refused before the self-test: ' + e.message.split('\n')[0]);
+        process.exitCode = 2;
+        return;
+      }
+    }
     // the CLI is the one caller that runs the read-only `claude doctor` probe (5 s cap, stdin closed).
     const rep = runDoctor(root, { probeClaudeDoctor: true });
     // --json is a machine-readable CONTRACT: exactly ONE JSON object on stdout, nothing else — so a
@@ -500,8 +730,14 @@ if (require.main === module) {
       const runDir = path.join(stateWriteDir(root, 'runs', 'forge-runs'), run); // WP 2.1: the active runs folder
       try { fs.mkdirSync(runDir, { recursive: true }); fs.writeFileSync(path.join(runDir, 'doctor.json'), JSON.stringify(rep, null, 2) + '\n', 'utf8'); } catch (e) { console.error('forge-doctor: could not write doctor.json: ' + e.message); }
       const le = path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs');
-      const ev = spawnSync(NODE, [le, run, 'doctor_run', JSON.stringify({ agent: 'reviewer', note: 'forge-doctor ' + (rep.ok ? 'ALL GREEN' : 'FAILURES'), ok: rep.ok })], { encoding: 'utf8' });
+      const ev = spawnSync(NODE, [le, run, 'doctor_run', JSON.stringify({ agent: 'orchestrator', note: 'forge-doctor ' + (rep.ok ? 'ALL GREEN' : 'FAILURES'), ok: rep.ok })], { encoding: 'utf8' });
       if (ev.status !== 0) console.error('forge-doctor: log-event warning: ' + (ev.stderr || '').trim());
+    }
+    if (receiptGuard && receiptStart) { // stderr only: --json keeps stdout to exactly one JSON object
+      try {
+        const w = receiptGuard.finishDoctorReceipt(receiptStart, rep);
+        console.error('forge-doctor: receipt ' + (w.receipt.ok ? 'GREEN' : 'RED' + (w.receipt.fingerprint_stable ? '' : ' (published files changed during the run)')) + ' -> ' + w.path);
+      } catch (e) { console.error('forge-doctor: the receipt could not be written (' + e.message + ') — publish-template --apply will refuse'); }
     }
     process.exitCode = rep.ok ? 0 : 1;
   };

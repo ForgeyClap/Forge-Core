@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-wait.test.cjs — category finding H1: forge-wait.cjs blocks in the foreground until every subagent
 // of a session that has a SubagentStart line but no SubagentStop line (by agent_id) has stopped. HERMETIC: every
 // fixture is a fresh os.tmpdir() project; nothing reads or writes this repo's real .claude/forge-runs.
@@ -34,12 +38,15 @@ function start(root, sid, id, type, ms) { line(root, 'subagent-start.jsonl', { t
 function stopLine(root, sid, id, type) { line(root, 'subagent-stop.jsonl', { ts: iso(Date.now()), event: 'SubagentStop', session: sid, agent_id: id, agent_type: type || 'build-boss' }); }
 function dirs(root) { return W.runsDirsFor(root); }
 function cliEnv(root) { const env = Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: root }); delete env.FORGE_STATE_DIR; return env; }
-function runCli(root, args) {
+// the stop line used to be written on a fixed timer (500-900 ms). On a loaded machine (an install's
+// doctor beside other suites) the child needed longer than that just to start, never saw the open state, and windows-v8's
+// install rolled back. `when` makes it event-driven: fn runs once, right after the child has PRINTED pattern.
+function runCli(root, args, when) {
   return new Promise((resolve) => {
     const c = spawn(process.execPath, [CLI].concat(args), { env: cliEnv(root), windowsHide: true });
-    let out = '';
+    let out = '', fired = false;
     const t0 = Date.now();
-    c.stdout.on('data', (d) => { out += d; });
+    c.stdout.on('data', (d) => { out += d; if (when && !fired && when.pattern.test(out)) { fired = true; when.fn(); } });
     c.on('close', (code) => resolve({ code, out, ms: Date.now() - t0 }));
   });
 }
@@ -111,31 +118,39 @@ t('CLI: returns 0 when the stop line appears DURING the wait (written from a tim
   const root = proj('cli-during');
   start(root, SID, 'w1', 'build-boss');
   start(root, OTHER, 'ignored', 'x');
-  const timer = setTimeout(() => stopLine(root, SID, 'w1'), 900);
-  const r = await runCli(root, ['--session', SID, '--max-sec', '20', '--poll-sec', '0.2']);
-  clearTimeout(timer);
+  const r = await runCli(root, ['--session', SID, '--max-sec', '20', '--poll-sec', '0.2'], { pattern: /1 open: build-boss/, fn: () => stopLine(root, SID, 'w1') });
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(/1 open: build-boss/.test(r.out), 'printed the open line: ' + r.out);
   assert.ok(/all done/.test(r.out), r.out);
-  assert.ok(r.ms >= 800 && r.ms < 15000, 'waited for the stop: ' + r.ms + ' ms');
+  assert.ok(r.out.indexOf('1 open: build-boss') < r.out.indexOf('all done') && r.ms < 15000, 'waited for the stop: ' + r.ms + ' ms');
 });
 t('CLI: default session (no --session) waits for the most recent open session', async () => {
   const root = proj('cli-default');
   start(root, SID, 'd1', 'test-boss');
-  const timer = setTimeout(() => stopLine(root, SID, 'd1'), 600);
-  const r = await runCli(root, ['--max-sec', '20', '--poll-sec', '0.2']);
-  clearTimeout(timer);
+  const r = await runCli(root, ['--max-sec', '20', '--poll-sec', '0.2'], { pattern: /1 open/, fn: () => stopLine(root, SID, 'd1') });
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(r.out.includes(SID), r.out);
+});
+t('FB-LANES-F11: an unreadable start log is an error (exit 1), never "all done"', async () => {
+  const root = proj('cli-unreadable');
+  fs.mkdirSync(path.join(hooks(root), 'subagent-start.jsonl')); // a folder in its place: EISDIR on read
+  const r = await runCli(root, ['--session', SID]);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.ok(!/all done/.test(r.out) && /cannot read/.test(r.out), r.out);
+});
+t('FB-LANES-F11: a root with no runs folder is an error (exit 1), never "all done"', async () => {
+  const root = path.join(TMP, 'no-forge-here-' + (++seq));
+  fs.mkdirSync(root, { recursive: true });
+  const r = await runCli(root, ['--session', SID, '--root', root]);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.ok(!/all done/.test(r.out) && /no runs folder/.test(r.out), r.out);
 });
 t('CLI: still open at --max-sec -> exit 3 naming the count and the types; the count line changes once', async () => {
   const root = proj('cli-timeout');
   start(root, SID, 'h1', 'build-boss');
   start(root, SID, 'h2', 'build-boss');
   start(root, SID, 'h3', 'test-boss');
-  const timer = setTimeout(() => stopLine(root, SID, 'h3'), 500);
-  const r = await runCli(root, ['--session', SID, '--max-sec', '1.5', '--poll-sec', '0.2']);
-  clearTimeout(timer);
+  const r = await runCli(root, ['--session', SID, '--max-sec', '1.5', '--poll-sec', '0.2'], { pattern: /3 open/, fn: () => stopLine(root, SID, 'h3') });
   assert.strictEqual(r.code, 3, r.out);
   assert.ok(/3 open: build-boss x2, test-boss/.test(r.out), r.out);
   assert.ok(/2 open: build-boss x2/.test(r.out), r.out);

@@ -16,7 +16,7 @@ function secretLabel(src) {
   if (src.includes('sk_')) return 'stripe-key';
   if (src.includes('sk-')) return 'openai-style-key';
   if (src.includes('rk_')) return 'stripe-restricted-key';
-  if (src.includes('gh[')) return 'github-token';
+  if (src.includes('gh[') || src.includes('github_pat_')) return 'github-token';
   if (src.includes('xox')) return 'slack-token';
   if (src.includes('AKIA')) return 'aws-access-key';
   if (src.includes('AIza')) return 'google-api-key';
@@ -38,6 +38,7 @@ const WALK_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next'
 /** isVenvDir — definitive Python-venv detection by its marker file, so a venv is skipped whatever its
  *  directory name is (measured real case: `.venv-train`). Cheap: one existsSync per DIRECTORY walked. */
 function isVenvDir(absDir) { return fs.existsSync(path.join(absDir, 'pyvenv.cfg')); }
+const WALK_MAX_DEPTH = 6; // gitless walk: a folder deeper than this is named in notScanned (depth-cap), never silently dropped
 /** WP 2.1: the same two operational folders in the opt-in .forge/ state root (root-relative, case-folded): run logs and
  *  the sync's own backups, skipped by both walks exactly like forge-runs/forge-backups above. The rest of .forge/
  *  (research, memory, scribe, ...) is scanned like its legacy .claude/ counterpart. */
@@ -66,7 +67,7 @@ function isAgentWorktreesDir(rel) {
 /** hasGitEntry(dirAbs) — WP-SYNC-R10: the folder holds a `.git` entry of ANY kind (file, folder, link — lstat, never followed).
  *  In the gitless walk this is what makes a child of `.claude/worktrees` an agent checkout (skipped); every other child there is
  *  walked and scanned like the rest of the tree. Nested-repo discovery (git mode) still skips the whole `.claude/worktrees`
- *  folder: there only tracked files are scanned anyway, and every child there that is a repository is a checkout. */
+ *  folder (R8): there only tracked files are scanned anyway, and every child there that is a repository is a checkout. */
 function hasGitEntry(dirAbs) { try { fs.lstatSync(path.join(dirAbs, '.git')); return true; } catch { return false; } }
 
 /**
@@ -115,10 +116,15 @@ function nestedGitRepos(root, maxDepth, notScannedOut) {
  *  it lists TRACKED files and nothing else, so whatever that repo gitignores (its `.env`, its build output)
  *  is never opened, never scanned, and never even named as a path in the report. Widening the scan must not
  *  become a way to read files the repository itself declared out of bounds. */
-function gitLsFiles(dirAbs) {
-  const r = spawnSync('git', ['-C', dirAbs, 'ls-files'], { encoding: 'utf8' });
+// FB-CONFIG-1-F11: NUL-separated + quotepath off, so a non-ASCII name comes back as itself (not octal-quoted);
+// a 256 MiB buffer so a big repo's list never overflows the 1 MiB default (ENOBUFS used to mean "not a repo").
+const GIT_LS_MAX_BUFFER = 256 * 1024 * 1024;
+function gitLsFiles(dirAbs, info) {
+  const r = spawnSync('git', ['-c', 'core.quotepath=off', '-C', dirAbs, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: GIT_LS_MAX_BUFFER });
+  // git present and started, but the listing broke (ENOBUFS, a timeout): say so, never pass it off as "not a repo"
+  if (info && r.error && r.error.code !== 'ENOENT') info.failed = 'git ls-files failed (' + r.error.code + ')';
   if (r.status !== 0 || typeof r.stdout !== 'string') return null;
-  return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+  return r.stdout.split('\0').filter(Boolean);
 }
 
 /** trackedFiles(root) -> {source, files, sources}
@@ -135,10 +141,18 @@ function trackedFiles(root) {
   const notScannedDirs = [];
   // WP-SYNC-R10 (Codex R8-03b): in the gitless walk only the CHECKOUTS inside .claude/worktrees are skipped; how many, per folder
   const checkoutsSkipped = new Map();
+  // FB-CONFIG-1-F4: folders the gitless walk cut off at its depth cap, named instead of silently dropped
+  const depthCapped = [];
   const notScanned = () => [...new Set(notScannedDirs)].sort().map((dir) => (checkoutsSkipped.has(dir)
     ? { dir, reason: 'agent worktree checkouts (' + checkoutsSkipped.get(dir) + ' folder(s) holding a .git entry) — scratch copies of this repository, not scanned; every other file in ' + dir + '/ was scanned', checkouts: checkoutsSkipped.get(dir) }
-    : { dir, reason: 'agent worktree checkouts (git worktree add) — scratch copies of this repository, not scanned' }));
-  const rootList = gitLsFiles(root);
+    : { dir, reason: 'agent worktree checkouts (git worktree add) — scratch copies of this repository, not scanned' }))
+    .concat(depthCapped.sort().map((dir) => ({ dir, reason: 'depth-cap (more than ' + WALK_MAX_DEPTH + ' folders deep, gitless walk) — not scanned' })));
+  const rootInfo = {};
+  const rootList = gitLsFiles(root, rootInfo);
+  if (!rootList && rootInfo.failed) {
+    // a git repo whose listing broke: the walk would open the gitignored files (.env) the listing exists to exclude
+    return { source: 'git', files: [], sources: [{ root: '.', method: 'git', files: 0, unavailable: rootInfo.failed }], notScanned: notScanned().concat([{ dir: '.', reason: rootInfo.failed + ' — nothing was scanned' }]) };
+  }
   if (rootList) {
     const files = rootList.slice();
     const seen = new Set(rootList);
@@ -164,7 +178,8 @@ function trackedFiles(root) {
   // fixtures) — never the project source we scan for leaked credentials.
   const out = [];
   (function walk(dir, depth) {
-    if (depth > 6) return; let es = [];
+    if (depth > WALK_MAX_DEPTH) { depthCapped.push(path.relative(root, dir).split(path.sep).join('/')); return; }
+    let es = [];
     try { es = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     // WP-SYNC-R10 (Codex R8-03b): R8 skipped the WHOLE .claude/worktrees folder here, so a plain folder or file there (not a
     // checkout) was never leak-scanned in gitless mode. Now the walk goes in, and skips only a child that holds a `.git` entry
@@ -348,8 +363,10 @@ function leakScan(root) {
     // Forge's OWN operational artifacts are never the project source we scan for leaked credentials: a git-
     // tracked .claude/forge-backups/ holds backups of Forge's own system files (which contain deliberate test
     // fixtures like forge-chaos.cjs's fake keys) — scanning them is circular and false-positives; .claude/
-    // forge-runs/ holds Forge's own event logs (run integrity is covered by chainCheck/certify, not here).
-    if (/(^|\/)\.claude\/forge-(backups|runs)\//.test(rel.replace(/\\/g, '/'))) continue;
+    // FB-CONFIG-1-F7: tracked .claude/forge-runs/ files ARE scanned — run reports and notes are free text that gets
+    // committed and pushed (store redaction only covers events written through the store). Measured 2026-11-12:
+    // 233 tracked run-record files, 0 hits, so this adds coverage without cry-wolf.
+    if (/(^|\/)\.claude\/forge-backups\//.test(rel.replace(/\\/g, '/'))) continue;
     const abs = path.join(root, rel);
     let buf;
     try {

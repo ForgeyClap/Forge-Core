@@ -12,7 +12,8 @@ and honor its corrections. After a run that produced a genuine correction, appen
 and real evidence — never invent a lesson.
 
 Every owner prompt is kept word-for-word (secrets scrubbed) and becomes a tracked item `R-n` that stays
-visible until it is planned, done **with evidence** and acked **by the owner**. The only way to change
+visible until it is planned, done **with evidence** and acked: by the **scribe-acker** under owner delegation
+R-0233 for routine items, by the **owner** for everything its rules hold. The only way to change
 scribe state is `node .claude/forge-bin/forge-scribe.cjs`. Never edit the files under `.claude/forge-scribe/`
 by hand.
 
@@ -63,8 +64,8 @@ is never tagged. The receipt ends with `[tc] toggle-correction (make it a defaul
 mission. Older records: `retag --toggle-correction` (dry run), then `--apply` (backup first; `--skip R-n` for a doubtful hit).
 
 ## Lifecycle
-`unclassified -> open -> planned -> in-progress -> done (evidence) -> acked (owner)`;
-side states: `defer-proposed` (an agent's `defer`, with reason; NOT final until the owner acks it, then `deferred` = a recorded carry-over), `cancelled` (owner), `superseded`, `answered`.
+`unclassified -> open -> planned -> in-progress -> done (evidence) -> acked (scribe-acker or owner)`;
+side states: `defer-proposed` (an agent's `defer`, with reason; NOT final until it is acked, then `deferred` = a recorded carry-over), `cancelled` (owner), `superseded`, `answered`.
 
 | Step | Command (`node .claude/forge-bin/forge-scribe.cjs ...`) |
 |---|---|
@@ -73,7 +74,8 @@ side states: `defer-proposed` (an agent's `defer`, with reason; NOT final until 
 | mid-run change: which packages? | `impact R-n --run <run_id>` (read-only proposal) |
 | plan it | `link R-n --wp wp-3,wp-5 --run <run_id>` |
 | start / done | `transition R-n start` · `transition R-n done --evidence wp_completed:wp-3 --run <run_id>` |
-| propose a carry-over (becomes `defer-proposed`; needs the owner's ack) | `transition R-n defer --reason "<why>"` |
+| propose a carry-over (becomes `defer-proposed`; the scribe-acker or the owner acks it) | `transition R-n defer --reason "<why>"` |
+| routine acks (R-0233: done with real non-red evidence, or a carry-over with a reason) | `autoack --all` (`--dry-run` lists what is held and why) |
 | question answered | `transition R-n answer --reason "<where>"` |
 | owner ack / cancel | `transition R-n ack --prompt P-n` (`--pid` is kept as an alias). P-n must be a hook-captured owner prompt with a clear yes for that exact R-id in the same sentence; no other wording counts as owner approval |
 | status | `list --status open,planned --json` · `digest --write` |
@@ -94,15 +96,23 @@ A `preference` item ("voortaan…", "always…") is NOT stored as a rule by the 
 re-create a completed one as a new `agent_work_package_created` with `supersedes` and `req_ids:["R-n"]`.
 4. Head Chef triages only that delta.
 
-## Acks are batched
-At the end of a run present ONE list of done-unacked items to the owner (batch-the-asks rule). Never
-pause mid-run per item. Ack/cancel are refused unless the prompt is a real owner message in the session
+## Acks: the scribe-acker first, the owner only for what it holds (R-0233)
+The owner does not ack routine items by hand. `autoack` runs as `scribe-acker` under the recorded delegation
+`owner-R-0233` while config `scribe-autoack` is on (default; the owner turns it off with
+`/forge config set scribe-autoack off`). It acks a done item whose evidence re-verifies now in a run that is not red,
+and a defer proposal that carries a reason. It holds a question, an unclassified item, anything that touches a hard
+gate (push, deploy, publish, spend, credentials, production, deletes, settings, outside the project), anything that
+waits on an owner decision, and missing or red evidence. The UserPromptSubmit and Stop hooks run it; with it on,
+`gate --final` blocks only on the held items. Present ONE list of those held items to the owner at the end of the run
+(batch-the-asks rule). An owner ack/cancel is refused unless the prompt is a real owner message in the session
 transcript — a classifier, not a proof.
 
 ## When to dispatch the Scribe agent (sonnet/low, GOAT quick route)
 The `scribe` specialist (`.claude/agents/scribe.md`, exec-reviewer class, no Write/Edit) is dispatched by
 the Lead only for a prompt flagged `multi_ask` (3+ asks), end-of-run reconciliation, or a resume with
->= 20 open items. The normal path costs no LLM call: the Lead runs the CLI directly.
+>= 20 open items. The normal path costs no LLM call: the Lead runs the CLI directly. The `scribe-acker`
+specialist (`.claude/agents/scribe-acker.md`, same route and tools) runs `autoack` and reports the owner-only list;
+dispatch it at end-of-run reconciliation when the digest still shows done-unacked or defer-proposed items.
 
 ## Honesty
 Never report an item as planned, done or acked unless `forge-scribe.cjs` output says so; quote the

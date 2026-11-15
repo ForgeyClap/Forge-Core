@@ -20,10 +20,11 @@
 const SCOPES = ['meta', 'project'];
 const META_DEFAULT_TYPE = 'code';
 const MAX_TEXT = 20000;
-// (a) the deliverables live in other folders / projects
+// (a) the deliverables live in other folders / projects. FB-QUALITY-F4: a bare "new"/"nieuwe"/"own" folder is how an
+// ordinary build says where it goes, so it no longer counts ("a landing page in a new folder, test it with forge").
 const SEPARATE = [
-  /\b(aparte|eigen|losse|nieuwe)\s+(map|mappen|folder|folders|projectmap|projectmappen|directory)\b/,
-  /\b(separate|its own|their own|own|new)\s+(folder|folders|directory|directories|project folder|project folders|repo|repos|repository)\b/,
+  /\b(aparte|eigen|losse)\s+(map|mappen|folder|folders|projectmap|projectmappen|directory)\b/,
+  /\b(separate|its own|their own)\s+(folder|folders|directory|directories|project folder|project folders|repo|repos|repository)\b/,
   /\b(in|into|naar)\s+(other|separate|another|andere)\s+(projects?|folders?|repos?|projecten|mappen)\b/,
 ];
 // (b) the mission is about Forge itself (install it, test it, watch it)

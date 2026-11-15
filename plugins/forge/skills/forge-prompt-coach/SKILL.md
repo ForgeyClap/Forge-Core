@@ -109,7 +109,7 @@ Before building, post the rewritten request in one sentence:
 
 The rewritten request follows the beginner template (§8) and names the assumptions that were filled in. It is
 an implicit confirmation: in the default BUILD-BY-DEFAULT flow the work continues unless the owner corrects
-it. Only an outward or irreversible action (the hard gates) waits for an explicit yes [G-CONF].
+it. Only an outward or irreversible action (F13, the hard gates) waits for an explicit yes [G-CONF].
 
 ## 5. Record
 Every filled-in gap goes into the PRD under *Assumptions (auto-filled)*, one line per assumption, so the owner
@@ -135,6 +135,8 @@ Rules: only when `forge-config.cjs get explain-mode` is `true`; at most once per
 generic rule; describe what helps, never what the owner did wrong [NNG-OT][PAIR][NNG-ERR].
 
 ## 7. How it plugs into Forge
+Lane prompts for Claude Code name models by alias (`sonnet`, `opus`, `fable`) and keep the GOAT model and effort of the route; never copy a dated model name from prompt-master or another source.
+
 Silent mode (the default): run `node .claude/forge-bin/forge-promptcheck.cjs ask "<raw request>" --json`, answer the intake list yourself (`forge-intake.cjs --type <slug> --json`, `--trigger F<id>` for one gap), ask **at most one** question (`nextQuestion`, else the top gap of §2 that passes rule 2, in beginner form), then confirm (§4), record (§5), tip (§6). Interview mode (`/forge interview`): one question per turn, laddering allowed only there. The beginner layer lives in `.claude/config/intake/question-bank.json`. Exact JSON fields, exit codes and the bank layout: `references/forge-wiring.md`.
 
 ## 8. The beginner template

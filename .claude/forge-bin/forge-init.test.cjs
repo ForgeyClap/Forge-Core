@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-init.test.cjs - modernization WP 3.1 (`/forge init`). Proves: plan/dry-run write nothing; apply twice gives a
  * byte-identical tree; nothing is ever written outside --root (sibling snapshot, junction below the root); the Forge
@@ -186,10 +190,22 @@ try {
     assert.strictEqual(notFresh(snap(BASE)), freshParentBefore);
   });
   t('check: not initialised before, initialised after (API and CLI exit codes)', () => {
-    const p = project();
+    const p = project(withTools(HOOK_TOOLS));
     assert.strictEqual(I.checkInit(O(p)).initialised, false); assert.strictEqual(cli(['check', '--root', p]).status, 1);
     I.applyInit(O(p, { yes: true }));
     assert.strictEqual(I.checkInit(O(p)).initialised, true); assert.strictEqual(cli(['check', '--root', p]).status, 0);
+  });
+  // FB-INSTALL-2-F14: no Forge hooks and no plugin is not "set up for Forge" (no gate hook runs).
+  t('check: a project with no Forge hook scripts and no plugin stays NOT initialised after apply, and says why', () => {
+    for (const files of [{}, withTools(HOOK_TOOLS.slice(0, 2))]) {
+      const p = project(files);
+      I.applyInit(O(p, { yes: true }));
+      const c = I.checkInit(O(p));
+      assert.strictEqual(c.initialised, false, 'hooks mode ' + c.hooks.mode);
+      assert.ok(c.notes.includes('h_none') || c.notes.includes('h_partial'), c.notes.join(','));
+      const r = cli(['check', '--root', p]);
+      assert.strictEqual(r.status, 1, r.stdout); assert.ok(/Not initialised: [1-9]/.test(r.stdout), r.stdout);
+    }
   });
 
   // ---- existing content ----
@@ -206,7 +222,7 @@ try {
     assert.ok(step(r, 'claude_md').backup && read(p, step(r, 'claude_md').backup) === orig);
   });
   t('CLAUDE.md with an outdated block: replaced in place, text around it untouched', () => {
-    const p = project({ 'CLAUDE.md': 'top\n' + I.BEGIN + '\nold text\n' + I.END + '\nbottom\n' });
+    const p = project(Object.assign(withTools(HOOK_TOOLS), { 'CLAUDE.md': 'top\n' + I.BEGIN + '\nold text\n' + I.END + '\nbottom\n' }));
     I.applyInit(O(p, { yes: true }));
     const md = read(p, 'CLAUDE.md');
     assert.ok(md.startsWith('top\n' + I.BEGIN + '\n## Forge\n') && md.endsWith(I.END + '\nbottom\n') && !md.includes('old text'));
@@ -315,7 +331,7 @@ try {
 
   // ---- the .forge layout ----
   t('--layout forge: .forge/ and .forge/memory/ created, memory there, CLAUDE.md points there, idempotent, check detects it', () => {
-    const p = project();
+    const p = project(withTools(HOOK_TOOLS));
     const r = I.applyInit(O(p, { yes: true, layout: 'forge' }));
     assert.strictEqual(r.layout, 'forge');
     for (const m of I.MEMORY_FILES) { assert.ok(exists(p, '.forge/memory/' + m), m); assert.ok(!exists(p, '.claude/' + m), m + ' also in .claude'); }

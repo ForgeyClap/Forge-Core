@@ -440,7 +440,7 @@ if (RC) {
     assert.strictEqual(res.files_checked, 0, JSON.stringify(res));
     assert.ok(typeof res.note === 'string' && /0 tracked files/.test(res.note), 'expected a note: ' + JSON.stringify(res));
     const cli = runCLI(['--dist', dir]);
-    assert.strictEqual(cli.status, 0, 'status=' + cli.status);
+    assert.strictEqual(cli.status, 1, 'FB-INSTALL-2-F6: a check of 0 files could not check anything, so exit 1, never 0; status=' + cli.status);
     assert.ok(/0 tracked files/.test(cli.stdout), 'the human output must show the note: ' + cli.stdout);
   });
   tFn('checkDist: a normal tree carries no zero-file note', () => {

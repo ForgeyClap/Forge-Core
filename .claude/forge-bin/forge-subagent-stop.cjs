@@ -18,7 +18,8 @@
  * skills_opened, transcript_scanned }. skills_opened (SK1) = the skill names the subagent's OWN transcript
  * (payload agent_transcript_path, official hooks docs "SubagentStop input") shows it opened through the Skill tool or a
  * Read of skills/<name>/SKILL.md (forge-skillmap.cjs, bounded scan); transcript_scanned:false when there was no path or
- * it could not be read. NEVER last_assistant_message, never a transcript path, never any message content. Every string passes
+ * it could not be read. conduct_seen (SD-T4) = whether the transcript's last assistant text carries the
+ * forge-conduct canary line (`conduct: forge-conduct v1`); absent when the transcript was not read. NEVER last_assistant_message, never a transcript path, never any message content. Every string passes
  * forge-toolhook.cjs's serialize() gate (forge-store.cjs SECRET_PATTERNS) before reaching disk; the session id
  * goes through its sessionBucket() (a secret-shaped id becomes 'unknown-session').
  *
@@ -133,7 +134,17 @@ function skillsOpened(payload) {
     return { skills_opened: r.scanned ? r.skills.filter((s) => label(s)) : [], transcript_scanned: r.scanned === true };
   } catch { return { skills_opened: [], transcript_scanned: false }; }
 }
-function buildRecord(payload, opts) { return Object.assign(buildAgentRecord(payload, 'SubagentStop', opts), skillsOpened(payload)); }
+/** conductSeen(payload) -> {conduct_seen: boolean} when the transcript was read, else {} (SD-T4: the forge-conduct canary
+ *  in the agent's last assistant text; the text itself is never stored). Never throws. */
+function conductSeen(payload) {
+  const file = transcriptPathOf(payload);
+  if (!file || !skillmap || typeof skillmap.conductSeenInTranscript !== 'function') return {};
+  try {
+    const seen = skillmap.conductSeenInTranscript(file);
+    return typeof seen === 'boolean' ? { conduct_seen: seen } : {};
+  } catch { return {}; }
+}
+function buildRecord(payload, opts) { return Object.assign(buildAgentRecord(payload, 'SubagentStop', opts), skillsOpened(payload), conductSeen(payload)); }
 /** stopSalvage(head) — salvageIds() plus the transcript path (a JSON string, unescaped) so a cut payload is still scanned. */
 function stopSalvage(head) {
   const p = salvageIds(head);
@@ -212,6 +223,6 @@ function hookMain(handler) {
   } catch { finish(); }
 }
 
-module.exports = { run, runHook, hookMain, buildRecord, buildAgentRecord, resolveRun, salvageIds, stopSalvage, skillsOpened, transcriptPathOf, runsDirOf, appendHookLine, label, offBy, isObj, FAILSAFE_MS, HEAD_BYTES, HOOKS_DIRNAME, MAX_HOOK_LOG_BYTES };
+module.exports = { run, runHook, hookMain, buildRecord, buildAgentRecord, resolveRun, salvageIds, stopSalvage, skillsOpened, conductSeen, transcriptPathOf, runsDirOf, appendHookLine, label, offBy, isObj, FAILSAFE_MS, HEAD_BYTES, HOOKS_DIRNAME, MAX_HOOK_LOG_BYTES };
 
 if (require.main === module) hookMain(run);

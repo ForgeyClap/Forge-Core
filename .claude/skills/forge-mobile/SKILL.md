@@ -16,6 +16,7 @@ Forge changes: no Expo MCP server, no Bash grants, no `eas login`/feedback uploa
 - Use for: mobile apps in React Native, Expo or Flutter: a release build that installs, secure storage, permissions.
 - Not for: backend/API work (`forge-integration`) or money flows (`forge-payments`).
 - Domain framing, team roles and honesty rule: `references/overview.md`.
+- See also: `forge-android-app` (web UI to .apk with Capacitor) and `forge-glass-ui` (Mono Glass style).
 
 ## Hard rules (non-negotiable)
 - **A native build that actually installs.**
@@ -28,7 +29,7 @@ Forge changes: no Expo MCP server, no Bash grants, no `eas login`/feedback uploa
 Full text of every rule: `references/hard-rules.md`. Stack mechanics: `references/expo.md` (Expo/EAS: SDK detection, `npx expo install`, upgrades, OTA limits, store builds) and `references/flutter.md` (Flutter: layered architecture, layout errors, go_router, integration tests).
 
 ## Team (conditional by stack/level)
-Lead: `build-boss`. Native work: **`mobile-dev`** (RN/Expo/Flutter). Support: `ui-boss` (touch targets, safe-area/notch, keyboard, orientation, dark mode), `test-boss` (device/emulator QA — Detox or Maestro for RN, `flutter test` + integration_test for Flutter), `security-boss` (secure storage + secrets audit), `typescript-reviewer` and/or `react-reviewer` for RN code (RN is React-based). Backend calls: `forge-integration` team.
+Lead: `build-boss`, which also does the native work (RN/Expo/Flutter); there is no separate mobile agent. Native code review: `kotlin-reviewer` (Android), `swift-reviewer` (iOS), `flutter-reviewer` (Flutter). Support: `ui-boss` (touch targets, safe-area/notch, keyboard, orientation, dark mode), `test-boss` (device/emulator QA — Detox or Maestro for RN, `flutter test` + integration_test for Flutter), `security-boss` (secure storage + secrets audit), `typescript-reviewer` and/or `react-reviewer` for RN code (RN is React-based). Backend calls: `forge-integration` team.
 
 ## Skills / commands / MCP
 Skills, commands, MCP and opt-in dependencies: `references/team-and-tools.md`.
@@ -40,6 +41,7 @@ L2 a single-screen or small app; L3 multi-screen + navigation + offline + native
 
 ## Domain gates
 - Release binary **builds and installs + launches** on a device or emulator (evidence: build output + a launch screenshot/log), not just Metro/Expo Go.
+- Android: run `node .claude/forge-bin/forge-device-env.cjs` before any "no device" claim; it finds the SDK, AVDs and devices and prints the boot, install and screenshot commands. A built APK is not a played APK.
 - No secrets in the JS bundle or committed (`EXPO_PUBLIC_*` values are inlined into the bundle — never a secret); tokens in secure store (Keychain/Keystore/SecureStore), not AsyncStorage/SharedPreferences.
 - Permissions minimal and justified — iOS usage-description strings present, Android manifest minimal.
 - Offline paths work where promised (cached reads, queued writes, no-connection UI) — or offline is honestly declared out of scope.

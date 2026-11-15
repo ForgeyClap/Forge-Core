@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * forge-release-check.cjs — (prd-w2-discipline). The rule that keeps private data out of
+ * forge-release-check.cjs — (M1, prd-w2-discipline). The rule that keeps private data out of
  * the public Forge release used to live only in a gitignored scratch script that a fresh checkout could
  * never run or re-check. This file makes that rule a real, versioned, zero-dependency tool:
  *
@@ -20,7 +20,8 @@
  *   exit 0  — clean (no forbidden path tracked)
  *   exit 3  — one or more forbidden paths are tracked; each one is named
  *   exit 1  — an error (unreadable/invalid config, a pattern that does not compile, or a missing --dist
- *             directory) — never a silent pass and never confused with a real violation (3).
+ *             directory, or 0 tracked files found: nothing was checked) — never a silent pass and never confused
+ *             with a real violation (3).
  *
  * Only TRACKED files count: an untracked forbidden-looking file sitting in a git working tree was never
  * going to ship in a `git archive`/clone-based release, so flagging it would just be noise the owner
@@ -300,6 +301,8 @@ function main(argv) {
   // every other "this tool could not do its job" case (bad config, missing --dist) — never 3 (which means
   // "forbidden paths were found") and never 0 (which means "a complete, clean check ran").
   if (result.error) { process.exit(1); return; }
+  // FB-INSTALL-2-F6: 0 enumerated files means nothing was checked, so it is "could not check" (1), not "clean" (0)
+  if (result.files_checked === 0) { process.exit(1); return; }
   process.exit(result.ok ? 0 : 3);
 }
 

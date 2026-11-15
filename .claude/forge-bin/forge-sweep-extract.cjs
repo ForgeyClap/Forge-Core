@@ -212,8 +212,9 @@ async function extract(dir, rawOpts, intOpt) {
   if (only) console.log('extract: --ids-file lists ' + only.length + ' ids · ' + trOk.length + ' have an ok transcript now · ' + (only.length - trOk.length) + ' wait for transcripts');
   const meta = new Map(core.readJsonl(safeJoin(dir, 'shortlist.jsonl')).rows.map((c) => [c.id, c]));
   const exLatest = latestBy(rows, 'extract', 'id');
-  // done = a final extract row that is NOT older than the transcript it read (a redone transcript is re-extracted)
-  const done = new Set(trOk.filter((id) => { const r = exLatest.get(id); return r && (r.outcome === 'ok' || r.outcome === 'extract_failed') && String(r.ts) >= String(trLatest.get(id).ts); }));
+  // done = a final extract row that is NOT older than the transcript it read (a redone transcript is re-extracted).
+  // FB-MISC-1-F7: a mock row never satisfies a real run (aggregate drops mock records); a real row satisfies any run.
+  const done = new Set(trOk.filter((id) => { const r = exLatest.get(id); return r && (r.outcome === 'ok' || r.outcome === 'extract_failed') && String(r.ts) >= String(trLatest.get(id).ts) && (r.engine !== 'mock' || eng.name === 'mock'); }));
   const todo = trOk.filter((id) => !done.has(id) && fs.existsSync(safeJoin(dir, 'transcripts', id + '.txt'))).slice(0, opts.limit);
   console.log('extract: engine=' + eng.name + ' model=' + (opts.model || 'role:' + opts.role) + ' fallback=' + (opts.fallbackModel || 'role:' + opts.fallbackRole)
     + ' · transcripts ok=' + trOk.length + ' · already done=' + done.size + ' · to extract=' + todo.length + ' · concurrency=' + opts.concurrency);

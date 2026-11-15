@@ -773,9 +773,9 @@ jobs:
       # silently backed up and replaced -- migrateOwnerStandingRules() cannot tell that case apart
       # from "nothing to migrate" (same { length: 0, pending: false } either way; see that function's
       # own doc comment in forge-sync.cjs, not edited by this fix). This proves a dry run correctly
-      # PREVIEWS the "kept" outcome instead of "would back up + overwrite", a real run keeps the
+      # PREVIEWS the "kept" outcome instead of "would back up + overwrite" (F4), a real run keeps the
       # file byte-for-byte with no backup and names the real cause instead of always blaming
-      # user.json, and a second run is stable.
+      # user.json (F5), and a second run is stable.
       - name: A corrupt FORGE_STANDING_RULES.json is kept, not replaced -- dry run previews it, the note names the cause (POSIX)
         if: runner.os != 'Windows'
         env:

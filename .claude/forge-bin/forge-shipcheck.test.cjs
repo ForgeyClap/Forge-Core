@@ -352,6 +352,16 @@ if (!devTree) {
   t('every known-gap warning names an owner work package', rep.warnings.every((w) => /^WP-/.test(w.owner_wp || '')));
 }
 
+// FB-INSTALL-2-F5: the credentials glob missed its own probe, and the guard was case-sensitive.
+{
+  const misses = S.PROTECTED_PATHS.filter((p) => { const m = S.protectedSpecOf(p.probe); return !m || m.spec !== p; }).map((p) => p.probe + ' (' + p.glob + ')');
+  t('every protected-path probe is matched by its own glob', misses.length === 0, misses.join(', '));
+  const caseMiss = ['.claude/.credentials.json', '.ENV', 'Secrets/token.txt', 'certs/server.PEM', '.claude/Agent-Memory/x/MEMORY.md', 'cfg/prod-credentials.json']
+    .filter((p) => !S.protectedSpecOf(p));
+  t('protected paths match case-insensitively and any *credentials*.json name', caseMiss.length === 0, caseMiss.join(', '));
+  t('.env.example and other ordinary files stay unprotected', !S.protectedSpecOf('.env.example') && !S.protectedSpecOf('.ENV.EXAMPLE') && !S.protectedSpecOf('README.md'));
+}
+
 for (const d of tmpRoots) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* temp cleanup is best-effort */ } }
 console.log(pass + ' passed, ' + fail + ' failed' + (skipped ? ', ' + skipped + ' skipped' : ''));
 process.exitCode = fail ? 1 : 0;

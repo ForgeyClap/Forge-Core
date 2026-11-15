@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-gate-secretprint.test.cjs — (2026-09-27, independent Codex review of the integration,
 // findings F1/F2). Dedicated coverage for the secret-print command gate beyond hard-gates.json's own
 // examples.match/no_match (already swept by forge-actiongate.test.cjs section 1):
@@ -967,7 +971,7 @@ t('spawned hook: benign redirect-shaped search exits 0, the same search on .env 
 console.log('\n20) WP-GATEFP2 — shell-specific redirects, fail-closed second pass, linear rebuild, & split closed');
 const pwsh = (command) => ({ hook_event_name: 'PreToolUse', tool_name: 'PowerShell', tool_input: { command } });
 const GATEFP2_BASH_BLOCK = [
-  'grep *>&2 .env', 'grep -e *>&1 .env', 'grep -r *>&2 ./.env', 'rg *>&2 .env', // owner list
+  'grep *>&2 .env', 'grep -e *>&1 .env', 'grep -r *>&2 ./.env', 'rg *>&2 .env', // owner list (F1)
   'grep *>out .env', 'grep *>/dev/null .env', 'grep *>>out .env', 'grep -e *>out .env', // the WP-GATEFP regression form
   'grep -e abc 3>&2 2>/dev/null .env', 'cat 2>&1 .env', 'grep x &>out.txt .env', 'grep ?>&2 .env', // the `&` split
 ];
@@ -1151,24 +1155,24 @@ const spawnExpect = (cmd, mk, code) => {
   if (code === 2) assert.ok(r.stderr.includes('secret-print'), r.stderr);
 };
 const GATEFP3_BLOCK = [
-  // bare, 1-, 2- and 3-prefixed clobber with a secret file argument after the operator (Bash tool)
+  // G1 — bare, 1-, 2- and 3-prefixed clobber with a secret file argument after the operator (Bash tool)
   ['cat >|out .env', bash], ['head >|out .env', bash], ['grep LEAK >|out .env', bash], ['grep LEAK 1>|out .env', bash],
   ['grep LEAK 2>|/dev/null .env', bash], ['grep LEAK 3>|out .env', bash], ['cat a.txt 2>&1 >|out .env', bash],
   ['bash -c "cat >|out .env"', bash], ["sh -c 'grep LEAK 2>|/dev/null .env'", bash],
   ['grep -o "\\.env" src/a.cjs 2>/dev/null >|out .env', bash],
-  // PowerShell tool: `>|` is a parse error there; still blocked conservatively
+  // G1 — PowerShell tool: `>|` is a parse error there; still blocked conservatively
   ['cat >|out .env', pwsh], ['Get-Content >|out .env', pwsh], ['Select-String -Pattern LEAK >|out .env', pwsh],
   ['Select-String -Pattern LEAK 1>|out .env', pwsh], ['Select-String -Pattern LEAK 2>|out .env', pwsh],
   ['Select-String -Pattern LEAK 3>|out .env', pwsh], ['grep LEAK 2>|/dev/null .env', pwsh],
-  // the same text UNQUOTED stays refused; a quoted writer NAME still runs; a `<` inside a live $(...) stays visible
+  // G3 — the same text UNQUOTED stays refused; a quoted writer NAME still runs; a `<` inside a live $(...) stays visible
   ['grep tee.*\\.env src/a.cjs 2>/dev/null', bash], ['grep <tag>.*\\.env src/a.cjs 2>/dev/null', bash],
   ['grep -e "\\.env" src/a.cjs 2>/dev/null | tee out.txt', bash], ['grep -e "\\.env" src/a.cjs 2>/dev/null | "tee" out.txt', bash],
   ['grep -e "\\.env" src/a.cjs 2>/dev/null | t"ee" out.txt', bash], ['grep "$(cat <.env)" src/a.cjs 2>/dev/null', bash],
   ['grep -e x src/a.cjs 2>/dev/null "<".env', bash],
-  // a real read, a secret-shaped target, two digits and the {fd} word form keep blocking
+  // G4 — a real read, a secret-shaped target, two digits and the {fd} word form keep blocking
   ['grep x 3>/dev/null .env', bash], ['grep -e abc 0>/dev/null .env', bash], ['grep x 9>out .env', bash],
   ['grep "\\.env" src/a.cjs 3>.env', bash], ['grep "\\.env" src/a.cjs 10>/dev/null', bash], ['grep "\\.env" src/a.cjs {fd}>/dev/null', bash],
-  // PowerShell keeps a secret-shaped target and a real read blocked; bash keeps the `*` glob refusal
+  // G5 — PowerShell keeps a secret-shaped target and a real read blocked; bash keeps the `*` glob refusal
   ['Select-String -Pattern "\\.env" -Path src/a.cjs *>.env', pwsh], ['Select-String -Pattern x *>out .env', pwsh],
   ['Select-String -Pattern x *>$null .env', pwsh], ['grep -o "\\.env" src/a.cjs *>/dev/null', bash], ['grep *>/dev/null .env', bash],
   ['grep -o "\\.env" src/a.cjs *>&1', bash],
@@ -1177,13 +1181,13 @@ for (const [cmd, mk] of GATEFP3_BLOCK) {
   t('spawned hook (' + (mk === bash ? 'Bash' : 'PowerShell') + ' tool) BLOCKS exit 2: ' + cmd, () => spawnExpect(cmd, mk, 2));
 }
 const GATEFP3_ALLOW = [
-  // quoted search data is data again
+  // G3 — quoted search data is data again
   ['grep "tee.*\\.env" src/a.cjs 2>/dev/null', bash], ['grep "<tag>.*\\.env" src/a.cjs 2>/dev/null', bash],
   ['Select-String -Pattern "tee.*\\.env" -Path src/a.cjs 2>$null', pwsh],
-  // any single-digit fd prefix in bash
+  // G4 — any single-digit fd prefix in bash
   ['grep "\\.env" src/a.cjs 3>/dev/null', bash], ['grep "\\.env" src/a.cjs 0>/dev/null', bash], ['grep "\\.env" src/a.cjs 9>/dev/null', bash],
   ['grep "\\.env" src/a.cjs 7>&2', bash], ['grep "\\.env" src/a.cjs 3>out.txt', bash],
-  // PowerShell all-streams redirects into a null sink or a plain file
+  // G5 — PowerShell all-streams redirects into a null sink or a plain file
   ['Select-String -Pattern "\\.env" -Path src/a.cjs *>$null', pwsh], ['Select-String -Pattern "\\.env" -Path src/a.cjs *>&1', pwsh],
   ['Select-String -Pattern "\\.env" -Path src/a.cjs *>out.txt', pwsh], ['Select-String -Pattern "\\.env" -Path src/a.cjs *>>log.txt', pwsh],
 ];
@@ -1268,6 +1272,31 @@ if (PS_OK) {
     assert.ok(!(ok.stdout || '').includes('DUMMY_VALUE'), '-Pattern *>&1 .env must not print the file: ' + JSON.stringify(ok.stdout));
   });
 }
+
+// ---------------------------------------------------------------------------
+// FIX-GATE CF-1-F1: ordinary text filters and byte dumps print a secret file just like cat does
+// ---------------------------------------------------------------------------
+console.log('\nCF-1-F1) text filters and byte dumps on a secret file fire secret-print');
+for (const cmd of ['sed -n p .env', 'awk 1 .env', 'gawk 1 .env.local', 'sort .env', 'uniq .env', 'tac .env', 'nl .env', 'cut -c1- .env',
+  'paste .env', 'rev .env', 'fold .env', 'strings id_rsa', 'od -c .npmrc', 'xxd .env', 'hexdump -C secrets/api.json', 'base64 .git-credentials',
+  'find . -name .env -exec sed -n p {} \\;', 'find . -name .env | xargs awk 1']) {
+  t('classify() fires secret-print: ' + cmd, () => {
+    assert.ok(gate.classify(cmd).matched.includes('secret-print'), JSON.stringify(gate.classify(cmd).matched));
+  });
+}
+for (const cmd of ['sort notes.txt', 'sed -n p README.md', 'awk 1 .env.example', 'base64 logo.png', 'cut -d, -f1 data.csv']) {
+  t('classify() stays silent without a secret target: ' + cmd, () => {
+    assert.strictEqual(gate.classify(cmd).matched.includes('secret-print'), false, JSON.stringify(gate.classify(cmd).matched));
+  });
+}
+
+// FIX-GATE FB-GATEHOOK-F10: git grep's quoted FILE argument used to be erased as inert data before secret-print ran
+t('FB-GATEHOOK-F10: stripInertData keeps a quoted secret file argument of git grep', () => {
+  for (const cmd of ["git grep -e KEY '.env'", "git grep --no-index KEY '.env'"]) {
+    const s = data.stripInertData(cmd, 'Bash');
+    assert.ok(s.text.includes(".env"), cmd + ' -> ' + JSON.stringify(s));
+  }
+});
 
 fs.rmSync(TMP, { recursive: true, force: true });
 

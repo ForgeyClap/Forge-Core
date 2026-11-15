@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-stop-obligations.test.cjs —: the advisory Stop hook and
 // the shared hook helpers (findActiveRun, obligationsFor, appendRunEvent, recordGateBlock). HERMETIC: every
 // fixture is a fresh os.tmpdir() project; nothing reads or writes this repo's real .claude/forge-runs. Where a real
@@ -372,6 +376,227 @@ t('forge-settings-merge check: the real settings.json is up to date against a te
   fs.writeFileSync(src, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: STOP_CMD, timeout: 5 }] }] } }));
   const r = merge.checkSettingsMerge({ target: path.join(REPO_CLAUDE, 'settings.json'), source: src });
   assert.strictEqual(r.ok, true, JSON.stringify(r));
+});
+
+// ---------------------------------------------------------------------------
+console.log('\n8) I.9 red-contract — a /forge build session may not end its turn over a red run contract (R8B-F3)');
+// Fixtures replay the two round 8b category sessions in a temp project: the same run events (written by
+// the fixture's own log-event copy, so the hash chain is real and the times are now), the same active-run pointer, the
+// same harness subagent and tool-log line shapes. The /forge session marker is created directly (its writer,
+// forge-scribe-hook.cjs, is another package): <runs>/_hooks/forge-session/<sha16(session_id)>.json.
+const AR = require('./forge-active-run.cjs');
+const CHINEES_SID = '0fa521d6-d441-4e7b-8199-a68bf1e01075';
+const ANDROID_SID = '0edf26d1-4625-431b-b25e-e425b3f9aa07';
+const CHINEES_RUN = 'forge-2026-11-08-034500';
+const ANDROID_RUN = 'forge-2026-11-08-android-stackr';
+const hooksOf = (root) => path.join(root, '.claude', 'forge-runs', '_hooks');
+const sha16 = (sid) => crypto.createHash('sha256').update(sid, 'utf8').digest('hex').slice(0, 16);
+function forgeProject(name) {
+  const root = fixture(name);
+  fs.mkdirSync(path.join(root, '.claude', 'forge-bin'), { recursive: true }); // a Forge project (no runcontract copy: the sibling is used)
+  withRules(root);
+  withLogEvent(root);
+  return root;
+}
+function logFixture(root, id, type, payload) {
+  // setup only: the round 8b projects accepted these events; strict events off so the fixture needs no agent registry
+  const r = spawnSync(process.execPath, [path.join(root, '.claude', 'forge-dashboard', 'log-event.cjs'), id, type, JSON.stringify(payload)], { encoding: 'utf8', env: Object.assign({}, process.env, { FORGE_STRICT_EVENTS: '0' }) });
+  assert.strictEqual(r.status, 0, 'fixture ' + type + ' failed: ' + r.stdout + r.stderr);
+}
+function marker(root, sid, body) {
+  const dir = path.join(hooksOf(root), 'forge-session');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, sha16(sid) + '.json'), typeof body === 'string' ? body : JSON.stringify(Object.assign({ schema: 1, session_sha: sha16(sid), kind: 'forge-build', created_at: iso(15 * 60e3), prompt_rid: 'R-0001' }, body || {})));
+}
+function hookLine(root, file, rec) { fs.mkdirSync(hooksOf(root), { recursive: true }); fs.appendFileSync(path.join(hooksOf(root), file), JSON.stringify(rec) + '\n'); }
+function toolLine(root, sid, rec) {
+  const dir = path.join(root, '.claude', 'forge-runs', '_toollog');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(path.join(dir, sid + '.jsonl'), JSON.stringify(Object.assign({ ts: iso(5 * 60e3), session: sid, agent_id: null, agent_type: null, target_kind: 'path', ok: true, ok_basis: 'present', ms: 5 }, rec)) + '\n');
+}
+/** chineesFixture — round 8b chinees-restaurant-site-v9: an open run (run_started + one agent_note), the pointer, one
+ *  ui-boss subagent that started and stopped, the Lead's own tool calls (commands only) and the subagent's writes. */
+function chineesFixture(withMarker, rootIn) {
+  const root = rootIn || forgeProject('chinees');
+  logFixture(root, CHINEES_RUN, 'run_started', { request: 'Jade Paviljoen luxe restaurantsite (menu, reserveren-formulier, locatie/openingstijden, mobile-first, geen foto s)', mode: 'build', project_type: 'website' });
+  logFixture(root, CHINEES_RUN, 'agent_note', { agent: 'UI Boss', role: 'site build', runtime: 'agent-tool', status: 'running', task: 'Jade Paviljoen static site build dispatched (opus/medium)' });
+  assert.strictEqual(AR.setActiveRun(root, CHINEES_RUN, {}).ok, true);
+  hookLine(root, 'subagent-start.jsonl', { ts: iso(9 * 60e3), event: 'SubagentStart', session: CHINEES_SID, agent_id: 'a99237b506479d272', agent_type: 'ui-boss', run: CHINEES_RUN, run_source: 'pointer-fallback' });
+  hookLine(root, 'subagent-stop.jsonl', { ts: iso(2 * 60e3), event: 'SubagentStop', session: CHINEES_SID, agent_id: 'a99237b506479d272', agent_type: 'ui-boss', run: CHINEES_RUN, run_source: 'pointer-fallback' });
+  toolLine(root, CHINEES_SID, { tool: 'Bash', target: 'node', target_kind: 'command' });
+  for (const f of ['site\\data.js', 'site\\index.html', 'site\\styles.css', 'site\\app.js']) toolLine(root, CHINEES_SID, { agent_id: 'a99237b506479d272', agent_type: 'ui-boss', tool: 'Write', target: f });
+  if (withMarker) marker(root, CHINEES_SID);
+  return root;
+}
+/** androidFixture — round 8b android-game-v9: the run closed "partial" (written the pre-fix way, before the writer
+ *  refused it), a final report, the pointer, the Lead's own 10 Write + 1 Edit app files, one verify-boss subagent. */
+function androidFixture(closePayload) {
+  const root = forgeProject('android');
+  logFixture(root, ANDROID_RUN, 'run_started', { goal: 'Android tap game APK (Stackr)' });
+  logFixture(root, ANDROID_RUN, 'check_passed', { command: 'node build.cjs', exit_code: 0, evidence: 'RulesTest ALL PASSED 11/11; apksigner Verifies v2+v3; aapt2 badging package com.forge.stackr target 35; classes.dex in APK' });
+  fs.writeFileSync(path.join(root, '.claude', 'forge-runs', ANDROID_RUN, 'final-report.md'), '# Stackr\n\nAPK built; not run on a device.\n');
+  logFixture(root, ANDROID_RUN, 'run_completed', closePayload || { status: 'partial', note: 'APK built and verified by build/tests/badging; not run on a device; memory/skill-map ceremony skipped' });
+  assert.strictEqual(AR.setActiveRun(root, ANDROID_RUN, {}).ok, true);
+  for (const f of ['AndroidManifest.xml', 'res\\values\\styles.xml', 'res\\mipmap-anydpi-v26\\ic_launcher.xml', 'res\\drawable\\ic_fg.xml', 'src\\com\\forge\\stackr\\Rules.java', 'test\\com\\forge\\stackr\\RulesTest.java', 'src\\com\\forge\\stackr\\Sfx.java', 'src\\com\\forge\\stackr\\MainActivity.java', 'src\\com\\forge\\stackr\\GameView.java', 'build.cjs']) toolLine(root, ANDROID_SID, { tool: 'Write', target: f });
+  toolLine(root, ANDROID_SID, { tool: 'Edit', target: 'build.cjs' });
+  hookLine(root, 'subagent-start.jsonl', { ts: iso(6 * 60e3), event: 'SubagentStart', session: ANDROID_SID, agent_id: 'ab8be11a69d2e226a', agent_type: 'verify-boss', run: ANDROID_RUN });
+  hookLine(root, 'subagent-stop.jsonl', { ts: iso(5 * 60e3), event: 'SubagentStop', session: ANDROID_SID, agent_id: 'ab8be11a69d2e226a', agent_type: 'verify-boss', run: ANDROID_RUN });
+  marker(root, ANDROID_SID);
+  return root;
+}
+const stop9 = (root, sid, payload, env) => OBL.runStop(Object.assign({ hook_event_name: 'Stop', stop_hook_active: false, session_id: sid }, payload || {}), { projectRoot: root, env: env || {} });
+
+t('chinees-v9 (open run, marker, one subagent): BLOCK; the reason names memory-read and the exact plan command', () => {
+  const root = chineesFixture(true);
+  const r = stop9(root, CHINEES_SID);
+  assert.strictEqual(r.block, true, JSON.stringify(r.red_contract));
+  assert.strictEqual(r.red_contract.kind, 'open-red');
+  const m = r.block_text;
+  for (const s of ['memory-read', 'NEXT: node .claude/forge-bin/forge-runcontract.cjs plan --run ' + CHINEES_RUN, 'NOT DONE', 'EN: ', 'NL: ', 'block 1/' + OBL.RED_MAX_BLOCKS, 'FORGE_RED_CONTRACT_STOP=off']) assert.ok(m.includes(s), 'missing "' + s + '" in: ' + m);
+  assert.ok(/then: memory-read: /.test(m), 'the first due item follows NEXT: ' + m);
+  assert.ok(m.split('\n').every((l) => l.length <= 420), 'every line is bounded');
+});
+t('android-v9 (run closed "partial" over Lead-doable rules in this session): BLOCK with the open rules and the blocker route', () => {
+  const root = androidFixture();
+  const r = stop9(root, ANDROID_SID);
+  assert.strictEqual(r.block, true, JSON.stringify(r.red_contract));
+  assert.strictEqual(r.red_contract.kind, 'failure-close');
+  for (const s of ['"partial"', 'memory-read', 'skill-map-recorded', 'blocker', 'NEXT: node .claude/forge-bin/forge-runcontract.cjs plan --run ' + ANDROID_RUN]) assert.ok(r.block_text.includes(s), 'missing "' + s + '" in: ' + r.block_text);
+  assert.ok(!/memory-read[^\n]*evidence-satisfied|Lead can do itself[^\n]*evidence-satisfied/.test(r.block_text), 'evidence-satisfied is not listed as Lead-doable: ' + r.block_text);
+  assert.ok(/^\(also open, not counted as Lead-doable: [^\n]*evidence-satisfied/m.test(r.block_text), 'the reason lists every open rule; the others on their own line: ' + r.block_text);
+});
+t('android-v9 closed "failed" WITH a named blocker -> no I.9 block (an honest failure with a real blocker)', () => {
+  const root = androidFixture({ status: 'failed', blocker: 'hard gate: install on a device needs the owner' });
+  const r = stop9(root, ANDROID_SID);
+  assert.strictEqual(r.block, false, r.block_text);
+  assert.ok(/blocker/.test(r.red_contract.reason), r.red_contract.reason);
+});
+t('cap: three blocks per session (also under stop_hook_active), the FOURTH stop does not block and is advisory only', () => {
+  const root = chineesFixture(true);
+  const got = [stop9(root, CHINEES_SID), stop9(root, CHINEES_SID, { stop_hook_active: true }), stop9(root, CHINEES_SID, { stop_hook_active: true })];
+  assert.deepStrictEqual(got.map((r) => r.block), [true, true, true], JSON.stringify(got.map((r) => r.red_contract)));
+  assert.ok(got[2].block_text.includes('block 3/3'), got[2].block_text);
+  const fourth = stop9(root, CHINEES_SID, { stop_hook_active: true });
+  assert.strictEqual(fourth.block, false, JSON.stringify(fourth.red_contract));
+  assert.ok(fourth.print && /Advisory only/.test(fourth.text) && /memory-read/.test(fourth.text), fourth.text);
+  assert.strictEqual(stop9(root, 'bbbbbbbb-2222-4222-8222-222222222222').block, false, 'another session has no marker: untouched');
+});
+t('no marker (or an unparsable one, or another kind) -> current behaviour unchanged (same output as with I.9 switched off)', () => {
+  for (const body of [null, '{ not json', { kind: 'chat' }, { created_at: 'not a date' }, { session_sha: '0000000000000000' }]) {
+    const root = chineesFixture(false);
+    if (body !== null) marker(root, CHINEES_SID, body);
+    const r = stop9(root, CHINEES_SID);
+    assert.strictEqual(r.block, false, JSON.stringify(body) + ' -> ' + r.block_text);
+    assert.ok(/no \/forge session marker/.test(r.red_contract.reason), r.red_contract.reason);
+    const off = stop9(root, CHINEES_SID, null, { FORGE_RED_CONTRACT_STOP: 'off' });
+    assert.deepStrictEqual({ print: r.print, text: r.text, block: r.block }, { print: off.print, text: off.text, block: off.block });
+    assert.ok(r.print && /run forge-2026-11-08-034500/.test(r.text) && /\(advisory\)/.test(r.text), 'the advisory obligations still print: ' + r.text);
+  }
+});
+t('break attempts: a SUCCESS claim over the red contract, an outcome:"failed" close, and a cleared pointer all still block', () => {
+  const claim = stop9(androidFixture({ summary: 'done' }), ANDROID_SID);
+  assert.ok(claim.block && claim.red_contract.kind === 'open-red' && /claims completion/.test(claim.block_text), JSON.stringify(claim.red_contract));
+  const outcome = stop9(androidFixture({ outcome: 'failed', note: 'gave up' }), ANDROID_SID);
+  assert.ok(outcome.block && outcome.red_contract.kind === 'failure-close' && /"failed"/.test(outcome.block_text), JSON.stringify(outcome.red_contract));
+  const root = chineesFixture(true);
+  assert.strictEqual(AR.clearActiveRun(root, {}).ok, true);
+  const cleared = stop9(root, CHINEES_SID);
+  assert.ok(cleared.block && cleared.red_contract.run_id === CHINEES_RUN, JSON.stringify(cleared.red_contract));
+});
+t('an open run while this session still has a running subagent -> no I.9 block (the work is in progress; I.8 owns waiting)', () => {
+  const root = chineesFixture(true);
+  hookLine(root, 'subagent-start.jsonl', { ts: iso(60e3), event: 'SubagentStart', session: CHINEES_SID, agent_id: 'a-still-running', agent_type: 'test-boss', run: CHINEES_RUN });
+  const r = stop9(root, CHINEES_SID);
+  assert.strictEqual(r.block, false, r.block_text);
+  assert.ok(/still running/.test(r.red_contract.reason), r.red_contract.reason);
+  hookLine(root, 'subagent-stop.jsonl', { ts: iso(10e3), event: 'SubagentStop', session: CHINEES_SID, agent_id: 'a-still-running', agent_type: 'test-boss', run: CHINEES_RUN });
+  assert.strictEqual(stop9(root, CHINEES_SID).block, true, 'once it stopped, the red contract blocks again');
+});
+t('FORGE_RED_CONTRACT_STOP=off, a finalized-or-green run, a missing checker and a throwing plan -> no I.9 block (fail-open)', () => {
+  const root = chineesFixture(true);
+  assert.strictEqual(stop9(root, CHINEES_SID, null, { FORGE_RED_CONTRACT_STOP: 'off' }).block, false);
+  const green = { planFor: (p) => ({ run_id: p.run_id, state: { status: 'working', phase: 'wp' }, contract: { ok: true, missing: [], warnings: [] }, obligations: [], next: { text: 'x' } }) };
+  const thrower = { planFor: () => { throw new Error('events log is CORRUPT'); } };
+  for (const rc of [green, null, thrower]) {
+    const r = OBL.runStop({ session_id: CHINEES_SID, stop_hook_active: false }, { projectRoot: chineesFixture(true), env: {}, runcontract: rc });
+    assert.strictEqual(r.block, false, JSON.stringify(r.red_contract));
+  }
+});
+t('(iii) the Lead wrote app files in a /forge session but there is no run -> BLOCK with the run_started command; .claude/, .forge/ and _scratch/ writes do not count', () => {
+  const root = forgeProject('norun');
+  marker(root, ANDROID_SID);
+  for (const f of ['.claude\\FORGE_MEMORY.md', '_scratch\\probe.js', '.forge\\x.json']) toolLine(root, ANDROID_SID, { tool: 'Write', target: f });
+  toolLine(root, ANDROID_SID, { tool: 'Write', target: 'C:\\elsewhere\\outside.txt' });
+  toolLine(root, ANDROID_SID, { agent_id: 'sub1', agent_type: 'build-boss', tool: 'Write', target: 'src\\a.js' });
+  assert.strictEqual(stop9(root, ANDROID_SID).block, false, 'only non-app or subagent writes: no block');
+  toolLine(root, ANDROID_SID, { tool: 'Write', target: 'AndroidManifest.xml' });
+  toolLine(root, ANDROID_SID, { tool: 'Edit', target: 'src\\com\\forge\\stackr\\Rules.java' });
+  const r = stop9(root, ANDROID_SID);
+  assert.strictEqual(r.block, true, JSON.stringify(r.red_contract));
+  assert.strictEqual(r.red_contract.kind, 'no-run');
+  for (const s of ['2 app file', 'AndroidManifest.xml', 'run_started', 'forge-active-run.cjs set <run_id> --session ' + ANDROID_SID, 'NEXT: node .claude/forge-bin/forge-runcontract.cjs plan --run <run_id>']) assert.ok(r.block_text.includes(s), 'missing "' + s + '" in: ' + r.block_text);
+});
+t('CLI: the I.9 reason reaches the model as {"decision":"block","reason"} (exit 0)', () => {
+  const root = chineesFixture(true);
+  const r = spawnStop(root, { session_id: CHINEES_SID, hook_event_name: 'Stop', stop_hook_active: false }, { FORGE_RED_CONTRACT_STOP: '', FORGE_OPEN_SUBAGENTS_STOP: 'off', FORGE_RUN_REQUIRED_STOP: 'off' });
+  assert.strictEqual(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout.trim());
+  assert.strictEqual(j.decision, 'block', r.stdout);
+  assert.ok(/memory-read/.test(j.reason) && /forge-runcontract\.cjs plan --run forge-2026-11-08-034500/.test(j.reason), j.reason);
+});
+t('the REAL marker writer (forge-scribe-hook.cjs runPrompt on a /forge build prompt) and I.9 agree on the marker path, key and shape', () => {
+  const SH = require('./forge-scribe-hook.cjs');
+  assert.strictEqual(SH.sessionKey(CHINEES_SID), sha16(CHINEES_SID), 'the writer keys the marker by sha256(session_id)[:16]');
+  const root = forgeProject('chinees-e2e');
+  fs.writeFileSync(path.join(root, '.claude', 'forge-bin', 'forge-start.cjs'), '// placeholder: the prompt hook only checks that the tool is installed\n');
+  // the /forge prompt comes BEFORE the run exists (the writer skips a session that already has an active run)
+  const p = SH.runPrompt({ hook_event_name: 'UserPromptSubmit', session_id: CHINEES_SID, prompt: '/forge Jade Paviljoen luxe restaurantsite, mobile-first' }, { projectRoot: root, env: {}, now: () => new Date(Date.now() - 15 * 60e3) });
+  assert.ok(p.forge_start && p.forge_start.marker_written === true, 'the writer wrote no marker: ' + JSON.stringify(p.forge_start || p.reason));
+  assert.ok(OBL.readSessionMarker([path.join(root, '.claude', 'forge-runs')], CHINEES_SID), 'I.9 reads the marker the writer wrote');
+  chineesFixture(false, root);
+  const r = stop9(root, CHINEES_SID);
+  assert.strictEqual(r.block, true, JSON.stringify(r.red_contract));
+  assert.strictEqual(r.red_contract.kind, 'open-red');
+});
+t('source hygiene: forge-stop-obligations.cjs holds no invisible format character (a raw BOM pasted into a regex literal looks like the escape but is not)', () => {
+  const INVISIBLE = [0x00ad, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xfeff];
+  const hits = [];
+  fs.readFileSync(CLI, 'utf8').split('\n').forEach((line, i) => { for (const cp of INVISIBLE) if (line.includes(String.fromCharCode(cp))) hits.push('line ' + (i + 1) + ' U+' + cp.toString(16).toUpperCase().padStart(4, '0')); });
+  assert.deepStrictEqual(hits, [], 'write these as escape sequences, never as raw characters: ' + hits.join(', '));
+});
+
+// FB-CONTRACT-1-F3: PowerShell 5.1 strips the double quotes from inline single-quoted JSON, so every
+// printed log-event command with inline JSON must also name the shell-safe --file route on the same line.
+t('the run-required block text names the --file route on every line with inline JSON', () => {
+  const bad = OBL.runRequiredMessage(5, Date.parse('2026-11-12T10:00:00Z')).split('\n').filter((l) => l.includes("'{") && !l.includes('--file'));
+  assert.deepStrictEqual(bad, []);
+});
+t('source: every printed inline-JSON log-event command in forge-stop-obligations.cjs names --file on the same line', () => {
+  const bad = fs.readFileSync(CLI, 'utf8').split('\n').filter((l) => /log-event\.cjs/.test(l) && l.includes("\\'{") && !l.includes('--file'));
+  assert.deepStrictEqual(bad, []);
+});
+
+// FB-CONTRACT-1-F5: with two sessions in one project, a gate block and the Stop advisory used "the
+// newest open run in the project" and so landed in the OTHER session's run. The session's own pointer decides first.
+function twoSessionProject() {
+  const root = fixture('two-sess');
+  writeRun(root, 'r-mine', [{ event_type: 'run_started', timestamp: iso(20 * 60e3) }], { mtimeMsAgo: 20 * 60e3 });
+  writeRun(root, 'r-theirs', [{ event_type: 'run_started', timestamp: iso(60e3) }], { mtimeMsAgo: 60e3 });
+  assert.strictEqual(AR.setActiveRun(root, 'r-mine', { session: 'sess-1' }).ok, true);
+  assert.strictEqual(AR.setActiveRun(root, 'r-theirs', { session: 'sess-2' }).ok, true);
+  return root;
+}
+t('a gate block is recorded in the session\'s own run (its pointer), not in the newest open run of the project', () => {
+  const root = twoSessionProject();
+  const seen = [];
+  const r = OBL.recordGateBlock(LIVE('rm -rf x'), BLOCK, { projectRoot: root, env: {}, append: (rt, runId) => { seen.push(runId); return { ok: true }; } });
+  assert.strictEqual(r.recorded, true, r.reason);
+  assert.deepStrictEqual(seen, ['r-mine']);
+});
+t('the Stop advisory judges the session\'s own run, not the newest open run of the project', () => {
+  const root = twoSessionProject();
+  const r = OBL.runStop({ session_id: 'sess-1', transcript_path: 'C:/x/t.jsonl', hook_event_name: 'Stop' }, { projectRoot: root, env: {}, runcontract: null });
+  assert.strictEqual(r.run_id, 'r-mine', JSON.stringify(r));
 });
 
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* temp cleanup is best effort */ }

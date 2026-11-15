@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * Hermetic tests for forge-swarm-resume.cjs (WAVE D / D1). EVERY fixture lives under a fresh
  * os.tmpdir() directory — this file NEVER touches this repo's real .claude/forge-runs/, and never touches
@@ -125,6 +129,26 @@ console.log('6) real spawned CLI: exit codes, --json output, human-readable plan
   const second = runCLI(['--run', 'run-cli', '--json'], env);
   const sj = JSON.parse(second.stdout);
   t('een TWEEDE claimende aanroep krijgt de al-geleasede WP\'s NIET (leased_elsewhere)', sj.unfinished.length === 0 && sj.leased_elsewhere.length === 3, JSON.stringify(sj.leased_elsewhere || []).slice(0, 120));
+  // FB-LANES-F6: all unfinished work leased elsewhere is NOT complete: no COMPLETE label, no exit 0
+  t('FB-LANES-F6: all work leased elsewhere exits 4, never 0', second.status === 4, 'exit ' + second.status);
+  const secondHuman = runCLI(['--run', 'run-cli'], env);
+  t('FB-LANES-F6: the headline says LEASED-ELSEWHERE, not COMPLETE', secondHuman.status === 4 && /LEASED-ELSEWHERE/.test(secondHuman.stdout) && !/COMPLETE/.test(secondHuman.stdout), secondHuman.stdout);
+
+  // FB-LANES-F7: the CLI prints each lease token and can refresh and release a lease it claimed
+  const wp2 = rj.unfinished.find((w) => w.wp_id === 'wp2');
+  t('FB-LANES-F7: the claiming CLI returns a lease token per WP', !!wp2 && typeof wp2.lease_token === 'string' && wp2.lease_token.length > 0);
+  const badTok = runCLI(['--run', 'run-cli', '--refresh', '--wp', 'wp2', '--token', 'wrong'], env);
+  t('FB-LANES-F7: --refresh with a wrong token is refused (exit 1)', badTok.status === 1, badTok.status + ' ' + badTok.stdout + badTok.stderr);
+  const ref = runCLI(['--run', 'run-cli', '--refresh', '--wp', 'wp2', '--token', wp2 && wp2.lease_token], env);
+  t('FB-LANES-F7: --refresh with the lease token extends the lease (exit 0)', ref.status === 0, ref.status + ' ' + ref.stdout + ref.stderr);
+  const noTok = runCLI(['--run', 'run-cli', '--release', '--wp', 'wp2'], env);
+  t('FB-LANES-F7: --release without --token is a usage error (exit 2)', noTok.status === 2, noTok.status + ' ' + noTok.stderr);
+  const rel = runCLI(['--run', 'run-cli', '--release', '--wp', 'wp2', '--token', wp2 && wp2.lease_token], env);
+  t('FB-LANES-F7: --release with the lease token frees the WP (exit 0)', rel.status === 0 && /released/i.test(rel.stdout), rel.status + ' ' + rel.stdout + rel.stderr);
+  const again = JSON.parse(runCLI(['--run', 'run-cli', '--json'], env).stdout);
+  t('FB-LANES-F7: a released WP can be claimed again at once', again.unfinished.map((w) => w.wp_id).join(',') === 'wp2', JSON.stringify(again.unfinished.map((w) => w.wp_id)));
+  const humanTok = runCLI(['--run', 'run-cli', '--plan'], env);
+  t('FB-LANES-F7: --plan still claims nothing', humanTok.status === 3 && /PLAN-ONLY/.test(humanTok.stdout));
 
   const missingRunRes = runCLI(['--run', 'never-armed-cli'], env);
   t('CLI on a never-armed run exits 2', missingRunRes.status === 2);
@@ -146,7 +170,7 @@ console.log('6) real spawned CLI: exit codes, --json output, human-readable plan
 }
 
 // ============================================================================================
-// ATOMISCHE WP-LEASES + FAULT-INJECTION (verplichte verificatie #4):
+// G5 — ATOMISCHE WP-LEASES + FAULT-INJECTION (verplichte verificatie #4):
 // exact EEN side effect per idempotency-key (wp_id), ook bij gelijktijdige resumes en crash-herstart.
 // ============================================================================================
 console.log('\nG5) wp-leases: exact een side effect per wp');

@@ -74,7 +74,7 @@ const FAMILIES = [
   {
     id: 'command_not_found',
     category: 'path',
-    test: /spawn\s+\S+\s+ENOENT|is not recognized as an internal or external command|not recognized as the name of a cmdlet|command not found|:\s*not found\b/i,
+    test: /spawn\s+\S+\s+ENOENT|is not recognized as an internal or external command|not recognized as the name of a cmdlet|command not found|\bsh:\s*(?:\d+:\s*)?[^\s:]+:\s*not found\b/i, // FB-QUALITY-F7: only the shell shape "sh: [n:] x: not found", never "HTTP 404: Not Found"
     message: {
       nl: 'het programma is niet gevonden — het staat niet op PATH of is niet geïnstalleerd',
       en: 'the program was not found — it is not on PATH, or not installed',
@@ -204,7 +204,8 @@ const FAMILIES = [
   {
     id: 'usage_limit',
     category: 'claude',
-    test: /usage limit|rate[-\s]?limit|\b429\b|too many requests|quota exceeded/i,
+    // FB-QUALITY-F7: a bare 429 is often a line or column number; count it only in an HTTP context (a code-frame line "  429 | )" is not one)
+    test: /usage limit|rate[-\s]?limit|\b(?:status|http|code|error)\b\W{0,3}429\b|HTTP\/\d(?:\.\d)?\s+429\b|too many requests|quota exceeded/i,
     message: {
       nl: 'de gebruikslimiet (rate limit) is bereikt',
       en: 'the usage limit (rate limit) has been reached',
@@ -217,7 +218,8 @@ const FAMILIES = [
   {
     id: 'auth_invalid',
     category: 'auth',
-    test: /invalid[_\s-]?api[_\s-]?key|\b401\b|unauthorized|authentication failed|invalid[_\s-]?token|token expired|invalid_grant/i,
+    // FB-QUALITY-F7: same HTTP-context rule for 401 ("app.js line 401" and "  401 | bar()" are not a rejected key)
+    test: /invalid[_\s-]?api[_\s-]?key|\b(?:status|http|code|error)\b\W{0,3}401\b|HTTP\/\d(?:\.\d)?\s+401\b|unauthorized|authentication failed|invalid[_\s-]?token|token expired|invalid_grant/i,
     message: {
       nl: 'de inloggegevens (API-key of token) worden afgewezen',
       en: 'the credentials (API key or token) are being rejected',

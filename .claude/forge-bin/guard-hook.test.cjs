@@ -1,4 +1,8 @@
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /* FAKE-CALLOUT adversarial test of the REAL usage-guard session hook.
    Runs the actual forge-usage-guard-hook.cjs against simulated state+event files via env override —
    never touches the live guard state or the network. Asserts the true reaction of each scenario. */
@@ -21,13 +25,16 @@ if (!fs.existsSync(HOOK)) {
 }
 const NODE = process.execPath;
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-fc-'));
+// The hook reads the owner's global usage-guard switch from <home>/.claude (G-HOOKS-2-F1). Run it against an empty
+// fake home so the owner's real setting (usage-guard off) never decides these cases.
+const FAKE_HOME = path.join(DIR, 'home'); fs.mkdirSync(path.join(FAKE_HOME, '.claude'), { recursive: true });
 const NOW = Date.now();
 
 // run the real hook with a fake state + optional resume-state + a hook event; return its reaction
 function runHook(state, event, resumeState) {
   const sf = path.join(DIR, 'state-' + Math.random().toString(36).slice(2) + '.json');
   fs.writeFileSync(sf, state == null ? '' : (typeof state === 'string' ? state : JSON.stringify(state)));
-  const env = { ...process.env, FORGE_USAGE_GUARD_STATE: sf };
+  const env = { ...process.env, FORGE_USAGE_GUARD_STATE: sf, USERPROFILE: FAKE_HOME, HOME: FAKE_HOME };
   if (resumeState !== undefined) { const rf = path.join(DIR, 'resume.json'); fs.writeFileSync(rf, JSON.stringify(resumeState)); env.FORGE_RESUME_STATE = rf; }
   else { env.FORGE_RESUME_STATE = path.join(DIR, 'no-resume.json'); }
   const r = cp.spawnSync(NODE, [HOOK], { input: JSON.stringify(event), env, encoding: 'utf8' });
@@ -38,6 +45,9 @@ function runHook(state, event, resumeState) {
 let pass = 0, fail = 0;
 const t = (name, cond, extra) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; console.log('  FAIL ' + name + (extra ? '  -> ' + extra : '')); } };
 const PT = { hook_event_name: 'PreToolUse', tool_name: 'Bash' };
+// G-HOOKS-1-F8: while paused the hook denies only new agent work (Agent/Workflow/Task); Bash/Edit/Write stay open so
+// running work can finish. The deny cases below therefore probe a spawn tool.
+const SP = { hook_event_name: 'PreToolUse', tool_name: 'Agent' };
 const UP = { hook_event_name: 'UserPromptSubmit' };
 console.log('FAKE-CALLOUT guard-hook adversarial tests\n');
 
@@ -46,19 +56,19 @@ let r = runHook({ mode: 'paused', resumeAtEpoch: NOW - 1000, notice: 'PAUZEER' }
 t('1 paused+reset-past PreToolUse -> SELF-HEAL (no deny, mode ok)', !r.denied && r.finalMode === 'ok', 'denied=' + r.denied + ' mode=' + r.finalMode);
 
 // 2. paused + reset in FUTURE -> still deny (PreToolUse)
-r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, notice: 'PAUZEER week 100%' }, PT);
-t('2 paused+reset-future PreToolUse Bash -> DENY', r.denied && r.finalMode === 'paused', 'denied=' + r.denied);
+r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, notice: 'PAUZEER week 100%' }, SP);
+t('2 paused+reset-future PreToolUse Agent -> DENY', r.denied && r.finalMode === 'paused', 'denied=' + r.denied);
 
 // 3. paused + reset future + UserPromptSubmit -> inject notice (not deny)
 r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, notice: 'PAUZEER 93%' }, UP);
 t('3 paused+future UserPromptSubmit -> notice injected', /PAUZEER/.test(r.stdout) && !r.denied);
 
 // 4. paused + NaN resumeAtEpoch -> NO self-heal (stays paused, denies)
-r = runHook({ mode: 'paused', resumeAtEpoch: 'not-a-number', notice: 'PAUZEER' }, PT);
+r = runHook({ mode: 'paused', resumeAtEpoch: 'not-a-number', notice: 'PAUZEER' }, SP);
 t('4 paused+NaN resumeAtEpoch -> stays paused (deny)', r.denied && r.finalMode === 'paused');
 
 // 5. paused + MISSING resumeAtEpoch -> stays paused (no rhythm data)
-r = runHook({ mode: 'paused', notice: 'PAUZEER' }, PT);
+r = runHook({ mode: 'paused', notice: 'PAUZEER' }, SP);
 t('5 paused+missing resumeAtEpoch -> stays paused (deny)', r.denied);
 
 // 6. ownerOverride active -> suppressed even if paused (no deny)
@@ -66,16 +76,20 @@ r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, ownerOverride: { acti
 t('6 ownerOverride active -> SUPPRESSED (no deny) even when paused', !r.denied);
 
 // 7. ownerOverride until in PAST (expired) -> NOT suppressed -> paused behavior
-r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, ownerOverride: { active: true, until: new Date(NOW - 1000).toISOString() }, notice: 'PAUZEER' }, PT);
+r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, ownerOverride: { active: true, until: new Date(NOW - 1000).toISOString() }, notice: 'PAUZEER' }, SP);
 t('7 ownerOverride expired -> NOT suppressed (deny)', r.denied);
 
 // 8. ownerOverride until NaN -> treated as no-expiry -> suppressed
 r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, ownerOverride: { active: true, until: 'bad-date' }, notice: 'PAUZEER' }, PT);
 t('8 ownerOverride NaN-until -> no-expiry -> suppressed (no deny)', !r.denied);
 
-// 9. PreToolUse Edit when paused -> deny (hook denies any PreToolUse it is invoked for)
+// 9. while paused, Edit and Bash stay open (running work can finish) and a Workflow spawn is denied (G-HOOKS-1-F8)
 r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, notice: 'P' }, { hook_event_name: 'PreToolUse', tool_name: 'Edit' });
-t('9 paused PreToolUse Edit -> DENY', r.denied);
+t('9 paused PreToolUse Edit -> NOT denied (work can finish)', !r.denied);
+r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, notice: 'P' }, PT);
+t('9b paused PreToolUse Bash -> NOT denied (work can finish)', !r.denied);
+r = runHook({ mode: 'paused', resumeAtEpoch: NOW + 600000, notice: 'P' }, { hook_event_name: 'PreToolUse', tool_name: 'Workflow' });
+t('9c paused PreToolUse Workflow -> DENY (no new agent work)', r.denied);
 
 // 10. Read stays allowed = the MATCHER excludes Read/Grep/Glob (settings.json)
 let settings = { hooks: {} };
@@ -135,7 +149,7 @@ t('15 ScheduleWakeup excluded from guard matcher (usable while paused)', !/Sched
 r = runHook({ mode: 'paused', lastPauseAt: new Date(NOW - 6 * 3600 * 1000).toISOString(), notice: 'PAUZEER' }, PT);
 t('16 paused+no-resumeAtEpoch+6h-old -> STALE FALLBACK self-heal (no deny)', !r.denied && r.finalMode === 'ok', 'denied=' + r.denied + ' mode=' + r.finalMode);
 // 16b. paused + no resumeAtEpoch + lastPauseAt only 1h ago -> still paused (not stale enough)
-r = runHook({ mode: 'paused', lastPauseAt: new Date(NOW - 3600 * 1000).toISOString(), notice: 'PAUZEER' }, PT);
+r = runHook({ mode: 'paused', lastPauseAt: new Date(NOW - 3600 * 1000).toISOString(), notice: 'PAUZEER' }, SP);
 t('16b paused+no-resumeAtEpoch+1h-old -> still paused (deny, not yet stale)', r.denied && r.finalMode === 'paused');
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

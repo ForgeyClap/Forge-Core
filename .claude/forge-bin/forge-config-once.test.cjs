@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-config-once.test.cjs — real tests for the cross-process file lock's OWNERSHIP hardening (V09, Codex
  * recheck 2026-09-24: "Reclamation uses age alone; release unconditionally unlinks the pathname. Controlled-
@@ -876,6 +880,37 @@ t('removePendingOnceGrant is a safe, best-effort no-op when nothing is armed, an
   onceStore.writePendingOnceGrant(dir, 'gate-hook', grantEntry(Date.now()));
   onceStore.removePendingOnceGrant(dir, 'gate-hook');
   assert.strictEqual(fs.existsSync(onceStore.oncePendingPath(dir, 'gate-hook')), false);
+});
+
+// ---------------------------------------------------------------------------------------------------
+console.log('\nFB-CONFIG-1-F9) a lock older than the hard ceiling is reclaimed whatever its pid says; lock_busy names the lock');
+t('a 1-hour-old lock with a LIVE pid (pid reuse) is reclaimed: a transaction takes milliseconds', () => {
+  const lockPath = tmpTarget() + '.lock';
+  fs.writeFileSync(lockPath, process.pid + ':left-behind');
+  backdate(lockPath, 60 * 60 * 1000);
+  const tok = once.randomToken();
+  assert.strictEqual(once.tryReclaimStaleLock(lockPath, 1000, tok), true);
+  assert.strictEqual(fs.readFileSync(lockPath, 'utf8'), tok);
+});
+t('a 1-hour-old EMPTY lock (no pid to check) is reclaimed', () => {
+  const lockPath = tmpTarget() + '.lock';
+  fs.writeFileSync(lockPath, '');
+  backdate(lockPath, 60 * 60 * 1000);
+  assert.strictEqual(once.tryReclaimStaleLock(lockPath, 1000, once.randomToken()), true);
+});
+t('a 5-minute-old lock with a live pid is still NOT reclaimed (below the ceiling)', () => {
+  const lockPath = tmpTarget() + '.lock';
+  fs.writeFileSync(lockPath, process.pid + ':busy');
+  backdate(lockPath, 5 * 60 * 1000);
+  assert.strictEqual(once.tryReclaimStaleLock(lockPath, 1000, once.randomToken()), false);
+});
+t('lock_busy names the lock path, the recorded pid and the age', () => {
+  const file = tmpTarget();
+  fs.writeFileSync(file + '.lock', process.pid + ':busy');
+  let err = null;
+  try { once.acquireLock(file, { timeoutMs: 0, pollMs: 1 }); } catch (e) { err = e; }
+  assert.ok(err && err.code === 'lock_busy', String(err && err.message));
+  assert.ok(err.message.includes(file + '.lock') && err.message.includes('pid ' + process.pid) && /age \d+ s/.test(err.message), err.message);
 });
 
 console.log('');

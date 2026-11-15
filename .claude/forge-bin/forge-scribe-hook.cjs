@@ -32,6 +32,22 @@
  *      stored repeat link shows only while v2 confirms it). WP I.8c: when the owner's own words are a "turn it on / you
  *      forgot" correction, capture tags the record 'toggle-correction' and the receipt ends with "[tc] toggle-correction
  *      (make it a default/rule/check)"; tagged items show "[tc]" in the digest line. A hand-back is never recorded (1b).
+ *   4b. R-0233: when config scribe-autoack is on and a done or defer-proposed item exists, the project's
+ *      own forge-scribe autoack (--all) runs as the scribe-acker under owner delegation owner-R-0233, bounded by the
+ *      budget (autoackStep); one line names what it acked ("[forge-scribe] auto-acked N item(s) under owner delegation
+ *      R-0233 (scribe-acker): ..."), nothing when it acked nothing. Off, an older scribe or any error -> skipped silently.
+ *   5. SD-T7: one more line, last, for a vague or new-work owner prompt: the directive from
+ *      forge-prompt-moments.cjs momentFor (forge-prompt-coach or forge-brainstorm, <= 300 chars, text from the
+ *      FORGE_DEFAULT_SKILLS.json moments). Pure and bounded; also printed when this project has no scribe; never for a
+ *      skipped (machine, harness-only, system-origin) prompt, a slash command, a prompt with a path or file token, or
+ *      FORGE_SCRIBE_HOOK=off. runPrompt's result then carries `moment` (the line).
+ *   6. a /forge BUILD request (typed '/forge <text>' or the expanded <command-args>; not a
+ *      sub-command such as status, runs, config, remember, resume, init, use, stop or pause) in a session that has no
+ *      active run (forge-active-run.cjs readActiveRun for this session id) in a project with forge-start.cjs gets ONE
+ *      line, FIRST: 'Forge FIRST command: node .claude/forge-bin/forge-start.cjs --text "<request>"' (the request on one
+ *      line, safe inside double quotes in Bash and PowerShell), and, once per session id, the session marker
+ *      <runs>/_hooks/forge-session/<sha16 of the session id>.json {schema:1, session_sha, kind:'forge-build', created_at,
+ *      prompt_rid} that the guards read. Also without a scribe; no session id -> the line only. Result key `forge_start`.
  *
  * DEADLINE (SC-12; Codex R5 SV-09): the work is synchronous, and the NODE LIMIT is that a timer cannot interrupt it — a
  * timer callback (including the CLI's failsafe below) only runs after the current synchronous task returns, so it can
@@ -44,11 +60,15 @@
  * only while BUDGET_MS is left — otherwise it is skipped with a one-line notice ("captured; ... skipped: time budget").
  * The capture of the prompt itself is never skipped for time.
  *
- * GUARANTEES: fail-open (any error -> exit 0 and no output); never blocks a prompt (no exit 2, no decision); no LLM
+ * GUARANTEES: fail-open (any error -> exit 0; no output, except FB-SCRIBE-1-F6: an owner prompt that passed the skip
+ * rules but could not be captured — a held store lock, a damaged FORGE_SCRIBE.json — prints ONE line "[forge-scribe] NOT
+ * captured: <reason>" and, where the store allows it, a skipped.jsonl counter line 'capture-failed'; a missing
+ * FORGE_SCRIBE.json stays silent: the scribe is not set up there); never blocks a prompt (no exit 2, no decision); no LLM
  * call, no network. Writes only inside the scribe store folder — <root>/.claude/forge-scribe/, or <root>/.forge/scribe/
- * in a project that opted into the .forge layout (WP 2.1) — (and the one scribe_head line in the active run's event log)
- * and never creates the scribe folder for a skipped prompt. Uses ONLY the project's own forge-scribe copy (a plugin copy
- * never falls back to its own sibling modules and never writes beside its script).
+ * in a project that opted into the .forge layout (WP 2.1) — (and the one scribe_head line in the active run's event log,
+ * and the one session marker of step 6 in <runs>/_hooks/forge-session/) and never creates the scribe folder for a
+ * skipped prompt. Uses ONLY the project's own forge-scribe copy (a plugin copy never falls back to its own sibling
+ * modules and never writes beside its script).
  *
  * PROBE (Claude Code 2.1.291): UserPromptSubmit fires in `claude -p` mode, does NOT fire for an Agent-tool
  * subagent's own prompt, and DOES fire again for the <task-notification> turn when a background agent finishes. The
@@ -58,7 +78,7 @@
  * OPT-OUT: env FORGE_SCRIBE_HOOK=off, or remove the UserPromptSubmit entry from .claude/settings.json.
  * MODEL: runPrompt(payload, opts) -> {print, text, captured, skipped, digest, head, reason, notice, ms}. Seams (tests):
  * opts.projectRoot, opts.env, opts.now (Date factory), opts.config, opts.scribe (module set or null), opts.activeRun
- * (null|{run_id}), opts.budgetMs, opts.claudeProjectsRoot.
+ * (null|{run_id}), opts.budgetMs, opts.claudeProjectsRoot, opts.sessionRun (step 6: truthy = this session has a run).
  * Shared with forge-scribe-stop.cjs: loadScribe, activeRunOf, sessionKey, sessionRecord, updateSession, resolveRoot,
  * encodeRids, decodeRids.
  */
@@ -246,13 +266,152 @@ function digestLine(digest) {
   return oneLine('[forge-scribe digest] ' + String(digest).split('\n').map((l) => l.trim()).filter(Boolean).join(' | '), DIGEST_MAX_CHARS);
 }
 
-/** runPrompt(payload, opts) -> see the file header MODEL. Never throws. */
+// ---- R-0233: the scribe-acker's autoack in the hooks (shared with forge-scribe-stop.cjs) ---------------------------
+const AUTOACK_MIN_LEFT_MS = 400;   // the hook runs autoack only while this much of its budget is left ...
+const AUTOACK_RESERVE_MS = 250;    // ... and stops starting items this long before the budget ends (the digest follows)
+const AUTOACK_LINE_MAX = 400;
+/** autoackStep(SC, S, p, root, opts, cfg, deadline) -> null | {applied, held, rids, line?, error?} — runs the project's own
+ *  forge-scribe autoack (--all) when scribe-autoack is on and a done or defer-proposed item exists; one line only when
+ *  something was acked (held items are not repeated every prompt; `autoack --all --dry-run` lists them). Never throws. */
+function autoackStep(SC, S, p, root, opts, cfg, deadline) {
+  try {
+    if (typeof SC.autoack !== 'function' || typeof SC.autoackStatus !== 'function') return null; // an older scribe
+    const so = { root, config: cfg, now: opts.now, env: opts.env, configHome: opts.configHome };
+    if (!SC.autoackStatus(so).enabled) return null;
+    const st = S.loadState(p);
+    if (!Object.values(st.items || {}).some((i) => i && (i.status === 'done' || i.status === 'defer-proposed'))) return null;
+    const r = SC.autoack(Object.assign({ all: true, lockWaitMs: Math.max(50, Math.min(LOCK_WAIT_MS, deadline - Date.now())), deadline }, so));
+    const res = { applied: r.applied.length, held: r.held.length, left: r.left || 0, rids: r.applied.map((x) => x.rid) };
+    if (r.applied.length) {
+      res.line = oneLine('[forge-scribe] auto-acked ' + r.applied.length + ' item(s) under owner delegation R-0233 (' + r.agent + '): '
+        + r.applied.map((x) => x.rid + ' ' + x.to).join(', ') + (r.held.length ? ' · ' + r.held.length + ' owner-only (' + CLI + ' autoack --all --dry-run)' : ''), AUTOACK_LINE_MAX);
+    }
+    return res;
+  } catch (e) { return { applied: 0, held: 0, rids: [], error: short(e) }; }
+}
+
+// ---- SD-T7 main-session moment (forge-prompt-moments.cjs): at most ONE directive line, appended last ---------------
+const MOMENTS = (() => { try { const m = require('./forge-prompt-moments.cjs'); return m && typeof m.momentFor === 'function' ? m : null; } catch { return null; } })();
+const NO_MOMENT_REASON = /^(?:disabled|no hook payload|empty prompt|no project root)/;
+/** momentLine(payload, res, opts) -> the directive for a vague or new-work owner prompt, or null. Never throws. */
+function momentLine(payload, res, opts) {
+  try {
+    if (!MOMENTS || !res || res.skipped || (res.reason && NO_MOMENT_REASON.test(res.reason))) return null;
+    const m = MOMENTS.momentFor(ownerTextOf(payload.prompt), { root: resolveRoot(opts) });
+    return m ? oneLine(m.directive, 300) : null;
+  } catch { return null; }
+}
+
+// ---- R8B-F1 /forge bootstrap hint (header step 6): the forge-start line first, plus one session marker ---------------
+// Not a build: a /forge sub-command, except a task sub-command (start, use, plan, help, resume) followed by the owner's
+// words. FB-SCRIBE-1-F4: the ONE sub-command list lives in forge-scribe-classify.cjs (FORGE_TOOL_SUBCOMMANDS).
+const CLASSIFY = (() => { try { const m = require('./forge-scribe-classify.cjs'); return m && typeof m.forgeToolCommand === 'function' ? m : null; } catch { return null; } })();
+const FORGE_NAME_RE = /^forge(?:-core)?(?::[\w-]+)?$/i;
+const START_TEXT_MAX = 1200;             // the real category-test requests were 586-762 chars: pass them whole
+const SESSION_MARKER_DIR = path.join('_hooks', 'forge-session');
+
+/** ownerTextOf(prompt) -> the prompt without leading harness blocks (forge-scribe-classify stripLeadingHarness). */
+function ownerTextOf(prompt) {
+  let text = typeof prompt === 'string' ? prompt : '';
+  try {
+    const C = require('./forge-scribe-classify.cjs');
+    const lead = typeof C.stripLeadingHarness === 'function' ? C.stripLeadingHarness(text) : null;
+    if (lead && lead.stripped > 0 && typeof lead.text === 'string') text = lead.text;
+  } catch { /* the raw prompt */ }
+  return text;
+}
+/** forgeBuildRequest(text) -> the request after '/forge' (typed, or the expanded <command-args>), or null for anything
+ *  else: no /forge, a bare /forge, or a sub-command. Pure. */
+function forgeBuildRequest(text) {
+  const s = String(text == null ? '' : text).replace(/^\uFEFF/, '').trim();
+  let req = null;
+  if (/^<command-(?:name|message|args)>/i.test(s)) {
+    const name = (/<command-name>\s*\/?([^<\s]*)\s*<\/command-name>/i.exec(s) || [])[1] || '';
+    if (FORGE_NAME_RE.test(name)) req = ((/<command-args>([\s\S]*?)<\/command-args>/i.exec(s) || [])[1] || '').trim();
+  } else {
+    const m = /^\/forge(?:-core)?(?::[\w-]+)?(?:\s+([\s\S]*))?$/i.exec(s);
+    if (m) req = String(m[1] || '').trim();
+  }
+  if (!req || !CLASSIFY) return null; // without the classifier no sub-command can be told apart: no hint
+  const sub = req.split(/\s+/)[0].toLowerCase();
+  if (CLASSIFY.FORGE_TOOL_SUBCOMMANDS.includes(sub) && (!CLASSIFY.FORGE_TASK_SUBCOMMANDS.includes(sub) || CLASSIFY.forgeToolCommand(req))) return null;
+  return req;
+}
+/** shellSafe(text) -> one line that is safe inside double quotes in Bash and PowerShell: " and every quote PowerShell 5.1
+ *  also reads as a double quote (U+201C, U+201D, U+201E, U+201F; FB-SCRIBE-1-F5) plus guillemets become ', $ and ` are
+ *  dropped, \ becomes /, control characters and runs of whitespace become one space, capped at START_TEXT_MAX. */
+function shellSafe(text) {
+  const t = String(text).replace(/["“”„‟«»]/g, "'").replace(/[$`]/g, '').replace(/\\/g, '/').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length > START_TEXT_MAX ? t.slice(0, START_TEXT_MAX - 1) + '…' : t;
+}
+/** runsDirOf(root) -> the active runs folder (forge-paths stateDir 'runs'; the legacy folder when forge-paths is absent). */
+function runsDirOf(root) {
+  try { const P = require('./forge-paths.cjs'); if (P && typeof P.stateDir === 'function') return P.stateDir(root, 'runs'); } catch { /* legacy below */ }
+  return path.join(root, '.claude', 'forge-runs');
+}
+/** sessionHasRun(root, sessionId, opts) -> true when this session already has an active run: the session-aware run pointer
+ *  (forge-active-run.cjs readActiveRun), else the project's open-run lookup when that module is absent. opts.sessionRun seam. */
+function sessionHasRun(root, sessionId, opts) {
+  if (opts.sessionRun !== undefined) return !!opts.sessionRun;
+  for (const f of [path.join(root, '.claude', 'forge-bin', 'forge-active-run.cjs'), path.join(__dirname, 'forge-active-run.cjs')]) {
+    if (!fs.existsSync(f)) continue;
+    try { return !!require(f).readActiveRun(root, sessionId).run; } catch { break; }
+  }
+  return !!activeRunOf(root, opts);
+}
+/** writeSessionMarker(root, sessionId, rid, iso) -> {file, written}. Once per session: an existing marker is never rewritten. */
+function writeSessionMarker(root, sessionId, rid, iso) {
+  const key = sessionKey(sessionId);
+  const file = path.join(runsDirOf(root), SESSION_MARKER_DIR, key + '.json');
+  if (fs.existsSync(file)) return { file, written: false };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp-' + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify({ schema: 1, session_sha: key, kind: 'forge-build', created_at: iso, prompt_rid: rid }) + '\n', 'utf8');
+  fs.renameSync(tmp, file);
+  return { file, written: true };
+}
+/** forgeStartLine(payload, res, opts) -> {line, marker, marker_written, marker_error?} for a /forge build request in a
+ *  session without an active run in a project that has forge-start.cjs; else null. Never throws. */
+function forgeStartLine(payload, res, opts) {
+  try {
+    if (!res || res.skipped || (res.reason && NO_MOMENT_REASON.test(res.reason))) return null;
+    const req = forgeBuildRequest(ownerTextOf(payload.prompt));
+    if (!req) return null;
+    const root = resolveRoot(opts);
+    if (!root || !fs.existsSync(path.join(root, '.claude', 'forge-bin', 'forge-start.cjs'))) return null;
+    const sid = str(payload.session_id, 200);
+    if (sessionHasRun(root, sid, opts)) return null;
+    const out = { line: 'Forge FIRST command: node .claude/forge-bin/forge-start.cjs --text "' + shellSafe(req) + '"', marker: null, marker_written: false };
+    if (sid) {
+      try {
+        const rid = res.captured && typeof res.captured.rid === 'string' && /^R-\d+$/.test(res.captured.rid) ? res.captured.rid : null;
+        const w = writeSessionMarker(root, sid, rid, nowOf(opts).toISOString());
+        out.marker = w.file; out.marker_written = w.written;
+      } catch (e) { out.marker_error = short(e); } // fail-open: the hint still stands
+    }
+    return out;
+  } catch { return null; }
+}
+
+/** runPrompt(payload, opts) -> see the file header MODEL, plus the R8B-F1 forge-start line FIRST and the SD-T7 moment
+ *  directive LAST. Never throws. */
 function runPrompt(payload, opts) {
+  const res = runPromptCore(payload, opts);
+  const start = forgeStartLine(payload, res, opts || {});
+  const line = momentLine(payload, res, opts || {});
+  let r = res;
+  if (start) r = Object.assign({}, r, { print: true, text: r.text ? start.line + '\n' + r.text : start.line, forge_start: start });
+  if (line) r = Object.assign({}, r, { print: true, text: r.text ? r.text + '\n' + line : line, moment: line });
+  return r;
+}
+
+function runPromptCore(payload, opts) {
   opts = opts || {};
   const t0 = Date.now();
   const budget = Number.isFinite(opts.budgetMs) ? opts.budgetMs : BUDGET_MS;
   const left = () => budget - (Date.now() - t0);
   const out = (o) => Object.assign({ print: false, text: null, captured: null, skipped: null, digest: false, head: null, reason: null, notice: null }, o, { ms: Date.now() - t0 });
+  let owed = null; // FB-SCRIBE-1-F6: set once the prompt is known to be the owner's and not yet captured
   try {
     const env = opts.env || process.env;
     if (isOff(env.FORGE_SCRIBE_HOOK)) return out({ reason: 'disabled (FORGE_SCRIBE_HOOK=off)' });
@@ -284,7 +443,11 @@ function runPrompt(payload, opts) {
       if (typeof SC.recordSkip === 'function') SC.recordSkip(skipWhy, { root, config: opts.config, now: opts.now, session_id: str(payload.session_id, 200), chars: prompt.length, lockWaitMs: LOCK_WAIT_MS });
       return out({ skipped: skipWhy, reason: 'not an owner instruction (' + skipWhy + (machine ? '' : ': ' + origin.kind) + ')' });
     }
-    const cfg = opts.config || C.loadConfig();
+    owed = { SC, root, session_id: str(payload.session_id, 200), chars: prompt.length };
+    let cfg = opts.config;
+    if (!cfg) {
+      try { cfg = C.loadConfig(); } catch (e) { if (e && e.code === 'ENOENT') { owed = null; return out({ reason: 'forge-scribe config missing (not set up here): nothing captured' }); } throw e; }
+    }
     const cap = Math.max(200, (Number(cfg.caps && cfg.caps.digest_max_chars) || DIGEST_MAX_CHARS) - DIGEST_SEPARATOR_RESERVE);
     const p = S.paths(root);
     // WP 3.8: the digest comes from the owner view (only confirmed repeat links) when this project's scribe has it;
@@ -301,6 +464,7 @@ function runPrompt(payload, opts) {
       // R5 SV-09: a bounded crash-recovery batch with a deadline (see DEADLINE) — never an unbounded replay
       recoverMax: Number.isFinite(opts.recoverBatch) ? opts.recoverBatch : RECOVER_BATCH, recoverDeadline: t0 + (Number.isFinite(opts.recoverBudgetMs) ? opts.recoverBudgetMs : RECOVER_BUDGET_MS),
     });
+    owed = null; // captured: a later step's error keeps the old fail-open silence
     const lines = [];
     let rl = receiptLine(captured, act);
     if (rl && captured && captured.orphans_left > 0) rl = oneLine(rl + ' · ' + captured.orphans_left + ' earlier prompt(s) still wait to become items (recovered in batches, counted as open: ' + CLI + ' recover)', RECEIPT_MAX_CHARS + 140);
@@ -312,6 +476,12 @@ function runPrompt(payload, opts) {
     if (act && captured && captured.rid && !captured.duplicate) {
       if (left() > 100) head = opts.writeHead === false ? { ok: false, reason: 'disabled' } : writeScribeHead(root, act.run_id, captured.rid, Math.min(HEAD_LOCK_MS, left() - 50));
       else skippedSteps.push('run anchor');
+    }
+    // R-0233: the scribe-acker's autoack, bounded, so done-unacked never waits for the owner (header step 4b)
+    let auto = null;
+    if (fs.existsSync(p.ledger) && left() > AUTOACK_MIN_LEFT_MS) {
+      auto = autoackStep(SC, S, p, root, opts, cfg, t0 + budget - AUTOACK_RESERVE_MS);
+      if (auto && auto.line) lines.push(auto.line);
     }
     let digestShown = false;
     if (fs.existsSync(p.ledger)) {
@@ -329,14 +499,19 @@ function runPrompt(payload, opts) {
     }
     const notice = skippedSteps.length ? '[forge-scribe] captured; ' + skippedSteps.join(' and ') + ' skipped: time budget (' + budget + ' ms) used up' : null;
     if (notice) lines.push(notice);
-    return out({ print: lines.length > 0, text: lines.join('\n') || null, captured, digest: digestShown, head, notice });
+    return out({ print: lines.length > 0, text: lines.join('\n') || null, captured, digest: digestShown, head, notice, autoack: auto });
   } catch (e) {
+    if (owed) { // FB-SCRIBE-1-F6: a lost owner prompt is never silent; one counter line where the store still allows it
+      let counted = false;
+      try { counted = typeof owed.SC.recordSkip === 'function' && owed.SC.recordSkip('capture-failed', { root: owed.root, config: opts.config, now: opts.now, session_id: owed.session_id, chars: owed.chars, lockWaitMs: 200 }) === true; } catch { counted = false; }
+      return out({ print: true, text: oneLine('[forge-scribe] NOT captured: ' + short(e) + ' — this owner prompt is not in the inbox; fix the cause, then send it again' + (counted ? ' (counted in skipped.jsonl)' : ''), RECEIPT_MAX_CHARS + 120), reason: 'internal: ' + short(e) });
+    }
     return out({ reason: 'internal: ' + short(e) });
   }
 }
 
 module.exports = {
-  runPrompt, machineSkip, receiptLine, repeatLine, digestLine, writeScribeHead, encodeRids, decodeRids,
+  runPrompt, machineSkip, receiptLine, repeatLine, digestLine, writeScribeHead, encodeRids, decodeRids, forgeBuildRequest, shellSafe, forgeStartLine, autoackStep,
   loadScribe, activeRunOf, resolveRoot, sessionKey, sessionRecord, readHookState, updateSession, hookStateFile, isOff, oneLine, str,
   DEADLINE_MS, BUDGET_MS, LOCK_WAIT_MS, RECOVER_BATCH, RECOVER_BUDGET_MS, DIGEST_MAX_CHARS, RECEIPT_MAX_CHARS, HOOK_STATE_FILE, CLI,
 };

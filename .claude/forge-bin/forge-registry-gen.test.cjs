@@ -1,4 +1,8 @@
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -187,9 +191,33 @@ t('classify: the doctor, the test runner and *.test.* files are never callers; c
   eq([st(c, 'tool:checked.cjs'), st(c, 'tool:msgonly.cjs'), st(c, 'tool:commented.cjs')], ['dormant', 'dormant', 'dormant']);
   eq(c.nodes.get('tool:checked.cjs').callers.length, 0);
 });
+t('classify: a tool required only from a doctor module (forge-bin/doctor/*.cjs) is called by that module and follows the doctor status', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'regen-doc-'));
+  try {
+    w(d, '.claude/settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR/.claude/forge-bin/forge-doctor.cjs"' }] }] } }));
+    w(d, B + 'forge-doctor.cjs', "'use strict';\n");
+    w(d, B + 'doctor/x.cjs', "'use strict';\nconst h = require('../viadoctor.cjs');\n");
+    w(d, B + 'viadoctor.cjs', "'use strict';\n");
+    const c = g.classifyFeatures(d);
+    eq(st(c, 'tool:viadoctor.cjs'), 'wired');
+    eq(c.nodes.get('tool:viadoctor.cjs').callers.map((x) => x.from), ['.claude/forge-bin/doctor/x.cjs']);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
 t('classify: a skill doc passes on its own status (on-request skill -> on-request tool; wired skill -> wired tool)', () => {
   const c = g.classifyFeatures(fr);
   eq([st(c, 'skill:alpha'), st(c, 'tool:skilltool.cjs'), st(c, 'skill:forge-beta'), st(c, 'tool:wiredskilltool.cjs')], ['on-request', 'on-request', 'wired', 'wired']);
+});
+t('classify: a generated inventory doc in a wired skill is not a caller (FB-CONFIG-1-F1)', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'regen-gen-'));
+  try {
+    w(d, '.claude/commands/forge.md', 'load forge-sys.\n');
+    w(d, '.claude/skills/forge-sys/SKILL.md', '---\nname: forge-sys\ndescription: S.\n---\nhand-written: uses handtool.cjs\n');
+    w(d, '.claude/skills/forge-sys/references/tools.md', '<!-- generated: forge-system-skill; do not edit by hand -->\n| `listedonly.cjs` | x |\n| `handtool.cjs` | y |\n');
+    w(d, B + 'listedonly.cjs', "'use strict';\n");
+    w(d, B + 'handtool.cjs', "'use strict';\n");
+    const c = g.classifyFeatures(d);
+    eq([st(c, 'skill:forge-sys'), st(c, 'tool:handtool.cjs'), st(c, 'tool:listedonly.cjs')], ['wired', 'wired', 'dormant']);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 t('classify: no description = dormant; a catalog playbook = wired; a nested skill folder needs a caller', () => {
   const c = g.classifyFeatures(fr);
@@ -320,7 +348,7 @@ fs.rmSync(fr, { recursive: true, force: true });
     });
     t('agents --check on the REAL repo: exit 0 (the shipped agents.generated.json matches the frontmatter)', () => {
       const r = run(['agents', '--check', '--root', REPO]);
-      eq(r.code, 0); ok(/IN SYNC · 20 agent\(s\) checked/.test(r.out), r.out);
+      eq(r.code, 0); ok(/IN SYNC · 66 agent\(s\) checked/.test(r.out), r.out); // 33 + the 33 pack specialists (R-0239)
     });
     t('the usage line names the agents command', () => { const r = run(['nope']); eq(r.code, 2); ok(/agents \[--check\] \[--write\] \[--json\]/.test(r.err)); });
   } finally {

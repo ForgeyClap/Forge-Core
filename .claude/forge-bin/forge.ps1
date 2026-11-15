@@ -50,7 +50,14 @@ switch ($cmd) {
     # `.\forge.ps1 log-event <run> <type> '{"note":"x"}'` reached log-event.cjs as {note:x} and failed with
     # "Invalid extra JSON" (external audit II-G). The payload now travels in an environment
     # variable, which no shell re-tokenises; and the real exit code is returned instead of a silent 0.
+    # Audit FB-MISC-2-F6: only a 3rd argument that is inline JSON takes the env route. A flag
+    # (--file, --env, ...) or an existing .json path goes to log-event.cjs unchanged, with every later argument.
+    $inlineJson = $false
     if ($rest.Count -ge 3) {
+      $third = [string]$rest[2]
+      $inlineJson = -not $third.StartsWith('--') -and -not ($third -like '*.json' -and (Test-Path -LiteralPath $third -PathType Leaf))
+    }
+    if ($inlineJson) {
       $env:FORGE_EVENT_JSON = [string]$rest[2]
       & $node "$dash\log-event.cjs" $rest[0] $rest[1] --env FORGE_EVENT_JSON
       $exitCode = $LASTEXITCODE

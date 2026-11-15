@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-repair.test.cjs — hermetic tests for forge-repair.cjs (PRD prd-w1-plan-goal-clarity M6).
  *
@@ -142,7 +146,7 @@ await tAsync('runRepair: dashboard down stops the ladder at status, names /forge
   assert(rep.steps.length === 1 && rep.steps[0].name === 'status', JSON.stringify(rep.steps));
   assert(rep.steps[0].ok === false);
   assert(/not running/i.test(rep.steps[0].detail), rep.steps[0].detail);
-  // the status detail is the project/dashboard line only — no usage-guard text of any kind.
+  // W1-07: the status detail is the project/dashboard line only — no usage-guard text of any kind.
   assert(!/usage-guard/i.test(rep.steps[0].detail), 'status detail must not mention usage-guard: ' + rep.steps[0].detail);
   assert(/\/forge dashboard/.test(rep.next_step), rep.next_step);
   assert(calls.healthFetch.length === 1, 'healthFetch called once');
@@ -167,7 +171,21 @@ await tAsync('runRepair: a port conflict is reported honestly, never as "startin
   assert(!/CC_PORT|free port/i.test(rep.next_step), 'must not claim an alternate-port start: ' + rep.next_step);
   assert(!/free that port/i.test(rep.next_step), 'must not be the old "free that port" instruction: ' + rep.next_step);
   assert(!/set CC_PORT to a different one/i.test(rep.next_step), 'must not be the old "set CC_PORT" instruction: ' + rep.next_step);
-  assert(calls.runDoctor.length === 0 && calls.runSnapshot.length === 0);
+  // FB-INSTALL-2-F8: the conflict text says Forge "continues without the dashboard", so the ladder really does:
+  // doctor and refresh still run, and the run still ends with exit 3 (the dashboard is not Forge's)
+  assert(calls.runDoctor.length === 1 && calls.runSnapshot.length === 1, JSON.stringify(calls));
+  assert(rep.steps.map((s) => s.name).join() === 'status,doctor,refresh', JSON.stringify(rep.steps));
+});
+await tAsync('FB-INSTALL-2-F8: a port conflict plus a red doctor names the failing checks as the next step', async () => {
+  const dir = makeForgeProject();
+  const { seams, calls } = fakeSeams({
+    healthFetch: async () => ({ ok: true, status: 200, body: { ok: true, status: 'healthy', service: 'unrelated-app' } }),
+    runDoctor: (root) => { calls.runDoctor.push([root]); return RED_DOCTOR; },
+  });
+  const rep = await runRepair(Object.assign({ root: dir }, seams));
+  assert(rep.exitCode === 3 && rep.ok === false);
+  assert(/leak_scan/.test(rep.next_step), rep.next_step);
+  assert(calls.runDoctor.length === 1 && calls.runSnapshot.length === 0, JSON.stringify(calls));
 });
 
 // --- runRepair: doctor failing -----------------------------------------------------------------------
@@ -238,7 +256,7 @@ await tAsync('runRepair: healthy next_step differs between nl and en', async () 
   assert(/healthy/i.test(repEn.next_step), repEn.next_step);
 });
 
-// --- port-conflict wording never instructs the beginner (both languages) -------------------------
+// --- W1-09: port-conflict wording never instructs the beginner (both languages) -------------------------
 t('W1-09: the nl port-conflict next_step is Forge\'s own action, not a beginner instruction', () => {
   const s = TEXT.nl.nextDashboardConflict('http://127.0.0.1:4100');
   assert(/Forge/.test(s) && /zonder dashboard/i.test(s), s);
@@ -254,7 +272,7 @@ t('W1-09: the en port-conflict next_step is Forge\'s own action, not a beginner 
   assert(!/free that port/i.test(s), 'must not be the old "free that port" instruction: ' + s);
 });
 
-// --- no usage-guard call anywhere in this tool ----------------------------------------------------
+// --- W1-07: no usage-guard call anywhere in this tool ----------------------------------------------------
 t('W1-07: forge-repair.cjs source no longer references usage-guard in any form', () => {
   const src = fs.readFileSync(path.join(__dirname, 'forge-repair.cjs'), 'utf8');
   assert(!/usage-guard/i.test(src), 'forge-repair.cjs must not mention usage-guard');
@@ -274,7 +292,7 @@ await tAsync('W1-07: runRepair ignores an injected runUsageGuard seam entirely (
   assert(!/usage-guard/i.test(JSON.stringify(rep)), 'the report must never contain usage-guard text');
 });
 
-// --- the health check is bounded on every axis (real local server, 127.0.0.1, random port) --------
+// --- W1-08: the health check is bounded on every axis (real local server, 127.0.0.1, random port) --------
 function withTestServer(handler) {
   return new Promise((resolve) => {
     const server = http.createServer(handler);

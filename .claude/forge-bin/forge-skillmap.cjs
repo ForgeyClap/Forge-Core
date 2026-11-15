@@ -17,6 +17,10 @@
  *   agentTypeKey(name)                    -> "UI Boss" -> "ui-boss" (null when not a usable agent type).
  *   latestSkillMap(runDir)                -> the map of the LAST skill_map_created event in <runDir>/events.jsonl, or null.
  *   skillsOpenedInTranscript(file, opts)  -> { skills, scanned }: Skill tool calls and Reads of skills/<name>/SKILL.md.
+ *   agentFileInfo(root, type, {home?})    -> { found, file, skills, tools } from .claude/agents/<type>.md (SD-T4).
+ *   preloadedSkillsOf(root, type, {home?})-> the agent file's frontmatter skills: ([] without a file).
+ *   skillBody(root, name, {home?,maxChars?}) -> a SKILL.md without its frontmatter, or null.
+ *   conductSeenInTranscript(file)         -> true | false | null: the forge-conduct canary in the last assistant text.
  * Zero dependencies.
  */
 const fs = require('fs');
@@ -209,4 +213,134 @@ function skillsOpenedInTranscript(file, opts) {
   return res;
 }
 
-module.exports = { knownSkillNames, skillLocations, normalizeSkillMap, agentTypeKey, latestSkillMap, allSkillMaps, unionSkillMap, EXECUTOR_TYPES, skillsOpenedInTranscript, DEFAULT_TRANSCRIPT_MAX_BYTES };
+// ---- SD-T4: agent-file preloads, skill bodies and the forge-conduct canary ----
+const AGENT_FILE_MAX_BYTES = 64 * 1024;          // frontmatter lives in the head; a huge agent file is never read whole
+const SKILL_BODY_MAX_BYTES = 64 * 1024;
+const CANARY_TAIL_BYTES = 4 * 1024 * 1024;       // the last assistant text is at the END of a transcript
+const AGENT_FILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // no dot, no colon, no slash: a file name, never a path
+const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_.:()*-]{0,127}$/;
+/** The line forge-conduct asks every agent to end its report with (.claude/skills/forge-conduct/SKILL.md). */
+const CONDUCT_CANARY = 'conduct: forge-conduct v1';
+
+/** frontmatterLines(text) -> the lines between the opening '---' and the closing '---' (or the end of the bounded head). */
+function frontmatterLines(text) {
+  const lines = String(text).replace(/^﻿/, '').split(/\r?\n/);
+  if (!lines.length || lines[0].trim() !== '---') return [];
+  const out = [];
+  for (let i = 1; i < lines.length; i++) { if (lines[i].trim() === '---') break; out.push(lines[i]); }
+  return out;
+}
+/** listField(lines, key) -> string[] for `key: a, b`, `key: [a, "b"]` or a YAML block list; null when the key is absent. */
+function listField(lines, key) {
+  const unq = (s) => s.replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '').trim();
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(lines[i]);
+    if (!m || m[1] !== key) continue;
+    const inline = m[2].replace(/\s+#.*$/, '').trim();
+    if (inline) return inline.replace(/^\[|\]$/g, '').split(',').map(unq).filter(Boolean);
+    const out = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const b = /^\s+-\s*(.*)$/.exec(lines[j]);
+      if (b) { const v = unq(b[1]); if (v) out.push(v); continue; }
+      if (/^\s*(#.*)?$/.test(lines[j])) continue;
+      break;
+    }
+    return out;
+  }
+  return null;
+}
+
+/** agentFileInfo(root, agentType, {home?}) -> {found, file, skills, tools}. Reads `.claude/agents/<type>.md` in the
+ *  project, then in <home>; at most 64 KB of its head. skills = the frontmatter `skills:` (valid names only, [] when
+ *  absent); tools = the `tools:` list, or null when the agent declares none (it then inherits every tool). A
+ *  plugin-scoped type ("x:build-boss") is never looked up: its file is not the project's. Never throws. */
+function agentFileInfo(root, agentType, opts) {
+  const none = { found: false, file: null, skills: [], tools: null };
+  try {
+    const type = agentTypeKey(agentType);
+    if (!type || !AGENT_FILE_RE.test(type)) return none;
+    for (const base of [root, homeOf(opts)]) {
+      if (typeof base !== 'string' || !base) continue;
+      const file = path.join(base, '.claude', 'agents', type + '.md');
+      let isFile = false;
+      try { isFile = fs.statSync(file).isFile(); } catch { isFile = false; }
+      if (!isFile) continue;
+      const text = readBounded(file, AGENT_FILE_MAX_BYTES, false);
+      if (text === null) continue;
+      const fm = frontmatterLines(text);
+      const skills = [];
+      for (const s of listField(fm, 'skills') || []) { const n = stripPlugin(s); if (SKILL_NAME_RE.test(n) && !skills.includes(n)) skills.push(n); }
+      const rawTools = listField(fm, 'tools');
+      const tools = rawTools === null ? null : rawTools.filter((x) => TOOL_NAME_RE.test(x));
+      return { found: true, file, skills, tools };
+    }
+  } catch { /* fall through */ }
+  return none;
+}
+
+/** preloadedSkillsOf(root, agentType, {home?}) -> the agent file's frontmatter `skills:`; [] without a file. Never throws. */
+function preloadedSkillsOf(root, agentType, opts) { return agentFileInfo(root, agentType, opts).skills.slice(); }
+
+/** skillBody(root, name, {home?, maxChars?}) -> the SKILL.md text without its frontmatter (project, then home), or null.
+ *  Bounded: at most 64 KB is read, at most maxChars returned. Never throws. */
+function skillBody(root, name, opts) {
+  try {
+    if (typeof name !== 'string' || !SKILL_NAME_RE.test(name)) return null;
+    for (const base of [root, homeOf(opts)]) {
+      if (typeof base !== 'string' || !base) continue;
+      const text = readBounded(path.join(base, '.claude', 'skills', name, 'SKILL.md'), SKILL_BODY_MAX_BYTES, false);
+      if (text === null) continue;
+      let body = text.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+      const fm = /^---\n[\s\S]*?\n---[ \t]*(\n|$)/.exec(body);
+      if (fm) body = body.slice(fm[0].length);
+      body = body.trim();
+      const max = opts && Number.isFinite(opts.maxChars) && opts.maxChars > 0 ? opts.maxChars : body.length;
+      return body.length > max ? body.slice(0, max) : body;
+    }
+  } catch { /* none */ }
+  return null;
+}
+
+/** textOf(content) -> the joined text blocks of an assistant message content (string or block array), or ''. */
+function textOf(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.filter((b) => isObj(b) && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('\n');
+}
+
+/** stringsOf(v, depth) -> every string inside a JSON value (depth-capped at 6). */
+function stringsOf(v, depth) {
+  if (typeof v === 'string') return [v];
+  if (depth > 6 || !v || typeof v !== 'object') return [];
+  return (Array.isArray(v) ? v : Object.values(v)).flatMap((x) => stringsOf(x, depth + 1));
+}
+
+/** conductSeenInTranscript(file) -> true when the LAST assistant text (or, for a Workflow agent, the input of its final
+ *  StructuredOutput call) of the transcript contains the forge-conduct
+ *  canary line, false when it does not (or the transcript has no assistant text), null when the file cannot be read.
+ *  Reads at most the last 4 MB. Never throws. */
+function conductSeenInTranscript(file) {
+  try {
+    if (typeof file !== 'string' || !file) return null;
+    const text = readBounded(file, CANARY_TAIL_BYTES, true);
+    if (text === null) return null;
+    const lines = text.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.includes('"assistant"')) continue;
+      let o = null;
+      try { o = JSON.parse(line); } catch { continue; } // the first line of a tail read may be cut
+      if (!isObj(o) || o.type !== 'assistant' || !isObj(o.message)) continue;
+      // FB-SKILLTOOLS-F8: a Workflow agent hands in its report as a StructuredOutput call; that input is its last word
+      const so = Array.isArray(o.message.content) ? o.message.content.filter((b) => isObj(b) && b.type === 'tool_use' && b.name === 'StructuredOutput') : [];
+      if (so.length) return so.some((b) => stringsOf(b.input, 0).some((s) => s.includes(CONDUCT_CANARY)));
+      const said = textOf(o.message.content);
+      if (!said.trim()) continue; // a tool_use-only turn: keep looking for the last real text
+      return said.includes(CONDUCT_CANARY);
+    }
+    return false;
+  } catch { return null; }
+}
+
+module.exports = { knownSkillNames, skillLocations, normalizeSkillMap, agentTypeKey, latestSkillMap, allSkillMaps, unionSkillMap, EXECUTOR_TYPES, skillsOpenedInTranscript, DEFAULT_TRANSCRIPT_MAX_BYTES,
+  agentFileInfo, preloadedSkillsOf, skillBody, conductSeenInTranscript, CONDUCT_CANARY };

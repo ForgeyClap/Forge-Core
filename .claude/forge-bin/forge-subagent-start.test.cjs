@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-subagent-start.test.cjs — the SubagentStart hook (WP A2). Throwaway roots only. Covers: a sample
  * payload parsed into exactly { ts, event:'SubagentStart', session, agent_id, agent_type } (+ run when a pointer is set),
@@ -19,10 +23,11 @@ const t = (name, cond, detail) => {
   if (cond) { pass++; console.log('  ok  ' + name); } else { fail++; console.error('  FAIL ' + name + (detail ? ' :: ' + String(detail).slice(0, 500) : '')); }
 };
 const roots = [];
+const TH = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-sst-home-')); roots.push(TH); // throwaway home: the real one is never read
 const mkRoot = () => { const r = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-sst-')); fs.mkdirSync(path.join(r, '.claude')); roots.push(r); return r; };
 const SCRIPT = path.join(__dirname, 'forge-subagent-start.cjs');
 const cli = (root, input, extraEnv) => spawnSync(process.execPath, [SCRIPT], { input, encoding: 'utf8', timeout: 10000,
-  env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: root, FORGE_SUBAGENT_START_HOOK: '', FORGE_RUN_ID: '' }, extraEnv || {}) });
+  env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: root, HOME: TH, USERPROFILE: TH, FORGE_SUBAGENT_START_HOOK: '', FORGE_RUN_ID: '' }, extraEnv || {}) });
 const logOf = (root) => path.join(root, '.claude', 'forge-runs', '_hooks', 'subagent-start.jsonl');
 const readLines = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const SK = 'sk' + '-' + 'canarySUBSTART0123456789abcdef';
@@ -36,17 +41,17 @@ const payload = {
 try {
   console.log('\nA) record shape');
   const root = mkRoot();
-  const r = ST.run(JSON.stringify(payload), { root, env: {} });
+  const r = ST.run(JSON.stringify(payload), { root, home: TH, env: {} });
   const L = readLines(logOf(root));
   t('A1 one line in _hooks/subagent-start.jsonl', r.ok && r.wrote && L.length === 1 && r.path === logOf(root), JSON.stringify(r));
   t('A2 exactly the token-free fields', JSON.stringify(Object.keys(L[0]).sort()) === JSON.stringify(['agent_id', 'agent_type', 'event', 'session', 'ts']), JSON.stringify(L[0]));
   t('A3 values carried through, event SubagentStart', L[0].event === 'SubagentStart' && L[0].session === 'sess-st-1' && L[0].agent_id === 'a0b1c2d3e4f5a6b7c' && L[0].agent_type === 'verify-boss');
-  t('A4 a payload without agent_type says absent (never guessed)', ST.buildRecord({ agent_id: 'a1' }).agent_type === null && ST.buildRecord({ agent_id: 'a1' }).agent_type_shape === 'absent');
+  t('A4 a payload without agent_type says absent (never guessed)', ST.buildRecord({ agent_id: 'a1' }, { root, home: TH }).agent_type === null && ST.buildRecord({ agent_id: 'a1' }, { root, home: TH }).agent_type_shape === 'absent');
 
   console.log('\nB) no content, no secrets on disk');
   const disk = fs.readFileSync(logOf(root), 'utf8');
   t('B1 transcript path and cwd never reach disk', !disk.includes('transcript') && !disk.includes('secret-folder') && !disk.includes('.claude/projects'));
-  ST.run(JSON.stringify(Object.assign({}, payload, { session_id: SK, agent_type: SK })), { root, env: {} });
+  ST.run(JSON.stringify(Object.assign({}, payload, { session_id: SK, agent_type: SK })), { root, home: TH, env: {} });
   t('B2 a secret-shaped session id / agent_type is not written raw', !fs.readFileSync(logOf(root), 'utf8').includes('canarySUBSTART'));
 
   console.log('\nC) fail-open, opt-out, guards');
@@ -55,12 +60,12 @@ try {
     t('C1 CLI on ' + name + ' stdin: exit 0, empty stdout', c.status === 0 && c.stdout === '', JSON.stringify({ s: c.status, o: c.stdout, e: c.stderr }));
   }
   const off = mkRoot();
-  t('C2 FORGE_SUBAGENT_START_HOOK=off writes nothing', ST.run(JSON.stringify(payload), { root: off, env: { FORGE_SUBAGENT_START_HOOK: 'off' } }).wrote === false && !fs.existsSync(logOf(off)));
+  t('C2 FORGE_SUBAGENT_START_HOOK=off writes nothing', ST.run(JSON.stringify(payload), { root: off, home: TH, env: { FORGE_SUBAGENT_START_HOOK: 'off' } }).wrote === false && !fs.existsSync(logOf(off)));
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-sst-bare-')); roots.push(bare);
-  t('C3 no .claude/ -> nothing created', ST.run(JSON.stringify(payload), { root: bare, env: {} }).wrote === false && !fs.existsSync(path.join(bare, '.claude')));
+  t('C3 no .claude/ -> nothing created', ST.run(JSON.stringify(payload), { root: bare, home: TH, env: {} }).wrote === false && !fs.existsSync(path.join(bare, '.claude')));
   const lock = mkRoot();
   fs.writeFileSync(path.join(lock, '.claude', '.forge-sync.lock'), JSON.stringify({ started_at: new Date().toISOString() }));
-  t('C4 a fresh forge-sync lock -> nothing written', ST.run(JSON.stringify(payload), { root: lock, env: {} }).wrote === false && !fs.existsSync(logOf(lock)));
+  t('C4 a fresh forge-sync lock -> nothing written', ST.run(JSON.stringify(payload), { root: lock, home: TH, env: {} }).wrote === false && !fs.existsSync(logOf(lock)));
 
   console.log('\nD) CLI end to end with the run pointer, timing');
   const cr = mkRoot();
@@ -74,6 +79,16 @@ try {
   t('D2 runtime under 5 s (measured ' + ms + ' ms)', ms < 5000);
   const c2 = cli(cr, JSON.stringify(payload), { FORGE_RUN_ID: 'run-env-2' });
   t('D3 env FORGE_RUN_ID wins over the pointer', c2.status === 0 && readLines(logOf(cr))[1].run === 'run-env-2');
+
+  console.log('\nE) the home seam: only the given home is read');
+  const eh = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-sst-eh-')); roots.push(eh);
+  fs.mkdirSync(path.join(eh, '.claude', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(eh, '.claude', 'agents', 'verify-boss.md'), '---\nname: verify-boss\nskills:\n  - forge-debug\n---\nbody\n');
+  const er = mkRoot();
+  const viaEmpty = ST.buildRecord(payload, { root: er, home: TH });
+  const viaSeam = ST.buildRecord(payload, { root: er, home: eh });
+  t('E1 empty temp home -> no skills_preloaded', !viaEmpty.skills_preloaded || viaEmpty.skills_preloaded.length === 0, JSON.stringify(viaEmpty));
+  t('E2 a temp home holding verify-boss.md with skills changes the record only through the seam', JSON.stringify(viaSeam.skills_preloaded) === JSON.stringify(['forge-debug']), JSON.stringify(viaSeam));
 } catch (e) {
   fail++; console.error('  FAIL threw: ' + (e && e.stack || e));
 } finally {

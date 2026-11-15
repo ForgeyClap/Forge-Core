@@ -565,7 +565,7 @@ function New-ForgeGuardedFile {
 # Write-ForgeGuardedRecommended -- AUXILIARY-FILE-CLOBBER for the PowerShell-only (no `node`) fallback: a
 # uniquely timestamp+random-suffixed settings.forge-recommended-<stamp>-<rand>.json, exclusively created
 # (CreateNew -- never overwrites/follows a prior recovery file or a planted symlink at that exact name),
-# mirroring forge-settings-merge-guards.cjs's own writeExclusiveUnique. Never targets a FIXED
+# mirroring forge-settings-merge-guards.cjs's own writeExclusiveUnique (V07). Never targets a FIXED
 # settings.forge-recommended.json path -- a pre-existing file or link already sitting at that fixed name is
 # simply never touched, by construction. Returns the written path, or $null on failure/refusal.
 function Write-ForgeGuardedRecommended {
@@ -745,7 +745,7 @@ function Copy-ForgeSettingsFile {
 # refusal, a write failure -- or, new here, the template file itself being unreadable) instead of the
 # caller assuming one fixed cause. A brand-new project (no such file yet) is always safe and never
 # even shells out. -IsDryRun is passed straight through to migrateOwnerStandingRules() so a dry run
-# reports the SAME outcome a real run would reach without writing anything.
+# reports the SAME outcome a real run would reach (F4 fix) without writing anything.
 function Test-ForgeStandingRulesMigration {
   param(
     [Parameter(Mandatory = $true)][string]$ProjectDir,
@@ -796,7 +796,7 @@ function Test-ForgeStandingRulesMigration {
   if ($outText) { Write-ForgeLog "  $outText" }
 
   if ($code -eq 3) {
-    # the file EXISTS (checked above) but could not itself be read or parsed -- kept, never
+    # F2 fix: the file EXISTS (checked above) but could not itself be read or parsed -- kept, never
     # silently treated as "nothing to migrate, safe to overwrite" the way a read/parse failure used to
     # be. Plain NL+EN words, both facts (could not be read; left untouched) in both languages, reused
     # verbatim for the immediate warning AND the final NOTE so the two never say something different.
@@ -1821,7 +1821,7 @@ function Copy-ForgeCommandCenterTree {
 }
 
 function Main {
-  # trimmed once here (see ConvertTo-ForgeCleanProjectPath's own comment) so every later use
+  # F2b fix: trimmed once here (see ConvertTo-ForgeCleanProjectPath's own comment) so every later use
   # of $projectDir -- including every node argument -- already has the clean value. (A raw variable is
   # resolved first and passed by name -- `ConvertTo-ForgeCleanProjectPath (if (...) {...} else {...})`
   # parses but does not work: PowerShell's command-argument parsing tries to run `if` itself as an
@@ -2301,7 +2301,7 @@ function Main {
 # .PARAMETER Uninstall doc comment at the top of this file for the full contract.
 # ---------------------------------------------------------------------------
 function Invoke-ForgeUninstall {
-  # same trim as Main -- see ConvertTo-ForgeCleanProjectPath's and Main's own comments.
+  # F2b fix: same trim as Main -- see ConvertTo-ForgeCleanProjectPath's and Main's own comments.
   $rawProjectDir = if ($ProjectDir) { $ProjectDir } else { (Get-Location).Path }
   $projectDir = ConvertTo-ForgeCleanProjectPath $rawProjectDir
   # (addition): see Main's own identical comment -- the projects registry needs a

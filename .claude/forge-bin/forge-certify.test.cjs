@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-certify.test.cjs — hermetic tests for the WP4 black-box certification tool. Every fixture lives
 // under os.tmpdir() — this file NEVER writes into the project's real .claude/forge-runs/. The one
 // "real subagent events" fixture uses the REAL forge-dashboard/log-event.cjs (copied into a tmp project)
@@ -193,9 +197,19 @@ t('checksVerifiedCount counts only evidenced, non-violating checks', () => {
 // ==== 4. no_fabricated_completion (unit) ====
 t('completionClaimCoverage passes when a claim is backed by real dispatch hits', () => {
   const tmp = mkRoot();
-  const r = certify.completionClaimCoverage([{ event_type: 'run_completed' }], tmp, [{ evIdx: 0, agent: 'Build Boss' }]);
+  const r = certify.completionClaimCoverage([{ event_type: 'run_completed' }], tmp, [{ evIdx: 0, agent: 'Build Boss', event_type: 'subagent_completed' }]);
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.hasClaim, true);
+});
+// FB-INSTALL-2-F9: a started agent is not finished work.
+t('completionClaimCoverage FAILS a completion claim backed only by a started Boss (no completion event)', () => {
+  const tmp = mkRoot();
+  const events = [{ event_type: 'subagent_started', agent: 'build-boss' }, { event_type: 'run_completed' }];
+  const r = certify.completionClaimCoverage(events, tmp, certify.realDispatchEvidence(events));
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.realWorkCount, 0);
+  const done = events.concat([{ event_type: 'subagent_completed', agent: 'build-boss' }]);
+  assert.strictEqual(certify.completionClaimCoverage(done, tmp, certify.realDispatchEvidence(done)).realWorkCount, 1);
 });
 t('completionClaimCoverage FAILS a completion claim with zero real dispatch hits', () => {
   const tmp = mkRoot();

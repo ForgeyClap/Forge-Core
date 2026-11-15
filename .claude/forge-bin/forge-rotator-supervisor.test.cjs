@@ -61,14 +61,14 @@ const step = sc.steps[Math.min(n, sc.steps.length - 1)];
 fs.appendFileSync(callsFile, JSON.stringify({ argv: process.argv.slice(2), step, pid: process.pid, tok_same: process.env[sc.tokVar] === sc.tokValue }) + '\\n');
 const sid = sc.noSession ? undefined : sc.sid;
 const out = (o, code) => { process.stdout.write(JSON.stringify(o)); process.exitCode = code; };
-const err = (text) => out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: text, session_id: sid }, 1);
+const err = (text) => out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: text, session_id: sid, total_cost_usd: 0 }, 1);
 if (step === 'ok') out({ type: 'result', subtype: 'success', is_error: false, result: 'done-' + n, session_id: sid }, 0);
 else if (step === 'limit') err("You've hit your session limit \\u00b7 resets 3:45pm");
 else if (step === 'limit-noreset') err('API Error: Rate limit reached');
 else if (step === 'overloaded') err('API Error: Repeated 529 Overloaded errors. The API is at capacity');
 else if (step === 'fatal') err("You've hit your monthly spend limit");
 else if (step === 'fail') err('Tool exploded');
-else if (step === 'notfound') out({ type: 'result', is_error: true, result: 'No conversation found with session ID: ' + sc.sid }, 1);
+else if (step === 'notfound') out({ type: 'result', is_error: true, result: 'No conversation found with session ID: ' + sc.sid, total_cost_usd: 0 }, 1);
 else if (step === 'garbage') { process.stdout.write('not json'); process.stderr.write('Error: rate limit reached (status 429)'); process.exitCode = 1; }
 else if (step === 'limit-marker') {
   spawnSync(process.execPath, [sc.hook], { input: JSON.stringify({ session_id: sc.sid, hook_event_name: 'StopFailure', error: 'rate_limit', error_details: '429 Too Many Requests', last_assistant_message: 'API Error: Rate limit reached', resets_at: sc.resetEpoch }), env: Object.assign({}, process.env, { CLAUDE_PROJECT_DIR: cwd }) });
@@ -85,7 +85,7 @@ function mkJob(steps, extra) {
 const callsOf = (r) => { const f = path.join(r, 'calls.jsonl'); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []; };
 const statusFile = (r, job) => path.join(r, '.claude', 'forge-runs', '_rotator', 'supervisor-' + job + '.json');
 function clock() { const T0 = Date.now(); let off = 0; const sleeps = []; return { now: () => T0 + off, sleep: async (ms) => { sleeps.push(ms); off += ms; }, sleeps, total: () => sleeps.reduce((a, b) => a + b, 0), T0 }; }
-const cfg = (auto, attempts, waits) => ({ safeGet: (k) => ({ value: k === 'rotator-auto-resume' ? auto : k === 'rotator-max-attempts' ? attempts : waits, source: 'test', degraded: false, reason: null }) });
+const cfg = (auto, attempts, waits) => ({ safeGet: (k) => ({ value: k === 'rotator-auto-resume' ? auto : k === 'rotator-max-attempts' ? attempts : k === 'budget-usd' ? 2.5 : waits, source: 'test', degraded: false, reason: null }) });
 const ALL_CALLS = [];
 async function sup(root, o, d) {
   const c = (d && d.clock) || clock();
@@ -99,8 +99,11 @@ async function sup(root, o, d) {
 }
 const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 const waitFor = async (fn, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (fn()) return true; await new Promise((r) => setTimeout(r, 50)); } return fn(); };
-const RESUME = (sid) => ['-p', 'continue', '--resume', sid, '--output-format', 'json', ...EXTRA];
-const KEYS = ['schema', 'job', 'pid', 'child_pid', 'phase', 'outcome', 'exit_code', 'started_at', 'updated_at', 'finished_at', 'wall_deadline', 'auto_resume', 'attempts', 'max_attempts', 'waits', 'max_waits', 'session_id', 'resume_mode', 'last_class', 'detect_source', 'resume_after', 'resume_after_source', 'wake_at', 'history'];
+const FLAG = require('./forge-run-budget.cjs').budgetArgs(1).args[0]; // the cap flag, rendered by forge-run-budget.cjs itself
+const CAP = [FLAG, '2.5']; // CF-5-F4: every launch carries the run budget (owner budget-usd 2.5 in cfg())
+const RESUME = (sid) => ['-p', 'continue', '--resume', sid, '--output-format', 'json', ...CAP, ...EXTRA];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KEYS = ['schema', 'job', 'pid', 'child_pid', 'phase', 'outcome', 'exit_code', 'started_at', 'updated_at', 'finished_at', 'wall_deadline', 'auto_resume', 'attempts', 'max_attempts', 'waits', 'max_waits', 'session_id', 'resume_mode', 'last_class', 'detect_source', 'resume_after', 'resume_after_source', 'wake_at', 'history', 'budget'];
 
 /** loadMutant(file, pairs) - the source with each [from, to] replaced exactly once, requires made absolute. */
 function loadMutant(file, pairs) {
@@ -120,8 +123,12 @@ function loadMutant(file, pairs) {
 let lastMutant = null;
 const RES = {
   ok: { code: 0, stdout: JSON.stringify({ is_error: false, result: 'ok', session_id: SID }) },
-  'limit-noreset': { code: 1, stdout: JSON.stringify({ is_error: true, result: 'API Error: Rate limit reached', session_id: SID }) },
+  'limit-noreset': { code: 1, stdout: JSON.stringify({ is_error: true, result: 'API Error: Rate limit reached', session_id: SID, total_cost_usd: 0 }) },
+  'limit-nocost': { code: 1, stdout: JSON.stringify({ is_error: true, result: 'API Error: Rate limit reached', session_id: SID }) },
+  'ok-at-cap': { code: 0, stdout: JSON.stringify({ is_error: false, result: 'ok', session_id: SID, total_cost_usd: 2.5 }) },
   fail: { code: 1, stdout: JSON.stringify({ is_error: true, result: 'Tool exploded', session_id: SID }) },
+  'limit-costly': { code: 1, stdout: JSON.stringify({ is_error: true, result: 'API Error: Rate limit reached', session_id: SID, total_cost_usd: 2 }) },
+  'costly-fail': { code: 1, stdout: JSON.stringify({ is_error: true, result: 'Error', session_id: SID, total_cost_usd: 2.5 }) },
 };
 async function runFake(mod, steps, o, cv) {
   const calls = [];
@@ -141,11 +148,12 @@ async function runFake(mod, steps, o, cv) {
     console.log('\nA) completion, resume, detection');
     const a = await sup(mkJob(['ok']));
     t('A1 success first try: completed, exit 0, one launch', a.res.outcome === 'completed' && a.res.exitCode === 0 && a.calls.length === 1, JSON.stringify(a.res.outcome));
-    t('A2 exact argv: -p <prompt> --output-format json <owner args>', eq(a.calls[0].argv, ['-p', PROMPT, '--output-format', 'json', ...EXTRA]), JSON.stringify(a.calls[0].argv));
+    const OWN = (c) => c.argv[3];
+    t('A2 exact argv: -p <prompt> --session-id <own uuid> --output-format json <budget flag> <cap> <owner args>', eq(a.calls[0].argv, ['-p', PROMPT, '--session-id', OWN(a.calls[0]), '--output-format', 'json', ...CAP, ...EXTRA]) && UUID_RE.test(OWN(a.calls[0])), JSON.stringify(a.calls[0].argv));
     t('A3 the final JSON result is handed through to stdout', a.outs.length === 1 && JSON.parse(a.outs[0]).result === 'done-0');
     const sd = fs.readFileSync(a.file, 'utf8'); const s1 = JSON.parse(sd);
     t('A4 status file: exact key set and final values', eq(Object.keys(s1), KEYS) && s1.schema === S.STATUS_SCHEMA && s1.phase === 'done' && s1.outcome === 'completed' && s1.exit_code === 0
-      && s1.attempts === 1 && s1.waits === 0 && s1.session_id === SID && s1.auto_resume === true && s1.history.length === 1 && s1.history[0].class === 'success' && s1.child_pid === null, sd);
+      && s1.attempts === 1 && s1.waits === 0 && s1.session_id === SID && s1.auto_resume === true && s1.history.length === 1 && s1.history[0].class === 'success' && s1.child_pid === null && !!s1.budget && s1.budget.cap_usd === 2.5, sd);
     t('A5 status file holds no prompt, no owner args, no token, no output', !sd.includes('feature') && !sd.includes('sonnet') && !sd.includes(TOK_VAL) && !sd.includes('done-0'), sd);
 
     const b = await sup(mkJob(['limit', 'ok']));
@@ -170,12 +178,18 @@ async function runFake(mod, steps, o, cv) {
     const ov = await sup(mkJob(['overloaded', 'overloaded', 'ok']));
     t('A13 overloaded: short growing backoff 63 s then 126 s', ov.res.outcome === 'completed' && eq(ov.c.sleeps, [60000, 3000, 60000, 60000, 6000]) && ov.c.total() === 189000, JSON.stringify(ov.c.sleeps));
     const nf = await sup(mkJob(['limit-noreset', 'notfound', 'ok']));
-    t('A14 --resume says "no conversation found" -> exactly one --continue fallback', nf.res.outcome === 'completed' && nf.calls.length === 3 && eq(nf.calls[1].argv, RESUME(SID))
-      && eq(nf.calls[2].argv, ['-p', 'continue', '--continue', '--output-format', 'json', ...EXTRA]), JSON.stringify(nf.calls.map((c) => c.argv)));
+    // FB-ROTATOR-F5: never --continue (it resumes the newest conversation in the folder, which can be
+    // the owner's live session); the job always resumes its own --session-id, and a lost session ends as gave-up.
+    t('A14 --resume says "no conversation found" -> gave-up:session-not-found (exit 4), no --continue launch, manual command logged', nf.res.outcome === 'gave-up:session-not-found' && nf.res.exitCode === 4 && nf.calls.length === 2
+      && eq(nf.calls[1].argv, RESUME(SID)) && !nf.calls.some((c) => c.argv.includes('--continue')) && nf.logs.some((l) => l.includes('--resume ' + SID)), JSON.stringify({ o: nf.res.outcome, argv: nf.calls.map((c) => c.argv) }));
     const ns = await sup(mkJob(['limit-noreset', 'ok'], { noSession: true }));
-    t('A15 no session id in the result -> relaunch with --continue', ns.res.outcome === 'completed' && eq(ns.calls[1].argv, ['-p', 'continue', '--continue', '--output-format', 'json', ...EXTRA]) && ns.st.session_id === null, JSON.stringify(ns.calls.map((c) => c.argv)));
+    t('A15 no session id in the result -> relaunch with --resume <its own --session-id>, never --continue', ns.res.outcome === 'completed' && eq(ns.calls[1].argv, RESUME(OWN(ns.calls[0]))) && ns.st.session_id === OWN(ns.calls[0]), JSON.stringify(ns.calls.map((c) => c.argv)));
     const g = await sup(mkJob(['garbage', 'ok']));
-    t('A16 unparseable stdout + "rate limit ... 429" on stderr -> limit by text, --continue relaunch', g.res.outcome === 'completed' && g.st.history[0].class === 'rate_limit' && g.calls[1].argv.includes('--continue'));
+    // CF-5-F4 rework: unparseable stdout reports no cost, so that launch is charged its whole share (fail closed) and
+    // the job is never relaunched with the full cap again.
+    t('A16 unparseable stdout + "rate limit ... 429" on stderr -> limit by text; no cost reported = whole share spent, stopped_by_budget (exit 4), no relaunch, no wait',
+      g.res.outcome === 'stopped_by_budget' && g.res.exitCode === 4 && g.st.history[0].class === 'rate_limit' && g.st.history[0].source === 'text' && g.calls.length === 1 && g.c.sleeps.length === 0
+      && g.st.budget.spent_usd === 2.5 && g.st.budget.status === 'stopped_by_budget' && g.logs.some((l) => /reported no total_cost_usd/.test(l)), JSON.stringify({ o: g.res.outcome, n: g.calls.length, b: g.st.budget, sl: g.c.sleeps }));
     const fa = await sup(mkJob(['fatal']));
     t('A17 a spend limit is not waited out: failed, exit 1, no sleep', fa.res.outcome === 'failed' && fa.res.exitCode === 1 && fa.c.sleeps.length === 0 && fa.st.last_class === 'fatal');
     const ff = await sup(mkJob(['fail', 'ok']));
@@ -223,6 +237,12 @@ async function runFake(mod, steps, o, cv) {
     const rj = mkJob(['limit-noreset', 'ok']); const c2 = clock(); let jobId = null;
     const stp = await sup(rj, { job: 'stopme' }, { clock: c2, sleep: async (ms) => { if (!jobId) { jobId = 'stopme'; await S.main(['stop', '--job', 'stopme', '--root', rj], { log: () => {} }); } await c2.sleep(ms); } });
     t('C5 `stop --job` during a wait: outcome stopped, exit 130, no relaunch', stp.res.outcome === 'stopped' && stp.res.exitCode === 130 && stp.calls.length === 1);
+    // FB-ROTATOR-F1: the stop request is consumed, so a later run with the same job id is not stopped.
+    const rr = mkJob(['limit-noreset', 'limit-noreset', 'ok']); const c3 = clock(); let sent = false;
+    await sup(rr, { job: 'reuse' }, { clock: c3, sleep: async (ms) => { if (!sent) { sent = true; await S.main(['stop', '--job', 'reuse', '--root', rr], { log: () => {} }); } await c3.sleep(ms); } });
+    const stopF = path.join(rr, '.claude', 'forge-runs', '_rotator', 'supervisor-reuse.stop');
+    const again = await sup(rr, { job: 'reuse' });
+    t('C6 a later run with the same --job id after a stop completes (the stop file was removed)', again.res.outcome === 'completed' && again.res.exitCode === 0 && !fs.existsSync(stopF), JSON.stringify({ o: again.res.outcome, stopFile: fs.existsSync(stopF) }));
 
     console.log('\nD) no token, no account files, allowlisted env only');
     const seen = []; let enumerated = false;
@@ -272,7 +292,7 @@ async function runFake(mod, steps, o, cv) {
       const shim = path.join(BASE, 'bin', 'claude.cmd');
       fs.writeFileSync(shim, '@"' + process.execPath + '" "' + FAKE_BIN + '" %*\r\n');
       const sc = await sup(mkJob(['ok']), { bin: shim, prompt: 'hello world' });
-      t('E6 a real claude.cmd shim on Windows: the child gets the exact argv', sc.res.outcome === 'completed' && eq(sc.calls[0].argv, ['-p', 'hello world', '--output-format', 'json', ...EXTRA]), JSON.stringify(sc.calls[0] && sc.calls[0].argv));
+      t('E6 a real claude.cmd shim on Windows: the child gets the exact argv', sc.res.outcome === 'completed' && eq(sc.calls[0].argv, ['-p', 'hello world', '--session-id', sc.calls[0].argv[3], '--output-format', 'json', ...CAP, ...EXTRA]) && UUID_RE.test(sc.calls[0].argv[3]), JSON.stringify(sc.calls[0] && sc.calls[0].argv));
       const su = await sup(mkJob(['ok']), { bin: shim, prompt: 'it is 100% done' });
       t('E7 an unsafe word through the shim is refused (exit 3) and nothing is started', su.res.outcome === 'refused' && su.res.exitCode === 3 && su.calls.length === 0);
     } else console.log('  skip E6/E7 (.cmd shim checks run on Windows only)');
@@ -298,13 +318,43 @@ async function runFake(mod, steps, o, cv) {
     t('F2 max-attempts / max-waits min, max and default equal the supervisor constants', eq([SCH['rotator-max-attempts'].min, SCH['rotator-max-attempts'].max, SCH['rotator-max-attempts'].default], [...S.LIMITS.attempts, S.DEFAULTS.maxAttempts])
       && eq([SCH['rotator-max-waits'].min, SCH['rotator-max-waits'].max, SCH['rotator-max-waits'].default], [...S.LIMITS.waits, S.DEFAULTS.maxWaits]));
 
+    console.log('\nI) run budget (CF-5-F4): forge-run-budget.cjs cap for wrapper "rotator"');
+    const BUD = readJson(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_RUN_BUDGET.json'));
+    t('I1 FORGE_RUN_BUDGET.json has positive wrapper caps for "rotator" and "gateway"', BUD.wrappers.rotator > 0 && BUD.wrappers.gateway > 0, JSON.stringify(BUD.wrappers));
+    const rb = mkJob(['ok']);
+    fs.mkdirSync(path.join(rb, '.claude', 'config', 'orchestration'), { recursive: true });
+    fs.copyFileSync(path.join(__dirname, '..', 'config', 'orchestration', 'FORGE_RUN_BUDGET.json'), path.join(rb, '.claude', 'config', 'orchestration', 'FORGE_RUN_BUDGET.json'));
+    const ib = await sup(rb);
+    t('I2 the project config wins: argv carries the budget flag <wrappers.rotator>, source config.wrappers.rotator, not degraded',
+      ib.res.outcome === 'completed' && eq(ib.calls[0].argv.slice(6, 8), [FLAG, String(BUD.wrappers.rotator)]) && ib.st.budget.source === 'config.wrappers.rotator' && ib.st.budget.degraded === false, JSON.stringify({ argv: ib.calls[0] && ib.calls[0].argv, b: ib.st && ib.st.budget }));
+    t('I3 the budget line names the cap and its source; the verdict line is logged at the end',
+      ib.logs.some((l) => l.startsWith('budget: cap $' + BUD.wrappers.rotator + ' (source config.wrappers.rotator')) && ib.logs.some((l) => /^budget verdict: unknown/.test(l)), ib.logs.join(' | '));
+    const ie = await sup(mkJob(['ok']), {}, { env: { FORGE_RUN_BUDGET_USD: '1.5' } });
+    t('I4 FORGE_RUN_BUDGET_USD (allowlisted env) overrides the cap', eq(ie.calls[0].argv.slice(6, 8), [FLAG, '1.5']) && S.ENV_NAMES.includes('FORGE_RUN_BUDGET_USD'), JSON.stringify(ie.calls[0] && ie.calls[0].argv));
+    t('I5 owner args cannot set their own budget flag', [FLAG, FLAG + '=9'].every((a) => S.validateJob({ prompt: 'p', extraArgs: [a, '9'], continuePrompt: 'continue' })));
+    const ic = await runFake(S, ['limit-costly', 'ok']);
+    // the final success reports no cost, so its share (0.5) is charged too: spent 2 + 0.5
+    t('I6 the cap is per job: a relaunch gets only what is left (2.5 - 2 spent = 0.5)', !ic.err && ic.res.outcome === 'completed' && eq(ic.calls[1].slice(-2), [FLAG, '0.5']) && ic.res.status.budget.spent_usd === 2.5, JSON.stringify({ calls: ic.calls, err: ic.err && ic.err.message }));
+    const is = await runFake(S, ['costly-fail', 'ok']);
+    t('I7 a launch that spent the whole cap ends the job as stopped_by_budget (exit 4), no relaunch',
+      !is.err && is.res.outcome === 'stopped_by_budget' && is.res.exitCode === 4 && is.calls.length === 1 && is.res.status.budget.status === 'stopped_by_budget', JSON.stringify({ o: is.res && is.res.outcome, err: is.err && is.err.message }));
+    const il = await runFake(S, ['limit-costly', 'limit-costly', 'ok']);
+    t('I8 a relaunch that spends more than what was left (0.5) ends as stopped_by_budget, no third launch', !il.err && il.res.outcome === 'stopped_by_budget' && il.calls.length === 2, JSON.stringify({ o: il.res && il.res.outcome, n: il.calls.length }));
+
+    const inc = await runFake(S, ['limit-nocost', 'ok']);
+    t('I9 an error envelope without total_cost_usd is not $0: whole share charged, stopped_by_budget (exit 4), never relaunched with the full cap',
+      !inc.err && inc.res.outcome === 'stopped_by_budget' && inc.res.exitCode === 4 && inc.calls.length === 1 && inc.res.status.budget.spent_usd === 2.5 && inc.res.status.budget.unreported === 1, JSON.stringify({ o: inc.res && inc.res.outcome, n: inc.calls.length, b: inc.res && inc.res.status.budget, err: inc.err && inc.err.message }));
+    const iac = await runFake(S, ['ok-at-cap']);
+    t('I10 an exit-0 success that cost the whole cap ends as stopped_by_budget (exit 4): outcome and budget verdict agree, never "completed"',
+      !iac.err && iac.res.outcome === 'stopped_by_budget' && iac.res.exitCode === 4 && iac.res.status.exit_code === 4 && iac.res.status.budget.status === 'stopped_by_budget' && iac.res.status.outcome === iac.res.status.budget.status, JSON.stringify({ o: iac.res && iac.res.outcome, b: iac.res && iac.res.status.budget, err: iac.err && iac.err.message }));
+
     console.log('\nG) mutation checks (each mutant must FAIL the behaviour check the original passes)');
     const checks = {
       attempts: async (mod) => { const r = await runFake(mod, ['limit-noreset'], {}, [true, 3, 24]); return !r.err && r.calls.length === 3 && r.res.outcome === 'gave-up:max-attempts'; },
       waits: async (mod) => { const r = await runFake(mod, ['limit-noreset'], {}, [true, 30, 2]); return !r.err && r.calls.length === 3 && r.res.outcome === 'gave-up:max-waits'; },
       wall: async (mod) => { const r = await runFake(mod, ['limit-noreset'], { maxWallMs: 20 * 60e3 }, [true, 30, 24]); return !r.err && r.calls.length === 2 && r.res.outcome === 'gave-up:wall-clock'; },
       bounded: async (mod) => { const r = await runFake(mod, ['limit-noreset'], { maxWallMs: 1000 * 3600e3 }, [true, 30, 24]); return !r.err && r.calls.length <= 30; },
-      resumeArgv: async (mod) => { const r = await runFake(mod, ['limit-noreset', 'ok']); return !r.err && eq(r.calls[1], ['-p', 'continue', '--resume', SID, '--output-format', 'json']); },
+      resumeArgv: async (mod) => { const r = await runFake(mod, ['limit-noreset', 'ok']); return !r.err && eq(r.calls[1], ['-p', 'continue', '--resume', SID, '--output-format', 'json', ...CAP]); },
       jitter: async (mod) => { const r = await runFake(mod, ['limit-noreset', 'ok']); return !r.err && r.c.total() === 945000; },
       foreignMarker: async (mod) => { const root = mkJob(['ok']); H.run(JSON.stringify({ session_id: 'other-session-2', hook_event_name: 'StopFailure', error: 'rate_limit' }), { root, configModule: cfg(true), env: {} }); const r = await runFake(mod, ['fail'], { root }); return !r.err && r.res.outcome === 'failed' && r.calls.length === 1; },
       tokenUnchanged: async (mod) => { const root = mkJob(['ok']); const r = await mod.supervise({ root, prompt: 'p', bin: FAKE_BIN, job: 'tk' + (++n) }, { configModule: cfg(true, 8, 6), signals: new EventEmitter(), log: () => {}, out: () => {} }); return r.outcome === 'completed' && callsOf(root).every((c) => c.tok_same === true); },

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-docdrift.test.cjs — hermetic tests for the doc-drift detector (WP-GH-WIRE). Every
  * fixture lives under a fresh os.tmpdir() mkdtemp root — this file NEVER touches this project's real
@@ -527,6 +531,21 @@ await at('defaultFetcher() enforces its OWN absolute deadline, independent of th
 })());
 
 t('DEFAULT_DEADLINE_MS is the documented 20 real seconds, and MAX_BODY_BYTES is 4MB (raised from the first-proposed 512KB — see the constant\'s own comment: a real check against the 2 live doc pages measured ~1MB each, so 512KB broke all 8 real sources)', D.DEFAULT_DEADLINE_MS === 20000 && D.MAX_BODY_BYTES === 4 * 1024 * 1024);
+
+// SK-8-F3: with the docdrift switch off (/forge config set docdrift off) the CLI check stops before it reads a
+// source, fetches anything or writes state. The unknown --source makes the old code fail fast (exit 2) without
+// any network call, so this test never touches the network on either side.
+t('SK-8-F3: docdrift off -> the CLI says so, exits 0 and writes no state', (() => {
+  const { spawnSync } = require('child_process');
+  const offRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'docdrift-off-'));
+  fs.mkdirSync(path.join(offRoot, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(offRoot, '.claude', 'FORGE_CONFIG.json'), JSON.stringify({ version: 1, settings: { docdrift: { value: false } } }), 'utf8');
+  const env = Object.assign({}, process.env, { FORGE_PROJECT_ROOT: offRoot, FORGE_CONFIG_HOME: path.join(offRoot, 'home') });
+  const r = spawnSync(process.execPath, [path.join(__dirname, 'forge-docdrift.cjs'), 'check', '--source', 'no-such-source', '--root', offRoot], { encoding: 'utf8', env });
+  const wroteState = fs.existsSync(D.defaultStatePath(offRoot));
+  fs.rmSync(offRoot, { recursive: true, force: true }); // this test's own mkdtemp fixture
+  return r.status === 0 && /off/.test(r.stdout) && /docdrift on/.test(r.stdout) && !wroteState;
+})());
 
 console.log('');
 console.log(passed + ' passed, ' + failed + ' failed');

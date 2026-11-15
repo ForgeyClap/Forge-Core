@@ -11,7 +11,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
 
 ---
 
-## 1. Website
+## 1. Website (F3, F1)
 - **Slecht:** "maak een website voor mijn kapsalon"
 - **Vraag:** "Wat moet de site vooral doen? A) afspraak via bellen/WhatsApp B) prijzen en foto's C) online
   boeken met agenda"
@@ -25,7 +25,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
   works on mobile and desktop and the call button works. Calm, light style. Not: online payment or going
   live."
 
-## 2. n8n automation
+## 2. n8n automation (F1, F13)
 - **Slecht:** "automatiseer mijn mails"
 - **Vraag:** "Welke mails? A) nieuwe aanvragen opslaan + bevestiging klaarzetten B) facturen uit je mail
   bewaren C) iets anders"
@@ -37,7 +37,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
   'Requests' and create a draft confirmation for the customer. Done when: a test request is in the sheet and
   the draft is ready. Do not send automatically; inactive until my OK."
 
-## 3. Bot
+## 3. Bot (F3)
 - **Slecht:** "ik wil een telegram bot"
 - **Vraag:** "Waar helpt de bot mee? A) klantvragen (openingstijden, prijzen) B) jou meldingen sturen C)
   afspraken plannen"
@@ -47,7 +47,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
   questions get 'I'll check' plus a notification to me. Done when: 10 test questions are answered correctly or
   honestly passed on."
 
-## 4. Scraper
+## 4. Scraper (F8)
 - **Slecht:** "haal alle prijzen van concurrenten op"
 - **Vraag:** "Van welke sites? A) ik plak 1–3 links B) zoek jij de 3 grootste in {plaats} C) iets anders"
 - **Goed:** "Haal van {3 links} productnaam+prijs op (openbare pagina's, robots.txt respecteren) naar
@@ -55,7 +55,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
 - *EN:* "From {3 links}, collect product name and price (public pages only, respecting robots.txt) into
   prijzen.csv. Done when: one sample row per site matches the site."
 
-## 5. Bug fix
+## 5. Bug fix (F9)
 - **Slecht:** "het formulier doet het niet meer"
 - **Vraag:** "Wat zie je? A) er gebeurt niks bij Verstuur B) een foutmelding (plak) C) de pagina laadt niet"
 - **Goed:** "Op /contact gebeurt niets bij Verstuur, sinds de update van gisteren. Verwacht: bedankmelding +
@@ -65,7 +65,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
   and an e-mail. Find the cause, write a failing test first, fix it, show the test output. Do not change the
   design."
 
-## 6. App feature
+## 6. App feature (F6)
 - **Slecht:** "voeg login toe"
 - **Vraag:** "Wie moet inloggen? A) alleen jij (beheer) B) klanten met eigen account C) medewerkers met
   rechten"
@@ -74,7 +74,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
 - *EN:* "Add an admin login (only me) for /admin; existing pages stay public and unchanged. Done when: /admin
   without a login redirects to /login and the test passes."
 
-## 7. "Make it nicer"
+## 7. "Make it nicer" (F10, F11)
 - **Slecht:** "maak mijn site mooier"
 - **Vraag:** the F10 style question ("rustig en licht / donker en strak / kleurrijk, of stuur een site die je
   mooi vindt").
@@ -83,7 +83,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
 - *EN:* "Make {url} calmer and easier to read, like {example site}: larger text, more white space. Texts and
   logo stay. Done when: before/after screenshots on mobile and desktop."
 
-## 8. Megascope
+## 8. Megascope (F7)
 - **Slecht:** "een app zoals Uber maar voor hondenuitlaters"
 - **Vraag:** "Wat moet als eerste werken? A) baasjes vinden een uitlater en nemen contact op B) uitlaters tonen
   beschikbaarheid C) boeken + betalen"
@@ -94,7 +94,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
   request. Not: payments, accounts, a map. Done when: a mobile demo with 5 realistic profiles, clearly marked
   as a demo."
 
-## 9. Chatbot / RAG
+## 9. Chatbot / RAG (F3, F7)
 - **Slecht:** "maak een chatbot voor mijn bedrijf"
 - **Vraag:** "Waarover mag hij antwoorden? A) alleen jouw diensten, uit je eigen teksten B) ook afspraken
   maken C) alles"
@@ -103,7 +103,7 @@ assumptions Forge fills in itself → the rewritten request that Forge confirms 
 - *EN:* "A chatbot on {site} that answers only from {docs}, with the source shown; when unsure, 'I don't know'
   plus a contact button."
 
-## 10. Dashboard
+## 10. Dashboard (F1, F3)
 - **Slecht:** "ik wil zien hoe mijn bedrijf gaat"
 - **Vraag:** "Welke cijfers wil je elke week zien (max 3)? A) omzet B) nieuwe aanvragen C) openstaande
   facturen"

@@ -69,7 +69,7 @@
       "evidence_required": "The scrollWidth reading at 360 px and the screenshot paths with any overflow named.",
       "severity": "block",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/ui-boss.md", "section": "Responsive & cross-device verification", "quote": "No horizontal overflow, clipped text, or broken layout at any tested breakpoint." }
+      "source": { "path": ".claude/docs/agents/ui-boss.md", "section": "Responsive & cross-device verification", "quote": "No horizontal overflow, clipped text, or broken layout at any tested breakpoint." }
     },
     {
       "id": "real-content",
@@ -141,7 +141,7 @@
       "evidence_required": "The checker output and the hand-measured ratios.",
       "severity": "block",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/ui-boss.md", "section": "Motion & accessibility", "quote": "Color contrast meets a defensible accessibility bar for body text and interactive elements." }
+      "source": { "path": ".claude/docs/agents/ui-boss.md", "section": "Motion & accessibility", "quote": "Color contrast meets a defensible accessibility bar for body text and interactive elements." }
     },
     {
       "id": "keyboard-focus",
@@ -211,7 +211,7 @@
       "evidence_required": "One sentence naming the brand-specific choices, the tells found (or none), with the screenshot path.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/ui-boss.md", "section": "Visual quality & hierarchy", "quote": "uniform card grids, centered-hero-plus-gradient-blob, safe gray-on-white with one accent color" }
+      "source": { "path": ".claude/docs/agents/ui-boss.md", "section": "Visual quality & hierarchy", "quote": "uniform card grids, centered-hero-plus-gradient-blob, safe gray-on-white with one accent color" }
     },
     {
       "id": "token-plan",
@@ -241,7 +241,7 @@
       "evidence_required": "The smallest target size found, and its fix when under about 44 px.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/ui-boss.md", "section": "Responsive & cross-device verification", "quote": "Touch targets are usable on mobile" }
+      "source": { "path": ".claude/docs/agents/ui-boss.md", "section": "Responsive & cross-device verification", "quote": "Touch targets are usable on mobile" }
     },
     {
       "id": "motion-and-theme",
@@ -251,7 +251,7 @@
       "evidence_required": "The reduced-motion and theme screenshots, or N/A with the reason.",
       "severity": "warn",
       "provenance": "cited",
-      "source": { "path": ".claude/agents/ui-boss.md", "section": "Motion & accessibility", "quote": "respects reduced-motion preference" }
+      "source": { "path": ".claude/docs/agents/ui-boss.md", "section": "Motion & accessibility", "quote": "respects reduced-motion preference" }
     }
   ],
   "guidance": {

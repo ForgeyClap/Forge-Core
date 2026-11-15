@@ -32,7 +32,7 @@ Forge-native playbook. `references/evals.md` adds eval method adapted in our own
 - Ingestion is idempotent (stable chunk IDs, content hash) and re-embeds when the source or the embedding model changes.
 
 ## Team (conditional)
-Lead: `architect`. Specialists: `mle-reviewer` (pipeline/serving), `data-scientist` (eval set, judge validation, honest metrics), `python-reviewer` / `typescript-reviewer`, `security-reviewer`, `database-reviewer` (vector store).
+Lead: `build-boss`; `architect` is an optional read-only design advisor (not a Boss). Specialists: `mle-reviewer` (pipeline/serving), `data-scientist` (eval set, judge validation, honest metrics), `python-reviewer` / `typescript-reviewer`, `security-reviewer`, `database-reviewer` (vector store).
 
 ## Skills / commands / MCP
 `agentdb-vector-search`, `docs-lookup`, `learn-codebase`; `claude-api` reference for model IDs/params if using Claude. `security-reviewer` on the serving layer. `forge-graded-verify` to grade answers at handoff.

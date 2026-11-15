@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /**
  * forge-runcontract-shape-declared.test.cjs — category tests F14. The quality rules (plan card,
  * anticipation, craft review, screenshot evidence) apply only when the run DECLARES its shape: run.json
@@ -78,8 +82,9 @@ t('an unreadable anticipate.json does not count, and says so', missing(r) && /un
 r = runWith('L1', {});
 t('an L1 run is not judged by run-shape-declared', !missing(r) && !sat(r), JSON.stringify(detail(r)));
 
-r = runWith('L2', {}, [{ event_type: 'owner_override', rule: ID, reason: 'owner said this quick fix needs no plan card', by: 'owner' }]);
-t('a valid owner_override clears it', !missing(r) && (r.overridden || []).some((x) => x.id === ID), JSON.stringify(r.overridden));
+r = runWith('L2', {}, [{ event_type: 'owner_override', rule: ID, reason: 'owner said this quick fix needs no plan card', by: 'owner', _forge_verify: { owner_act: { via: 'command-center-confirm' } } }]); // FB-CONTRACT-1-F2: writer-owned owner stamp
+// FB-CONTRACT-1-F2 (fail closed): no owner-only writer path exists yet, so the override is label-only
+t('a well-formed owner_override is label-only and does not clear it yet', missing(r) && !(r.overridden || []).some((x) => x.id === ID) && (r.override_label_only || []).some((x) => x.id === ID), JSON.stringify(r.override_label_only));
 r = runWith('L2', {}, [{ event_type: 'decision_logged', agent: 'orchestrator', rule: ID, decision: 'not-applicable', reason: 'a game needs no plan card here' }]);
 t('an agent decision_logged does not clear it', missing(r));
 

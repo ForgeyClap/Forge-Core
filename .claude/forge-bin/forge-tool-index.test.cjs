@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 // forge-tool-index.test.cjs — real tests for the cross-run event search index + the `rejected_approach`
 // event registration (mining-ronde-1 §1).
 //
@@ -393,6 +397,20 @@ t('a forced backend is reported exactly, in both ingest and search results', () 
   }
 });
 
+t('FB-GUARDS-1-F7: sqlite search falls back to keyword scoring when the db holds fewer records than the JSONL store', () => {
+  if (!sqliteReallyAvailable) return; // the sqlite path does not exist on this Node
+  const root = freshRoot('ti-partial-db');
+  writeEvents(root, 'run-a', [{ event_type: 'agent_progress', timestamp: '2026-07-30T10:00:00.000Z', note: 'onlyinjsonl approach' }]);
+  idx.ingest({ root, backend: 'jsonl' });
+  writeEvents(root, 'run-b', [{ event_type: 'agent_progress', timestamp: '2026-07-30T11:00:00.000Z', note: 'indbtoo approach' }]);
+  idx.ingest({ root, backend: 'sqlite' });
+  const st = idx.stats({ root, backend: 'sqlite' });
+  assert.ok(st.mismatch === true, 'fixture did not produce a db/jsonl count mismatch: ' + JSON.stringify(st));
+  const w = idx.search('onlyinjsonl', { root, backend: 'sqlite' });
+  assert.strictEqual(w.total, 1, 'a record that exists only in the canonical JSONL store was missed: ' + JSON.stringify(w));
+  assert.strictEqual(w.backend, 'jsonl-keyword');
+});
+
 t('project isolation: a traversing run id is refused and indexPaths stays under the root', () => {
   const root = freshRoot('ti-isolation');
   const p = idx.indexPaths(root);
@@ -484,6 +502,23 @@ t('CLI `tried` inverts deliberately: exit 0 means "yes, already tried"', () => {
   assert.strictEqual(no.status, 3);
   assert.strictEqual(JSON.parse(no.stdout).tried, false);
   assert.strictEqual(runCLI(['tried', '--root', root, '--json']).status, 2);
+});
+
+// FB-GUARDS-1-F17: nothing ever called ingest, so every `tried` answered from August data.
+t('F17: CLI `tried` ingests stale runs first, so it answers from the current events (no manual ingest)', () => {
+  const root = freshRoot('ti-cli-tried-fresh');
+  writeEvents(root, 'run-a', [{ event_type: 'rejected_approach', timestamp: '2026-07-30T10:00:00.000Z', approach: 'alpha route', reason: 'slow', evidence: 'bench' }]);
+  runCLI(['ingest', '--root', root, '--json']);
+  writeEvents(root, 'run-a', [{ event_type: 'rejected_approach', timestamp: '2026-07-30T10:05:00.000Z', approach: 'gamma tunnel', reason: 'slow', evidence: 'bench' }], true);
+  writeEvents(root, 'run-b', [{ event_type: 'rejected_approach', timestamp: '2026-07-30T10:06:00.000Z', approach: 'delta bridge', reason: 'slow', evidence: 'bench' }]);
+  const r1 = runCLI(['tried', 'gamma tunnel', '--root', root, '--json']);
+  assert.strictEqual(r1.status, 0, 'a rejected approach appended after the last ingest was not found: ' + r1.stdout + r1.stderr);
+  assert.strictEqual(JSON.parse(r1.stdout).stale, false);
+  const r2 = runCLI(['tried', 'delta bridge', '--root', root, '--json']);
+  assert.strictEqual(r2.status, 0, 'a run that was never ingested was not found: ' + r2.stdout);
+  const never = freshRoot('ti-cli-tried-never');
+  writeEvents(never, 'run-x', [{ event_type: 'rejected_approach', timestamp: '2026-07-30T10:00:00.000Z', approach: 'epsilon queue', reason: 'slow', evidence: 'bench' }]);
+  assert.strictEqual(runCLI(['tried', 'epsilon queue', '--root', never, '--json']).status, 0, 'a never-indexed project answered "not tried"');
 });
 
 t('CLI `stats --json` counts the same as ingest itself (records === ingest.total, mismatch false)', () => {

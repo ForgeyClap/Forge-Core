@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 'use strict';
+// WP-TMP-LEAK: this suite and its child processes make their temp dirs inside one per-run folder, removed at exit.
+const TMP_RUN = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), require('path').basename(__filename, '.test.cjs') + '-run-'));
+process.env.TMP = process.env.TEMP = process.env.TMPDIR = TMP_RUN;
+process.on('exit', () => { try { require('fs').rmSync(TMP_RUN, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { process.stderr.write('temp cleanup failed: ' + TMP_RUN + ' (' + e.code + ')\n'); } });
 /** Tests for forge-intel-evals.cjs (modernization WP I.5). Hermetic: every CLI run gets a temp parent for the runner's own
  *  sandbox (FORGE_INTEL_EVALS_TMP), a PATH that holds ONLY a fake `claude` (so the real one is unreachable even by a bug)
  *  plus FORGE_INTEL_EVALS_CLAUDE pointing at a fake that writes a marker; any marker means a claude was started = FAIL.
