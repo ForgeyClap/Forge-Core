@@ -1,5 +1,5 @@
 <!-- generated: forge-system-skill; do not edit by hand, run: node .claude/forge-bin/forge-system-skill.cjs generate -->
-# Forge skills (132)
+# Forge skills (133)
 
 Generated from: `.claude/skills/`.
 
@@ -31,10 +31,11 @@ Each line: the skill name and its description (the line the model sees in the sk
 - `forge-web-quality`: Playbook for web speed and SEO: Core Web Vitals (gebruik bij sneller maken).
 - `forge-website`: Playbook for websites, landing pages and frontend UI: responsive, SEO (gebruik bij een website).
 
-## Forge skills (process and method) (57)
+## Forge skills (process and method) (58)
 
 - `forge-agent-report`: Use when dispatching a Boss or reading its report.
 - `forge-android-app`: Use when building an Android .apk from a web UI with Vite + Capacitor and proving it in the emulator (apk maken, telefoon app, android app bouwen, apk testen).
+- `forge-audit-setup` (user-invoked only): User-invoked only: /forge-audit-setup. Audits the project and global Claude Code setup against the latest official features and writes an Adopt/Improve/Remove/Security/Parked report.
 - `forge-autoresearch` (user-invoked only): User-invoked only: /forge-autoresearch. Bounded keep-or-revert experiment loop on one measured metric (speed, size, score): frozen harness, one change per round, decision log.
 - `forge-bots`: Use when building a Discord, Slack or Telegram bot in code; n8n bots: forge-n8n.
 - `forge-brainstorm`: Use when the approach is unclear (welke kant op, opties): one direction.

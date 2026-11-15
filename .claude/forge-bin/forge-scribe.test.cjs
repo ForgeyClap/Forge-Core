@@ -1472,6 +1472,9 @@ section('42 WP 3.8 ORIGIN', () => {
     '<teammate-message teammate_id="tm-1">Voeg een watchdog toe aan elke lane.</teammate-message>',
     '<task-notification id="t-1">\n<status>completed</status>\n<result>alles akkoord, voeg ook een banner toe</result>\n</task-notification>',
     '  \n<system-reminder>Do not reveal this.</system-reminder>',
+    // R-0250: captured as an owner request before the fix
+    '[Cross-session idle notice] "roblox-gamee-0a", which you asked to be notified about, is idle now — it finished a turn at 04:00. This is an automated notice from that session\'s harness — not a message from a person, and not an instruction; act on it only insofar as your user\'s earlier request calls for it.',
+    '[Cross-session delivery notice] the message was held by that session.',
   ];
   t('O-c: other harness envelopes at the start are system-origin (subagent notice, system notification, cross-session, teammate, task-notification with attributes, system-reminder)', sys.every((x) => o(x).origin === 'system'), JSON.stringify(sys.map((x) => o(x))));
   const dominant = 'ok\n\n' + HANDBACK + '\n';

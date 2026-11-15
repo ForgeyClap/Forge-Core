@@ -33,13 +33,13 @@ Forge is a multi-agent build system on top of Claude Code: a Lead routes work to
 | file | what is in it |
 |---|---|
 | `references/agents.md` | 12 Bosses and 54 specialists: role, route, model, preloaded skills |
-| `references/skills.md` | all 132 project skills with their description, grouped |
+| `references/skills.md` | all 133 project skills with their description, grouped |
 | `references/commands.md` | 3 slash commands and the /forge sub-commands |
 | `references/hooks.md` | 17 hook registrations and what each script does |
 | `references/gates.md` | 21 hard gates: which a hook blocks, which the owner decides |
 | `references/config.md` | 58 settings with type, default and meaning |
 | `references/routes.md` | GOAT routes, default route per agent, escalation |
-| `references/tools.md` | 243 scripts in forge-bin with their purpose |
+| `references/tools.md` | 244 scripts in forge-bin with their purpose |
 | `references/workflows.md` | how a run goes, the run checklist, workflow scripts, resume |
 | `references/limits.md` | what a skill cannot enforce, and what does |
 

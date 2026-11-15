@@ -407,7 +407,7 @@ function toForwardSlashes(p) { return String(p).replace(/\\/g, '/'); }
 // current ids — re-verify they are still in Paperclip's own model list after any Paperclip upgrade.
 let policyTool = null;
 try { policyTool = require('./forge-policy.cjs'); } catch { policyTool = null; }
-const PAPERCLIP_MODEL_IDS = { sonnet: 'sonnet', opus: 'claude-opus-5-5', fable: 'claude-fable-5-1', haiku: 'haiku' };
+const PAPERCLIP_MODEL_IDS = { sonnet: 'sonnet', opus: 'claude-opus-5-5', fable: 'fable', haiku: 'haiku' };
 const ROUTER_ROLES = new Set(['lead', 'orchestrator', 'ceo', 'pm', 'product']);
 // Role -> Forge agent, for entries whose slug is not a Forge agent (a custom --agents roster). Every role the
 // bundled roster uses is listed, so a role alone also lands on the right agent. A role missing here is an error.

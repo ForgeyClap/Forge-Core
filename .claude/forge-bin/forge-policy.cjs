@@ -328,7 +328,7 @@ function settingsFileAntiPatterns(abs, label) {
   const ms = r.data.modelSettings;
   if (ms && typeof ms === 'object') {
     for (const [m, v] of Object.entries(ms)) {
-      if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'effortLevel')) out.push({ file: label, key: 'modelSettings.' + m + '.effortLevel', detail: 'a per-model effort override fights per-agent effort — remove it' });
+      if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'effortLevel')) out.push({ file: label, key: 'modelSettings.' + m + '.effortLevel', detail: 'per-model effort: a saved level sets the Lead\'s effort and that of agents without an effort field; the GOAT router level is medium — remove it' });
     }
   }
   return out;
@@ -440,11 +440,13 @@ function routingCheck(root, opts) {
   }
 
   // 3. settings anti-patterns: the project settings are violations; the user's global settings are named as a
-  //    note (FB-CONFIG-1-F5) — they fight per-agent effort just the same, but only the owner may edit that file,
-  //    so a red check there would block every run on a value no agent is allowed to change.
+  //    note (FB-CONFIG-1-F5) — a saved level sets the Lead's effort and that of agents without an effort field,
+  //    but only the owner may edit that file, so a red check there would block every run on a value no agent is allowed to change.
   for (const s of settingsAntiPatterns(root)) v('settings-anti-pattern', s.file + ': ' + s.detail);
   const globalSettings = settingsFileAntiPatterns(path.join(claudeHomeOf(opts), 'settings.json'), '<claude home>/settings.json');
   for (const s of globalSettings) notes.push(s.file + ': ' + s.key + ' — ' + s.detail + ' (machine-wide; only the owner can change this file)');
+  const globalModel = (readJson(path.join(claudeHomeOf(opts), 'settings.json')).data || {}).model;
+  if (typeof globalModel === 'string' && globalModel !== 'sonnet' && globalModel !== 'sonnet[1m]') notes.push('<claude home>/settings.json: model is "' + globalModel + '", the GOAT router is sonnet (machine-wide; only the owner can change this file)');
   for (const k of FORBIDDEN_ENV) {
     if (process.env[k] !== undefined) notes.push(k + ' is set in this process environment — it overrides every per-agent ' + (k.endsWith('MODEL') ? 'model' : 'effort') + '; unset it (not a project-file finding)');
   }

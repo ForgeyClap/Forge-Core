@@ -176,9 +176,10 @@ function caseDir() { const d = path.join(TMP, 'case' + (++caseN)); fs.mkdirSync(
   t('C3 an empty/undefined role is the same visible error', throwsCode(() => pc.modelFor(undefined), 'FORGE_UNMAPPED_ROLE') && throwsCode(() => pc.modelFor(''), 'FORGE_UNMAPPED_ROLE'));
   t('C3 Object.prototype keys are not roles ("constructor", "toString", "__proto__" -> FORGE_UNMAPPED_ROLE)', ['constructor', 'toString', '__proto__', 'hasOwnProperty'].every((r) => throwsCode(() => pc.modelFor(r), 'FORGE_UNMAPPED_ROLE')));
   t('C4 the map is READ, not hard-coded: an injected map changes the result', JSON.stringify(pc.modelFor('engineer', { map: { agents: { 'build-boss': { claudeTier: 'sonnet', claudeEffort: 'high' } } } })) === JSON.stringify({ model: 'sonnet', effort: 'high' }));
-  t('C4 every role in ROLE_AGENT / ROUTER_ROLES resolves, and none defaults to haiku or fable', [...Object.keys(pc.ROLE_AGENT), ...pc.ROUTER_ROLES].every((r) => !['haiku', 'claude-fable-5-1'].includes(pc.modelFor(r).model)));
+  t('C4 the fable id is the alias "fable" (follows the current Fable), never a pinned claude-fable-5-1', pc.PAPERCLIP_MODEL_IDS.fable === 'fable');
+  t('C4 every role in ROLE_AGENT / ROUTER_ROLES resolves, and none defaults to haiku or fable', [...Object.keys(pc.ROLE_AGENT), ...pc.ROUTER_ROLES].every((r) => !['haiku', 'fable', 'claude-fable-5-1'].includes(pc.modelFor(r).model)));
   t('C4 every ROLE_MAP alias either resolves (never haiku/fable) or is a visible FORGE_UNMAPPED_ROLE error — no third outcome',
-    Object.keys(pc.ROLE_MAP).every((r) => { try { return !['haiku', 'claude-fable-5-1'].includes(pc.modelFor(r).model); } catch (e) { return e.code === 'FORGE_UNMAPPED_ROLE'; } }));
+    Object.keys(pc.ROLE_MAP).every((r) => { try { return !['haiku', 'fable', 'claude-fable-5-1'].includes(pc.modelFor(r).model); } catch (e) { return e.code === 'FORGE_UNMAPPED_ROLE'; } }));
   t('C4 ROUTER_ROLES / ROLE_AGENT membership', pc.ROUTER_ROLES.has('ceo') && pc.ROUTER_ROLES.has('lead') && pc.ROLE_AGENT.cto === 'boss' && pc.ROLE_AGENT.summarizer === 'docs-boss' && !pc.ROUTER_ROLES.has('engineer'));
   t('C4 every ROLE_AGENT target is a registered Forge agent in agent-model-map.json (no dangling mapping)', Object.values(pc.ROLE_AGENT).every((a) => Object.prototype.hasOwnProperty.call(REAL_MAP.agents, a)));
   // F2: the five roles Codex named, by role alone, now land on their agents' DECLARED model/effort (were opus/medium).

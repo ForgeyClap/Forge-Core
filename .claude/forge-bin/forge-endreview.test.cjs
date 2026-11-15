@@ -331,6 +331,54 @@ try {
       if (prevProfile === undefined) delete process.env.FORGE_OWNER_PROFILE; else process.env.FORGE_OWNER_PROFILE = prevProfile;
     }
   }
+  // ---- D: a report that quotes green doctor numbers while the run's last doctor_run was red (:
+  // the report said "306 suites, 19698 passed, 0 failed" while doctor.json said ok:false; Review Boss r4 caught it)
+  {
+    const root = mkRoot();
+    const red = BASE_EVENTS.concat([{ event_type: 'doctor_run', agent: 'orchestrator', note: 'forge-doctor FAILURES', ok: false, timestamp: TS }]);
+    const bad = '# Final report\n\n- Full doctor at abc1234: 306 suites, 19698 passed, 0 failed.\n\n## Self-review\n\nq1 ... q12\n';
+    writeRun(root, 'd-1', { events: red, report: bad });
+    const r1 = E.recordSelfReview({ root, runId: 'd-1', form: goodForm(), log: false });
+    t('D: green doctor numbers next to a red doctor_run are refused', r1.code === 1 && r1.problems.some((p) => /doctor/i.test(p) && /red|ok:false/i.test(p)), JSON.stringify(r1.problems));
+    const honest = '# Final report\n\n- Full doctor at abc1234: tests 306 suites, 19698 passed, 0 failed, but the overall result was red (ok:false).\n\n## Self-review\n\nq1 ... q12\n';
+    writeRun(root, 'd-2', { events: red, report: honest });
+    const r2 = E.recordSelfReview({ root, runId: 'd-2', form: goodForm(), log: false });
+    t('D: the same numbers with the red status named are accepted', r2.code === 0, JSON.stringify(r2.problems));
+    const green = BASE_EVENTS.concat([{ event_type: 'doctor_run', agent: 'orchestrator', note: 'forge-doctor OK', ok: true, timestamp: TS }]);
+    writeRun(root, 'd-3', { events: green, report: bad });
+    t('D: green numbers after a green doctor_run are accepted', E.recordSelfReview({ root, runId: 'd-3', form: goodForm(), log: false }).code === 0);
+    // every branch gets its own row, tables are split per row, and the TDD phrase "red first" is no escape
+    const okOnly = BASE_EVENTS.concat([{ event_type: 'doctor_run', agent: 'orchestrator', note: 'doctor finished', ok: false, timestamp: TS }]);
+    const refuse = (id, events, report) => { writeRun(root, id, { events, report }); return E.recordSelfReview({ root, runId: id, form: goodForm(), log: false }).code === 1; };
+    const accept = (id, events, report) => { writeRun(root, id, { events, report }); return E.recordSelfReview({ root, runId: id, form: goodForm(), log: false }).code === 0; };
+    const wrap = (line) => '# Final report\n\n' + line + '\n\n## Self-review\n\nq1 ... q12\n';
+    t('D: a "19698/0" tally next to the doctor is caught too', refuse('d-4', red, wrap('- Full doctor: 306 suites, 19698/0.')));
+    t('D: an ok:false doctor_run with a neutral note counts as red', refuse('d-5', okOnly, wrap('- Full doctor: 306 suites, 19698 passed, 0 failed.')));
+    t('D: the Dutch "rood" names the status', accept('d-6', red, wrap('- Volledige doctor: 306 suites, 19698 passed, 0 failed, maar het totaal was rood.')));
+    t('D: "ok:false" alone names the status', accept('d-7', red, wrap('- Full doctor: 306 suites, 19698 passed, 0 failed (ok:false overall).')));
+    t('D: "RED first" (TDD) does not excuse green doctor numbers', refuse('d-8', red, wrap('- Full doctor: 306 suites, 19698/0; the new test was RED first.')));
+    t('D: a table row with doctor numbers is judged on its own, not hidden by "eerst rood" in another row',
+      refuse('d-9', red, wrap('| Wat | Bewijs |\n|---|---|\n| fix A | eerst rood, dan groen |\n| Volledige doctor | 306 suites, 19698/0 |')));
+    t('D: the doctor\'s own test suite ("doctor-test 765/0", "forge-doctor.test.cjs 765/0") is no doctor run',
+      accept('d-11', red, wrap('| Registry | d0dd5824 | doctor-test 765/0 |\n| Test | x | forge-doctor.test.cjs 765/0 |')));
+    // each remaining branch pinned on its own (deleting it turns one row red)
+    const noteOnly = BASE_EVENTS.concat([{ event_type: 'doctor_run', agent: 'orchestrator', note: 'forge-doctor FAILURES', timestamp: TS }]);
+    const notOk = BASE_EVENTS.concat([{ event_type: 'doctor_run', agent: 'orchestrator', note: 'doctor NOT OK', timestamp: TS }]);
+    t('D: a "FAILURES" note without an ok field counts as red', refuse('d-12', noteOnly, wrap('- Full doctor: 306 suites, 19698/0.')));
+    t('D: a "NOT OK" note without an ok field counts as red', refuse('d-13', notOk, wrap('- Full doctor: 306 suites, 19698/0.')));
+    t('D: table rows are split, so a real red word in another row does not excuse the doctor row',
+      refuse('d-14', red, wrap('| Wat | Bewijs |\n|---|---|\n| CI | red on Windows, fixed |\n| Volledige doctor | 306 suites, 19698/0 |')));
+    t('D: "eerst rood" in the same line does not excuse green doctor numbers', refuse('d-15', red, wrap('- Volledige doctor: 306 suites, 19698/0; de nieuwe test was eerst rood.')));
+    t('D: a TDD "RED 9/4" tally does not excuse green doctor numbers', refuse('d-16', red, wrap('- Full doctor: 306 suites, 19698/0; new test RED 9/4 then GREEN 13/0.')));
+    t('D: a real doctor status "red (3/41 checks)" is accepted', accept('d-17', red, wrap('- Full doctor: red (3/41 checks); tests 19698/0.')));
+    t('D: "doctor test check" (space form) is the doctor, not its test suite', refuse('d-18', red, wrap('- doctor test check: 306 suites, 19698/0.')));
+    // the finalize route (checkRecorded) re-judges, so an edit after record is caught
+    writeRun(root, 'd-10', { events: red, report: honest });
+    const rec10 = E.recordSelfReview({ root, runId: 'd-10', form: goodForm(), log: false });
+    fs.writeFileSync(path.join(runDirIn(root, 'd-10'), 'final-report.md'), bad);
+    const chk10 = E.checkRecorded({ root, runId: 'd-10' });
+    t('D: check refuses green doctor numbers written after record', rec10.code === 0 && chk10.ok === false && chk10.problems.some((p) => /doctor/i.test(p)), JSON.stringify(chk10.problems));
+  }
 } finally {
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) { console.error('  note: could not remove ' + TMP + ' (' + e.message + ')'); }
 }

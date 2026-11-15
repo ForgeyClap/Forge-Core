@@ -187,6 +187,38 @@ function queueProblems(dir) {
   return r.findings.map((f) => REPORT_FILE + (f.item === 'next' ? ' closing section' : ' item ' + f.item) + ' (line ' + f.line + '): ' + f.reason);
 }
 
+/** doctorClaimProblems(dir) -> string[] — (a repeat of the "doctor logged as passed while it
+ *  exited 1" class): the final report quoted the doctor's test numbers ("306 suites, 19698 passed, 0 failed") while the
+ *  run's last doctor_run said "forge-doctor FAILURES" (ok:false). When the newest doctor_run of the run is red, every report
+ *  paragraph that names the doctor next to a "0 failed" tally must also name the red status (red / rood / ok:false /
+ *  FAILURES / NOT OK). No ledger, no doctor_run or a green one = nothing to judge. */
+function doctorClaimProblems(dir) {
+  const file = path.join(dir, REPORT_FILE), ledger = path.join(dir, 'events.jsonl');
+  if (!fs.existsSync(file) || !fs.existsSync(ledger)) return [];
+  let last = null;
+  for (const line of fs.readFileSync(ledger, 'utf8').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let e; try { e = JSON.parse(line); } catch { continue; }
+    if (e && e.event_type === 'doctor_run') last = e;
+  }
+  if (!last) return [];
+  const red = last.ok === false || /FAILURES|NOT OK/.test(String(last.note || '') + ' ' + String(last.summary || ''));
+  if (!red) return [];
+  const P = [];
+  // a list item, a paragraph and every markdown table row is judged on its own (review r5: a table kept as one part let a
+  // TDD "eerst rood" in one row excuse a doctor row)
+  const parts = fs.readFileSync(file, 'utf8').split(/\n(?=\s*(?:[-*]|\d+\.)\s)|\n(?=\s*\|)|\n\s*\n/);
+  for (const p of parts) {
+    // "doctor-test 765/0" / "forge-doctor.test.cjs" is the doctor's own test suite, not a doctor run ("doctor test check" is the doctor)
+    if (!/doctor(?![-.]test)/i.test(p) || !/\b0 failed\b|\d\s*\/\s*0\b(?![.,]\d)/i.test(p)) continue;
+    // the TDD words "red first", "eerst rood" and an upper-case "RED 9/4" tally are not a doctor status ("red (3/41 checks)" is)
+    const status = p.replace(/\b(?:red|rood)\s+(?:first|eerst)\b|\b(?:first|eerst)\s+(?:red|rood)\b/gi, ' ').replace(/\bRED \d+\/\d+/g, ' ');
+    if (/\bred\b|\brood\b|ok:\s*false|FAILURES|NOT OK/i.test(status)) continue;
+    P.push(REPORT_FILE + ': "' + p.trim().replace(/\s+/g, ' ').slice(0, 140) + '" quotes green doctor numbers, but the run\'s last doctor_run is red (ok:false: ' + String(last.note || '').slice(0, 60) + ') — name the red status and the red checks in that line');
+  }
+  return P;
+}
+
 /** recordSelfReview({root, runId, form, log?}) -> {code, ok, problems?, file?, summary?, warnings?}.
  *  code 0 recorded · 1 refused (nothing written) · 2 usage (bad id, no run folder, unreadable questions). */
 function recordSelfReview(opts) {
@@ -205,6 +237,8 @@ function recordSelfReview(opts) {
   if (claims.length) return { code: 1, ok: false, problems: claims };
   const queue = queueProblems(dir);
   if (queue.length) return { code: 1, ok: false, problems: queue };
+  const doctor = doctorClaimProblems(dir);
+  if (doctor.length) return { code: 1, ok: false, problems: doctor };
   const review = { reviewer: opts.form.reviewer.trim(), answers: v.answers };
   const summary = summarize(v.answers);
   const record = { kind: RECORD_KIND, version: RECORD_VERSION, run_id: runId,
@@ -248,7 +282,10 @@ function checkRecorded(opts) {
   // an edit after `record` must not slip a choice back into the report; re-judged here.
   const queue = out.report_heading ? queueProblems(dir) : [];
   if (queue.length) out.problems.push(...queue);
-  out.ok = out.valid && out.report_heading && !queue.length;
+  // finalize closes through this route, so the doctor-claim guard is re-judged here too
+  const doctorClaims = doctorClaimProblems(dir);
+  if (doctorClaims.length) out.problems.push(...doctorClaims);
+  out.ok = out.valid && out.report_heading && !queue.length && !doctorClaims.length;
   return out;
 }
 
@@ -354,7 +391,7 @@ function main(argv, io) {
 
 module.exports = {
   QUESTIONS_REL, RECORD_KIND, RECORD_VERSION, RECORD_FILE, REPORT_FILE, MIN_NOTE, HEADING_RE,
-  canon, runDirFor, loadQuestions, validateQuestions, validateAnswers, recordSelfReview, checkRecorded, queueProblems, ownerTextWarnings,
+  canon, runDirFor, loadQuestions, validateQuestions, validateAnswers, recordSelfReview, checkRecorded, queueProblems, doctorClaimProblems, ownerTextWarnings,
   renderQuestions, renderTemplate, answersSkeleton, main,
 };
 

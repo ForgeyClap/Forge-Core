@@ -75,6 +75,9 @@ if (!fs.existsSync(SWEEP_CMD) || !fs.existsSync(SWEEP_PROMPT)) {
     const ms = Number(m[1]);
     assert.ok(ms > 600000 && ms <= 4 * 3600000, 'ceiling ' + ms + ' ms is not a finite wait above the old 600 s cut-off');
   });
+  t('the unattended sweep turns permission prompts off, so an unlisted tool is denied instead of waiting for nobody', () => {
+    assert.ok(/--permission-mode default --permission-prompts none\s/.test(cmdText), 'no --permission-prompts none after --permission-mode default');
+  });
   t('maand-sweep.cmd stays pure ASCII (cmd.exe mangles other bytes in its OEM code page)', () => {
     assert.ok(!/[^\x00-\x7F]/.test(cmdText));
   });

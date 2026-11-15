@@ -158,7 +158,7 @@
       "one lesson line in .claude/agent-memory/head-chef/MEMORY.md"
     ],
     "costControl": "Ultracode removes the built-in cost guards (hides the large-workflow warning, no concurrency limit for Agent-tool subagents, tells the model cost is no constraint). Keep the Dynamic workflow size guideline, the budget and the usage-guard pauses; triage + the low/medium routes are the cost control.",
-    "leadEffort": "Claude Code 2.1.220: ultracode pins the Lead (router) to xhigh (still sonnet). From 2.1.284 ultracode is a separate toggle that keeps the chosen effort, so the Lead stays sonnet/medium (session.lead). Owner approved updating to the latest (v2.1.291) at the end of run forge-2026-10-06-model-routing-goat.",
+    "leadEffort": "Since Claude Code 2.1.284 ultracode keeps the chosen effort; installed 2.1.325. The Lead stays sonnet/medium (session.lead).",
     "fallbackDispatch": "Agent({subagent_type:'<boss>', model:<route model>, effort:<route effort>}) — when ultracode or dynamic workflows are off (the Agent tool takes effort since Claude Code 2.1.292; without it the Boss frontmatter effort applies)",
     "solo": "Trivial or conversational turns stay solo (no workflow).",
     "realAgentsOnly": "agentType must be a real Boss/agent file; label starts with the registered Boss name.",

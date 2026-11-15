@@ -270,6 +270,22 @@ t('routingCheck FB-CONFIG-1-F5: per-model effort overrides and forbidden env in 
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-home0-')); cleanups.push(empty);
   assert.deepStrictEqual(routingCheck(d, { claudeHome: empty }).global_settings, []);
 });
+t('routingCheck A3: a GLOBAL model other than sonnet is named in a note (not red); sonnet / sonnet[1m] add no model note', () => {
+  const d = fixture('globalmodel'); cleanups.push(d);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-homem-')); cleanups.push(home);
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ model: 'opus', modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } }));
+  const r = routingCheck(d, { claudeHome: home });
+  assert.ok(r.notes.some((n) => n.includes('model is "opus", the GOAT router is sonnet')), JSON.stringify(r.notes));
+  assert.ok(r.notes.some((n) => n.includes("a saved level sets the Lead's effort and that of agents without an effort field; the GOAT router level is medium")), JSON.stringify(r.notes));
+  assert.ok(!r.notes.some((n) => /fights? per-agent effort/.test(n)), 'old wording gone: ' + JSON.stringify(r.notes));
+  assert.ok(r.ok === true, 'a global model is a note, never red: ' + JSON.stringify(r.violations));
+  for (const m of ['sonnet', 'sonnet[1m]']) {
+    const h = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-policy-homes-')); cleanups.push(h);
+    fs.writeFileSync(path.join(h, 'settings.json'), JSON.stringify({ model: m }));
+    const rs = routingCheck(d, { claudeHome: h });
+    assert.ok(!rs.notes.some((n) => /GOAT router is sonnet/.test(n)), m + ': ' + JSON.stringify(rs.notes));
+  }
+});
 t('routingCheck DRIFT: frontmatter effort changed in one agent file -> effort-drift + default-route-drift, ok=false', () => {
   const d = fixture('effort'); cleanups.push(d);
   const f = path.join(d, '.claude', 'agents', 'build-boss.md');

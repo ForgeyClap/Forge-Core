@@ -260,7 +260,8 @@ const ENVELOPE_TAGS = ['agent-message', 'cross-session-message', 'teammate-messa
   'system-notification', 'local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'user-prompt-submit-hook'];
 const COMMAND_TAGS = ['command-name', 'command-message', 'command-args'];
 const ENVELOPE_BLOCK_SRC = '<(' + ENVELOPE_TAGS.join('|') + ')(?=[\\s>/])[^>]*>[\\s\\S]*?</\\1\\s*>';
-const START_NOTICE_RE = /^\[\s*(?:subagent hand-back|system notification\b[^\]\n]*|[^\]\n]{0,60}\bnot user input\b[^\]\n]*)\]/i;
+// R-0250: Claude Code's "[Cross-session idle notice]" / "[Cross-session delivery notice]" are harness text too
+const START_NOTICE_RE = /^\[\s*(?:subagent hand-back|cross-session (?:idle|delivery) notice|system notification\b[^\]\n]*|[^\]\n]{0,60}\bnot user input\b[^\]\n]*)\]/i;
 const HARNESS_MARK_RE = /\[\s*subagent hand-back\s*\]|\bnot a message from the user\b/i;
 const ORIGIN_MAX_INPUT = 1024 * 1024;
 const ORIGIN_SCAN_MAX = 256 * 1024;

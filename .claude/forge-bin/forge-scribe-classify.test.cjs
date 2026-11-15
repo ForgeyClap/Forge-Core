@@ -359,7 +359,9 @@ console.log('\nforge-scribe-classify: reported speech, doubt, checks and wishes 
   t('F3-b: ... nor a batch cancel ("add a cancel all button to the cart")', auth('add a cancel all button to the cart', 'R-0041', 'cancel').ok === false, JSON.stringify(auth('add a cancel all button to the cart', 'R-0041', 'cancel')));
   const ACTS = [['R-0040 klopt', 'rid'], ['R-0040 akkoord.', 'rid'], ['Approve R-0040', 'rid'], ['R-0039 en R-0040 kloppen.', 'list'], ['Alles akkoord', 'batch'],
     ['alles goedgekeurd!', 'batch'], ['ja, alles akkoord', 'batch'], ['Ok alles goed.', 'batch'], ['Alles akkoord, schuif ze door', 'batch'], ['Alles akkoord, top werk', 'batch'],
-    ['/forge alles akkoord', 'batch'], ['R-0040 klopt, ga verder.', 'rid'], ['R-0040 is "klaar" en akkoord', 'rid']];
+    ['/forge alles akkoord', 'batch'], ['R-0040 klopt, ga verder.', 'rid'], ['R-0040 is "klaar" en akkoord', 'rid'],
+    // R-0249: the owner wrote "Akkoord op alles!" and it was not recognised
+    ['Akkoord op alles!', 'batch'], ['akkoord voor alles', 'batch'], ['Akkoord op alles! en voor de sync willen we nog deze skill runnen', 'batch']];
   const lost = ACTS.filter(([x, how]) => { const a = auth(x); return !a.ok || a.how !== how; });
   t('F2-b: plain owner acks still authorise (one id, a list, a batch phrase with ja/ok or a separate clause)', lost.length === 0, lost.map(([x]) => JSON.stringify(x) + ' -> ' + JSON.stringify(auth(x))).join(' | '));
 }

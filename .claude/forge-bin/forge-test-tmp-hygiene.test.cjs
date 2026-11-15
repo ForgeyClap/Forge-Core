@@ -39,6 +39,33 @@ const SUITES = [
   'forge-usage-report.test.cjs', // usage-home-*
 ];
 const ONLY = process.env.FORGE_TMP_HYGIENE_ONLY ? process.env.FORGE_TMP_HYGIENE_ONLY.split(',') : null;
+
+// R-0248 sync: forge-global-drift and forge-release-sync are development-tree suites that publish-template
+// does not ship, so in a synced project they are absent and spawning them exited 1 (Roblox gamee sync rolled back).
+// Outside the development tree an absent listed suite is skipped and named; inside it an absent one is a failure
+// (a renamed suite must not silently drop out of this guard).
+const DEV_TREE = fs.existsSync(path.join(__dirname, '..', '..', 'global-install', 'manifest.json'));
+function planSuites(dir, list, isDev) {
+  const run = [], skipped = [], missingInDev = [];
+  for (const f of list) {
+    if (fs.existsSync(path.join(dir, f))) run.push(f);
+    else (isDev ? missingInDev : skipped).push(f);
+  }
+  return { run, skipped, missingInDev };
+}
+test('planSuites: an absent suite is skipped in a synced project and a failure in the development tree', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hyg-plan-'));
+  try {
+    fs.writeFileSync(path.join(d, 'a.test.cjs'), '');
+    assert.deepStrictEqual(planSuites(d, ['a.test.cjs', 'b.test.cjs'], false), { run: ['a.test.cjs'], skipped: ['b.test.cjs'], missingInDev: [] });
+    assert.deepStrictEqual(planSuites(d, ['a.test.cjs', 'b.test.cjs'], true), { run: ['a.test.cjs'], skipped: [], missingInDev: ['b.test.cjs'] });
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+const PLAN = planSuites(__dirname, SUITES, DEV_TREE);
+test('every listed suite exists in the development tree', () => {
+  assert.deepStrictEqual(PLAN.missingInDev, [], 'listed but missing: ' + PLAN.missingInDev.join(', '));
+});
+if (PLAN.skipped.length) console.log('skipped (not shipped to this project): ' + PLAN.skipped.join(', '));
 const PARALLEL = 4;
 const SUITE_TIMEOUT_MS = 900000;
 
@@ -62,14 +89,14 @@ function runSuite(file) {
 
 const results = new Map();
 nodeTest.before(async () => {
-  const queue = SUITES.filter((f) => !ONLY || ONLY.includes(f));
+  const queue = PLAN.run.filter((f) => !ONLY || ONLY.includes(f));
   const workers = Array.from({ length: PARALLEL }, async () => {
     for (let f = queue.shift(); f; f = queue.shift()) results.set(f, await runSuite(f));
   });
   await Promise.all(workers);
 });
 
-for (const file of SUITES) {
+for (const file of PLAN.run) {
   if (ONLY && !ONLY.includes(file)) continue;
   test(file + ' leaves its temp folder empty', () => {
     const r = results.get(file);

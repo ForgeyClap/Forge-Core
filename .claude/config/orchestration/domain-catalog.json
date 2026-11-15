@@ -705,6 +705,7 @@
     "forge-a11y",
     "forge-agent-report",
     "forge-android-app",
+    "forge-audit-setup",
     "forge-auth",
     "forge-autoresearch",
     "forge-brainstorm",

@@ -1,5 +1,5 @@
 <!-- generated: forge-system-skill; do not edit by hand, run: node .claude/forge-bin/forge-system-skill.cjs generate -->
-# Forge tools (243 scripts)
+# Forge tools (244 scripts)
 
 Generated from: `.claude/forge-bin/`.
 
@@ -183,6 +183,7 @@ Every script in the folder, tests left out. Purpose = the first sentence of the 
 | `forge-session-end.cjs` | `SessionEnd` hook, registered async (modernization plan item 1.6). |
 | `forge-settings-merge-guards.cjs` | wp-f2 (out-p2.md/out-p6.md). |
 | `forge-settings-merge.cjs` | WP22 ("alles standaard aan" / "Forge does it for you, never tell the user to run or merge something by hand"). |
+| `forge-setup-inventory.cjs` | read-only, redacted inventory of the project and global Claude Code setup. |
 | `forge-setup.cjs` | the onboarding ENGINE behind the /setup-forge wizard. |
 | `forge-shipcheck-refs.cjs` | reference extraction for forge-shipcheck.cjs's REFERENCE-CLOSURE check. |
 | `forge-shipcheck.cjs` | the ONE shipping truth, checked. |

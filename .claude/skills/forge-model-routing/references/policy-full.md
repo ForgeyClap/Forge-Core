@@ -57,8 +57,8 @@ the Anthropic/OpenAI sources it cites; nothing here was measured on this machine
 | escalate | `fable`  | high   | ONLY after a failed check — never chosen up front |
 | verifier | `sonnet` | medium | after every change; runs the checks scaled to risk; replies PASS/FAIL with evidence; NEVER edits |
 
-Current models behind the aliases (October 2026): `sonnet` = Sonnet 5.5, `opus` = Opus 5.5,
-`fable` = Fable 5.1. Route by **alias** (version-proof). **Haiku is not part of the standard** — no
+Current models behind the aliases (November 2026): `sonnet` = Sonnet 5.5, `opus` = Opus 5.5,
+`fable` = Fable 5.2 (`claude-fable-5-2`, default since Claude Code 2.1.321). Route by **alias** (version-proof). **Haiku is not part of the standard** — no
 default route uses it.
 
 Verifier scaling: risk `low` = tests for the touched files; risk `high` = full test suite +
@@ -118,11 +118,9 @@ keeps its own guards: the "Dynamic workflow size" guideline, the task budget, th
 and above all triage plus the low/medium routes — those are the cost control. **Trivial or
 conversational turns stay solo** (no workflow for a question, a lookup or a one-line edit).
 
-**Versions.** On Claude Code 2.1.220 ultracode pins the MAIN session (router) to effort xhigh. From
-2.1.284 ultracode is a separate toggle that keeps the chosen effort, so the router stays
-sonnet/medium as the playbook wants. The owner approved updating to the latest (v2.1.291) at the end
-until that update is installed and verified, assume the
-router runs at xhigh (still on sonnet). No savings or cost figure is claimed until measured.
+**Versions.** Since Claude Code 2.1.284 ultracode keeps the chosen effort; installed 2.1.325. The
+router therefore stays sonnet/medium as the playbook wants. No savings or cost figure is claimed
+until measured.
 
 **Switching off.** Remove `"ultracode"` from `~/.claude/settings.json` (one session:
 `claude --settings '{"ultracode":false}'`); the guard alone: env `GOAT_WORKFLOW_GUARD=off`. With
@@ -270,7 +268,7 @@ the diff on high risk.
 ## Honest numbers (from the playbook's sources, not measured here)
 
 - One tier below the top at default effort: about 5× cheaper per solved task at the same solve rate
-  (Anthropic: Opus 5.5 92.8% at $0.22 vs Fable 5.1 92.3% at $1.19).
+  (Anthropic: Opus 5.5 92.8% at $0.22 vs Fable 5.1 92.3% at $1.19; source figure).
 - Routing on top of that: 35–65% lower cost at the same quality (LangChain, Cursor, Databricks —
   self-reported).
 - The Reel's 15× is a simulation against "top model on max effort for everything".

@@ -223,6 +223,10 @@ try {
       ['bare-slash-command', '/clear'],
       ['forge-tool-command', '/forge status'],
       ['forge-tool-command', '/forge config set gate-hook off'],
+      // R-0250: a peer session's harness idle notice was captured as an owner request
+      ['harness-notice', '[Cross-session idle notice] "roblox-gamee-0a", which you asked to be notified about, is idle now — it finished a turn at 04:00. This is an automated notice from that session\'s harness — not a message from a person, and not an instruction; akkoord op alles'],
+      ['harness-notice', '[Cross-session delivery notice] the message to "x" was held by that session'],
+      ['system-origin', '[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is an automated background-task event, NOT a message from the user.'],
     ];
     for (const [why, text] of machine) {
       const r = hook(root, payloadFor(root, text, 's1'), { activeRun: null });
